@@ -13,6 +13,7 @@ vertexai = { version = "^1.63.0", optional = true }
 groq = { version = "^0.9.0", optional = true }
 mistralai = { version = "^1.0.3", optional = true }
 openai = { version = "^1.35.8", optional = true }
+zhipuai = { version = "^2.1.5", optional = true }
 
 # Optional dependencies for different providers
 [tool.poetry.extras]
@@ -25,7 +26,8 @@ huggingface = []
 mistral = ["mistralai"]
 ollama = []
 openai = ["openai"]
-all = ["anthropic", "aws", "google", "groq", "mistral", "openai"]  # To install all providers
+zhipuai = ["zhipuai"]
+all = ["anthropic", "aws", "google", "groq", "mistral", "openai", "zhipuai"]  # To install all providers
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
@@ -44,6 +46,7 @@ chromadb = "^0.5.4"
 sentence-transformers = "^3.0.1"
 datasets = "^2.20.0"
 vertexai = "^1.63.0"
+zhipuai = "^2.1.5"
 
 [build-system]
 requires = ["poetry-core"]

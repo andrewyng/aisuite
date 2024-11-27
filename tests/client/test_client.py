@@ -16,6 +16,7 @@ class TestClient(unittest.TestCase):
     @patch(
         "aisuite.providers.fireworks_provider.FireworksProvider.chat_completions_create"
     )
+    @patch("aisuite.providers.zhipuai_provider.ZhipuaiProvider.chat_completions_create")
     def test_client_chat_completions(
         self,
         mock_fireworks,
@@ -26,6 +27,7 @@ class TestClient(unittest.TestCase):
         mock_openai,
         mock_groq,
         mock_mistral,
+        mock_zhipuai,
     ):
         # Mock responses from providers
         mock_openai.return_value = "OpenAI Response"
@@ -36,6 +38,7 @@ class TestClient(unittest.TestCase):
         mock_mistral.return_value = "Mistral Response"
         mock_google.return_value = "Google Response"
         mock_fireworks.return_value = "Fireworks Response"
+        mock_zhipuai.return_value = "ZhipuAI Response"
 
         # Provider configurations
         provider_configs = {
@@ -63,6 +66,9 @@ class TestClient(unittest.TestCase):
             },
             "fireworks": {
                 "api_key": "fireworks-api-key",
+            },
+            "zhipuai": {
+                "api_key": "zhipuai-api-key",
             },
         }
 
@@ -133,6 +139,14 @@ class TestClient(unittest.TestCase):
         )
         self.assertEqual(fireworks_response, "Fireworks Response")
         mock_fireworks.assert_called_once()
+
+        # Test ZhipuAI model
+        zhipuai_model = "zhipuai" + ":" + "glm-4"
+        zhipuai_response = client.chat.completions.create(
+            zhipuai_model, messages=messages
+        )
+        self.assertEqual(zhipuai_response, "ZhipuAI Response")
+        mock_zhipuai.assert_called_once()
 
         # Test that new instances of Completion are not created each time we make an inference call.
         compl_instance = client.chat.completions
