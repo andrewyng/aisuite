@@ -4,6 +4,7 @@ from aisuite import Client
 
 
 class TestClient(unittest.TestCase):
+    @patch("aisuite.providers.watsonx_provider.WatsonxProvider.chat_completions_create")
     @patch("aisuite.providers.mistral_provider.MistralProvider.chat_completions_create")
     @patch("aisuite.providers.groq_provider.GroqProvider.chat_completions_create")
     @patch("aisuite.providers.openai_provider.OpenaiProvider.chat_completions_create")
@@ -26,6 +27,7 @@ class TestClient(unittest.TestCase):
         mock_openai,
         mock_groq,
         mock_mistral,
+        mock_watsonx,
     ):
         # Mock responses from providers
         mock_openai.return_value = "OpenAI Response"
@@ -36,7 +38,7 @@ class TestClient(unittest.TestCase):
         mock_mistral.return_value = "Mistral Response"
         mock_google.return_value = "Google Response"
         mock_fireworks.return_value = "Fireworks Response"
-
+        mock_watsonx.return_value = "Watsonx Response"
         # Provider configurations
         provider_configs = {
             "openai": {"api_key": "test_openai_api_key"},
@@ -63,6 +65,11 @@ class TestClient(unittest.TestCase):
             },
             "fireworks": {
                 "api_key": "fireworks-api-key",
+            },
+            "watsonx": {
+                "cluster_url": "https://watsonx-cluster-url.com",
+                "access_token": "watsonx-access-token",
+                "project_id": "watsonx-project-id",
             },
         }
 
@@ -133,6 +140,14 @@ class TestClient(unittest.TestCase):
         )
         self.assertEqual(fireworks_response, "Fireworks Response")
         mock_fireworks.assert_called_once()
+
+        # Test Watsonx model
+        watsonx_model = "watsonx" + ":" + "watsonx-model"
+        watsonx_response = client.chat.completions.create(
+            watsonx_model, messages=messages
+        )
+        self.assertEqual(watsonx_response, "Watsonx Response")
+        mock_watsonx.assert_called_once()
 
         # Test that new instances of Completion are not created each time we make an inference call.
         compl_instance = client.chat.completions
