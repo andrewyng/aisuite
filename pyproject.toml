@@ -44,6 +44,8 @@ chromadb = "^0.5.4"
 sentence-transformers = "^3.0.1"
 datasets = "^2.20.0"
 vertexai = "^1.63.0"
+dashscope = "^1.20.13"
+qianfan = "^0.4.12.1"
 
 [build-system]
 requires = ["poetry-core"]
