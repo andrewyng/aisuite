@@ -4,3 +4,9 @@ __pycache__/
 env/
 .env
 .google-adc
+
+# Testing
+.coverage
+
+# pyenv
+.python-version
