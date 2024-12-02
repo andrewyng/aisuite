@@ -139,6 +139,16 @@ class TestClient(unittest.TestCase):
         next_compl_instance = client.chat.completions
         assert compl_instance is next_compl_instance
 
+        # Test streaming response for Anthropic model
+        stream_anthropic_model = "anthropic" + ":" + "anthropic-model"
+        stream_anthropic_response = client.chat.completions.create(
+            stream_anthropic_model, messages=messages, stream=True
+        )
+        self.assertEqual(stream_anthropic_response, "Anthropic Response")
+        mock_anthropic.assert_called_with(
+            "anthropic-model", messages, stream=True
+        )
+
     def test_invalid_provider_in_client_config(self):
         # Testing an invalid provider name in the configuration
         invalid_provider_configs = {

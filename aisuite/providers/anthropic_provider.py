@@ -27,14 +27,31 @@ class AnthropicProvider(Provider):
         if "max_tokens" not in kwargs:
             kwargs["max_tokens"] = DEFAULT_MAX_TOKENS
 
-        return self.normalize_response(
-            self.client.messages.create(
-                model=model, system=system_message, messages=messages, **kwargs
+        stream = kwargs.pop("stream", False)
+        if stream:
+            return self.handle_streaming_response(
+                self.client.messages.create(
+                    model=model, system=system_message, messages=messages, **kwargs
+                )
             )
-        )
+        else:
+            return self.normalize_response(
+                self.client.messages.create(
+                    model=model, system=system_message, messages=messages, **kwargs
+                )
+            )
 
     def normalize_response(self, response):
         """Normalize the response from the Anthropic API to match OpenAI's response format."""
         normalized_response = ChatCompletionResponse()
         normalized_response.choices[0].message.content = response.content[0].text
+        return normalized_response
+
+    def handle_streaming_response(self, response):
+        """Handle streaming responses from the Anthropic API."""
+        normalized_response = ChatCompletionResponse()
+        content = ""
+        for chunk in response:
+            content += chunk.text
+        normalized_response.choices[0].message.content = content
         return normalized_response
