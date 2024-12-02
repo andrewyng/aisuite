@@ -6,3 +6,8 @@ class ChatCompletionResponse:
 
     def __init__(self):
         self.choices = [Choice()]  # Adjust the range as needed for more choices
+        self.usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
