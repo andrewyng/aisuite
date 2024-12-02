@@ -9,7 +9,7 @@ Here're the instructions for:
 - [Google](google.md)
 - [Hugging Face](huggingface.md)
 - [OpenAI](openai.md)
-
+- [Cohere](cohere.md)
 Unless otherwise stated, these guides have not been endorsed by the providers. 
 
 We also welcome additional [contributions](../CONTRIBUTING.md). 
