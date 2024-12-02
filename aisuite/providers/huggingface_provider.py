@@ -19,10 +19,10 @@ class HuggingfaceProvider(Provider):
         The token is fetched from the config or environment variables.
         """
         # Ensure API key is provided either in config or via environment variable
-        self.token = config.get("token") or os.getenv("HUGGINGFACE_TOKEN")
+        self.token = config.get("token") or os.getenv("HF_TOKEN")
         if not self.token:
             raise ValueError(
-                "Hugging Face token is missing. Please provide it in the config or set the HUGGINGFACE_TOKEN environment variable."
+                "Hugging Face token is missing. Please provide it in the config or set the HF_TOKEN environment variable."
             )
 
         # Optionally set a custom timeout (default to 30s)
