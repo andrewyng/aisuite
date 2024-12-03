@@ -34,7 +34,7 @@ class AwsProvider(Provider):
 
         """
         self.region_name = config.get(
-            "region_name", os.getenv("AWS_REGION_NAME", "us-west-2")
+            "region_name", os.getenv("AWS_REGION", "us-west-2")
         )
         self.client = boto3.client("bedrock-runtime", region_name=self.region_name)
         self.inference_parameters = [
