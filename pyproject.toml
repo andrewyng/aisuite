@@ -28,7 +28,6 @@ openai = ["openai"]
 all = ["anthropic", "aws", "google", "groq", "mistral", "openai"]  # To install all providers
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.2.2"
 pre-commit = "^3.7.1"
 black = "^24.4.2"
 python-dotenv = "^1.0.1"
@@ -44,6 +43,9 @@ chromadb = "^0.5.4"
 sentence-transformers = "^3.0.1"
 datasets = "^2.20.0"
 vertexai = "^1.63.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.2.2"
 
 [build-system]
 requires = ["poetry-core"]
