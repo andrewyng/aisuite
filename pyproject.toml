@@ -15,6 +15,7 @@ mistralai = { version = "^1.0.3", optional = true }
 openai = { version = "^1.35.8", optional = true }
 
 # Optional dependencies for different providers
+httpx = "~0.27.0"
 [tool.poetry.extras]
 anthropic = ["anthropic"]
 aws = ["boto3"]
