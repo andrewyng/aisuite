@@ -10,6 +10,7 @@ Here're the instructions for:
 - [Hugging Face](huggingface.md)
 - [OpenAI](openai.md)
 - [SambaNova](sambanova.md)
+- [IBM Watsonx](watsonx.md)
 
 Unless otherwise stated, these guides have not been endorsed by the providers. 
 
