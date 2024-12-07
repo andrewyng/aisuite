@@ -50,6 +50,11 @@ class AwsProvider(Provider):
         norm_response.choices[0].message.content = response["output"]["message"][
             "content"
         ][0]["text"]
+        norm_response.usage = {
+            "prompt_tokens": response["usage"]["promptTokens"],
+            "completion_tokens": response["usage"]["completionTokens"],
+            "total_tokens": response["usage"]["totalTokens"]
+        }
         return norm_response
 
     def chat_completions_create(self, model, messages, **kwargs):
