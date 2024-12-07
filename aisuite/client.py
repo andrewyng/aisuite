@@ -1,5 +1,6 @@
 from .provider import ProviderFactory
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
 
 class Client:
     def __init__(self, provider_configs: dict = {}):
@@ -64,7 +65,39 @@ class Client:
         if not self._chat:
             self._chat = Chat(self)
         return self._chat
+    
+    def run_parallel_completions(self, models, messages, temperature=0.75):
+        """
+        Execute chat completions in parallel for the given models and messages.
+        
+        Args:
+            models (list): List of model identifiers (e.g., ["openai:gpt-4o", "aws-bedrock:llama"]).
+            messages (list): List of messages to be passed to each model.
+            temperature (float): The temperature to be used for the completion (optional).
+        
+        Returns:
+            dict: A dictionary with model names as keys and their respective responses.
+        """
+        results = defaultdict(int)
 
+        def get_completion(model, messages):
+            response = self.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature
+            )
+            return model, response
+
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(get_completion, model, messages): model for model in models}
+            
+            counter = 0
+            for future in as_completed(futures):
+                model, content = future.result()
+                results[f'{model}_{counter}'] = content
+                counter += 1
+
+        return results
 
 class Chat:
     def __init__(self, client: "Client"):
