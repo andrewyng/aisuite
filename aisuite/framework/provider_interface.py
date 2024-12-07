@@ -23,3 +23,23 @@ class ProviderInterface:
         raise NotImplementedError(
             "Provider Interface has not implemented chat_completion_create()"
         )
+
+    async def async_chat_completions_create(self, model, messages, **kwargs):
+        """Create an async chat completion using the specified messages, model, and kwargs.
+
+        This method must be implemented by subclasses to perform async completions.
+
+        Args:
+        ----
+            model (str): The identifier of the model to be used in the completion.
+            messages (list): The chat history.
+            **kwargs: Additional arguments for the completion.
+
+        Raises:
+        ------
+            NotImplementedError: If this method has not been implemented by a subclass.
+
+        """
+        raise NotImplementedError(
+            "Provider Interface has not implemented async_chat_completions_create()"
+        )
