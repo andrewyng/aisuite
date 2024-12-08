@@ -9,6 +9,7 @@ Here're the instructions for:
 - [Google](google.md)
 - [Hugging Face](huggingface.md)
 - [OpenAI](openai.md)
+- [vLLM](vllm.md)
 - [SambaNova](sambanova.md)
 - [xAI](xai.md)
 
