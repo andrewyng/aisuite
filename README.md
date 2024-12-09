@@ -17,6 +17,8 @@ You can install just the base `aisuite` package, or install a provider's package
 
 This installs just the base package without installing any provider's SDK.
 
+Minimum version of python required is 3.12, doesn't work with 3.9
+
 ```shell
 pip install aisuite
 ```
