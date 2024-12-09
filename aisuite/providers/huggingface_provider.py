@@ -64,4 +64,9 @@ class HuggingfaceProvider(Provider):
         normalized_response.choices[0].message.content = response_data["choices"][0][
             "message"
         ]["content"]
+        normalized_response.usage = {
+            "prompt_tokens": response_data["usage"]["prompt_tokens"],
+            "completion_tokens": response_data["usage"]["completion_tokens"],
+            "total_tokens": response_data["usage"]["total_tokens"]
+        }
         return normalized_response
