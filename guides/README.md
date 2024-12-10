@@ -6,6 +6,7 @@ Here're the instructions for:
 - [Anthropic](anthropic.md) 
 - [AWS](aws.md)
 - [Azure](azure.md) 
+- [Cohere](cohere.md)
 - [Google](google.md)
 - [Hugging Face](huggingface.md)
 - [OpenAI](openai.md)
