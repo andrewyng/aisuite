@@ -23,9 +23,27 @@ Once that has been enabled set your Access Key and Secret in the env variables:
 ```shell
 export AWS_ACCESS_KEY="your-access-key"
 export AWS_SECRET_KEY="your-secret-key"
-export AWS_REGION="region-name" 
+export 
+="region-name" 
 ```
+
 *Note: AWS_REGION is optional, a default of `us-west-2` has been set for easy of use*
+*Note: For AWS_REGION, you can specify multiple regions using forward slash as separator (e.g. "us-east-1/us-west-2"). When the quota limit is reached in one region, the system will automatically rotate to the next available region.*
+
+## Multi-Region Support
+
+The library supports multi-region failover capabilities. When configuring AWS_REGION, you can specify multiple regions with forward slashes:
+
+```shell
+# Example of multi-region configuration
+export AWS_REGION="us-east-1/us-west-2/ap-southeast-1"
+```
+
+When using this configuration:
+- The system will attempt to use the first region (us-east-1) by default
+- If quota limits are reached in the current region, it will automatically rotate to the next region in the list
+- This rotation continues until a successful request is made or all regions are exhausted
+- The rotation is handled transparently to your application code
 
 ## Create a Chat Completion
 
@@ -45,7 +63,6 @@ In your code:
 ```python
 import aisuite as ai
 client = ai.Client()
-
 
 provider = "aws"
 model_id = "meta.llama3-1-405b-instruct-v1:0" # Model ID from above
