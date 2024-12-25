@@ -1,3 +1,16 @@
+[project]
+name = "aisuite"
+version = "0.1.6"
+description = "Uniform access layer for LLMs"
+authors = ["Andrew Ng, Rohit P"]
+readme = "README.md"
+dependencies = [
+    "anthropic>=0.42.0",
+    "ipykernel>=6.29.5",
+    "load-dotenv>=0.1.0",
+    "openai>=1.58.1",
+]
+
 [tool.poetry]
 name = "aisuite"
 version = "0.1.6"
@@ -49,6 +62,7 @@ sentence-transformers = "^3.0.1"
 datasets = "^2.20.0"
 vertexai = "^1.63.0"
 ibm-watsonx-ai = "^1.1.16"
+ipykernel = "^6.29.5"
 
 [tool.poetry.group.test]
 optional = true

@@ -1,4 +1,5 @@
 from aisuite.framework.choice import Choice
+from aisuite.framework.function_call import FunctionCall
 
 
 class ChatCompletionResponse:
@@ -6,3 +7,6 @@ class ChatCompletionResponse:
 
     def __init__(self):
         self.choices = [Choice()]  # Adjust the range as needed for more choices
+        self.function_calls = (
+            []
+        )  # Initialize as empty list instead of with an empty FunctionCall
