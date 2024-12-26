@@ -9,6 +9,7 @@ Here are the instructions for:
 - [Cohere](cohere.md)
 - [Google](google.md)
 - [Hugging Face](huggingface.md)
+- [Mistral](mistral.md)
 - [OpenAI](openai.md)
 - [SambaNova](sambanova.md)
 - [xAI](xai.md)
