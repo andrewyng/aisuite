@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 client = ai.Client()
-model = os.getenv("MODEL")
+# model = os.getenv("MODEL")
+model = "openai:gpt-4o-mini"
+
 messages = [
     {
         "role": "system",
@@ -34,7 +36,8 @@ response = client.chat.completions.create(
     model=model,
     messages=messages,
     tools=[add_two_numbers],
-    tool_choice={"type": "auto"},
+    tool_choice="auto",
+    # tool_choice={"type": "auto"},
 )
 end_time = time.time()
 print(f"Time taken: {end_time - start_time} seconds")

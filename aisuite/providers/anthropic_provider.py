@@ -50,7 +50,13 @@ class AnthropicProvider(Provider):
             logger.info("No tool calls found")
             return self.normalize_response(response)
 
-        # Process each tool call
+        self._process_tool_calls(
+            response, messages, tools, model, system_message, **kwargs
+        )
+
+    def _process_tool_calls(
+        self, response, messages, tools, model, system_message, **kwargs
+    ):
         logger.info("Processing tool calls")
         messages.append({"role": "assistant", "content": response.content})
         for content in response.content:
@@ -96,11 +102,11 @@ class AnthropicProvider(Provider):
 
         # Get final response after tool execution
         logger.info("Getting final response after tool execution")
+        # TODO: recursive call to handle nested tool calls
         final_response = self.client.messages.create(
             model=model,
             system=system_message,
             messages=messages,
-            tools=tools_with_schema,
             **kwargs,
         )
 

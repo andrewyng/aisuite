@@ -8,6 +8,7 @@ dependencies = [
     "anthropic>=0.42.0",
     "ipykernel>=6.29.5",
     "load-dotenv>=0.1.0",
+    "loguru>=0.7.3",
     "openai>=1.58.1",
 ]
 
