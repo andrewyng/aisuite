@@ -9,7 +9,7 @@ After logging in, go to [Workspace billing](https://console.mistral.ai/billing) 
 Visit the [API Keys](https://console.mistral.ai/api-keys/) section in your account settings and generate a new key. Once you have your key, add it to your environment as follows:
 
 ```shell
-export MISTRAL="your-openai-api-key"
+export MISTRAL="your-mistralai-api-key"
 ```
 ## Create a Chat Completion
 
