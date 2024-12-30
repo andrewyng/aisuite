@@ -102,4 +102,9 @@ class GoogleProvider(ProviderInterface):
         openai_response.choices[0].message.content = (
             response.candidates[0].content.parts[0].text
         )
+        openai_response.usage = {
+            "prompt_tokens": response.usage["prompt_tokens"],
+            "completion_tokens": response.usage["completion_tokens"],
+            "total_tokens": response.usage["total_tokens"]
+        }
         return openai_response
