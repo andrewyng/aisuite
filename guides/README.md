@@ -8,6 +8,7 @@ Here are the instructions for:
 - [Azure](azure.md) 
 - [Cohere](cohere.md)
 - [Google](google.md)
+- [Groq](groq.md)
 - [Hugging Face](huggingface.md)
 - [OpenAI](openai.md)
 - [SambaNova](sambanova.md)
