@@ -1,10 +1,15 @@
 import os
 
 from mistralai import Mistral
+from aisuite.framework.message import Message
 
 from aisuite.provider import Provider
 
 
+# Implementation of Mistral provider.
+# Mistral's message format is same as OpenAI's. Just different class names, but fully cross-compatible.
+# Links:
+# https://docs.mistral.ai/capabilities/function_calling/
 class MistralProvider(Provider):
     def __init__(self, **config):
         """
@@ -20,4 +25,22 @@ class MistralProvider(Provider):
         self.client = Mistral(**config)
 
     def chat_completions_create(self, model, messages, **kwargs):
-        return self.client.chat.complete(model=model, messages=messages, **kwargs)
+        # If message is of type Message, transform it to a format that Mistral understands.
+        transformed_messages = []
+        for message in messages:
+            if isinstance(message, Message):
+                transformed_messages.append(self.transform_from_messages(message))
+            else:
+                transformed_messages.append(message)
+
+        return self.client.chat.complete(
+            model=model, messages=transformed_messages, **kwargs
+        )
+
+    # Transform framework Message to a format that Mistral understands.
+    def transform_from_messages(self, message: Message):
+        return message.model_dump(mode="json")
+
+    # Transform Mistral message (dict) to a format that the framework Message understands.
+    def transform_to_message(self, message_dict: dict):
+        return Message(**message_dict)
