@@ -3,7 +3,7 @@ import os
 import boto3
 from aisuite.provider import Provider, LLMError
 from aisuite.framework import ChatCompletionResponse
-
+from botocore.exceptions import ClientError
 
 class AwsProvider(Provider):
     def __init__(self, **config):
@@ -33,10 +33,13 @@ class AwsProvider(Provider):
             **config: Configuration options for the provider.
 
         """
-        self.region_name = config.get(
+
+        # Supporting multi-regional round-robin
+        self.region_names = config.get(
             "region_name", os.getenv("AWS_REGION", "us-west-2")
-        )
-        self.client = boto3.client("bedrock-runtime", region_name=self.region_name)
+        ).split("/")
+
+
         self.inference_parameters = [
             "maxTokens",
             "temperature",
@@ -81,13 +84,22 @@ class AwsProvider(Provider):
                 inference_config[key] = value
             else:
                 additional_model_request_fields[key] = value
-
-        # Call the Bedrock Converse API.
-        response = self.client.converse(
-            modelId=model,  # baseModelId or provisionedModelArn
-            messages=formatted_messages,
-            system=system_message,
-            inferenceConfig=inference_config,
-            additionalModelRequestFields=additional_model_request_fields,
-        )
-        return self.normalize_response(response)
+        # Switche AWS regions when hitting quota limits in Bedrock API calls.
+        for i, region_name in enumerate(self.region_names):
+            self.client = boto3.client("bedrock-runtime", region_name=region_name)
+            try:
+                # Call the Bedrock Converse API.
+                response = self.client.converse(
+                    modelId=model,  # baseModelId or provisionedModelArn
+                    messages=formatted_messages,
+                    system=system_message,
+                    inferenceConfig=inference_config,
+                    additionalModelRequestFields=additional_model_request_fields,
+                )
+                return self.normalize_response(response)
+            except ClientError as e: 
+                # Continue if throttled and has next region
+                if e.response['Error']['Code'] == 'ThrottlingException' and i < len(self.region_names) - 1:
+                    pass
+                else:
+                    raise
