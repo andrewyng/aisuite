@@ -20,34 +20,71 @@ class Provider(ABC):
 
 
 class ProviderFactory:
-    """Factory to dynamically load provider instances based on naming conventions."""
+    """Factory for creating provider instances."""
 
-    PROVIDERS_DIR = Path(__file__).parent / "providers"
+    @staticmethod
+    def create_provider(provider_key: str, config: dict = None, async_mode: bool = False):
+        """Create a provider instance.
 
-    @classmethod
-    def create_provider(cls, provider_key, config):
-        """Dynamically load and create an instance of a provider based on the naming convention."""
-        # Convert provider_key to the expected module and class names
-        provider_class_name = f"{provider_key.capitalize()}Provider"
-        provider_module_name = f"{provider_key}_provider"
+        Args:
+            provider_key: The key identifying the provider
+            config: Configuration for the provider
+            async_mode: If True, returns async version of the provider
 
-        module_path = f"aisuite.providers.{provider_module_name}"
+        Returns:
+            Provider instance
+        """
+        if config is None:
+            config = {}
 
-        # Lazily load the module
+        # Map provider keys to their proper class name prefixes
+        provider_class_names = {
+            "openai": "OpenAI",
+            "anthropic": "Anthropic",
+            "google": "Google",
+            "aws": "AWS",
+            "azure": "Azure",
+            "groq": "Groq",
+            "mistral": "Mistral",
+            "ollama": "Ollama",
+            "huggingface": "HuggingFace",
+            "together": "Together",
+            "fireworks": "Fireworks"
+        }
+
+        provider_key = provider_key.lower().strip()
+        if provider_key not in provider_class_names:
+            raise ValueError(f"Unsupported provider: {provider_key}")
+
+        provider_class_prefix = provider_class_names[provider_key]
+        
         try:
-            module = importlib.import_module(module_path)
+            provider_module = importlib.import_module(
+                f".providers.{'async_' if async_mode else ''}{provider_key}_provider",
+                package="aisuite",
+            )
+            provider_class = getattr(
+                provider_module,
+                f"{'Async' if async_mode else ''}{provider_class_prefix}Provider",
+            )
+            return provider_class(**config)
         except ImportError as e:
             raise ImportError(
-                f"Could not import module {module_path}: {str(e)}. Please ensure the provider is supported by doing ProviderFactory.get_supported_providers()"
+                f"Could not import provider module for {provider_key}: {str(e)}. "
+                "Please ensure the provider is supported."
+            )
+        except AttributeError as e:
+            raise AttributeError(
+                f"Could not find provider class for {provider_key}. "
+                f"Expected class name: {'Async' if async_mode else ''}{provider_class_prefix}Provider"
             )
 
-        # Instantiate the provider class
-        provider_class = getattr(module, provider_class_name)
-        return provider_class(**config)
-
-    @classmethod
-    @functools.cache
-    def get_supported_providers(cls):
-        """List all supported provider names based on files present in the providers directory."""
-        provider_files = Path(cls.PROVIDERS_DIR).glob("*_provider.py")
-        return {file.stem.replace("_provider", "") for file in provider_files}
+    @staticmethod
+    def get_supported_providers():
+        """Get a list of supported providers."""
+        provider_dir = os.path.join(os.path.dirname(__file__), "providers")
+        providers = []
+        for file in os.listdir(provider_dir):
+            if file.endswith("_provider.py") and not file.startswith("async_"):
+                providers.append(file.replace("_provider.py", ""))
+        return providers
