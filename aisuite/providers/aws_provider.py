@@ -33,6 +33,10 @@ class BedrockMessageConverter:
             for message in messages
         ]
 
+        import pprint
+
+        pprint.pprint(messages)
+
         # Handle system message
         system_message = []
         if messages and messages[0]["role"] == "system":
@@ -60,6 +64,8 @@ class BedrockMessageConverter:
                         "content": [{"text": message["content"]}],
                     }
                 )
+
+        pprint.pprint(formatted_messages)
 
         return system_message, formatted_messages
 
@@ -150,21 +156,14 @@ class BedrockMessageConverter:
 
         return {"role": "assistant", "content": content} if content else None
 
-
-class AwsProvider(Provider):
-    def __init__(self, **config):
-        """Initialize the AWS Bedrock provider with the given configuration."""
-        self.config = BedrockConfig(**config)
-        self.client = self.config.create_client()
-        self.transformer = BedrockMessageConverter()
-
-    def convert_response(self, response: Dict[str, Any]) -> ChatCompletionResponse:
+    @staticmethod
+    def convert_response(response: Dict[str, Any]) -> ChatCompletionResponse:
         """Normalize the response from the Bedrock API to match OpenAI's response format."""
         norm_response = ChatCompletionResponse()
 
         # Check if the model is requesting tool use
         if response.get("stopReason") == "tool_use":
-            tool_message = self.transformer.convert_response_tool_call(response)
+            tool_message = BedrockMessageConverter.convert_response_tool_call(response)
             if tool_message:
                 norm_response.choices[0].message = Message(**tool_message)
                 norm_response.choices[0].finish_reason = "tool_calls"
@@ -175,6 +174,18 @@ class AwsProvider(Provider):
             "content"
         ][0]["text"]
         return norm_response
+
+
+class AwsProvider(Provider):
+    def __init__(self, **config):
+        """Initialize the AWS Bedrock provider with the given configuration."""
+        self.config = BedrockConfig(**config)
+        self.client = self.config.create_client()
+        self.transformer = BedrockMessageConverter()
+
+    def convert_response(self, response: Dict[str, Any]) -> ChatCompletionResponse:
+        """Normalize the response from the Bedrock API to match OpenAI's response format."""
+        return self.transformer.convert_response(response)
 
     def _convert_tool_spec(self, kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Convert tool specifications to Bedrock format."""
@@ -213,11 +224,15 @@ class AwsProvider(Provider):
             if key not in BedrockConfig.INFERENCE_PARAMETERS
         }
 
-        return {
+        request_config = {
             "inferenceConfig": inference_config,
             "additionalModelRequestFields": additional_fields,
-            "toolConfig": tool_config,
         }
+
+        if tool_config is not None:
+            request_config["toolConfig"] = tool_config
+
+        return request_config
 
     def chat_completions_create(
         self, model: str, messages: List[Dict[str, Any]], **kwargs
