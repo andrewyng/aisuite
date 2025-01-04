@@ -12,7 +12,7 @@ import aisuite as ai
 client = ai.Client()
 
 provider = "centml"
-model_id = "meta-llama/Llama-3.1-405B-Instruct-FP8"
+model_id = "meta-llama/Llama-3.3-70B-Instruct"
 
 messages = [
     {"role": "system", "content": "You are a helpful assistant."},
