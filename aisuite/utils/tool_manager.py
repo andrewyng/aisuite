@@ -5,11 +5,14 @@ import json
 
 
 class ToolManager:
-    def __init__(self):
+    def __init__(self, tools: list[Callable] = None):
         self._tools = {}
+        if tools:
+            for tool in tools:
+                self._add_tool(tool)
 
     # Add a tool function with or without a Pydantic model.
-    def add_tool(self, func: Callable, param_model: Optional[Type[BaseModel]] = None):
+    def _add_tool(self, func: Callable, param_model: Optional[Type[BaseModel]] = None):
         """Register a tool function with metadata. If no param_model is provided, infer from function signature."""
         if param_model:
             tool_spec = self._convert_to_tool_spec(func, param_model)
