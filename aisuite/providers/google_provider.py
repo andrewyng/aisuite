@@ -13,11 +13,17 @@ from vertexai.generative_models import (
     Tool,
     FunctionDeclaration,
 )
+import pprint
 
-from aisuite.framework import ProviderInterface, ChatCompletionResponse
+from aisuite.framework import ProviderInterface, ChatCompletionResponse, Message
 
 
 DEFAULT_TEMPERATURE = 0.7
+ENABLE_DEBUG_MESSAGES = False
+
+# Links.
+# https://codelabs.developers.google.com/codelabs/gemini-function-calling#6
+# https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling#chat-samples
 
 
 class GoogleMessageConverter:
@@ -30,22 +36,47 @@ class GoogleMessageConverter:
     @staticmethod
     def convert_assistant_role_message(message: Dict[str, Any]) -> Content:
         """Convert assistant messages to Google Vertex AI format."""
-        parts = [Part.from_text(message["content"])]
+        if "tool_calls" in message and message["tool_calls"]:
+            # Handle function calls
+            tool_call = message["tool_calls"][
+                0
+            ]  # Assuming single function call for now
+            function_call = tool_call["function"]
+
+            # Create a Part from the function call
+            parts = [
+                Part.from_dict(
+                    {
+                        "function_call": {
+                            "name": function_call["name"],
+                            # "arguments": json.loads(function_call["arguments"])
+                        }
+                    }
+                )
+            ]
+            # return Content(role="function", parts=parts)
+        else:
+            # Handle regular text messages
+            parts = [Part.from_text(message["content"])]
+            # return Content(role="model", parts=parts)
+
         return Content(role="model", parts=parts)
 
     @staticmethod
-    def convert_tool_role_message(message: Dict[str, Any]) -> Optional[Content]:
+    def convert_tool_role_message(message: Dict[str, Any]) -> Part:
         """Convert tool messages to Google Vertex AI format."""
         if "content" not in message:
-            return None
+            raise ValueError("Tool result message must have a content field")
 
         try:
             content_json = json.loads(message["content"])
-            parts = [Part.from_function_response(content_json)]
+            part = Part.from_function_response(
+                name=message["name"], response=content_json
+            )
+            # TODO: Return Content instead of Part. But returning Content is not working.
+            return part
         except json.JSONDecodeError:
-            parts = [Part.from_text(message["content"])]
-
-        return Content(role="user", parts=parts)
+            raise ValueError("Tool result message must be valid JSON")
 
     @staticmethod
     def convert_request(messages: List[Dict[str, Any]]) -> List[Content]:
@@ -80,9 +111,55 @@ class GoogleMessageConverter:
         """Normalize the response from Vertex AI to match OpenAI's response format."""
         openai_response = ChatCompletionResponse()
 
+        if ENABLE_DEBUG_MESSAGES:
+            print("Dumping the response")
+            pprint.pprint(response)
+
+        # TODO: We need to go through each part, because function call may not be the first part.
+        #       Currently, we are only handling the first part, but this is not enough.
+        #
+        # This is a valid response:
+        # candidates {
+        #   content {
+        #     role: "model"
+        #     parts {
+        #       text: "The current temperature in San Francisco is 72 degrees Celsius. \n\n"
+        #     }
+        #     parts {
+        #       function_call {
+        #         name: "is_it_raining"
+        #         args {
+        #           fields {
+        #             key: "location"
+        #             value {
+        #               string_value: "San Francisco"
+        #             }
+        #           }
+        #         }
+        #       }
+        #     }
+        #   }
+        #   finish_reason: STOP
+
         # Check if the response contains function calls
-        if hasattr(response.candidates[0].content, "function_call"):
-            function_call = response.candidates[0].content.function_call
+        # Note: Just checking if the function_call attribute exists is not enough,
+        #       it is important to check if the function_call is not None.
+        if (
+            hasattr(response.candidates[0].content.parts[0], "function_call")
+            and response.candidates[0].content.parts[0].function_call
+        ):
+            function_call = response.candidates[0].content.parts[0].function_call
+
+            # args is a MapComposite.
+            # Convert the MapComposite to a dictionary
+            args_dict = {}
+            # Another way to try is: args_dict = dict(function_call.args)
+            for key, value in function_call.args.items():
+                args_dict[key] = value
+            if ENABLE_DEBUG_MESSAGES:
+                print("Dumping the args_dict")
+                pprint.pprint(args_dict)
+
             openai_response.choices[0].message = {
                 "role": "assistant",
                 "content": None,
@@ -92,11 +169,15 @@ class GoogleMessageConverter:
                         "id": f"call_{hash(function_call.name)}",  # Generate a unique ID
                         "function": {
                             "name": function_call.name,
-                            "arguments": json.dumps(function_call.args),
+                            "arguments": json.dumps(args_dict),
                         },
                     }
                 ],
+                "refusal": None,
             }
+            openai_response.choices[0].message = Message(
+                **openai_response.choices[0].message
+            )
             openai_response.choices[0].finish_reason = "tool_calls"
         else:
             # Handle regular text response
@@ -160,26 +241,58 @@ class GoogleProvider(ProviderInterface):
                         FunctionDeclaration(
                             name=tool["function"]["name"],
                             description=tool["function"].get("description", ""),
-                            parameters=tool["function"]["parameters"],
+                            parameters={
+                                "type": "object",
+                                "properties": {
+                                    param_name: {
+                                        "type": param_info.get("type", "string"),
+                                        "description": param_info.get(
+                                            "description", ""
+                                        ),
+                                        **(
+                                            {"enum": param_info["enum"]}
+                                            if "enum" in param_info
+                                            else {}
+                                        ),
+                                    }
+                                    for param_name, param_info in tool["function"][
+                                        "parameters"
+                                    ]["properties"].items()
+                                },
+                                "required": tool["function"]["parameters"].get(
+                                    "required", []
+                                ),
+                            },
                         )
+                        for tool in kwargs["tools"]
                     ]
                 )
-                for tool in kwargs["tools"]
             ]
 
-        print(tools)
         # Create the GenerativeModel
         model = GenerativeModel(
             model,
             generation_config=GenerationConfig(temperature=temperature),
-            # tools=tools
+            tools=tools,
         )
+
+        if ENABLE_DEBUG_MESSAGES:
+            print("Dumping the message_history")
+            pprint.pprint(message_history)
 
         # Start chat and get response
         chat = model.start_chat(history=message_history[:-1])
-        response = chat.send_message(
-            message_history[-1].parts[0].text,
+        last_message = message_history[-1]
+
+        # If the last message is a function response, send the Part object directly
+        # Otherwise, send just the text content
+        message_to_send = (
+            Content(role="function", parts=[last_message])
+            if isinstance(last_message, Part)
+            else last_message.parts[0].text
         )
+        # response = chat.send_message(message_to_send)
+        response = chat.send_message(message_to_send)
 
         # Convert and return the response
         return self.transformer.convert_response(response)
