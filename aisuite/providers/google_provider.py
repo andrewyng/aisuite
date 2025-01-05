@@ -1,14 +1,111 @@
 """The interface to Google's Vertex AI."""
 
 import os
+import json
+from typing import List, Dict, Any, Optional
 
 import vertexai
-from vertexai.generative_models import GenerativeModel, GenerationConfig
+from vertexai.generative_models import (
+    GenerativeModel,
+    GenerationConfig,
+    Content,
+    Part,
+    Tool,
+    FunctionDeclaration,
+)
 
 from aisuite.framework import ProviderInterface, ChatCompletionResponse
 
 
 DEFAULT_TEMPERATURE = 0.7
+
+
+class GoogleMessageConverter:
+    @staticmethod
+    def convert_user_role_message(message: Dict[str, Any]) -> Content:
+        """Convert user or system messages to Google Vertex AI format."""
+        parts = [Part.from_text(message["content"])]
+        return Content(role="user", parts=parts)
+
+    @staticmethod
+    def convert_assistant_role_message(message: Dict[str, Any]) -> Content:
+        """Convert assistant messages to Google Vertex AI format."""
+        parts = [Part.from_text(message["content"])]
+        return Content(role="model", parts=parts)
+
+    @staticmethod
+    def convert_tool_role_message(message: Dict[str, Any]) -> Optional[Content]:
+        """Convert tool messages to Google Vertex AI format."""
+        if "content" not in message:
+            return None
+
+        try:
+            content_json = json.loads(message["content"])
+            parts = [Part.from_function_response(content_json)]
+        except json.JSONDecodeError:
+            parts = [Part.from_text(message["content"])]
+
+        return Content(role="user", parts=parts)
+
+    @staticmethod
+    def convert_request(messages: List[Dict[str, Any]]) -> List[Content]:
+        """Convert messages to Google Vertex AI format."""
+        # Convert all messages to dicts if they're Message objects
+        messages = [
+            message.model_dump() if hasattr(message, "model_dump") else message
+            for message in messages
+        ]
+
+        formatted_messages = []
+        for message in messages:
+            if message["role"] == "tool":
+                vertex_message = GoogleMessageConverter.convert_tool_role_message(
+                    message
+                )
+                if vertex_message:
+                    formatted_messages.append(vertex_message)
+            elif message["role"] == "assistant":
+                formatted_messages.append(
+                    GoogleMessageConverter.convert_assistant_role_message(message)
+                )
+            else:  # user or system role
+                formatted_messages.append(
+                    GoogleMessageConverter.convert_user_role_message(message)
+                )
+
+        return formatted_messages
+
+    @staticmethod
+    def convert_response(response) -> ChatCompletionResponse:
+        """Normalize the response from Vertex AI to match OpenAI's response format."""
+        openai_response = ChatCompletionResponse()
+
+        # Check if the response contains function calls
+        if hasattr(response.candidates[0].content, "function_call"):
+            function_call = response.candidates[0].content.function_call
+            openai_response.choices[0].message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": f"call_{hash(function_call.name)}",  # Generate a unique ID
+                        "function": {
+                            "name": function_call.name,
+                            "arguments": json.dumps(function_call.args),
+                        },
+                    }
+                ],
+            }
+            openai_response.choices[0].finish_reason = "tool_calls"
+        else:
+            # Handle regular text response
+            openai_response.choices[0].message.content = (
+                response.candidates[0].content.parts[0].text
+            )
+            openai_response.choices[0].finish_reason = "stop"
+
+        return openai_response
 
 
 class GoogleProvider(ProviderInterface):
@@ -31,6 +128,8 @@ class GoogleProvider(ProviderInterface):
 
         vertexai.init(project=self.project_id, location=self.location)
 
+        self.transformer = GoogleMessageConverter()
+
     def chat_completions_create(self, model, messages, **kwargs):
         """Request chat completions from the Google AI API.
 
@@ -49,57 +148,38 @@ class GoogleProvider(ProviderInterface):
         # Set the temperature if provided, otherwise use the default
         temperature = kwargs.get("temperature", DEFAULT_TEMPERATURE)
 
-        # Transform the roles in the messages
-        transformed_messages = self.transform_roles(messages)
+        # Convert messages to Vertex AI format
+        message_history = self.transformer.convert_request(messages)
 
-        # Convert the messages to the format expected Google
-        final_message_history = self.convert_openai_to_vertex_ai(
-            transformed_messages[:-1]
-        )
+        # Handle tools if provided
+        tools = None
+        if "tools" in kwargs:
+            tools = [
+                Tool(
+                    function_declarations=[
+                        FunctionDeclaration(
+                            name=tool["function"]["name"],
+                            description=tool["function"].get("description", ""),
+                            parameters=tool["function"]["parameters"],
+                        )
+                    ]
+                )
+                for tool in kwargs["tools"]
+            ]
 
-        # Get the last message from the transformed messages
-        last_message = transformed_messages[-1]["content"]
-
-        # Create the GenerativeModel with the specified model and generation configuration
+        print(tools)
+        # Create the GenerativeModel
         model = GenerativeModel(
-            model, generation_config=GenerationConfig(temperature=temperature)
+            model,
+            generation_config=GenerationConfig(temperature=temperature),
+            # tools=tools
         )
 
-        # Start a chat with the GenerativeModel and send the last message
-        chat = model.start_chat(history=final_message_history)
-        response = chat.send_message(last_message)
-
-        # Convert the response to the format expected by the OpenAI API
-        return self.normalize_response(response)
-
-    def convert_openai_to_vertex_ai(self, messages):
-        """Convert OpenAI messages to Google AI messages."""
-        from vertexai.generative_models import Content, Part
-
-        history = []
-        for message in messages:
-            role = message["role"]
-            content = message["content"]
-            parts = [Part.from_text(content)]
-            history.append(Content(role=role, parts=parts))
-        return history
-
-    def transform_roles(self, messages):
-        """Transform the roles in the messages based on the provided transformations."""
-        openai_roles_to_google_roles = {
-            "system": "user",
-            "assistant": "model",
-        }
-
-        for message in messages:
-            if role := openai_roles_to_google_roles.get(message["role"], None):
-                message["role"] = role
-        return messages
-
-    def normalize_response(self, response):
-        """Normalize the response from Google AI to match OpenAI's response format."""
-        openai_response = ChatCompletionResponse()
-        openai_response.choices[0].message.content = (
-            response.candidates[0].content.parts[0].text
+        # Start chat and get response
+        chat = model.start_chat(history=message_history[:-1])
+        response = chat.send_message(
+            message_history[-1].parts[0].text,
         )
-        return openai_response
+
+        # Convert and return the response
+        return self.transformer.convert_response(response)
