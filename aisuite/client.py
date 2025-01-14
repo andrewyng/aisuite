@@ -1,4 +1,4 @@
-from .provider import ProviderFactory
+from .provider import ProviderFactory, Provider
 
 
 class Client:
@@ -109,7 +109,7 @@ class Completions:
                 provider_key, config
             )
 
-        provider = self.client.providers.get(provider_key)
+        provider: Provider = self.client.providers.get(provider_key)
         if not provider:
             raise ValueError(f"Could not load provider for '{provider_key}'.")
 
