@@ -21,6 +21,9 @@ class BedrockConfig:
         return boto3.client("bedrock-runtime", region_name=self.region_name)
 
 
+# AWS Bedrock API Example -
+# https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use-inference-call.html
+# https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use-examples.html
 class BedrockMessageConverter:
     @staticmethod
     def convert_request(
@@ -173,6 +176,16 @@ class BedrockMessageConverter:
         norm_response.choices[0].message.content = response["output"]["message"][
             "content"
         ][0]["text"]
+
+        # Map Bedrock stopReason to OpenAI finish_reason
+        stop_reason = response.get("stopReason")
+        if stop_reason == "complete":
+            norm_response.choices[0].finish_reason = "stop"
+        elif stop_reason == "max_tokens":
+            norm_response.choices[0].finish_reason = "length"
+        else:
+            norm_response.choices[0].finish_reason = stop_reason
+
         return norm_response
 
 

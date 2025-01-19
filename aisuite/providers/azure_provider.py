@@ -6,6 +6,36 @@ from aisuite.provider import Provider
 from aisuite.framework import ChatCompletionResponse
 from aisuite.framework.message import Message, ChatCompletionMessageToolCall, Function
 
+# Azure provider is based on the documentation here -
+# https://learn.microsoft.com/en-us/azure/machine-learning/reference-model-inference-api?view=azureml-api-2&source=recommendations&tabs=python
+# Azure AI Model Inference API is used.
+# From the documentation -
+# """
+# The Azure AI Model Inference is an API that exposes a common set of capabilities for foundational models
+# and that can be used by developers to consume predictions from a diverse set of models in a uniform and consistent way.
+# Developers can talk with different models deployed in Azure AI Foundry portal without changing the underlying code they are using.
+#
+# The Azure AI Model Inference API is available in the following models:
+#
+# Models deployed to serverless API endpoints:
+#   Cohere Embed V3 family of models
+#   Cohere Command R family of models
+#   Meta Llama 2 chat family of models
+#   Meta Llama 3 instruct family of models
+#   Mistral-Small
+#   Mistral-Large
+#   Jais family of models
+#   Jamba family of models
+#   Phi-3 family of models
+#
+# Models deployed to managed inference:
+#   Meta Llama 3 instruct family of models
+#   Phi-3 family of models
+#   Mixtral famility of models
+#
+# The API is compatible with Azure OpenAI model deployments.
+# """
+
 
 class AzureMessageConverter:
     @staticmethod
