@@ -7,6 +7,47 @@ from aisuite.framework import ChatCompletionResponse
 from aisuite.framework.message import Message, ChatCompletionMessageToolCall, Function
 
 
+class AzureMessageConverter:
+    @staticmethod
+    def convert_request(messages):
+        """Convert messages to Azure format."""
+        transformed_messages = []
+        for message in messages:
+            if isinstance(message, Message):
+                transformed_messages.append(message.model_dump(mode="json"))
+            else:
+                transformed_messages.append(message)
+        return transformed_messages
+
+    @staticmethod
+    def convert_response(resp_json) -> ChatCompletionResponse:
+        """Normalize the response from the Azure API to match OpenAI's response format."""
+        completion_response = ChatCompletionResponse()
+        choice = resp_json["choices"][0]
+        message = choice["message"]
+
+        # Set basic message content
+        completion_response.choices[0].message.content = message.get("content")
+        completion_response.choices[0].message.role = message.get("role", "assistant")
+
+        # Handle tool calls if present
+        if "tool_calls" in message and message["tool_calls"] is not None:
+            tool_calls = []
+            for tool_call in message["tool_calls"]:
+                new_tool_call = ChatCompletionMessageToolCall(
+                    id=tool_call["id"],
+                    type=tool_call["type"],
+                    function={
+                        "name": tool_call["function"]["name"],
+                        "arguments": tool_call["function"]["arguments"],
+                    },
+                )
+                tool_calls.append(new_tool_call)
+            completion_response.choices[0].message.tool_calls = tool_calls
+
+        return completion_response
+
+
 class AzureProvider(Provider):
     def __init__(self, **config):
         self.base_url = config.get("base_url") or os.getenv("AZURE_BASE_URL")
@@ -17,6 +58,7 @@ class AzureProvider(Provider):
             raise ValueError(
                 "For Azure, base_url is required. Check your deployment page for a URL like this - https://<model-deployment-name>.<region>.models.ai.azure.com"
             )
+        self.transformer = AzureMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
         url = f"{self.base_url}/chat/completions"
@@ -24,21 +66,15 @@ class AzureProvider(Provider):
         # Remove 'stream' from kwargs if present
         kwargs.pop("stream", None)
 
-        # Transform messages if they are Message objects
-        transformed_messages = []
-        for message in messages:
-            if isinstance(message, Message):
-                transformed_messages.append(message.model_dump(mode="json"))
-            else:
-                transformed_messages.append(message)
+        # Transform messages using converter
+        transformed_messages = self.transformer.convert_request(messages)
 
-        # Prepare the request payload with transformed messages
+        # Prepare the request payload
         data = {"messages": transformed_messages}
 
         # Add tools if provided
         if "tools" in kwargs:
             data["tools"] = kwargs["tools"]
-            # Remove from kwargs to avoid duplication
             kwargs.pop("tools")
 
         # Add tool_choice if provided
@@ -57,34 +93,7 @@ class AzureProvider(Provider):
             with urllib.request.urlopen(req) as response:
                 result = response.read()
                 resp_json = json.loads(result)
-                completion_response = ChatCompletionResponse()
-
-                # Process the response
-                choice = resp_json["choices"][0]
-                message = choice["message"]
-
-                # Set basic message content
-                completion_response.choices[0].message.content = message.get("content")
-                completion_response.choices[0].message.role = message.get(
-                    "role", "assistant"
-                )
-
-                # Handle tool calls if present
-                if "tool_calls" in message and message["tool_calls"] is not None:
-                    tool_calls = []
-                    for tool_call in message["tool_calls"]:
-                        new_tool_call = ChatCompletionMessageToolCall(
-                            id=tool_call["id"],
-                            type=tool_call["type"],
-                            function={
-                                "name": tool_call["function"]["name"],
-                                "arguments": tool_call["function"]["arguments"],
-                            },
-                        )
-                        tool_calls.append(new_tool_call)
-                    completion_response.choices[0].message.tool_calls = tool_calls
-
-                return completion_response
+                return self.transformer.convert_response(resp_json)
 
         except urllib.error.HTTPError as error:
             error_message = f"The request failed with status code: {error.code}\n"

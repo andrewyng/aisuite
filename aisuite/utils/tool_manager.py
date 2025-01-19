@@ -2,14 +2,18 @@ from typing import Callable, Dict, Any, Type, Optional
 from pydantic import BaseModel, create_model, Field, ValidationError
 import inspect
 import json
+from docstring_parser import parse
 
 
 class ToolManager:
-    def __init__(self):
+    def __init__(self, tools: list[Callable] = None):
         self._tools = {}
+        if tools:
+            for tool in tools:
+                self._add_tool(tool)
 
     # Add a tool function with or without a Pydantic model.
-    def add_tool(self, func: Callable, param_model: Optional[Type[BaseModel]] = None):
+    def _add_tool(self, func: Callable, param_model: Optional[Type[BaseModel]] = None):
         """Register a tool function with metadata. If no param_model is provided, infer from function signature."""
         if param_model:
             tool_spec = self._convert_to_tool_spec(func, param_model)
@@ -79,6 +83,24 @@ class ToolManager:
             },
         }
 
+    def _extract_param_descriptions(self, func: Callable) -> dict[str, str]:
+        """Extract parameter descriptions from function docstring.
+
+        Args:
+            func: The function to extract parameter descriptions from
+
+        Returns:
+            Dictionary mapping parameter names to their descriptions
+        """
+        docstring = inspect.getdoc(func) or ""
+        parsed_docstring = parse(docstring)
+
+        param_descriptions = {}
+        for param in parsed_docstring.params:
+            param_descriptions[param.arg_name] = param.description or ""
+
+        return param_descriptions
+
     def _infer_from_signature(
         self, func: Callable
     ) -> tuple[Dict[str, Any], Type[BaseModel]]:
@@ -87,8 +109,9 @@ class ToolManager:
         fields = {}
         required_fields = []
 
-        # Get function's docstring
-        docstring = inspect.getdoc(func) or " "
+        # Get function's docstring and parse parameter descriptions
+        param_descriptions = self._extract_param_descriptions(func)
+        docstring = inspect.getdoc(func) or ""
 
         for param_name, param in signature.parameters.items():
             # Check if a type annotation is missing
@@ -99,11 +122,16 @@ class ToolManager:
 
             # Determine field type and optionality
             param_type = param.annotation
+            description = param_descriptions.get(param_name, "")
+
             if param.default == inspect._empty:
-                fields[param_name] = (param_type, ...)
+                fields[param_name] = (param_type, Field(..., description=description))
                 required_fields.append(param_name)
             else:
-                fields[param_name] = (param_type, Field(default=param.default))
+                fields[param_name] = (
+                    param_type,
+                    Field(default=param.default, description=description),
+                )
 
         # Dynamically create a Pydantic model based on inferred fields
         param_model = create_model(f"{func.__name__.capitalize()}Params", **fields)
