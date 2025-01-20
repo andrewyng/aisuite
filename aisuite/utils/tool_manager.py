@@ -168,8 +168,19 @@ class ToolManager:
             tool_calls = [tool_calls]
 
         for tool_call in tool_calls:
-            tool_name = tool_call.function.name
-            arguments = json.loads(tool_call.function.arguments)
+            # Handle both dictionary and object-style tool calls
+            if isinstance(tool_call, dict):
+                tool_name = tool_call["function"]["name"]
+                arguments = tool_call["function"]["arguments"]
+                tool_call_id = tool_call["id"]
+            else:
+                tool_name = tool_call.function.name
+                arguments = tool_call.function.arguments
+                tool_call_id = tool_call.id
+
+            # Ensure arguments is a dict
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments)
 
             if tool_name not in self._tools:
                 raise ValueError(f"Tool '{tool_name}' not registered.")
@@ -188,7 +199,7 @@ class ToolManager:
                         "role": "tool",
                         "name": tool_name,
                         "content": json.dumps(result),
-                        "tool_call_id": tool_call.id,  # Include the tool call ID in the response
+                        "tool_call_id": tool_call_id,
                     }
                 )
             except ValidationError as e:
