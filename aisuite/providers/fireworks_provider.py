@@ -113,8 +113,6 @@ class FireworksProvider(Provider):
             "Content-Type": "application/json",
         }
 
-        print(data)
-
         try:
             # Make the request to Fireworks AI endpoint.
             response = httpx.post(

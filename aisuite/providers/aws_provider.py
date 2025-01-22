@@ -36,10 +36,6 @@ class BedrockMessageConverter:
             for message in messages
         ]
 
-        import pprint
-
-        pprint.pprint(messages)
-
         # Handle system message
         system_message = []
         if messages and messages[0]["role"] == "system":
@@ -67,8 +63,6 @@ class BedrockMessageConverter:
                         "content": [{"text": message["content"]}],
                     }
                 )
-
-        pprint.pprint(formatted_messages)
 
         return system_message, formatted_messages
 

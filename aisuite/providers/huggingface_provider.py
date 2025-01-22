@@ -64,12 +64,9 @@ class HuggingfaceProvider(Provider):
                 **kwargs,  # Include other parameters like temperature, max_tokens, etc.
             }
 
-            print(transformed_messages)
-
             # Make the API call using the client
             response = self.client.chat_completion(model=model, **payload)
 
-            print(response)
             return self._normalize_response(response)
 
         except Exception as e:
