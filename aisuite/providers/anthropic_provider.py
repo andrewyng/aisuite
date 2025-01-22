@@ -37,4 +37,9 @@ class AnthropicProvider(Provider):
         """Normalize the response from the Anthropic API to match OpenAI's response format."""
         normalized_response = ChatCompletionResponse()
         normalized_response.choices[0].message.content = response.content[0].text
+        normalized_response.usage = {
+            "prompt_tokens": response.usage["prompt_tokens"],
+            "completion_tokens": response.usage["completion_tokens"],
+            "total_tokens": response.usage["total_tokens"]
+        }
         return normalized_response

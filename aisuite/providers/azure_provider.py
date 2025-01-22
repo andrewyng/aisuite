@@ -35,15 +35,20 @@ class AzureProvider(Provider):
             with urllib.request.urlopen(req) as response:
                 result = response.read()
                 resp_json = json.loads(result)
-                completion_response = ChatCompletionResponse()
-                # TODO: Add checks for fields being present in resp_json.
-                completion_response.choices[0].message.content = resp_json["choices"][
-                    0
-                ]["message"]["content"]
-                return completion_response
+                return self.normalize_response(resp_json)
 
         except urllib.error.HTTPError as error:
             error_message = f"The request failed with status code: {error.code}\n"
             error_message += f"Headers: {error.info()}\n"
             error_message += error.read().decode("utf-8", "ignore")
             raise Exception(error_message)
+
+    def normalize_response(self, resp_json):
+        completion_response = ChatCompletionResponse()
+        completion_response.choices[0].message.content = resp_json["choices"][0]["message"]["content"]
+        completion_response.usage = {
+            "prompt_tokens": resp_json["usage"]["prompt_tokens"],
+            "completion_tokens": resp_json["usage"]["completion_tokens"],
+            "total_tokens": resp_json["usage"]["total_tokens"]
+        }
+        return completion_response
