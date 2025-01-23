@@ -13,6 +13,12 @@ def setup_client() -> ai.Client:
     return ai.Client()
 
 
+def setup_async_client() -> ai.AsyncClient:
+    """Initialize the async AI client with environment variables."""
+    load_dotenv(find_dotenv())
+    return ai.AsyncClient()
+
+
 def get_test_models() -> List[str]:
     """Return a list of model identifiers to test."""
     return [
@@ -25,6 +31,14 @@ def get_test_models() -> List[str]:
         "cohere:command-r-plus-08-2024",
     ]
 
+
+def get_test_async_models() -> List[str]:
+    """Return a list of model identifiers to test."""
+    return [
+        "anthropic:claude-3-5-sonnet-20240620",
+        "mistral:open-mistral-7b",
+        "openai:gpt-3.5-turbo"
+    ]
 
 def get_test_messages() -> List[Dict[str, str]]:
     """Return the test messages to send to each model."""
@@ -51,6 +65,40 @@ def test_model_pirate_response(model_id: str):
 
     try:
         response = client.chat.completions.create(
+            model=model_id, messages=messages, temperature=0.75
+        )
+
+        content = response.choices[0].message.content.lower()
+
+        # Check if either version of the required phrase is present
+        assert any(
+            phrase in content for phrase in ["no rum no fun", "no rum, no fun"]
+        ), f"Model {model_id} did not include required phrase 'No rum No fun'"
+
+        assert len(content) > 0, f"Model {model_id} returned empty response"
+        assert isinstance(
+            content, str
+        ), f"Model {model_id} returned non-string response"
+
+    except Exception as e:
+        pytest.fail(f"Error testing model {model_id}: {str(e)}")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_id", get_test_models())
+async def test_async_model_pirate_response(model_id: str):
+    """
+    Test that each model responds appropriately to the pirate prompt using async client.
+
+    Args:
+        model_id: The provider:model identifier to test
+    """
+    client = setup_async_client()
+    messages = get_test_messages()
+
+    try:
+        response = await client.chat.completions.create(
             model=model_id, messages=messages, temperature=0.75
         )
 

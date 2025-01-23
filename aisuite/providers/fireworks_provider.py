@@ -54,6 +54,36 @@ class FireworksProvider(Provider):
         # Return the normalized response
         return self._normalize_response(response.json())
 
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        """
+        Makes an async request to the Fireworks AI chat completions endpoint.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        data = {
+            "model": model,
+            "messages": messages,
+            **kwargs,  # Pass any additional arguments to the API
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                # Make the async request to Fireworks AI endpoint
+                response = await client.post(
+                    self.BASE_URL, json=data, headers=headers, timeout=self.timeout
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as http_err:
+                raise LLMError(f"Fireworks AI request failed: {http_err}")
+            except Exception as e:
+                raise LLMError(f"An error occurred: {e}")
+
+            # Return the normalized response
+            return self._normalize_response(response.json())
+
     def _normalize_response(self, response_data):
         """
         Normalize the response to a common format (ChatCompletionResponse).

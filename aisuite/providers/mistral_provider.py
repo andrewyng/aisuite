@@ -21,3 +21,6 @@ class MistralProvider(Provider):
 
     def chat_completions_create(self, model, messages, **kwargs):
         return self.client.chat.complete(model=model, messages=messages, **kwargs)
+
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        return await self.client.chat.complete_async(model=model, messages=messages, **kwargs)

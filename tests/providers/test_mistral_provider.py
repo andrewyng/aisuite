@@ -41,3 +41,37 @@ def test_mistral_provider():
         )
 
         assert response.choices[0].message.content == response_text_content
+
+
+@pytest.mark.asyncio
+async def test_mistral_provider_async():
+    """High-level test that the provider handles async chat completions successfully."""
+
+    user_greeting = "Hello!"
+    message_history = [{"role": "user", "content": user_greeting}]
+    selected_model = "our-favorite-model"
+    chosen_temperature = 0.75
+    response_text_content = "mocked-text-response-from-model"
+
+    provider = MistralProvider()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = MagicMock()
+    mock_response.choices[0].message.content = response_text_content
+
+    with patch.object(
+        provider.client.chat, "complete_async", return_value=mock_response
+    ) as mock_create:
+        response = await provider.chat_completions_create_async(
+            messages=message_history,
+            model=selected_model,
+            temperature=chosen_temperature,
+        )
+
+        mock_create.assert_called_with(
+            messages=message_history,
+            model=selected_model,
+            temperature=chosen_temperature,
+        )
+
+        assert response.choices[0].message.content == response_text_content

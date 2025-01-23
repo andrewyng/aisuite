@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from aisuite import Client
+from aisuite import Client, AsyncClient
 
 
 @pytest.fixture(scope="module")
@@ -162,3 +162,81 @@ def test_invalid_model_format_in_create(monkeypatch):
         ValueError, match=r"Invalid model format. Expected 'provider:model'"
     ):
         client.chat.completions.create(invalid_model, messages=messages)
+
+
+@pytest.mark.parametrize(
+    argnames=("patch_target", "provider", "model"),
+    argvalues=[
+        (
+            "aisuite.providers.openai_provider.OpenaiProvider.chat_completions_create_async",
+            "openai",
+            "gpt-4o",
+        ),
+        (
+            "aisuite.providers.mistral_provider.MistralProvider.chat_completions_create_async",
+            "mistral",
+            "mistral-model",
+        ),
+        (
+            "aisuite.providers.anthropic_provider.AnthropicProvider.chat_completions_create_async",
+            "anthropic",
+            "anthropic-model",
+        ),
+        (
+            "aisuite.providers.fireworks_provider.FireworksProvider.chat_completions_create_async",
+            "fireworks",
+            "fireworks-model",
+        )
+    ],
+)
+@pytest.mark.asyncio
+async def test_async_client_chat_completions(
+    provider_configs: dict, patch_target: str, provider: str, model: str
+):
+    expected_response = f"{patch_target}_{provider}_{model}"
+    with patch(patch_target) as mock_provider:
+        mock_provider.return_value = expected_response
+        client = AsyncClient()
+        client.configure(provider_configs)
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Who won the world series in 2020?"},
+        ]
+
+        model_str = f"{provider}:{model}"
+        model_response = await client.chat.completions.create(model_str, messages=messages)
+        assert model_response == expected_response
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_format_in_async_create(monkeypatch):
+    from aisuite.providers.openai_provider import OpenaiProvider
+
+    monkeypatch.setattr(
+        target=OpenaiProvider,
+        name="chat_completions_create_async",
+        value=Mock(),
+    )
+
+    # Valid provider configurations
+    provider_configs = {
+        "openai": {"api_key": "test_openai_api_key"},
+    }
+
+    # Initialize the client with valid provider
+    client = AsyncClient()
+    client.configure(provider_configs)
+
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Tell me a joke."},
+    ]
+
+    # Invalid model format
+    invalid_model = "invalidmodel"
+
+    # Expect ValueError when calling create with invalid model format and verify message
+    with pytest.raises(
+        ValueError, match=r"Invalid model format. Expected 'provider:model'"
+    ):
+        await client.chat.completions.create(invalid_model, messages=messages)
