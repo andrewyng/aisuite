@@ -36,11 +36,6 @@ def provider_configs():
         "nebius": {
             "api_key": "nebius-api-key",
         },
-        "watsonx": {
-            "service_url": "https://watsonx-service-url.com",
-            "api_key": "watsonx-api-key",
-            "project_id": "watsonx-project-id",
-        },
     }
 
 
@@ -91,11 +86,6 @@ def provider_configs():
             "aisuite.providers.nebius_provider.NebiusProvider.chat_completions_create",
             "nebius",
             "nebius-model",
-        ),
-        (
-            "aisuite.providers.watsonx_provider.WatsonxProvider.chat_completions_create",
-            "watsonx",
-            "watsonx-model",
         ),
     ],
 )
