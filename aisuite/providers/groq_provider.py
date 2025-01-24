@@ -1,8 +1,7 @@
 import os
-
 import groq
-from aisuite.provider import Provider
-from aisuite.framework.message import Message
+from aisuite.provider import Provider, LLMError
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
 # Implementation of Groq provider.
 # Groq's message format is same as OpenAI's.
@@ -21,6 +20,14 @@ from aisuite.framework.message import Message
 #   gemma2-9b-it (parallel tool use not supported)
 
 
+class GroqMessageConverter(OpenAICompliantMessageConverter):
+    """
+    Groq-specific message converter if needed
+    """
+
+    pass
+
+
 class GroqProvider(Provider):
     def __init__(self, **config):
         """
@@ -28,30 +35,28 @@ class GroqProvider(Provider):
         Pass the entire configuration dictionary to the Groq client constructor.
         """
         # Ensure API key is provided either in config or via environment variable
-        config.setdefault("api_key", os.getenv("GROQ_API_KEY"))
-        if not config["api_key"]:
+        self.api_key = config.get("api_key", os.getenv("GROQ_API_KEY"))
+        if not self.api_key:
             raise ValueError(
-                " API key is missing. Please provide it in the config or set the GROQ_API_KEY environment variable."
+                "Groq API key is missing. Please provide it in the config or set the GROQ_API_KEY environment variable."
             )
+        config["api_key"] = self.api_key
         self.client = groq.Groq(**config)
+        self.transformer = GroqMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
-        transformed_messages = []
-        for message in messages:
-            if isinstance(message, Message):
-                transformed_messages.append(self.transform_from_messages(message))
-            else:
-                transformed_messages.append(message)
-        return self.client.chat.completions.create(
-            model=model,
-            messages=transformed_messages,
-            **kwargs  # Pass any additional arguments to the Groq API
-        )
+        """
+        Makes a request to the Groq chat completions endpoint using the official client.
+        """
+        try:
+            # Transform messages using converter
+            transformed_messages = self.transformer.convert_request(messages)
 
-    # Transform framework Message to a format that Groq understands.
-    def transform_from_messages(self, message: Message):
-        return message.model_dump(mode="json")
-
-    # Transform Groq message (dict) to a format that the framework Message understands.
-    def transform_to_message(self, message_dict: dict):
-        return Message(**message_dict)
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                **kwargs,  # Pass any additional arguments to the Groq API
+            )
+            return self.transformer.convert_response(response.model_dump())
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")

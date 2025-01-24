@@ -1,9 +1,9 @@
 import os
-
 from mistralai import Mistral
 from aisuite.framework.message import Message
 from aisuite.framework import ChatCompletionResponse
 from aisuite.provider import Provider, LLMError
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
 
 # Implementation of Mistral provider.
@@ -12,36 +12,19 @@ from aisuite.provider import Provider, LLMError
 # https://docs.mistral.ai/capabilities/function_calling/
 
 
-class MistralMessageConverter:
-    @staticmethod
-    def convert_request(messages):
-        """Convert messages to Mistral format."""
-        transformed_messages = []
-        for message in messages:
-            if isinstance(message, Message):
-                message_dict = message.model_dump(mode="json")
-                message_dict.pop("refusal", None)  # Remove refusal field if present
-                transformed_messages.append(message_dict)
-            else:
-                transformed_messages.append(message)
-        return transformed_messages
+class MistralMessageConverter(OpenAICompliantMessageConverter):
+    """
+    Mistral-specific message converter
+    """
 
     @staticmethod
-    def convert_response(response) -> ChatCompletionResponse:
-        """Normalize the response from Mistral to match OpenAI's response format."""
-        completion_response = ChatCompletionResponse()
-        choice = response.choices[0]
-        message = choice.message
-
-        # Set basic message content
-        completion_response.choices[0].message.content = message.content
-        completion_response.choices[0].message.role = message.role
-
-        # Handle tool calls if present
-        if hasattr(message, "tool_calls") and message.tool_calls:
-            completion_response.choices[0].message.tool_calls = message.tool_calls
-
-        return completion_response
+    def convert_response(response_data) -> ChatCompletionResponse:
+        """Convert Mistral's response to our standard format."""
+        # Convert Mistral's response object to dict format
+        response_dict = response_data.model_dump()
+        return super(MistralMessageConverter, MistralMessageConverter).convert_response(
+            response_dict
+        )
 
 
 # Function calling is available for the following models:
@@ -55,6 +38,10 @@ class MistralMessageConverter:
 # Mixtral 8x22B
 # Mistral Nemo
 class MistralProvider(Provider):
+    """
+    Mistral AI Provider using the official Mistral client.
+    """
+
     def __init__(self, **config):
         """
         Initialize the Mistral provider with the given configuration.
@@ -64,12 +51,15 @@ class MistralProvider(Provider):
         config.setdefault("api_key", os.getenv("MISTRAL_API_KEY"))
         if not config["api_key"]:
             raise ValueError(
-                " API key is missing. Please provide it in the config or set the MISTRAL_API_KEY environment variable."
+                "Mistral API key is missing. Please provide it in the config or set the MISTRAL_API_KEY environment variable."
             )
         self.client = Mistral(**config)
         self.transformer = MistralMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
+        """
+        Makes a request to Mistral using the official client.
+        """
         try:
             # Transform messages using converter
             transformed_messages = self.transformer.convert_request(messages)

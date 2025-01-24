@@ -6,6 +6,7 @@ from openai import Client
 BASE_URL = "https://api.studio.nebius.ai/v1"
 
 
+# TODO(rohitcp): This needs to be added to our internal testbed. Tool calling not tested.
 class NebiusProvider(Provider):
     def __init__(self, **config):
         """

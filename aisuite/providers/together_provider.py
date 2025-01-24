@@ -1,49 +1,15 @@
 import os
 import httpx
 from aisuite.provider import Provider, LLMError
-from aisuite.framework import ChatCompletionResponse
-from aisuite.framework.message import Message, ChatCompletionMessageToolCall
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
 
-class TogetherMessageConverter:
-    @staticmethod
-    def convert_request(messages):
-        """Convert messages to Together format."""
-        transformed_messages = []
-        for message in messages:
-            if isinstance(message, Message):
-                message_dict = message.model_dump(mode="json")
-                message_dict.pop("refusal", None)  # Remove refusal field if present
-                transformed_messages.append(message_dict)
-            else:
-                transformed_messages.append(message)
-        return transformed_messages
+class TogetherMessageConverter(OpenAICompliantMessageConverter):
+    """
+    Together-specific message converter if needed
+    """
 
-    @staticmethod
-    def convert_response(response_data) -> ChatCompletionResponse:
-        """Normalize the response from Together to match OpenAI's response format."""
-        completion_response = ChatCompletionResponse()
-        choice = response_data["choices"][0]
-        message = choice["message"]
-
-        # Set basic message content
-        completion_response.choices[0].message.content = message["content"]
-        completion_response.choices[0].message.role = message.get("role", "assistant")
-
-        # Handle tool calls if present
-        if "tool_calls" in message and message["tool_calls"] is not None:
-            tool_calls = []
-            for tool_call in message["tool_calls"]:
-                tool_calls.append(
-                    ChatCompletionMessageToolCall(
-                        id=tool_call.get("id"),
-                        type=tool_call.get("type"),
-                        function=tool_call.get("function"),
-                    )
-                )
-            completion_response.choices[0].message.tool_calls = tool_calls
-
-        return completion_response
+    pass
 
 
 class TogetherProvider(Provider):
