@@ -2,25 +2,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aisuite.providers.deepseek_provider import DeepseekProvider
+from aisuite.providers.reka_provider import RekaProvider
 
 
 @pytest.fixture(autouse=True)
 def set_api_key_env_var(monkeypatch):
     """Fixture to set environment variables for tests."""
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-api-key")
+    monkeypatch.setenv("REKA_API_KEY", "test-api-key")
 
 
-def test_deepseek_provider():
+def test_groq_provider():
     """High-level test that the provider is initialized and chat completions are requested successfully."""
 
     user_greeting = "Hello!"
     message_history = [{"role": "user", "content": user_greeting}]
-    selected_model = "our-favorite-model"
+    selected_model = "reka-core"  # just for an example
     chosen_temperature = 0.75
     response_text_content = "mocked-text-response-from-model"
 
-    provider = DeepseekProvider()
+    provider = RekaProvider()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message = MagicMock()
