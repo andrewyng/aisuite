@@ -3,7 +3,7 @@
 To use the Alibaba Tongyi model, you need to log in to [Alibaba Cloud Bailian](https://bailian.console.aliyun.com) to obtain an API key. Once you have the API key, set it as an environment variable as follows:
 
 ```shell
-export DASHSCOPE_API_KEY="your-api-key"
+export TONGYI_API_KEY="your-api-key"
 ```
 
 ## Create a Chat Completion
