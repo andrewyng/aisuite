@@ -56,3 +56,5 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)
 ```
+
+Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).

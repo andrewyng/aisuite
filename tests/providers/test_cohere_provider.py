@@ -1,16 +1,17 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from aisuite.providers.mistral_provider import MistralProvider
+import pytest
+
+from aisuite.providers.cohere_provider import CohereProvider
 
 
 @pytest.fixture(autouse=True)
 def set_api_key_env_var(monkeypatch):
     """Fixture to set environment variables for tests."""
-    monkeypatch.setenv("MISTRAL_API_KEY", "test-api-key")
+    monkeypatch.setenv("CO_API_KEY", "test-api-key")
 
 
-def test_mistral_provider():
+def test_cohere_provider():
     """High-level test that the provider is initialized and chat completions are requested successfully."""
 
     user_greeting = "Hello!"
@@ -19,14 +20,16 @@ def test_mistral_provider():
     chosen_temperature = 0.75
     response_text_content = "mocked-text-response-from-model"
 
-    provider = MistralProvider()
+    provider = CohereProvider()
     mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "choices": [{"message": {"content": response_text_content}}]
-    }
+    mock_response.message = MagicMock()
+    mock_response.message.content = [MagicMock()]
+    mock_response.message.content[0].text = response_text_content
 
     with patch.object(
-        provider.client.chat, "complete", return_value=mock_response
+        provider.client,
+        "chat",
+        return_value=mock_response,
     ) as mock_create:
         response = provider.chat_completions_create(
             messages=message_history,

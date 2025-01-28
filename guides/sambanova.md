@@ -1,9 +1,9 @@
-# OpenAI
+# Sambanova
 
-To use OpenAI with `aisuite`, you’ll need an [OpenAI account](https://platform.openai.com/). After logging in, go to the [API Keys](https://platform.openai.com/account/api-keys) section in your account settings and generate a new key. Once you have your key, add it to your environment as follows:
+To use Sambanova with `aisuite`, you’ll need a [Sambanova Cloud](https://cloud.sambanova.ai/) account. After logging in, go to the [API](https://cloud.sambanova.ai/apis) section and generate a new key. Once you have your key, add it to your environment as follows:
 
 ```shell
-export OPENAI_API_KEY="your-openai-api-key"
+export SAMBANOVA_API_KEY="your-sambanova-api-key"
 ```
 
 ## Create a Chat Completion
@@ -25,8 +25,8 @@ In your code:
 import aisuite as ai
 client = ai.Client()
 
-provider = "openai"
-model_id = "gpt-4-turbo"
+provider = "sambanova"
+model_id = "Meta-Llama-3.1-405B-Instruct"
 
 messages = [
     {"role": "system", "content": "You are a helpful assistant."},
@@ -41,4 +41,4 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-Happy coding! If you’d like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).
+Happy coding! If you’d like to contribute, please read our [Contributing Guide](CONTRIBUTING.md).

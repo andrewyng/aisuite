@@ -74,7 +74,7 @@ In your code:
 import aisuite as ai
 client = ai.Client()
 
-model="vertex:gemini-1.5-pro-001"
+model="google:gemini-1.5-pro-001"
 
 messages = [
     {"role": "system", "content": "Respond in Pirate English."},
@@ -89,4 +89,4 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-Happy coding! If you would like to contribute, please read our [Contributing Guide](CONTRIBUTING.md).
+Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).

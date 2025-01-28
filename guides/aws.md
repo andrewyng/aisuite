@@ -23,9 +23,9 @@ Once that has been enabled set your Access Key and Secret in the env variables:
 ```shell
 export AWS_ACCESS_KEY="your-access-key"
 export AWS_SECRET_KEY="your-secret-key"
-export AWS_REGION_NAME="region-name" 
+export AWS_REGION="region-name" 
 ```
-*Note: AWS_REGION_NAME is optional, a default of `us-west-2` has been set for easy of use*
+*Note: AWS_REGION is optional, a default of `us-west-2` has been set for easy of use*
 
 ## Create a Chat Completion
 
@@ -63,7 +63,7 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-Happy coding! If you would like to contribute, please read our [Contributing Guide](CONTRIBUTING.md).
+Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).
 
 
 
