@@ -36,6 +36,9 @@ def provider_configs():
         "nebius": {
             "api_key": "nebius-api-key",
         },
+        "tongyi": {
+            "api_key": "tongyi-api-key",
+        },
     }
 
 
@@ -86,6 +89,11 @@ def provider_configs():
             "aisuite.providers.nebius_provider.NebiusProvider.chat_completions_create",
             "nebius",
             "nebius-model",
+        ),
+        (
+            "aisuite.providers.tongyi_provider.TongyiProvider.chat_completions_create",
+            "tongyi",
+            "tongyi-model",
         ),
     ],
 )
