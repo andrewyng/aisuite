@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "aisuite"
-version = "0.1.7"
+version = "0.1.9"
 description = "Uniform access layer for LLMs"
 authors = ["Andrew Ng, Rohit P"]
 readme = "README.md"
@@ -24,6 +24,7 @@ anthropic = ["anthropic"]
 aws = ["boto3"]
 azure = []
 cohere = ["cohere"]
+deepseek = ["openai"]
 google = ["vertexai"]
 groq = ["groq"]
 huggingface = []
