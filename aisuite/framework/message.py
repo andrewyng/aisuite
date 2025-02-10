@@ -17,6 +17,7 @@ class ChatCompletionMessageToolCall(BaseModel):
 
 class Message(BaseModel):
     content: Optional[str]
+    reasoning_content: Optional[str]
     tool_calls: Optional[list[ChatCompletionMessageToolCall]]
     role: Optional[Literal["user", "assistant", "system"]]
     refusal: Optional[str]

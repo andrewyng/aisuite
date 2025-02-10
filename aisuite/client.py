@@ -81,6 +81,34 @@ class Completions:
     def __init__(self, client: "Client"):
         self.client = client
 
+    def _extract_thinking_content(self, response):
+        """
+        Extract content between <think> tags if present and store it in reasoning_content.
+
+        Args:
+            response: The response object from the provider
+
+        Returns:
+            Modified response object
+        """
+        if hasattr(response, "choices") and response.choices:
+            message = response.choices[0].message
+            if hasattr(message, "content") and message.content:
+                content = message.content.strip()
+                if content.startswith("<think>") and "</think>" in content:
+                    # Extract content between think tags
+                    start_idx = len("<think>")
+                    end_idx = content.find("</think>")
+                    thinking_content = content[start_idx:end_idx].strip()
+
+                    # Store the thinking content
+                    message.reasoning_content = thinking_content
+
+                    # Remove the think tags from the original content
+                    message.content = content[end_idx + len("</think>") :].strip()
+
+        return response
+
     def create(self, model: str, messages: list, **kwargs):
         """
         Create chat completion based on the model, messages, and any extra arguments.
@@ -114,4 +142,5 @@ class Completions:
             raise ValueError(f"Could not load provider for '{provider_key}'.")
 
         # Delegate the chat completion to the correct provider's implementation
-        return provider.chat_completions_create(model_name, messages, **kwargs)
+        response = provider.chat_completions_create(model_name, messages, **kwargs)
+        return self._extract_thinking_content(response)
