@@ -1,6 +1,6 @@
 """Interface to hold contents of api responses when they do not confirm to the OpenAI style response"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Literal, Optional
 
 
@@ -16,8 +16,8 @@ class ChatCompletionMessageToolCall(BaseModel):
 
 
 class Message(BaseModel):
-    content: Optional[str]
-    reasoning_content: Optional[str]
-    tool_calls: Optional[list[ChatCompletionMessageToolCall]]
-    role: Optional[Literal["user", "assistant", "system"]]
-    refusal: Optional[str]
+    content: Optional[str] = None
+    reasoning_content: Optional[str] = None
+    tool_calls: Optional[list[ChatCompletionMessageToolCall]] = None
+    role: Optional[Literal["user", "assistant", "system"]] = None
+    refusal: Optional[str] = None

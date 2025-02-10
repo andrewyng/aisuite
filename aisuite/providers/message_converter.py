@@ -32,7 +32,6 @@ class OpenAICompliantMessageConverter:
     @staticmethod
     def convert_response(response_data) -> ChatCompletionResponse:
         """Normalize the response to match OpenAI's response format."""
-        print(response_data)
         completion_response = ChatCompletionResponse()
         choice = response_data["choices"][0]
         message = choice["message"]
