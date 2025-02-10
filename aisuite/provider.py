@@ -18,6 +18,10 @@ class Provider(ABC):
         """Abstract method for chat completion calls, to be implemented by each provider."""
         pass
 
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        """Method for async chat completion calls, to be implemented by each provider."""
+        raise NotImplementedError("Async chat completion calls are not implemented for this provider.")
+
 
 class ProviderFactory:
     """Factory to dynamically load provider instances based on naming conventions."""

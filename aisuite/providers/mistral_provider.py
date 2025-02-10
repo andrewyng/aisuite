@@ -72,3 +72,19 @@ class MistralProvider(Provider):
             return self.transformer.convert_response(response)
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
+
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        """
+        Makes a request to Mistral using the official client.
+        """
+        try:
+            # Transform messages using converter
+            transformed_messages = self.transformer.convert_request(messages)
+
+            response = await self.client.chat.complete_async(
+                model=model, messages=messages, **kwargs
+            )
+
+            return self.transformer.convert_response(response)
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")

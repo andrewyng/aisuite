@@ -201,6 +201,7 @@ class AnthropicProvider(Provider):
     def __init__(self, **config):
         """Initialize the Anthropic provider with the given configuration."""
         self.client = anthropic.Anthropic(**config)
+        self.async_client = anthropic.AsyncAnthropic(**config)
         self.converter = AnthropicMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
@@ -210,6 +211,16 @@ class AnthropicProvider(Provider):
 
         response = self.client.messages.create(
             model=model, system=system_message, messages=converted_messages, **kwargs
+        )
+        return self.converter.convert_response(response)
+
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        """Create a chat completion using the async Anthropic API."""
+        kwargs = self._prepare_kwargs(kwargs)
+        system_message, converted_messages = self.converter.convert_request(messages)
+
+        response = await self.async_client.messages.create(
+            model=model, system=system_message, messages=messages, **kwargs
         )
         return self.converter.convert_response(response)
 
