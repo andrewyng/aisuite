@@ -1,4 +1,6 @@
 import openai
+from pydantic import BaseModel
+from typing import Type
 import os
 from aisuite.provider import Provider, LLMError
 
@@ -23,9 +25,21 @@ class OpenaiProvider(Provider):
         # Pass the entire config to the OpenAI client constructor
         self.client = openai.OpenAI(**config)
 
-    def chat_completions_create(self, model, messages, **kwargs):
+    def chat_completions_create(
+        self, model, messages, response_format: Type[BaseModel] | None = None, **kwargs
+    ):
         # Any exception raised by OpenAI will be returned to the caller.
         # Maybe we should catch them and raise a custom LLMError.
+        if response_format is not None:
+            response = self.client.beta.chat.completions.parse(
+                model=model,
+                messages=messages,
+                response_format=response_format,
+                **kwargs  # Pass any additional arguments to the OpenAI API
+            )
+            response.choices[0].message.content = response.choices[0].message.parsed
+            return response
+
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,

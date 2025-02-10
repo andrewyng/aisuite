@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from aisuite import Client
+from pydantic import BaseModel
 
 
 @pytest.fixture(scope="module")
@@ -104,6 +105,38 @@ def test_client_chat_completions(
 
         model_str = f"{provider}:{model}"
         model_response = client.chat.completions.create(model_str, messages=messages)
+        assert model_response == expected_response
+
+
+@pytest.mark.parametrize(
+    argnames=("patch_target", "provider", "model"),
+    argvalues=[
+        (
+            "aisuite.providers.openai_provider.OpenaiProvider.chat_completions_create",
+            "openai",
+            "gpt-4o",
+        ),
+    ],
+)
+def test_client_chat_completions_with_structured_output(
+    provider_configs: dict, patch_target: str, provider: str, model: str
+):
+    expected_response = f"{patch_target}_{provider}_{model}"
+    with patch(patch_target) as mock_provider:
+        mock_provider.return_value = expected_response
+        client = Client()
+        client.configure(provider_configs)
+        messages = [
+            {"role": "user", "content": "Tell me a pirate joke."},
+        ]
+
+        class Joke(BaseModel):
+            joke: str
+
+        model_str = f"{provider}:{model}"
+        model_response = client.chat.completions.create(
+            model_str, messages=messages, response_format=Joke
+        )
         assert model_response == expected_response
 
 
