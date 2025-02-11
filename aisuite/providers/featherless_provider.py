@@ -2,6 +2,7 @@ import os
 import openai
 from aisuite.provider import Provider
 
+
 class FeatherlessProvider(Provider):
     def __init__(self, **config):
         """
@@ -16,6 +17,7 @@ class FeatherlessProvider(Provider):
             )
         config["base_url"] = "https://api.featherless.ai/v1"
         self.client = openai.OpenAI(**config)
+
     def chat_completions_create(self, model, messages, **kwargs):
         """
         Makes a request to Featherless using the official client.
