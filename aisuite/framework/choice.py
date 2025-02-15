@@ -1,5 +1,5 @@
 from aisuite.framework.message import Message
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 
 
 class Choice:
@@ -12,3 +12,4 @@ class Choice:
             refusal=None,
             reasoning_content=None,
         )
+        self.intermediate_messages: List[Message] = []

@@ -115,6 +115,12 @@ class Tools:
         param_descriptions = self.__extract_param_descriptions(func)
         docstring = inspect.getdoc(func) or ""
 
+        # Parse the docstring to get the main function description
+        parsed_docstring = parse(docstring)
+        function_description = parsed_docstring.short_description or ""
+        if parsed_docstring.long_description:
+            function_description += "\n\n" + parsed_docstring.long_description
+
         for param_name, param in signature.parameters.items():
             # Check if a type annotation is missing
             if param.annotation == inspect._empty:
@@ -141,8 +147,8 @@ class Tools:
         # Convert inferred model to a tool spec format
         tool_spec = self._convert_to_tool_spec(func, param_model)
 
-        # Update the tool spec with the docstring
-        tool_spec["description"] = docstring
+        # Update the tool spec with the parsed function description instead of raw docstring
+        tool_spec["description"] = function_description
 
         return tool_spec, param_model
 

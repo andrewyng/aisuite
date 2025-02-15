@@ -1,7 +1,7 @@
 import unittest
 from pydantic import BaseModel
 from typing import Dict
-from aisuite.utils.tool_manager import Tools  # Import your ToolManager class
+from aisuite.utils.tools import Tools  # Import your ToolManager class
 from enum import Enum
 
 
