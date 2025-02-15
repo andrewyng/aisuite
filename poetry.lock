@@ -617,6 +617,27 @@ files = [
 ]
 
 [[package]]
+name = "cerebras-cloud-sdk"
+version = "1.19.0"
+description = "The official Python library for the cerebras API"
+optional = false
+python-versions = ">=3.8"
+groups = ["main", "dev"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "cerebras_cloud_sdk-1.19.0-py3-none-any.whl", hash = "sha256:783dea26b72e9e6e545d5b49f4ccfe43595976af5ee4492db55ab5c8237a1144"},
+    {file = "cerebras_cloud_sdk-1.19.0.tar.gz", hash = "sha256:7e4efc55799141bb29114d97e42da83024019c0be278d2f63135991fd1e2fe76"},
+]
+
+[package.dependencies]
+anyio = ">=3.5.0,<5"
+distro = ">=1.7.0,<2"
+httpx = ">=0.23.0,<1"
+pydantic = ">=1.9.0,<3"
+sniffio = "*"
+typing-extensions = ">=4.10,<5"
+
+[[package]]
 name = "certifi"
 version = "2024.12.14"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -7400,10 +7421,11 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 type = ["pytest-mypy"]
 
 [extras]
-all = ["anthropic", "cohere", "groq", "openai"]
+all = ["anthropic", "cerebras_cloud_sdk", "cohere", "groq", "openai"]
 anthropic = ["anthropic"]
 aws = ["boto3"]
 azure = []
+cerebras = ["cerebras_cloud_sdk"]
 cohere = ["cohere"]
 deepseek = ["openai"]
 google = ["vertexai"]
@@ -7417,4 +7439,4 @@ watsonx = ["ibm-watsonx-ai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "491e4f71e526533bfacd230d96ad5204c2409a61826794e7ca9e4f2fd3e6998e"
+content-hash = "cb66b6c5aa0fe3cce45c3d2f57f339ee01996c8ea559af612a173a9ede12792e"
