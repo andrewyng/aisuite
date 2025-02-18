@@ -4,6 +4,7 @@ __pycache__/
 env/
 .env
 .google-adc
+*.whl
 
 # Testing
 .coverage
