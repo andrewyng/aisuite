@@ -1,0 +1,41 @@
+# 核心依赖
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0  # 数据验证和模型定义
+
+# 常用AI提供商SDK
+openai[azure]>=1.12.0  # 包含Azure OpenAI支持
+anthropic>=0.18.1
+google-cloud-aiplatform>=1.42.1
+
+# Azure相关
+azure-cognitiveservices-language-textanalytics>=0.2.0
+azure-core>=1.30.0
+azure-identity>=1.15.0
+
+# IBM WatsonX
+ibm-watson-machine-learning>=1.0.312
+
+# 异步支持
+aiohttp>=3.9.0
+
+# 工具和实用程序
+typing-extensions>=4.5.0  # 高级类型支持
+PyYAML>=6.0.1  # 配置文件支持
+
+# 测试依赖
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-asyncio>=0.23.0  # 异步测试支持
+responses>=0.24.1  # HTTP请求模拟
+
+# 类型检查
+mypy>=1.8.0
+types-requests>=2.31.0.20240218
+types-PyYAML>=6.0.12.12
+
+# 代码质量
+black>=24.2.0
+isort>=5.13.0
+flake8>=7.0.0 
