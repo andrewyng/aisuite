@@ -21,9 +21,9 @@ def test_mistral_provider():
 
     provider = MistralProvider()
     mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message = MagicMock()
-    mock_response.choices[0].message.content = response_text_content
+    mock_response.model_dump.return_value = {
+        "choices": [{"message": {"content": response_text_content}}]
+    }
 
     with patch.object(
         provider.client.chat, "complete", return_value=mock_response

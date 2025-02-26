@@ -2,16 +2,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aisuite.providers.sambanova_provider import SambanovaProvider
+from aisuite.providers.deepseek_provider import DeepseekProvider
 
 
 @pytest.fixture(autouse=True)
 def set_api_key_env_var(monkeypatch):
     """Fixture to set environment variables for tests."""
-    monkeypatch.setenv("SAMBANOVA_API_KEY", "test-api-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-api-key")
 
 
-def test_sambanova_provider():
+def test_groq_provider():
     """High-level test that the provider is initialized and chat completions are requested successfully."""
 
     user_greeting = "Hello!"
@@ -20,13 +20,11 @@ def test_sambanova_provider():
     chosen_temperature = 0.75
     response_text_content = "mocked-text-response-from-model"
 
-    provider = SambanovaProvider()
+    provider = DeepseekProvider()
     mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "choices": [
-            {"message": {"content": response_text_content, "role": "assistant"}}
-        ]
-    }
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = MagicMock()
+    mock_response.choices[0].message.content = response_text_content
 
     with patch.object(
         provider.client.chat.completions,

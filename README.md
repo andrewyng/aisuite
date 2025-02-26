@@ -79,14 +79,6 @@ For a list of provider values, you can look at the directory - `aisuite/provider
 
 For more examples, check out the `examples` directory where you will find several notebooks that you can run to experiment with the interface.
 
-## License
-
-aisuite is released under the MIT License. You are free to use, modify, and distribute the code for both commercial and non-commercial purposes.
-
-## Contributing
-
-If you would like to contribute, please read our [Contributing Guide](https://github.com/andrewyng/aisuite/blob/main/CONTRIBUTING.md) and join our [Discord](https://discord.gg/T6Nvn8ExSb) server!
-
 ## Adding support for a provider
 
 We have made easy for a provider or volunteer to add support for a new platform.
@@ -119,3 +111,101 @@ We follow a convention-based approach for loading providers, which relies on str
   in providers/openai_provider.py
 
 This convention simplifies the addition of new providers and ensures consistency across provider implementations.
+
+## Tool Calling
+
+`aisuite` provides a simple abstraction for tool/function calling that works across supported providers. This is in addition to the regular abstraction of passing JSON spec of the tool to the `tools` parameter. The tool calling abstraction makes it easy to use tools with different LLMs without changing your code.
+
+There are two ways to use tools with `aisuite`:
+
+### 1. Manual Tool Handling
+
+This is the default behavior when `max_turns` is not specified.
+You can pass tools in the OpenAI tool format:
+
+```python
+def will_it_rain(location: str, time_of_day: str):
+    """Check if it will rain in a location at a given time today.
+    
+    Args:
+        location (str): Name of the city
+        time_of_day (str): Time of the day in HH:MM format.
+    """
+    return "YES"
+
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "will_it_rain",
+        "description": "Check if it will rain in a location at a given time today",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "Name of the city"
+                },
+                "time_of_day": {
+                    "type": "string",
+                    "description": "Time of the day in HH:MM format."
+                }
+            },
+            "required": ["location", "time_of_day"]
+        }
+    }
+}]
+
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=messages,
+    tools=tools
+)
+```
+
+### 2. Automatic Tool Execution
+
+When `max_turns` is specified, you can pass a list of callable Python functions as the `tools` parameter. `aisuite` will automatically handle the tool calling flow:
+
+```python
+def will_it_rain(location: str, time_of_day: str):
+    """Check if it will rain in a location at a given time today.
+    
+    Args:
+        location (str): Name of the city
+        time_of_day (str): Time of the day in HH:MM format.
+    """
+    return "YES"
+
+client = ai.Client()
+messages = [{
+    "role": "user",
+    "content": "I live in San Francisco. Can you check for weather "
+               "and plan an outdoor picnic for me at 2pm?"
+}]
+
+# Automatic tool execution with max_turns
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=messages,
+    tools=[will_it_rain],
+    max_turns=2  # Maximum number of back-and-forth tool calls
+)
+print(response.choices[0].message.content)
+```
+
+When `max_turns` is specified, `aisuite` will:
+1. Send your message to the LLM
+2. Execute any tool calls the LLM requests
+3. Send the tool results back to the LLM
+4. Repeat until the conversation is complete or max_turns is reached
+
+In addition to `response.choices[0].message`, there is an additional field `response.choices[0].intermediate_messages`: which contains the list of all messages including tool interactions used. This can be used to continue the conversation with the model.
+For more detailed examples of tool calling, check out the `examples/tool_calling_abstraction.ipynb` notebook.
+
+## License
+
+aisuite is released under the MIT License. You are free to use, modify, and distribute the code for both commercial and non-commercial purposes.
+
+## Contributing
+
+If you would like to contribute, please read our [Contributing Guide](https://github.com/andrewyng/aisuite/blob/main/CONTRIBUTING.md) and join our [Discord](https://discord.gg/T6Nvn8ExSb) server!

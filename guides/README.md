@@ -12,6 +12,7 @@ Here are the instructions for:
 - [OpenAI](openai.md)
 - [SambaNova](sambanova.md)
 - [xAI](xai.md)
+- [DeepSeek](deepseek.md)
 
 Unless otherwise stated, these guides have not been endorsed by the providers. 
 
