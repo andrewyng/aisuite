@@ -41,7 +41,7 @@ messages = [
 ]
 
 response = client.chat.completions.create(
-    model="cerebras:cerebras:llama3.1-8b",
+    model="cerebras:llama3.1-8b",
     messages=messages,
     temperature=0.75
 )
