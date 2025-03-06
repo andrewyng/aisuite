@@ -7,16 +7,29 @@ from aisuite.provider import LLMError, Provider
 class LmstudioProvider(Provider):
     def __init__(self, **config):
         self.client = lmstudio.Client(**config)
+        self.model: lmstudio.LLM | None = None
+
+    def _chat(self, model: str, messages, **kwargs) -> lmstudio.PredictionResult[str]:
+        """
+        Makes a request to the lmstudio chat completions endpoint using the official client
+        """
+        # get an handle of the specified model (load it if necessary)
+        model = self.client.llm.model(model)
+        # send the request to the model
+        result = model.respond({"messages": messages}, **kwargs)
+
+        return result
 
     def chat_completions_create(self, model, messages, **kwargs):
         """
-        Makes a request to the Cerebras chat completions endpoint using the official client.
+        Makes a request to the lmstudio chat completions endpoint using the official client
+        and convert output to be conform to openAI model response
         """
         try:
-            model = self.client.llm.model(model)
-            result = model.respond({"messages": messages})
+            # --- send request to lmstudio endpoint
+            result = self._chat(model=model, messages=messages, **kwargs)
 
-            # Return the normalized response
+            # --- Return the normalized response
             normalized_response = self._normalize_response(result)
             return normalized_response
 
