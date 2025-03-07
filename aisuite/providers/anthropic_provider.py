@@ -4,7 +4,7 @@
 
 import anthropic
 import json
-from aisuite.provider import Provider
+from aisuite.provider import Provider, AsyncProvider
 from aisuite.framework import ChatCompletionResponse
 from aisuite.framework.message import Message, ChatCompletionMessageToolCall, Function
 
@@ -209,6 +209,32 @@ class AnthropicProvider(Provider):
         system_message, converted_messages = self.converter.convert_request(messages)
 
         response = self.client.messages.create(
+            model=model, system=system_message, messages=converted_messages, **kwargs
+        )
+        return self.converter.convert_response(response)
+
+    def _prepare_kwargs(self, kwargs):
+        """Prepare kwargs for the API call."""
+        kwargs = kwargs.copy()
+        kwargs.setdefault("max_tokens", DEFAULT_MAX_TOKENS)
+
+        if "tools" in kwargs:
+            kwargs["tools"] = self.converter.convert_tool_spec(kwargs["tools"])
+
+        return kwargs
+
+class AnthropicAsyncProvider(AsyncProvider):
+    def __init__(self, **config):
+        """Initialize the Anthropic provider with the given configuration."""
+        self.async_client = anthropic.AsyncAnthropic(**config)
+        self.converter = AnthropicMessageConverter()
+
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        """Create a chat completion using the async Anthropic API."""
+        kwargs = self._prepare_kwargs(kwargs)
+        system_message, converted_messages = self.converter.convert_request(messages)
+
+        response = await self.async_client.messages.create(
             model=model, system=system_message, messages=converted_messages, **kwargs
         )
         return self.converter.convert_response(response)
