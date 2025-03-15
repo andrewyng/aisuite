@@ -1,3 +1,5 @@
+import dataclasses
+import datetime
 from typing import Callable, Dict, Any, Type, Optional
 from pydantic import BaseModel, create_model, Field, ValidationError
 import inspect
@@ -275,7 +277,7 @@ class Tools:
                     {
                         "role": "tool",
                         "name": tool_name,
-                        "content": json.dumps(result),
+                        "content": json.dumps(result, cls=DefaultJSONEncoder),
                         "tool_call_id": tool_call_id,
                     }
                 )
@@ -283,3 +285,29 @@ class Tools:
                 raise ValueError(f"Error in tool '{tool_name}' parameters: {e}")
 
         return results, messages
+
+
+class DefaultJSONEncoder(json.JSONEncoder):
+    """
+    Based on Flask https://flask.palletsprojects.com/en/stable/api/#flask.json.provider.DefaultJSONProvider
+    Provide JSON operations using Python’s built-in json library. Serializes the following additional data types:
+
+    dataclasses: by calling `asdict`
+    datetime.dateime: by calling `datetime.datetime.isoformat()`
+    Markup and other objects: by checking for a __html__ method to return a str. 
+    """
+    def default(self, obj: Any) -> Any:
+        # Handle dataclasses by converting them to dictionaries
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        
+        # Handle datetime objects by using isoformat
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        
+        # Check for __html__ method which is used by Markupsafe a ton of other libraries and call it
+        if hasattr(obj, "__html__") and callable(getattr(obj, "__html__")):
+            return obj.__html__()
+        
+        # Let the base class handle anything else
+        return super().default(obj)
