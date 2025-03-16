@@ -294,20 +294,21 @@ class DefaultJSONEncoder(json.JSONEncoder):
 
     dataclasses: by calling `asdict`
     datetime.dateime: by calling `datetime.datetime.isoformat()`
-    Markup and other objects: by checking for a __html__ method to return a str. 
+    Markup and other objects: by checking for a __html__ method to return a str.
     """
+
     def default(self, obj: Any) -> Any:
         # Handle dataclasses by converting them to dictionaries
         if dataclasses.is_dataclass(obj):
             return dataclasses.asdict(obj)
-        
+
         # Handle datetime objects by using isoformat
         if isinstance(obj, datetime.datetime):
             return obj.isoformat()
-        
+
         # Check for __html__ method which is used by Markupsafe a ton of other libraries and call it
         if hasattr(obj, "__html__") and callable(getattr(obj, "__html__")):
             return obj.__html__()
-        
+
         # Let the base class handle anything else
         return super().default(obj)
