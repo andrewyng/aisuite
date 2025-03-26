@@ -89,4 +89,45 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
+## Safety Settings
+
+```python
+from aisuite import Client
+
+client = Client({
+    "google":{
+        "project_id": "project-id",
+        "region": "us-central1",
+    }
+})
+
+model = "google:gemini-2.0-flash-001"
+
+messages = [{
+    "role": "user",
+    "content": "I shouldn't use a public swimming pool"}]
+
+from vertexai.generative_models import (
+    HarmCategory,
+    HarmBlockThreshold,
+    SafetySetting,
+)
+
+safety_config = [
+    SafetySetting(
+        category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold=HarmBlockThreshold.BLOCK_NONE,
+    ),
+    SafetySetting(
+        category=HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold=HarmBlockThreshold.BLOCK_NONE,
+    ),
+]
+
+response = client.chat.completions.create( safety_settings=safety_config,
+    model=model, messages=messages)
+print(response.choices[0].message.content)
+
+```
+
 Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).
