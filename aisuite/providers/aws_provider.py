@@ -16,9 +16,21 @@ class BedrockConfig:
         self.region_name = config.get(
             "region_name", os.getenv("AWS_REGION", "us-west-2")
         )
+        self.aws_access_key_id = config.get(
+            "aws_access_key_id", os.getenv("AWS_ACCESS_KEY_ID", "")
+        )
+        self.aws_secret_access_key = config.get(
+            "aws_secret_access_key", os.getenv("AWS_SECRET_ACCESS_KEY", "")
+        )
 
     def create_client(self):
-        return boto3.client("bedrock-runtime", region_name=self.region_name)
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html
+        return boto3.client(
+            "bedrock-runtime",
+            region_name=self.region_name,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        )
 
 
 # AWS Bedrock API Example -
