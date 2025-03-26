@@ -1,12 +1,18 @@
-# Anthropic provider
-# Links:
-# Tool calling docs - https://docs.anthropic.com/en/docs/build-with-claude/tool-use
+# aisuite/providers/anthropic_provider.py
 
 import anthropic
 import json
+
 from aisuite.provider import Provider
 from aisuite.framework import ChatCompletionResponse
 from aisuite.framework.message import Message, ChatCompletionMessageToolCall, Function
+
+# Import our new streaming response classes:
+from aisuite.framework.chat_completion_stream_response import (
+    ChatCompletionStreamResponse,
+    ChatCompletionStreamResponseChoice,
+    ChatCompletionStreamResponseDelta,
+)
 
 # Define a constant for the default max_tokens value
 DEFAULT_MAX_TOKENS = 4096
@@ -33,7 +39,7 @@ class AnthropicMessageConverter:
         return system_message, converted_messages
 
     def convert_response(self, response):
-        """Normalize the response from the Anthropic API to match OpenAI's response format."""
+        """Normalize a non-streaming response from the Anthropic API to match OpenAI's response format."""
         normalized_response = ChatCompletionResponse()
         normalized_response.choices[0].finish_reason = self._get_finish_reason(response)
         normalized_response.usage = self._get_usage_stats(response)
@@ -57,7 +63,7 @@ class AnthropicMessageConverter:
         return {"role": msg["role"], "content": msg["content"]}
 
     def _convert_message_object(self, msg):
-        """Convert a Message object to Anthropic format."""
+        """Convert a `Message` object to Anthropic format."""
         if msg.role == self.ROLE_TOOL:
             return self._create_tool_result_message(msg.tool_call_id, msg.content)
         elif msg.role == self.ROLE_ASSISTANT and msg.tool_calls:
@@ -107,22 +113,23 @@ class AnthropicMessageConverter:
         return {"role": self.ROLE_ASSISTANT, "content": message_content}
 
     def _extract_system_message(self, messages):
-        """Extract system message if present, otherwise return empty list."""
-        # TODO: This is a temporary solution to extract the system message.
-        # User can pass multiple system messages, which can mingled with other messages.
-        # This needs to be fixed to handle this case.
+        """
+        Extract system message if present, otherwise return empty string.
+        If there are multiple system messages, or the system message is not the first,
+        you may need to adapt this approach.
+        """
         if messages and messages[0]["role"] == "system":
             system_message = messages[0]["content"]
             messages.pop(0)
             return system_message
-        return []
+        return ""
 
     def _get_finish_reason(self, response):
         """Get the normalized finish reason."""
         return self.FINISH_REASON_MAPPING.get(response.stop_reason, "stop")
 
     def _get_usage_stats(self, response):
-        """Get the usage statistics."""
+        """Get the usage statistics from Anthropic response."""
         return {
             "prompt_tokens": response.usage.input_tokens,
             "completion_tokens": response.usage.output_tokens,
@@ -135,9 +142,8 @@ class AnthropicMessageConverter:
             tool_message = self.convert_response_with_tool_use(response)
             if tool_message:
                 return tool_message
-
         return Message(
-            content=response.content[0].text,
+            content=response.content[0].text if response.content else "",
             role="assistant",
             tool_calls=None,
             refusal=None,
@@ -146,26 +152,22 @@ class AnthropicMessageConverter:
     def convert_response_with_tool_use(self, response):
         """Convert Anthropic tool use response to the framework's format."""
         tool_call = next(
-            (content for content in response.content if content.type == "tool_use"),
+            (c for c in response.content if c.type == "tool_use"),
             None,
         )
-
         if tool_call:
             function = Function(
-                name=tool_call.name, arguments=json.dumps(tool_call.input)
+                name=tool_call.name,
+                arguments=json.dumps(tool_call.input),
             )
             tool_call_obj = ChatCompletionMessageToolCall(
-                id=tool_call.id, function=function, type="function"
+                id=tool_call.id,
+                function=function,
+                type="function",
             )
             text_content = next(
-                (
-                    content.text
-                    for content in response.content
-                    if content.type == "text"
-                ),
-                "",
+                (c.text for c in response.content if c.type == "text"), ""
             )
-
             return Message(
                 content=text_content or None,
                 tool_calls=[tool_call_obj] if tool_call else None,
@@ -177,11 +179,9 @@ class AnthropicMessageConverter:
     def convert_tool_spec(self, openai_tools):
         """Convert OpenAI tool specification to Anthropic format."""
         anthropic_tools = []
-
         for tool in openai_tools:
             if tool.get("type") != "function":
                 continue
-
             function = tool["function"]
             anthropic_tool = {
                 "name": function["name"],
@@ -193,7 +193,6 @@ class AnthropicMessageConverter:
                 },
             }
             anthropic_tools.append(anthropic_tool)
-
         return anthropic_tools
 
 
@@ -204,17 +203,70 @@ class AnthropicProvider(Provider):
         self.converter = AnthropicMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
-        """Create a chat completion using the Anthropic API."""
+        """
+        Create a chat completion using the Anthropic API.
+        
+        If 'stream=True' is passed, return a generator that yields
+        `ChatCompletionStreamResponse` objects shaped like OpenAI's streaming chunks.
+        """
+        stream = kwargs.pop("stream", False)
+
+        if not stream:
+            # Non-streaming call
+            kwargs = self._prepare_kwargs(kwargs)
+            system_message, converted_messages = self.converter.convert_request(messages)
+            response = self.client.messages.create(
+                model=model,
+                system=system_message,
+                messages=converted_messages,
+                **kwargs
+            )
+            return self.converter.convert_response(response)
+        else:
+            # Streaming call
+            return self._streaming_chat_completions_create(model, messages, **kwargs)
+
+    def _streaming_chat_completions_create(self, model, messages, **kwargs):
+        """
+        Generator that yields chunk objects in the shape:
+            chunk.choices[0].delta.content
+        """
         kwargs = self._prepare_kwargs(kwargs)
         system_message, converted_messages = self.converter.convert_request(messages)
+        first_chunk = True
 
-        response = self.client.messages.create(
-            model=model, system=system_message, messages=converted_messages, **kwargs
-        )
-        return self.converter.convert_response(response)
+        with self.client.messages.stream(
+            model=model,
+            system=system_message,
+            messages=converted_messages,
+            **kwargs
+        ) as stream_resp:
+
+            for partial_text in stream_resp.text_stream:
+                # For the first token, include `role='assistant'`.
+                if first_chunk:
+                    chunk = ChatCompletionStreamResponse(choices=[
+                        ChatCompletionStreamResponseChoice(
+                            delta=ChatCompletionStreamResponseDelta(
+                                role="assistant",
+                                content=partial_text
+                            )
+                        )
+                    ])
+                    first_chunk = False
+                else:
+                    chunk = ChatCompletionStreamResponse(choices=[
+                        ChatCompletionStreamResponseChoice(
+                            delta=ChatCompletionStreamResponseDelta(
+                                content=partial_text
+                            )
+                        )
+                    ])
+
+                yield chunk
 
     def _prepare_kwargs(self, kwargs):
-        """Prepare kwargs for the API call."""
+        """Prepare kwargs for the Anthropic API call."""
         kwargs = kwargs.copy()
         kwargs.setdefault("max_tokens", DEFAULT_MAX_TOKENS)
 
@@ -222,3 +274,7 @@ class AnthropicProvider(Provider):
             kwargs["tools"] = self.converter.convert_tool_spec(kwargs["tools"])
 
         return kwargs
+
+
+
+
