@@ -36,6 +36,9 @@ def provider_configs():
         "nebius": {
             "api_key": "nebius-api-key",
         },
+        "inception": {
+            "api_key": "inception-api-key",
+        },
     }
 
 
@@ -86,6 +89,11 @@ def provider_configs():
             "aisuite.providers.nebius_provider.NebiusProvider.chat_completions_create",
             "nebius",
             "nebius-model",
+        ),
+        (
+            "aisuite.providers.inception_provider.InceptionProvider.chat_completions_create",
+            "inception",
+            "mercury-coder-small",
         ),
     ],
 )
