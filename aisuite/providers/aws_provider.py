@@ -27,7 +27,7 @@ class BedrockConfig:
 class BedrockMessageConverter:
     @staticmethod
     def convert_request(
-        messages: List[Dict[str, Any]]
+        messages: List[Dict[str, Any]],
     ) -> Tuple[List[Dict], List[Dict]]:
         """Convert messages to AWS Bedrock format."""
         # Convert all messages to dicts if they're Message objects
@@ -68,7 +68,7 @@ class BedrockMessageConverter:
 
     @staticmethod
     def convert_response_tool_call(
-        response: Dict[str, Any]
+        response: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Convert AWS Bedrock tool call response to OpenAI format."""
         if response.get("stopReason") != "tool_use":
