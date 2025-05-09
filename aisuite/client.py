@@ -1,9 +1,11 @@
 from .provider import ProviderFactory
+from .base_client import BaseClient
 import os
 from .utils.tools import Tools
+from .tool_runner import ToolRunner
 
 
-class Client:
+class Client(BaseClient):
     def __init__(self, provider_configs: dict = {}):
         """
         Initialize the client with provider configurations.
@@ -23,42 +25,10 @@ class Client:
                     }
                 }
         """
-        self.providers = {}
-        self.provider_configs = provider_configs
-        self._chat = None
-        self._initialize_providers()
-
-    def _initialize_providers(self):
-        """Helper method to initialize or update providers."""
-        for provider_key, config in self.provider_configs.items():
-            provider_key = self._validate_provider_key(provider_key)
-            self.providers[provider_key] = ProviderFactory.create_provider(
-                provider_key, config
-            )
-
-    def _validate_provider_key(self, provider_key):
-        """
-        Validate if the provider key corresponds to a supported provider.
-        """
-        supported_providers = ProviderFactory.get_supported_providers()
-
-        if provider_key not in supported_providers:
-            raise ValueError(
-                f"Invalid provider key '{provider_key}'. Supported providers: {supported_providers}. "
-                "Make sure the model string is formatted correctly as 'provider:model'."
-            )
-
-        return provider_key
+        super().__init__(provider_configs, is_async=False)
 
     def configure(self, provider_configs: dict = None):
-        """
-        Configure the client with provider configurations.
-        """
-        if provider_configs is None:
-            return
-
-        self.provider_configs.update(provider_configs)
-        self._initialize_providers()  # NOTE: This will override existing provider instances.
+        super().configure(provider_configs, False)
 
     @property
     def chat(self):
@@ -111,88 +81,6 @@ class Completions:
 
         return response
 
-    def _tool_runner(
-        self,
-        provider,
-        model_name: str,
-        messages: list,
-        tools: any,
-        max_turns: int,
-        **kwargs,
-    ):
-        """
-        Handle tool execution loop for max_turns iterations.
-
-        Args:
-            provider: The provider instance to use for completions
-            model_name: Name of the model to use
-            messages: List of conversation messages
-            tools: Tools instance or list of callable tools
-            max_turns: Maximum number of tool execution turns
-            **kwargs: Additional arguments to pass to the provider
-
-        Returns:
-            The final response from the model with intermediate responses and messages
-        """
-        # Handle tools validation and conversion
-        if isinstance(tools, Tools):
-            tools_instance = tools
-            kwargs["tools"] = tools_instance.tools()
-        else:
-            # Check if passed tools are callable
-            if not all(callable(tool) for tool in tools):
-                raise ValueError("One or more tools is not callable")
-            tools_instance = Tools(tools)
-            kwargs["tools"] = tools_instance.tools()
-
-        turns = 0
-        intermediate_responses = []  # Store intermediate responses
-        intermediate_messages = []  # Store all messages including tool interactions
-
-        while turns < max_turns:
-            # Make the API call
-            response = provider.chat_completions_create(model_name, messages, **kwargs)
-            response = self._extract_thinking_content(response)
-
-            # Store intermediate response
-            intermediate_responses.append(response)
-
-            # Check if there are tool calls in the response
-            tool_calls = (
-                getattr(response.choices[0].message, "tool_calls", None)
-                if hasattr(response, "choices")
-                else None
-            )
-
-            # Store the model's message
-            intermediate_messages.append(response.choices[0].message)
-
-            if not tool_calls:
-                # Set the intermediate data in the final response
-                response.intermediate_responses = intermediate_responses[
-                    :-1
-                ]  # Exclude final response
-                response.choices[0].intermediate_messages = intermediate_messages
-                return response
-
-            # Execute tools and get results
-            results, tool_messages = tools_instance.execute_tool(tool_calls)
-
-            # Add tool messages to intermediate messages
-            intermediate_messages.extend(tool_messages)
-
-            # Add the assistant's response and tool results to messages
-            messages.extend([response.choices[0].message, *tool_messages])
-
-            turns += 1
-
-        # Set the intermediate data in the final response
-        response.intermediate_responses = intermediate_responses[
-            :-1
-        ]  # Exclude final response
-        response.choices[0].intermediate_messages = intermediate_messages
-        return response
-
     def create(self, model: str, messages: list, **kwargs):
         """
         Create chat completion based on the model, messages, and any extra arguments.
@@ -229,10 +117,12 @@ class Completions:
         # Extract tool-related parameters
         max_turns = kwargs.pop("max_turns", None)
         tools = kwargs.get("tools", None)
+        automatic_tool_calling = kwargs.get("automatic_tool_calling", False)
 
         # Check environment variable before allowing multi-turn tool execution
         if max_turns is not None and tools is not None:
-            return self._tool_runner(
+            tool_runner = ToolRunner(provider, model_name, messages.copy(), tools, max_turns, automatic_tool_calling)
+            return tool_runner.run(
                 provider,
                 model_name,
                 messages.copy(),

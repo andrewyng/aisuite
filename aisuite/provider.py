@@ -18,6 +18,12 @@ class Provider(ABC):
         """Abstract method for chat completion calls, to be implemented by each provider."""
         pass
 
+class AsyncProvider(ABC):
+    @abstractmethod
+    async def chat_completions_create_async(self, model, messages, **kwargs):
+        """Method for async chat completion calls, to be implemented by each provider."""
+        raise NotImplementedError("Async chat completion calls are not implemented for this provider.")
+
 
 class ProviderFactory:
     """Factory to dynamically load provider instances based on naming conventions."""
@@ -25,10 +31,11 @@ class ProviderFactory:
     PROVIDERS_DIR = Path(__file__).parent / "providers"
 
     @classmethod
-    def create_provider(cls, provider_key, config):
+    def create_provider(cls, provider_key, config, is_async=False):
         """Dynamically load and create an instance of a provider based on the naming convention."""
         # Convert provider_key to the expected module and class names
-        provider_class_name = f"{provider_key.capitalize()}Provider"
+        async_suffix = "Async" if is_async else ""
+        provider_class_name = f"{provider_key.capitalize()}{async_suffix}Provider"
         provider_module_name = f"{provider_key}_provider"
 
         module_path = f"aisuite.providers.{provider_module_name}"
