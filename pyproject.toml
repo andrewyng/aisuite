@@ -54,6 +54,7 @@ datasets = "^2.20.0"
 vertexai = "^1.63.0"
 ibm-watsonx-ai = "^1.1.16"
 cerebras_cloud_sdk = "^1.19.0"
+pytest = "^8.3.5"
 
 [tool.poetry.group.test]
 optional = true
