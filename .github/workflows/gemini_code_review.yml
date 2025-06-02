@@ -1,0 +1,225 @@
+name: Gemini Code Review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  code_review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Base and Head SHAs
+        id: get_shas
+        run: |
+          # Get the base SHA (where the branch was forked from)
+          BASE_SHA=$(git merge-base origin/${{ github.base_ref }} HEAD)
+          # Get the head SHA (the latest commit on the PR branch)
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "BASE_SHA=$BASE_SHA" >> $GITHUB_OUTPUT
+          echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_OUTPUT
+          echo "Base SHA: $BASE_SHA"
+          echo "Head SHA: $HEAD_SHA"
+      - name: Configure Git for Diff
+        run: |
+          git config --global core.quotepath false
+          git config --global diff.renameLimit 999999
+      - name: Get Diff Content (Attempt 1: Full Diff with Size Limit)
+        id: get_diff_full
+        run: |
+          MAX_DIFF_BYTES=512000 # 500 KB
+          DIFF_FILE="pr_diff_full.patch"
+          git diff --full-index --binary --no-prefix "${{ steps.get_shas.outputs.BASE_SHA }}" "${{ steps.get_shas.outputs.HEAD_SHA }}" > "$DIFF_FILE"
+          DIFF_SIZE=$(stat -c%s "$DIFF_FILE")
+          echo "Full diff size: $DIFF_SIZE bytes"
+          if (( DIFF_SIZE > MAX_DIFF_BYTES )); then
+            echo "::warning ::Full diff size ($DIFF_SIZE bytes) exceeds limit ($MAX_DIFF_BYTES bytes)."
+            echo "diff_too_large=true" >> $GITHUB_OUTPUT
+            echo "diff_content_path=" >> $GITHUB_OUTPUT
+          else
+            echo "diff_too_large=false" >> $GITHUB_OUTPUT
+            echo "diff_content_path=$DIFF_FILE" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Get Diff Content (Attempt 2: If Full Diff Too Large)
+        id: get_diff_lines
+        if: steps.get_diff_full.outputs.diff_too_large == 'true'
+        run: |
+          DIFF_FILE="pr_diff_lines.patch"
+          git diff --unified=0 --no-prefix "${{ steps.get_shas.outputs.BASE_SHA }}" "${{ steps.get_shas.outputs.HEAD_SHA }}" > "$DIFF_FILE"
+          MAX_LINES_DIFF_BYTES=$((200 * 1024)) # 200 KB
+          DIFF_SIZE=$(stat -c%s "$DIFF_FILE")
+          echo "Lines-only diff size: $DIFF_SIZE bytes"
+          if (( DIFF_SIZE > MAX_LINES_DIFF_BYTES )); then
+            echo "::warning ::Lines-only diff size ($DIFF_SIZE bytes) exceeds limit ($MAX_LINES_DIFF_BYTES bytes)."
+            echo "diff_content_path=" >> $GITHUB_OUTPUT
+            echo "final_diff_strategy=no_diff" >> $GITHUB_OUTPUT
+          else
+            echo "diff_content_path=$DIFF_FILE" >> $GITHUB_OUTPUT
+            echo "final_diff_strategy=lines_only" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Set Final Diff Output
+        id: final_diff
+        run: |
+          if [[ -n "${{ steps.get_diff_full.outputs.diff_content_path }}" ]]; then
+            echo "diff_content_path=${{ steps.get_diff_full.outputs.diff_content_path }}" >> $GITHUB_OUTPUT
+            echo "diff_strategy=full" >> $GITHUB_OUTPUT
+          elif [[ -n "${{ steps.get_diff_lines.outputs.diff_content_path }}" ]]; then
+            echo "diff_content_path=${{ steps.get_diff_lines.outputs.diff_content_path }}" >> $GITHUB_OUTPUT
+            echo "diff_strategy=lines_only" >> $GITHUB_OUTPUT
+          else
+            echo "diff_content_path=" >> $GITHUB_OUTPUT
+            echo "diff_strategy=no_diff" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Read Diff Content (if available)
+        id: read_diff
+        if: steps.final_diff.outputs.diff_content_path != ''
+        run: |
+          DIFF_CONTENT=$(cat "${{ steps.final_diff.outputs.diff_content_path }}")
+          DELIMITER=$(uuidgen)
+          echo "diff_content<<EOF_$DELIMITER" >> $GITHUB_OUTPUT
+          echo "$DIFF_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF_$DELIMITER" >> $GITHUB_OUTPUT
+          echo "::notice ::Diff content successfully loaded (${{ steps.final_diff.outputs.diff_strategy }} strategy)."
+        shell: bash
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Dependencies
+        run: |
+          pip install google-generativeai colorama
+      - name: Call Gemini API for Review and Suggestions
+        id: gemini_review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -c "
+          from colorama import init, Fore, Style
+          import google.generativeai as genai
+          import json
+          import os # Added import os
+          init()
+          print(Fore.CYAN + '# Summoning Gemini 2.5 Flash for code review...' + Style.RESET_ALL)
+
+          # Configure Gemini API
+          genai.configure(api_key='$GEMINI_API_KEY')
+          model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
+
+          # Prepare prompt
+          diff_strategy = '${{ steps.final_diff.outputs.diff_strategy }}'
+          diff_content = '''${{ steps.read_diff.outputs.diff_content }}'''
+          project_context = ''
+          if os.path.exists('.gemini_project_context.md'):
+              with open('.gemini_project_context.md', 'r') as f:
+                  project_context = f.read()
+
+          if diff_strategy == 'full':
+              prompt = (f'Review the following Git diff for bugs, security issues, performance problems, and best practices. '
+                        f'Provide actionable suggestions as GitHub suggested changes (```suggestion blocks). '
+                        f'Explain reasoning for each suggestion. Focus on the changes introduced.
+
+'
+                        f'Project Context:\n{project_context}\n\n\`\`\`diff\n{diff_content}\n\`\`\`')
+          elif diff_strategy == 'lines_only':
+              prompt = (f'The full diff was too large. Review the changed lines for bugs, security issues, performance problems, '
+                        f'and best practices. Provide actionable suggestions as GitHub suggested changes (```suggestion blocks). '
+                        f'Infer context where needed.
+
+Project Context:\n{project_context}\n\n\`\`\`diff\n{diff_content}\n\`\`\`')
+          else:
+              prompt = (f'The diff was too large to include. Review the pull request changes for overall code quality, bugs, '
+                        f'security vulnerabilities, and best practices. Provide general feedback and high-level suggestions '
+                        f'as GitHub suggested changes where possible.
+
+Project Context:\n{project_context}')
+
+          print(Fore.BLUE + '# Channeling the prompt to Gemini...' + Style.RESET_ALL)
+          response = model.generate_content(
+              prompt,
+              generation_config={'thinking_config': {'thinking_budget': 1024, 'include_thoughts': True}}
+          )
+
+          review_output = ''
+          for part in response.candidates[0].content.parts:
+              if part.thought:
+                  print(Fore.YELLOW + 'Thought summary: ' + part.text + Style.RESET_ALL)
+                  review_output += f'### Thought Summary\n{part.text}\n\n'
+              else:
+                  print(Fore.GREEN + 'Review output: ' + part.text + Style.RESET_ALL)
+                  review_output += part.text
+
+          print(Fore.MAGENTA + '# Incantation complete.' + Style.RESET_ALL)
+
+          # Output review results
+          with open('review_output.json', 'w') as f:
+              json.dump({'review_output': review_output}, f)
+          "
+          # Store review output
+          DELIMITER=$(uuidgen)
+          echo "review_output<<EOF_$DELIMITER" >> $GITHUB_OUTPUT
+          cat review_output.json | jq -r '.review_output' >> $GITHUB_OUTPUT
+          echo "EOF_$DELIMITER" >> $GITHUB_OUTPUT
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name 'Gemini Code Review Bot'
+          git config --global user.email 'gemini-bot@users.noreply.github.com'
+
+      - name: Commit Changes
+        id: commit_changes
+        run: |
+          # Check if there are any changes to commit
+          if ! git diff --quiet && ! git diff --staged --quiet; then
+            git add .
+            git commit -m "Apply Gemini suggestions" -m "Automated commit by Gemini Code Review workflow."
+            echo "changes_committed=true" >> $GITHUB_OUTPUT
+            echo "::notice ::Changes committed."
+          else
+            echo "changes_committed=false" >> $GITHUB_OUTPUT
+            echo "::notice ::No changes to commit."
+          fi
+        shell: bash
+
+      - name: Push Changes
+        if: steps.commit_changes.outputs.changes_committed == 'true'
+        run: |
+          git push origin HEAD:${{ github.head_ref }}
+          echo "::notice ::Changes pushed to branch ${{ github.head_ref }}."
+        shell: bash
+
+      - name: Comment on Pull Request
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const reviewOutput = process.env.GEMINI_REVIEW_OUTPUT;
+            const prNumber = context.payload.pull_request.number;
+            if (!prNumber) {
+              console.log("Not a pull request event. Skipping PR comment.");
+              return;
+            }
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: reviewOutput
+            });
+          env:
+            GEMINI_REVIEW_OUTPUT: ${{ steps.gemini_review.outputs.review_output }}
