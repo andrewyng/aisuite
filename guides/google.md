@@ -74,7 +74,7 @@ In your code:
 import aisuite as ai
 client = ai.Client()
 
-model="vertex:gemini-1.5-pro-001"
+model="google:gemini-1.5-pro-001"
 
 messages = [
     {"role": "system", "content": "Respond in Pirate English."},

@@ -4,9 +4,13 @@ __pycache__/
 env/
 .env
 .google-adc
+*.whl
 
 # Testing
 .coverage
 
 # pyenv
 .python-version
+
+.DS_Store
+**/.DS_Store
