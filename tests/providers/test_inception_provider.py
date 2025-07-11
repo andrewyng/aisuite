@@ -16,7 +16,7 @@ def test_inception_provider():
 
     user_greeting = "Hello!"
     message_history = [{"role": "user", "content": user_greeting}]
-    selected_model = "mercury-coder-small"
+    selected_model = "mercury"
     chosen_temperature = 0
     response_text_content = "mocked-text-response-from-model"
 

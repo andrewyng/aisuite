@@ -23,7 +23,7 @@ def get_test_models() -> List[str]:
         "mistral:open-mistral-7b",
         "openai:gpt-3.5-turbo",
         "cohere:command-r-plus-08-2024",
-        "inception:mercury-coder-small",
+        "inception:mercury",
     ]
 
 

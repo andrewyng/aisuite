@@ -93,7 +93,7 @@ def provider_configs():
         (
             "aisuite.providers.inception_provider.InceptionProvider.chat_completions_create",
             "inception",
-            "mercury-coder-small",
+            "mercury",
         ),
     ],
 )
