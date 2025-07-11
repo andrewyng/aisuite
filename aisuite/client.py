@@ -17,9 +17,9 @@ class Client:
                 {
                     "openai": {"api_key": "your_openai_api_key"},
                     "aws-bedrock": {
-                        "aws_access_key": "your_aws_access_key",
-                        "aws_secret_key": "your_aws_secret_key",
-                        "aws_region": "us-west-2"
+                        "aws_access_key_id": "your_aws_access_key",
+                        "aws_secret_access_key": "your_aws_secret_key",
+                        "region_name": "us-west-2"
                     }
                 }
         """
