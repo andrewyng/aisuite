@@ -15,6 +15,7 @@ Currently supported providers are:
 - Google
 - Groq
 - HuggingFace Ollama
+- LMStudio
 - Mistral
 - OpenAI
 - Sambanova
