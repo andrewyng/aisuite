@@ -1,5 +1,5 @@
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
+  role: "system" | "user" | "assistant" | "tool";
   content: string | null;
   name?: string;
   tool_call_id?: string;
@@ -7,7 +7,7 @@ export interface ChatMessage {
 }
 
 export interface ChatCompletionRequest {
-  model: string;                      // "provider:model" format
+  model: string; // "provider:model" format
   messages: ChatMessage[];
   tools?: Tool[];
   tool_choice?: ToolChoice;
@@ -23,7 +23,7 @@ export interface ChatCompletionRequest {
 
 export interface ChatCompletionResponse {
   id: string;
-  object: 'chat.completion';
+  object: "chat.completion";
   created: number;
   model: string;
   choices: ChatChoice[];
@@ -33,13 +33,13 @@ export interface ChatCompletionResponse {
 
 export interface ChatCompletionChunk {
   id: string;
-  object: 'chat.completion.chunk';
+  object: "chat.completion.chunk";
   created: number;
   model: string;
   choices: Array<{
     index: number;
     delta: {
-      role?: 'assistant';
+      role?: "assistant";
       content?: string;
       tool_calls?: ToolCall[];
     };
@@ -61,4 +61,4 @@ export interface Usage {
 }
 
 // Import tool types from tools.ts
-import { Tool, ToolCall, ToolChoice } from './tools';
+import { Tool, ToolCall, ToolChoice } from "./tools";

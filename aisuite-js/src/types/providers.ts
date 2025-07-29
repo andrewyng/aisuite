@@ -1,6 +1,8 @@
 export interface ProviderConfigs {
   openai?: OpenAIConfig;
   anthropic?: AnthropicConfig;
+  mistral?: MistralConfig;
+  groq?: GroqConfig;
 }
 
 export interface OpenAIConfig {
@@ -10,6 +12,16 @@ export interface OpenAIConfig {
 }
 
 export interface AnthropicConfig {
+  apiKey: string;
+  baseURL?: string;
+}
+
+export interface MistralConfig {
+  apiKey: string;
+  baseURL?: string;
+}
+
+export interface GroqConfig {
   apiKey: string;
   baseURL?: string;
 }
