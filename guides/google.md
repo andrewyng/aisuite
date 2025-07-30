@@ -22,7 +22,7 @@ Set the `GOOGLE_PROJECT_ID` environment variable to the ID of your project. You 
 
 ### Set your preferred region in an environment variable.
 
-Set the `GOOGLE_REGION` environment variable to the ID of your project. You can find the Project ID by visiting the project dashboard in the "Project Info" section toward the top of the page.
+Set the `GOOGLE_REGION` environment variable. You can find the region by going to Project Dashboard under VertexAI side navigation menu, and then scrolling to the bottom of the page.
 
 ## Create a Service Account For API Access
 
@@ -74,7 +74,7 @@ In your code:
 import aisuite as ai
 client = ai.Client()
 
-model="vertex:gemini-1.5-pro-001"
+model="google:gemini-1.5-pro-001"
 
 messages = [
     {"role": "system", "content": "Respond in Pirate English."},
@@ -89,4 +89,4 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-Happy coding! If you would like to contribute, please read our [Contributing Guide](CONTRIBUTING.md).
+Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).

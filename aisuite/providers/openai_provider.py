@@ -1,6 +1,7 @@
 import openai
 import os
 from aisuite.provider import Provider, LLMError
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
 
 class OpenaiProvider(Provider):
@@ -22,12 +23,18 @@ class OpenaiProvider(Provider):
 
         # Pass the entire config to the OpenAI client constructor
         self.client = openai.OpenAI(**config)
+        self.transformer = OpenAICompliantMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
         # Any exception raised by OpenAI will be returned to the caller.
         # Maybe we should catch them and raise a custom LLMError.
-        return self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            **kwargs  # Pass any additional arguments to the OpenAI API
-        )
+        try:
+            transformed_messages = self.transformer.convert_request(messages)
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                **kwargs,  # Pass any additional arguments to the OpenAI API
+            )
+            return response
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")
