@@ -20,6 +20,7 @@ export class GroqProvider extends BaseProvider {
 
     this.client = new Groq({
       apiKey: config.apiKey,
+      dangerouslyAllowBrowser: config.dangerouslyAllowBrowser || false, // Allow browser usage for chat app
     });
     if (config.baseURL) {
       (this.client as any).baseURL = config.baseURL;
