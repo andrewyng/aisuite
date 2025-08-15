@@ -1,6 +1,7 @@
 from .provider import ProviderFactory
 import os
 from .utils.tools import Tools
+from typing import Union, BinaryIO
 
 
 class Client:
@@ -26,7 +27,7 @@ class Client:
         self.providers = {}
         self.provider_configs = provider_configs
         self._chat = None
-        self._initialize_providers()
+        self._audio = None
 
     def _initialize_providers(self):
         """Helper method to initialize or update providers."""
@@ -58,7 +59,7 @@ class Client:
             return
 
         self.provider_configs.update(provider_configs)
-        self._initialize_providers()  # NOTE: This will override existing provider instances.
+        # Providers will be lazily initialized when needed
 
     @property
     def chat(self):
@@ -66,6 +67,13 @@ class Client:
         if not self._chat:
             self._chat = Chat(self)
         return self._chat
+
+    @property
+    def audio(self):
+        """Return the audio API interface."""
+        if not self._audio:
+            self._audio = Audio(self)
+        return self._audio
 
 
 class Chat:
@@ -244,3 +252,72 @@ class Completions:
         # Delegate the chat completion to the correct provider's implementation
         response = provider.chat_completions_create(model_name, messages, **kwargs)
         return self._extract_thinking_content(response)
+
+
+class Audio:
+    """Audio API interface."""
+
+    def __init__(self, client: "Client"):
+        self.client = client
+        self._transcriptions = Transcriptions(self.client)
+
+    @property
+    def transcriptions(self):
+        """Return the transcriptions interface."""
+        return self._transcriptions
+
+
+class Transcriptions:
+    """Transcriptions API interface."""
+
+    def __init__(self, client: "Client"):
+        self.client = client
+
+    def create(self, *, model: str, file: Union[str, BinaryIO], **kwargs):
+        """
+        Create a transcription using the specified model and file.
+
+        Args:
+            model: Provider and model in format 'provider:model' (e.g., 'openai:whisper-1')
+            file: Audio file to transcribe (file path or file-like object)
+            **kwargs: Additional parameters to pass to the provider
+
+        Returns:
+            TranscriptionResult: Unified transcription result
+        """
+        # Check that correct format is used
+        if ":" not in model:
+            raise ValueError(
+                f"Invalid model format. Expected 'provider:model', got '{model}'"
+            )
+
+        # Extract the provider key from the model identifier
+        provider_key, model_name = model.split(":", 1)
+
+        # Validate if the provider is supported
+        supported_providers = ProviderFactory.get_supported_providers()
+        if provider_key not in supported_providers:
+            raise ValueError(
+                f"Invalid provider key '{provider_key}'. Supported providers: {supported_providers}. "
+                "Make sure the model string is formatted correctly as 'provider:model'."
+            )
+
+        # Initialize provider if not already initialized
+        if provider_key not in self.client.providers:
+            config = self.client.provider_configs.get(provider_key, {})
+            self.client.providers[provider_key] = ProviderFactory.create_provider(
+                provider_key, config
+            )
+
+        provider = self.client.providers.get(provider_key)
+        if not provider:
+            raise ValueError(f"Could not load provider for '{provider_key}'.")
+
+        # Delegate the transcription to the correct provider's implementation
+        # The provider will raise NotImplementedError if it doesn't support ASR
+        try:
+            return provider.audio_transcriptions_create(model_name, file, **kwargs)
+        except NotImplementedError:
+            raise ValueError(
+                f"Provider '{provider_key}' does not support audio transcription."
+            )

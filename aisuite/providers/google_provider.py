@@ -2,7 +2,7 @@
 
 import os
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union, BinaryIO
 
 import vertexai
 from vertexai.generative_models import (
@@ -16,6 +16,8 @@ from vertexai.generative_models import (
 import pprint
 
 from aisuite.framework import ProviderInterface, ChatCompletionResponse, Message
+from aisuite.framework.message import TranscriptionResult, Word, Segment, Alternative
+from aisuite.provider import ASRError
 
 
 DEFAULT_TEMPERATURE = 0.7
@@ -211,6 +213,9 @@ class GoogleProvider(ProviderInterface):
 
         self.transformer = GoogleMessageConverter()
 
+        # Initialize Speech client lazily
+        self._speech_client = None
+
     def chat_completions_create(self, model, messages, **kwargs):
         """Request chat completions from the Google AI API.
 
@@ -296,3 +301,113 @@ class GoogleProvider(ProviderInterface):
 
         # Convert and return the response
         return self.transformer.convert_response(response)
+
+    @property
+    def speech_client(self):
+        """Lazy initialization of Google Cloud Speech client."""
+        if self._speech_client is None:
+            try:
+                from google.cloud import speech
+
+                self._speech_client = speech.SpeechClient()
+            except ImportError:
+                raise ImportError(
+                    "google-cloud-speech is required for ASR functionality. "
+                    "Install it with: pip install google-cloud-speech"
+                )
+        return self._speech_client
+
+    def audio_transcriptions_create(
+        self, model: str, file: Union[str, BinaryIO], **kwargs
+    ) -> TranscriptionResult:
+        """Create audio transcription using Google Cloud Speech-to-Text API."""
+        try:
+            from google.cloud import speech
+
+            # Handle file input
+            if isinstance(file, str):
+                with open(file, "rb") as audio_file:
+                    audio_data = audio_file.read()
+            else:
+                audio_data = file.read()
+
+            # Create audio object
+            audio = speech.RecognitionAudio(content=audio_data)
+
+            # Configure recognition settings
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=kwargs.get("sample_rate_hertz", 16000),
+                language_code=kwargs.get("language", "en-US"),
+                enable_word_time_offsets=True,
+                enable_word_confidence=True,
+                enable_automatic_punctuation=kwargs.get("punctuate", True),
+                model=model if model != "default" else "latest_long",
+            )
+
+            # Make API request
+            response = self.speech_client.recognize(config=config, audio=audio)
+            return self._parse_google_response(response)
+
+        except ImportError:
+            raise ASRError(
+                "google-cloud-speech is required for ASR functionality. "
+                "Install it with: pip install google-cloud-speech"
+            )
+        except Exception as e:
+            raise ASRError(f"Google Speech-to-Text error: {e}")
+
+    def _parse_google_response(self, response) -> TranscriptionResult:
+        """Convert Google Speech-to-Text response to unified TranscriptionResult."""
+        if not response.results:
+            return TranscriptionResult(text="", language=None)
+
+        # Get the best result
+        best_result = response.results[0]
+        if not best_result.alternatives:
+            return TranscriptionResult(text="", language=None)
+
+        # Get the best alternative
+        best_alternative = best_result.alternatives[0]
+        text = best_alternative.transcript
+        confidence = getattr(best_alternative, "confidence", None)
+
+        # Parse words if available
+        words = []
+        if hasattr(best_alternative, "words") and best_alternative.words:
+            for word in best_alternative.words:
+                words.append(
+                    Word(
+                        word=word.word,
+                        start=(
+                            word.start_time.total_seconds()
+                            if hasattr(word, "start_time")
+                            else 0.0
+                        ),
+                        end=(
+                            word.end_time.total_seconds()
+                            if hasattr(word, "end_time")
+                            else 0.0
+                        ),
+                        confidence=getattr(word, "confidence", None),
+                    )
+                )
+
+        # Create alternatives list
+        alternatives = []
+        for alt in best_result.alternatives:
+            alternatives.append(
+                Alternative(
+                    transcript=alt.transcript,
+                    confidence=getattr(alt, "confidence", None),
+                )
+            )
+
+        return TranscriptionResult(
+            text=text,
+            language=None,  # Google doesn't return detected language in this format
+            confidence=confidence,
+            task="transcribe",
+            words=words if words else None,
+            alternatives=alternatives if alternatives else None,
+        )

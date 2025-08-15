@@ -3,10 +3,18 @@ from pathlib import Path
 import importlib
 import os
 import functools
+from typing import Union, BinaryIO
 
 
 class LLMError(Exception):
     """Custom exception for LLM errors."""
+
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class ASRError(Exception):
+    """Custom exception for ASR errors."""
 
     def __init__(self, message):
         super().__init__(message)
@@ -17,6 +25,17 @@ class Provider(ABC):
     def chat_completions_create(self, model, messages):
         """Abstract method for chat completion calls, to be implemented by each provider."""
         pass
+
+    def audio_transcriptions_create(
+        self, model: str, file: Union[str, BinaryIO], **kwargs
+    ):
+        """
+        Optional method for audio transcription calls.
+        Providers can implement this to support ASR functionality.
+        """
+        raise NotImplementedError(
+            f"Provider {self.__class__.__name__} does not support audio transcription."
+        )
 
 
 class ProviderFactory:

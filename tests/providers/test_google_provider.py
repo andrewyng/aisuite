@@ -1,8 +1,15 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from aisuite.providers.google_provider import GoogleProvider
-from vertexai.generative_models import Content, Part
+"""Tests for Google provider functionality (both chat and ASR)."""
+
+import io
 import json
+from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
+
+from aisuite.providers.google_provider import GoogleProvider
+from aisuite.provider import ASRError
+from aisuite.framework.message import TranscriptionResult
+from vertexai.generative_models import Content, Part
 
 
 @pytest.fixture(autouse=True)
@@ -11,6 +18,30 @@ def set_api_key_env_var(monkeypatch):
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "path-to-service-account-json")
     monkeypatch.setenv("GOOGLE_PROJECT_ID", "vertex-project-id")
     monkeypatch.setenv("GOOGLE_REGION", "us-central1")
+
+
+@pytest.fixture
+def mock_google_speech_response():
+    """Create a mock Google Speech-to-Text API response."""
+    mock_response = MagicMock()
+    mock_result = MagicMock()
+    mock_alternative = MagicMock()
+
+    mock_alternative.transcript = "Hello, this is a test transcription."
+    mock_alternative.confidence = 0.95
+
+    # Mock words
+    mock_word = MagicMock()
+    mock_word.word = "Hello"
+    mock_word.start_time.total_seconds.return_value = 0.0
+    mock_word.end_time.total_seconds.return_value = 0.5
+    mock_word.confidence = 0.98
+    mock_alternative.words = [mock_word]
+
+    mock_result.alternatives = [mock_alternative]
+    mock_response.results = [mock_result]
+
+    return mock_response
 
 
 def test_missing_env_vars():
@@ -148,3 +179,92 @@ def test_role_conversions():
 
     assert result[2].role == "model"  # assistant converted to model
     assert result[2].parts[0].text == "Assistant message"
+
+
+# NEW ASR TESTS - Added functionality
+class TestGoogleASR:
+    """Test suite for Google ASR functionality."""
+
+    def test_audio_transcriptions_create_success(self, mock_google_speech_response):
+        """Test successful audio transcription."""
+        google_provider = GoogleProvider()
+        mock_client = MagicMock()
+        mock_client.recognize.return_value = mock_google_speech_response
+        google_provider._speech_client = mock_client
+
+        with patch("builtins.open", mock_open(read_data=b"fake audio data")):
+            result = google_provider.audio_transcriptions_create(
+                model="latest_long", file="test_audio.wav"
+            )
+
+            assert isinstance(result, TranscriptionResult)
+            assert result.text == "Hello, this is a test transcription."
+            assert result.confidence == 0.95
+            assert result.task == "transcribe"
+
+    def test_audio_transcriptions_create_with_file_object(
+        self, mock_google_speech_response
+    ):
+        """Test audio transcription with file-like object."""
+        google_provider = GoogleProvider()
+        mock_client = MagicMock()
+        mock_client.recognize.return_value = mock_google_speech_response
+        google_provider._speech_client = mock_client
+
+        audio_data = io.BytesIO(b"fake audio data")
+
+        result = google_provider.audio_transcriptions_create(
+            model="latest_long", file=audio_data
+        )
+
+        assert isinstance(result, TranscriptionResult)
+        assert result.text == "Hello, this is a test transcription."
+
+    def test_audio_transcriptions_create_api_error(self):
+        """Test handling of Google Speech API errors."""
+        google_provider = GoogleProvider()
+        mock_client = MagicMock()
+        mock_client.recognize.side_effect = Exception("API Error")
+        google_provider._speech_client = mock_client
+
+        with patch("builtins.open", mock_open(read_data=b"fake audio data")):
+            with pytest.raises(
+                ASRError, match="Google Speech-to-Text error: API Error"
+            ):
+                google_provider.audio_transcriptions_create(
+                    model="latest_long", file="test_audio.wav"
+                )
+
+    def test_parse_google_response_complete(self, mock_google_speech_response):
+        """Test parsing complete Google response."""
+        google_provider = GoogleProvider()
+        result = google_provider._parse_google_response(mock_google_speech_response)
+
+        # Basic fields
+        assert result.text == "Hello, this is a test transcription."
+        assert result.confidence == 0.95
+        assert result.task == "transcribe"
+
+        # Words
+        assert len(result.words) == 1
+        word = result.words[0]
+        assert word.word == "Hello"
+        assert word.start == 0.0
+        assert word.end == 0.5
+        assert word.confidence == 0.98
+
+        # Alternatives
+        assert len(result.alternatives) == 1
+        assert (
+            result.alternatives[0].transcript == "Hello, this is a test transcription."
+        )
+
+    def test_parse_google_response_empty_results(self):
+        """Test parsing response with empty results."""
+        google_provider = GoogleProvider()
+        mock_response = MagicMock()
+        mock_response.results = []
+
+        result = google_provider._parse_google_response(mock_response)
+        assert result.text == ""
+        assert result.language is None

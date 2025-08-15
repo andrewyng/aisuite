@@ -86,3 +86,85 @@ class CompletionUsage(BaseModel):
 
     prompt_tokens_details: Optional[PromptTokensDetails] = None
     """Breakdown of tokens used in the prompt."""
+
+
+class Word(BaseModel):
+    """Represents a single word with timing information."""
+
+    word: str
+    start: float
+    end: float
+    confidence: Optional[float] = None  # Common across Deepgram, Azure, AWS
+    speaker: Optional[int] = None  # Speaker diarization (Deepgram, Azure, AWS)
+    speaker_confidence: Optional[float] = None  # Speaker identification confidence
+    punctuated_word: Optional[str] = None  # Word with punctuation (some providers)
+
+
+class Segment(BaseModel):
+    """Represents a segment of transcribed text with detailed information."""
+
+    id: int
+    seek: int
+    start: float
+    end: float
+    text: str
+    # OpenAI Whisper specific fields
+    tokens: Optional[List[int]] = None
+    temperature: Optional[float] = None
+    avg_logprob: Optional[float] = None
+    compression_ratio: Optional[float] = None
+    no_speech_prob: Optional[float] = None
+    # Common ASR provider fields
+    confidence: Optional[float] = None  # Segment-level confidence
+    speaker: Optional[int] = None  # Primary speaker for this segment
+    speaker_confidence: Optional[float] = None  # Speaker identification confidence
+    words: Optional[List[Word]] = None  # Words within this segment
+
+
+class Alternative(BaseModel):
+    """Represents an alternative transcription hypothesis (common in many ASR APIs)."""
+
+    transcript: str
+    confidence: Optional[float] = None
+    words: Optional[List[Word]] = None
+
+
+class Channel(BaseModel):
+    """Represents a single audio channel (for multi-channel audio)."""
+
+    alternatives: List[Alternative]
+    search: Optional[List[dict]] = None  # Search results if keyword search enabled
+
+
+class TranscriptionResult(BaseModel):
+    """
+    Unified transcription result format supporting multiple ASR providers.
+    Based on OpenAI Whisper API but extended for common ASR features.
+    """
+
+    # Core fields (supported by most providers)
+    text: str
+    language: Optional[str] = None
+    confidence: Optional[float] = None  # Overall transcription confidence
+
+    # OpenAI Whisper specific fields
+    task: Optional[str] = None  # "transcribe" or "translate"
+    duration: Optional[float] = None
+    segments: Optional[List[Segment]] = None
+    words: Optional[List[Word]] = None
+
+    # Multi-channel and alternatives support (Deepgram, Azure, etc.)
+    channels: Optional[List[Channel]] = None
+    alternatives: Optional[List[Alternative]] = None
+
+    # Advanced features (various providers)
+    utterances: Optional[List[dict]] = None  # Speaker utterances
+    paragraphs: Optional[List[dict]] = None  # Paragraph detection
+    topics: Optional[List[dict]] = None  # Topic detection
+    intents: Optional[List[dict]] = None  # Intent recognition
+    sentiment: Optional[dict] = None  # Sentiment analysis
+    summary: Optional[dict] = None  # Auto-summarization
+
+    # Metadata
+    metadata: Optional[dict] = None  # Provider-specific metadata
+    model_info: Optional[dict] = None  # Model information
