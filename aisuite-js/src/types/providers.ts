@@ -3,6 +3,7 @@ export interface ProviderConfigs {
   anthropic?: AnthropicConfig;
   mistral?: MistralConfig;
   groq?: GroqConfig;
+  deepgram?: DeepgramConfig;
 }
 
 export interface OpenAIConfig {
@@ -22,6 +23,11 @@ export interface MistralConfig {
 }
 
 export interface GroqConfig {
+  apiKey: string;
+  baseURL?: string;
+}
+
+export interface DeepgramConfig {
   apiKey: string;
   baseURL?: string;
 }
