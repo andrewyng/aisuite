@@ -16,7 +16,7 @@ export class DeepgramASRProvider extends BaseASRProvider {
 
   constructor(config: DeepgramConfig) {
     super();
-    
+
     // Use the new createClient API instead of the deprecated Deepgram constructor
     this.client = createClient({
       key: config.apiKey,
@@ -34,6 +34,7 @@ export class DeepgramASRProvider extends BaseASRProvider {
       "punctuate",
       "diarize",
       "utterances",
+      "temperature",
     ]);
 
     for (const [key, value] of Object.entries(params)) {
@@ -119,9 +120,11 @@ export class DeepgramASRProvider extends BaseASRProvider {
         deepgramOptions.timeout = options.timeout;
       }
 
+      // Deepgram SDK expects an object with buffer and mimetype for prerecorded files
+      const filePayload = { buffer: audioData, mimetype: "audio/wav" };
 
       const response = await this.client.listen.prerecorded.transcribeFile(
-        audioData,
+        filePayload,
         deepgramOptions
       );
 
