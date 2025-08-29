@@ -13,6 +13,7 @@ npm pacakge - `npm i aisuite`
 - **Streaming**: Real-time streaming responses with consistent API
 - **Type Safety**: Full TypeScript support with comprehensive type definitions
 - **Error Handling**: Unified error handling across providers
+- **Speech-to-Text**: Automatic Speech Recognition (ASR) support with multiple providers (OpenAI Whisper, Deepgram)
 
 ## Installation
 
@@ -26,8 +27,12 @@ npm install aisuite
 import { Client } from 'aisuite';
 
 const client = new Client({
-  openai: { apiKey: process.env.OPENAI_API_KEY },
+  openai: { 
+    apiKey: process.env.OPENAI_API_KEY,
+    audio: true  // Enable Whisper ASR support
+  },
   anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
+  deepgram: { apiKey: process.env.DEEPGRAM_API_KEY },
 });
 
 // Use any provider with identical interface
@@ -143,6 +148,42 @@ try {
 }
 ```
 
+### Speech-to-Text Transcription
+
+```typescript
+// Initialize client with audio support for OpenAI
+const client = new Client({
+  openai: { 
+    apiKey: process.env.OPENAI_API_KEY,
+    audio: true  // Required for Whisper ASR
+  },
+  deepgram: { apiKey: process.env.DEEPGRAM_API_KEY }
+});
+
+// Using Deepgram
+const deepgramResponse = await client.audio.transcriptions.create({
+  model: 'deepgram:nova-2',
+  file: audioBuffer,  // Buffer containing audio data
+  language: 'en-US',
+  timestamps: true,
+  word_confidence: true,
+  speaker_labels: true,
+});
+
+// Using OpenAI Whisper (requires audio: true in config)
+const openaiResponse = await client.audio.transcriptions.create({
+  model: 'openai:whisper-1',
+  file: audioBuffer,
+  language: 'en',
+  response_format: 'verbose_json',
+  temperature: 0,
+  timestamps: true,
+});
+
+console.log('Transcribed Text:', openaiResponse.text);
+console.log('Words with timestamps:', openaiResponse.words);
+```
+
 ### Error Handling
 
 ```typescript
@@ -174,8 +215,13 @@ const client = new Client({
     apiKey: string;
     baseURL?: string;
     organization?: string;
+    audio?: boolean;      // Enable Whisper ASR support
   },
   anthropic?: {
+    apiKey: string;
+    baseURL?: string;
+  },
+  deepgram?: {
     apiKey: string;
     baseURL?: string;
   }
@@ -199,21 +245,43 @@ interface ChatCompletionRequest {
 }
 ```
 
+### Transcription Request
+
+All ASR providers use a standard transcription request format:
+
+```typescript
+interface TranscriptionRequest {
+  model: string;              // "provider:model" format
+  file: Buffer;              // Audio file as Buffer
+  language?: string;         // Language code (e.g., "en", "en-US")
+  timestamps?: boolean;      // Include word-level timestamps
+  word_confidence?: boolean; // Include word-level confidence scores
+  speaker_labels?: boolean;  // Include speaker diarization
+  response_format?: string;  // Response format (provider-specific)
+  temperature?: number;      // Temperature for model output
+}
+```
+
 ### Helper Methods
 
 ```typescript
-// List configured providers
+// List all configured providers (including ASR)
 client.listProviders(); // ['openai', 'anthropic']
+client.listASRProviders(); // ['deepgram', 'openai']
 
 // Check if a provider is configured
 client.isProviderConfigured('openai'); // true
+client.isASRProviderConfigured('deepgram'); // true
 ```
 
 ## Current Limitations
 
-- Only OpenAI and Anthropic providers are currently supported (Gemini, Mistral, and Bedrock coming soon)
+- Only OpenAI and Anthropic providers are currently supported for chat (Gemini, Mistral, and Bedrock coming soon)
 - Tool calling requires handling tool responses manually
 - Streaming tool calls require manual accumulation of arguments
+- ASR support is limited to OpenAI Whisper (requires explicit audio configuration) and Deepgram
+- Some provider-specific ASR features might require using provider-specific parameters
+- OpenAI Whisper support requires additional `audio: true` configuration
 
 ## Development
 
