@@ -247,7 +247,7 @@ interface ChatCompletionRequest {
 
 ### Transcription Request
 
-All ASR providers use a standard transcription request format:
+All ASR providers use a standard transcription request format with additional provider-specific parameters:
 
 ```typescript
 interface TranscriptionRequest {
@@ -255,10 +255,9 @@ interface TranscriptionRequest {
   file: Buffer;              // Audio file as Buffer
   language?: string;         // Language code (e.g., "en", "en-US")
   timestamps?: boolean;      // Include word-level timestamps
-  word_confidence?: boolean; // Include word-level confidence scores
-  speaker_labels?: boolean;  // Include speaker diarization
-  response_format?: string;  // Response format (provider-specific)
-  temperature?: number;      // Temperature for model output
+  [key: string]: any;        // Additional provider-specific parameters:
+                            // For OpenAI: See https://platform.openai.com/docs/api-reference/audio/createTranscription
+                            // For Deepgram: See https://developers.deepgram.com/reference/speech-to-text-api/listen  
 }
 ```
 

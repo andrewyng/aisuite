@@ -19,21 +19,21 @@ describe("OpenAIASRProvider", () => {
         response_format: "json",
         temperature: 0.5,
         timestamps: true,
+        model: "whisper-1",
+        file: Buffer.from("test")
       };
 
-      expect(() => provider.validateParams("whisper-1", params)).not.toThrow();
+      expect(() => provider.validateParams(params)).not.toThrow();
     });
 
-    it("should log warning for unsupported parameters", () => {
-      const consoleSpy = jest.spyOn(console, "warn");
+    it("should validate required parameters", () => {
       const params = {
         unsupported_param: "value",
+        model: "whisper-1",
+        file: Buffer.from("test")
       };
 
-      provider.validateParams("whisper-1", params);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Parameter 'unsupported_param' may not be supported by OpenAI ASR"
-      );
+      expect(() => provider.validateParams(params)).not.toThrow();
     });
   });
 
@@ -45,26 +45,30 @@ describe("OpenAIASRProvider", () => {
         response_format: "json",
         temperature: 0.5,
         timestamps: true,
+        model: "whisper-1",
+        file: Buffer.from("test")
       };
 
-      const translated = provider.translateParams("whisper-1", params);
+      const translated = provider.translateParams(params);
       expect(translated).toEqual({
         language: "en",
         prompt: "test prompt",
         response_format: "json",
         temperature: 0.5,
-        timestamp_granularities: ["word"],
+        timestamps: true,
       });
     });
 
-    it("should include OpenAI-specific parameters", () => {
+    it("should retain other parameters", () => {
       const params = {
-        openai_custom_param: "value",
+        custom_param: "value",
+        model: "whisper-1",
+        file: Buffer.from("test")
       };
 
-      const translated = provider.translateParams("whisper-1", params);
+      const translated = provider.translateParams(params);
       expect(translated).toEqual({
-        custom_param: "value",
+        custom_param: "value"
       });
     });
   });

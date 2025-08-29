@@ -1,15 +1,10 @@
 import { TranscriptionRequest, TranscriptionResult } from "../../../types";
-import { OpenAIASRRequest, OpenAIASRResponse } from "./types";
+import { OpenAIASRResponse } from "./types";
 import { Uploadable } from "openai/uploads";
 
 export function adaptRequest(request: TranscriptionRequest): {
   file: Uploadable;
   model: string;
-  language?: string;
-  prompt?: string;
-  response_format?: "json" | "text" | "srt" | "verbose_json" | "vtt";
-  temperature?: number;
-  timestamp_granularities?: Array<"word" | "segment">;
 } {
   if (!(request.file instanceof Buffer)) {
     throw new Error("File must be provided as a Buffer");
@@ -21,13 +16,7 @@ export function adaptRequest(request: TranscriptionRequest): {
 
   return {
     file,
-    model: request.model.replace("openai:", ""),
-    language: request.language,
-    prompt: request.prompt,
-    response_format:
-      request.response_format as OpenAIASRRequest["response_format"],
-    temperature: request.temperature,
-    timestamp_granularities: request.timestamps ? ["word"] : undefined,
+    model: request.model,
   };
 }
 

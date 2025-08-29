@@ -1,42 +1,4 @@
-import {
-  TranscriptionRequest,
-  TranscriptionResult,
-  Word,
-  Segment,
-} from "../../types";
-
-export function adaptRequest(request: TranscriptionRequest): any {
-  const {
-    language,
-    timestamps,
-    word_confidence,
-    speaker_labels,
-    ...otherParams
-  } = request;
-
-  const deepgramRequest: any = {
-    ...otherParams,
-  };
-
-  // Map unified parameters to Deepgram parameters
-  if (language) {
-    deepgramRequest.language = language;
-  }
-
-  if (timestamps) {
-    deepgramRequest.utterances = true;
-  }
-
-  if (word_confidence) {
-    deepgramRequest.smart_format = true;
-  }
-
-  if (speaker_labels) {
-    deepgramRequest.diarize = true;
-  }
-
-  return deepgramRequest;
-}
+import { TranscriptionResult, Word, Segment } from "../../types";
 
 export function adaptResponse(response: any): TranscriptionResult {
   const words: Word[] = [];

@@ -6,7 +6,7 @@ import {
   RequestOptions,
 } from "../../types";
 import { DeepgramConfig } from "./types";
-import { adaptRequest, adaptResponse } from "./adapters";
+import { adaptResponse } from "./adapters";
 import { AISuiteError } from "../../core/errors";
 import * as fs from "fs";
 
@@ -24,63 +24,36 @@ export class DeepgramASRProvider extends BaseASRProvider {
     });
   }
 
-  validateParams(model: string, params: { [key: string]: any }): void {
-    const supported = new Set([
-      "language",
-      "timestamps",
-      "word_confidence",
-      "speaker_labels",
-      "smart_format",
-      "punctuate",
-      "diarize",
-      "utterances",
-      "temperature",
-    ]);
+  validateParams(params: { [key: string]: any }): void {
+    if (!params.model) {
+      throw new AISuiteError(
+        "Model parameter is required",
+        this.name,
+        "INVALID_MODEL"
+      );
+    }
 
-    for (const [key, value] of Object.entries(params)) {
-      if (!supported.has(key) && !key.startsWith("deepgram_")) {
-        console.warn(`Parameter '${key}' may not be supported by Deepgram ASR`);
-      }
+    if (!params.file) {
+      throw new AISuiteError(
+        "File parameter is required",
+        this.name,
+        "INVALID_MODEL"
+      );
     }
   }
 
-  translateParams(
-    model: string,
-    params: { [key: string]: any }
-  ): { [key: string]: any } {
-    const translated: { [key: string]: any } = {};
-
-    for (const [key, value] of Object.entries(params)) {
+  translateParams(params: { [key: string]: any }): { [key: string]: any } {
+    const { model: _, file: __, ...rest } = params;
+    return Object.entries(rest).reduce((translated, [key, value]) => {
       switch (key) {
-        case "language":
-          translated.language = value;
-          break;
         case "timestamps":
-          if (value) {
-            translated.utterances = true;
-          }
-          break;
-        case "word_confidence":
-          if (value) {
-            translated.smart_format = true;
-          }
-          break;
-        case "speaker_labels":
-          if (value) {
-            translated.diarize = true;
-          }
+          if (value) translated.utterances = true;
           break;
         default:
-          // Pass through Deepgram-specific parameters
-          if (key.startsWith("deepgram_")) {
-            translated[key.substring(9)] = value;
-          } else {
-            translated[key] = value;
-          }
+          translated[key] = value;
       }
-    }
-
-    return translated;
+      return translated;
+    }, {} as { [key: string]: any });
   }
 
   async transcribe(
@@ -90,8 +63,8 @@ export class DeepgramASRProvider extends BaseASRProvider {
     try {
       // Extract parameters excluding model and file
       const { model, file, ...params } = request;
-      this.validateParams(model, params);
-      const translatedParams = this.translateParams(model, params);
+      this.validateParams(request);
+      const translatedParams = this.translateParams(params);
 
       // Handle different input types
       let audioData: Buffer;
@@ -109,24 +82,18 @@ export class DeepgramASRProvider extends BaseASRProvider {
         );
       }
 
-      // Create options object for Deepgram SDK
-      const deepgramOptions: any = {
+      // Set up transcription options for v4 SDK format
+      const transcriptionOptions = {
         model: request.model,
-        ...translatedParams,
+        ...translatedParams
       };
 
-      // Handle timeout if provided
-      if (options?.timeout) {
-        deepgramOptions.timeout = options.timeout;
-      }
-
-      // Deepgram SDK expects an object with buffer and mimetype for prerecorded files
-      const filePayload = { buffer: audioData, mimetype: "audio/wav" };
-
-      const response = await this.client.listen.prerecorded.transcribeFile(
-        filePayload,
-        deepgramOptions
-      );
+      // Use the v4 SDK format for transcription
+      const response = await this.client.listen.prerecorded
+        .transcribeFile(audioData, {
+          ...transcriptionOptions,
+          mimetype: 'audio/wav'
+        });
 
       // Check for errors in the response
       if (response.error) {

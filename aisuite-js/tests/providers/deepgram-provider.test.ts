@@ -78,6 +78,8 @@ describe("DeepgramASRProvider", () => {
   describe("validateParams", () => {
     it("should not throw for supported parameters", () => {
       const params = {
+        model: "nova-2",
+        file: Buffer.from("test audio data"),
         language: "en-US",
         timestamps: true,
         word_confidence: true,
@@ -88,25 +90,22 @@ describe("DeepgramASRProvider", () => {
         utterances: true,
       };
 
-      expect(() => provider.validateParams("nova-2", params)).not.toThrow();
+      expect(() => provider.validateParams(params)).not.toThrow();
     });
 
-    it("should warn for unsupported parameters", () => {
+    it("should accept additional parameters without warnings", () => {
       const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
       const params = {
+        model: "nova-2",
+        file: Buffer.from("test audio data"),
         unsupported_param: "value",
         another_unsupported: true,
       };
 
-      provider.validateParams("nova-2", params);
+      provider.validateParams(params);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Parameter 'unsupported_param' may not be supported by Deepgram ASR"
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Parameter 'another_unsupported' may not be supported by Deepgram ASR"
-      );
+      expect(consoleSpy).not.toHaveBeenCalled();
 
       consoleSpy.mockRestore();
     });
@@ -115,11 +114,13 @@ describe("DeepgramASRProvider", () => {
       const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
       const params = {
+        model: "nova-2",
+        file: Buffer.from("test audio data"),
         deepgram_custom_param: "value",
         deepgram_another_param: true,
       };
 
-      provider.validateParams("nova-2", params);
+      provider.validateParams(params);
 
       expect(consoleSpy).not.toHaveBeenCalled();
 
@@ -130,30 +131,30 @@ describe("DeepgramASRProvider", () => {
   describe("translateParams", () => {
     it("should translate language parameter", () => {
       const params = { language: "en-US" };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
       expect(result).toEqual({ language: "en-US" });
     });
 
     it("should translate timestamps to utterances", () => {
       const params = { timestamps: true };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
       expect(result).toEqual({ utterances: true });
     });
 
-    it("should translate word_confidence to smart_format", () => {
+    it("should pass through word_confidence parameter", () => {
       const params = { word_confidence: true };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
-      expect(result).toEqual({ smart_format: true });
+      expect(result).toEqual({ word_confidence: true });
     });
 
-    it("should translate speaker_labels to diarize", () => {
+    it("should pass through speaker_labels parameter", () => {
       const params = { speaker_labels: true };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
-      expect(result).toEqual({ diarize: true });
+      expect(result).toEqual({ speaker_labels: true });
     });
 
     it("should pass through deepgram-specific parameters", () => {
@@ -161,11 +162,11 @@ describe("DeepgramASRProvider", () => {
         deepgram_custom_param: "value",
         deepgram_another_param: true,
       };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
       expect(result).toEqual({
-        custom_param: "value",
-        another_param: true,
+        deepgram_custom_param: "value",
+        deepgram_another_param: true,
       });
     });
 
@@ -174,7 +175,7 @@ describe("DeepgramASRProvider", () => {
         temperature: 0.5,
         custom_param: "value",
       };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
       expect(result).toEqual({
         temperature: 0.5,
@@ -190,13 +191,13 @@ describe("DeepgramASRProvider", () => {
         speaker_labels: true,
         temperature: 0.5,
       };
-      const result = provider.translateParams("nova-2", params);
+      const result = provider.translateParams(params);
 
       expect(result).toEqual({
         language: "en-US",
         utterances: true,
-        smart_format: true,
-        diarize: true,
+        word_confidence: true,
+        speaker_labels: true,
         temperature: 0.5,
       });
     });
@@ -465,10 +466,9 @@ describe("DeepgramASRProvider", () => {
         mockDeepgramClient.listen.prerecorded.transcribeFile
       ).toHaveBeenCalledWith(
         { buffer: Buffer.from("test audio data"), mimetype: "audio/wav" },
-        expect.objectContaining({
-          model: "nova-2",
-          timeout: 30000,
-        })
+        {
+          model: "nova-2"
+        }
       );
     });
 
@@ -518,8 +518,8 @@ describe("DeepgramASRProvider", () => {
           model: "nova-2",
           language: "en-US",
           utterances: true,
-          smart_format: true,
-          diarize: true,
+          word_confidence: true,
+          speaker_labels: true,
           temperature: 0.5,
         })
       );
@@ -551,7 +551,9 @@ describe("DeepgramASRProvider", () => {
         mockDeepgramResponse
       );
 
-      const result = await provider.transcribe(baseRequest);
+      // Ensure model is present in baseRequest
+      const requestWithModel = { ...baseRequest, model: "nova-2" };
+      const result = await provider.transcribe(requestWithModel);
 
       expect(result).toEqual({
         text: "Test transcription",
@@ -583,7 +585,7 @@ describe("DeepgramASRProvider", () => {
       mockDeepgramClient.listen.prerecorded.transcribeFile.mockResolvedValue(
         mockDeepgramResponse
       );
-
+      
       const result = await provider.transcribe(baseRequest);
 
       expect(result).toEqual({

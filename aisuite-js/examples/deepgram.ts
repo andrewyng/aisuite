@@ -27,10 +27,12 @@ async function main() {
       return;
     }
 
+    // Read the file as a buffer
     const audioBuffer = fs.readFileSync(testAudioPath);
 
+    // Create the transcription request with the audio buffer
     const result = await client.audio.transcriptions.create({
-      model: "deepgram:nova-3",
+      model: "deepgram:general",
       file: audioBuffer,
       language: "en-US",
       timestamps: true,
@@ -67,7 +69,5 @@ async function main() {
   }
 }
 
-// Run the example
-// if (import.meta.url === `file://${process.argv[1]}`) {
 main().catch(console.error);
-// }
+

@@ -12,13 +12,11 @@ export abstract class BaseASRProvider {
     options?: RequestOptions
   ): Promise<TranscriptionResult>;
   
-  abstract validateParams(
-    model: string, 
+  abstract validateParams(    
     params: { [key: string]: any }
   ): void;
   
-  abstract translateParams(
-    model: string, 
+  abstract translateParams(    
     params: { [key: string]: any }
   ): { [key: string]: any };
 }
