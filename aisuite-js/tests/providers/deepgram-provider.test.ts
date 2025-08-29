@@ -1,5 +1,5 @@
 import { DeepgramASRProvider } from "../../src/providers/deepgram/provider";
-import { TranscriptionRequest, TranscriptionResult } from "../../src/types";
+import { TranscriptionRequest } from "../../src/types";
 import { AISuiteError } from "../../src/core/errors";
 
 // Mock the Deepgram SDK

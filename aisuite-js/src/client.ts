@@ -16,6 +16,7 @@ import { AnthropicProvider } from "./providers/anthropic";
 import { MistralProvider } from "./providers/mistral";
 import { GroqProvider } from "./providers/groq";
 import { DeepgramASRProvider } from "./providers/deepgram";
+import { OpenAIASRProvider } from "./providers/openai/audio";
 
 export class Client {
   private chatProviders: Map<string, BaseProvider> = new Map();
@@ -27,11 +28,18 @@ export class Client {
 
   private initializeProviders(config: ProviderConfigs): void {
     if (config.openai) {
-      this.chatProviders.set("openai", new OpenAIProvider(config.openai));
+      if (config.openai.audio) {
+        this.asrProviders.set("openai", new OpenAIASRProvider(config.openai));
+      } else {
+        this.chatProviders.set("openai", new OpenAIProvider(config.openai));
+      }
     }
 
     if (config.anthropic) {
-      this.chatProviders.set("anthropic", new AnthropicProvider(config.anthropic));
+      this.chatProviders.set(
+        "anthropic",
+        new AnthropicProvider(config.anthropic)
+      );
     }
 
     if (config.mistral) {
@@ -43,7 +51,10 @@ export class Client {
     }
 
     if (config.deepgram) {
-      this.asrProviders.set("deepgram", new DeepgramASRProvider(config.deepgram));
+      this.asrProviders.set(
+        "deepgram",
+        new DeepgramASRProvider(config.deepgram)
+      );
     }
   }
 

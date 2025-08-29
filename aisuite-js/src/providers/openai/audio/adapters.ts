@@ -1,0 +1,55 @@
+import { TranscriptionRequest, TranscriptionResult } from "../../../types";
+import { OpenAIASRRequest, OpenAIASRResponse } from "./types";
+import { Uploadable } from "openai/uploads";
+
+export function adaptRequest(request: TranscriptionRequest): {
+  file: Uploadable;
+  model: string;
+  language?: string;
+  prompt?: string;
+  response_format?: "json" | "text" | "srt" | "verbose_json" | "vtt";
+  temperature?: number;
+  timestamp_granularities?: Array<"word" | "segment">;
+} {
+  if (!(request.file instanceof Buffer)) {
+    throw new Error("File must be provided as a Buffer");
+  }
+
+  const file = new File([request.file], "audio.mp3", {
+    type: "audio/mpeg",
+  }) as unknown as Uploadable;
+
+  return {
+    file,
+    model: request.model.replace("openai:", ""),
+    language: request.language,
+    prompt: request.prompt,
+    response_format:
+      request.response_format as OpenAIASRRequest["response_format"],
+    temperature: request.temperature,
+    timestamp_granularities: request.timestamps ? ["word"] : undefined,
+  };
+}
+
+export function adaptResponse(
+  response: OpenAIASRResponse
+): TranscriptionResult {
+  return {
+    text: response.text,
+    language: response.language || "en", // Default to English if not provided
+    confidence: response.segments?.[0]?.avg_logprob ?? 0,
+    words:
+      response.words?.map((word) => ({
+        text: word.text || "",
+        start: word.start,
+        end: word.end,
+        confidence: word.confidence || 1.0, // Default confidence if not provided
+      })) ?? [],
+    segments:
+      response.segments?.map((segment) => ({
+        text: segment.text,
+        start: segment.start,
+        end: segment.end,
+      })) ?? [],
+  };
+}

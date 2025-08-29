@@ -20,6 +20,7 @@ jest.mock("../src/providers/anthropic");
 jest.mock("../src/providers/mistral");
 jest.mock("../src/providers/groq");
 jest.mock("../src/providers/deepgram");
+jest.mock("../src/providers/openai/audio");
 
 describe("Client", () => {
   let mockOpenAIProvider: any;
@@ -27,6 +28,7 @@ describe("Client", () => {
   let mockMistralProvider: any;
   let mockGroqProvider: any;
   let mockDeepgramProvider: any;
+  let mockOpenAIASRProvider: any;
 
   beforeEach(() => {
     // Reset all mocks
@@ -57,12 +59,17 @@ describe("Client", () => {
       transcribe: jest.fn(),
     };
 
+    mockOpenAIASRProvider = {
+      transcribe: jest.fn(),
+    };
+
     // Mock the provider constructors
     const openaiModule = require("../src/providers/openai");
     const anthropicModule = require("../src/providers/anthropic");
     const mistralModule = require("../src/providers/mistral");
     const groqModule = require("../src/providers/groq");
     const deepgramModule = require("../src/providers/deepgram");
+    const opsnaiasrModule = require("../src/providers/openai/audio");
 
     openaiModule.OpenAIProvider.mockImplementation(() => mockOpenAIProvider);
     anthropicModule.AnthropicProvider.mockImplementation(
@@ -72,6 +79,9 @@ describe("Client", () => {
     groqModule.GroqProvider.mockImplementation(() => mockGroqProvider);
     deepgramModule.DeepgramASRProvider.mockImplementation(
       () => mockDeepgramProvider
+    );
+    opsnaiasrModule.OpenAIASRProvider.mockImplementation(
+      () => mockOpenAIASRProvider
     );
   });
 
@@ -266,129 +276,287 @@ describe("Client", () => {
   });
 
   describe("audio.transcriptions.create", () => {
-    let client: Client;
-    const baseConfig: ProviderConfigs = {
-      deepgram: { apiKey: "deepgram-key" },
-    };
-
-    beforeEach(() => {
-      client = new Client(baseConfig);
-    });
-
-    it("should call transcription with correct parameters", async () => {
-      const audioBuffer = Buffer.from("test audio data");
-      const request: TranscriptionRequest = {
-        model: "deepgram:nova-2",
-        file: audioBuffer,
-        language: "en-US",
-        timestamps: true,
-        word_confidence: true,
-        speaker_labels: true,
+    describe("Deepgram Provider", () => {
+      let client: Client;
+      const baseConfig: ProviderConfigs = {
+        deepgram: { apiKey: "deepgram-key" },
       };
 
-      const mockResponse = {
-        text: "Hello world",
-        language: "en-US",
-        confidence: 0.95,
-        words: [
-          {
-            text: "Hello",
-            start: 0.0,
-            end: 0.5,
-            confidence: 0.98,
+      beforeEach(() => {
+        client = new Client(baseConfig);
+      });
+
+      it("should call transcription with correct parameters", async () => {
+        const audioBuffer = Buffer.from("test audio data");
+        const request: TranscriptionRequest = {
+          model: "deepgram:nova-2",
+          file: audioBuffer,
+          language: "en-US",
+          timestamps: true,
+          word_confidence: true,
+          speaker_labels: true,
+        };
+
+        const mockResponse = {
+          text: "Hello world",
+          language: "en-US",
+          confidence: 0.95,
+          words: [
+            {
+              text: "Hello",
+              start: 0.0,
+              end: 0.5,
+              confidence: 0.98,
+            },
+            {
+              text: "world",
+              start: 0.6,
+              end: 1.0,
+              confidence: 0.92,
+            },
+          ],
+          segments: [
+            {
+              text: "Hello world",
+              start: 0.0,
+              end: 1.0,
+            },
+          ],
+        };
+
+        mockDeepgramProvider.transcribe.mockResolvedValue(mockResponse);
+
+        const result = await client.audio.transcriptions.create(request);
+
+        expect(mockDeepgramProvider.transcribe).toHaveBeenCalledWith(
+          { ...request, model: "nova-2" },
+          undefined
+        );
+        expect(result).toEqual(mockResponse);
+      });
+
+      it("should throw error for unconfigured ASR provider", async () => {
+        const request: TranscriptionRequest = {
+          model: "unknown:model",
+          file: Buffer.from("test"),
+        };
+
+        await expect(
+          client.audio.transcriptions.create(request)
+        ).rejects.toThrow(ProviderNotConfiguredError);
+      });
+
+      it("should pass options to ASR provider", async () => {
+        const audioBuffer = Buffer.from("test audio data");
+        const request: TranscriptionRequest = {
+          model: "deepgram:nova-2",
+          file: audioBuffer,
+          language: "en-US",
+        };
+
+        const options = { timeout: 30000 };
+
+        const mockResponse = {
+          text: "Test transcription",
+          language: "en-US",
+          confidence: 0.9,
+          words: [],
+          segments: [],
+        };
+
+        mockDeepgramProvider.transcribe.mockResolvedValue(mockResponse);
+
+        const result = await client.audio.transcriptions.create(
+          request,
+          options
+        );
+
+        expect(mockDeepgramProvider.transcribe).toHaveBeenCalledWith(
+          { ...request, model: "nova-2" },
+          options
+        );
+        expect(result).toEqual(mockResponse);
+      });
+
+      it("should handle complex model names with multiple colons", async () => {
+        const audioBuffer = Buffer.from("test audio data");
+        const request: TranscriptionRequest = {
+          model: "deepgram:nova-2:enhanced",
+          file: audioBuffer,
+          language: "en-US",
+        };
+
+        const mockResponse = {
+          text: "Test transcription",
+          language: "en-US",
+          confidence: 0.9,
+          words: [],
+          segments: [],
+        };
+
+        mockDeepgramProvider.transcribe.mockResolvedValue(mockResponse);
+
+        const result = await client.audio.transcriptions.create(request);
+
+        expect(mockDeepgramProvider.transcribe).toHaveBeenCalledWith(
+          { ...request, model: "nova-2:enhanced" },
+          undefined
+        );
+        expect(result).toEqual(mockResponse);
+      });
+    });
+
+    describe("OpenAI ASR Provider", () => {
+      let client: Client;
+      let mockOpenAIASRProvider: any;
+
+      beforeEach(() => {
+        mockOpenAIASRProvider = {
+          transcribe: jest.fn(),
+        };
+
+        const { OpenAIASRProvider } = require("../src/providers/openai/audio");
+        OpenAIASRProvider.mockImplementation(() => mockOpenAIASRProvider);
+      });
+
+      it("should not be available without audio config", async () => {
+        client = new Client({
+          openai: { apiKey: "openai-key" },
+        });
+
+        const request: TranscriptionRequest = {
+          model: "openai:whisper-1",
+          file: Buffer.from("test audio"),
+        };
+
+        await expect(
+          client.audio.transcriptions.create(request)
+        ).rejects.toThrow(ProviderNotConfiguredError);
+      });
+
+      it("should transcribe with audio enabled", async () => {
+        client = new Client({
+          openai: {
+            apiKey: "openai-key",
+            audio: true,
           },
-          {
-            text: "world",
-            start: 0.6,
-            end: 1.0,
-            confidence: 0.92,
+        });
+
+        const audioBuffer = Buffer.from("test audio data");
+        const request: TranscriptionRequest = {
+          model: "openai:whisper-1",
+          file: audioBuffer,
+          language: "en",
+          response_format: "verbose_json",
+          temperature: 0,
+          timestamps: true,
+        };
+
+        const mockResponse = {
+          text: "Test transcription",
+          language: "en",
+          confidence: 0.95,
+          words: [
+            {
+              text: "Test",
+              start: 0.0,
+              end: 0.5,
+              confidence: 0.98,
+            },
+            {
+              text: "transcription",
+              start: 0.6,
+              end: 1.2,
+              confidence: 0.92,
+            },
+          ],
+          segments: [
+            {
+              text: "Test transcription",
+              start: 0.0,
+              end: 1.2,
+            },
+          ],
+        };
+
+        mockOpenAIASRProvider.transcribe.mockResolvedValue(mockResponse);
+
+        const result = await client.audio.transcriptions.create(request);
+
+        expect(mockOpenAIASRProvider.transcribe).toHaveBeenCalledWith(
+          { ...request, model: "whisper-1" },
+          undefined
+        );
+        expect(result).toEqual(mockResponse);
+      });
+
+      it("should support different response formats", async () => {
+        client = new Client({
+          openai: {
+            apiKey: "openai-key",
+            audio: true,
           },
-        ],
-        segments: [
-          {
-            text: "Hello world",
-            start: 0.0,
-            end: 1.0,
+        });
+
+        const request: TranscriptionRequest = {
+          model: "openai:whisper-1",
+          file: Buffer.from("test audio"),
+          response_format: "text",
+        };
+
+        const mockResponse = {
+          text: "Test transcription",
+          language: "en",
+          confidence: 1.0,
+          words: [],
+          segments: [],
+        };
+
+        mockOpenAIASRProvider.transcribe.mockResolvedValue(mockResponse);
+        const result = await client.audio.transcriptions.create(request);
+
+        expect(mockOpenAIASRProvider.transcribe).toHaveBeenCalledWith(
+          { ...request, model: "whisper-1" },
+          undefined
+        );
+        expect(result).toEqual(mockResponse);
+      });
+
+      it("should pass custom options to provider", async () => {
+        client = new Client({
+          openai: {
+            apiKey: "openai-key",
+            audio: true,
           },
-        ],
-      };
+        });
 
-      mockDeepgramProvider.transcribe.mockResolvedValue(mockResponse);
+        const request: TranscriptionRequest = {
+          model: "openai:whisper-1",
+          file: Buffer.from("test audio"),
+          language: "en",
+        };
 
-      const result = await client.audio.transcriptions.create(request);
+        const options = { timeout: 30000 };
+        const mockResponse = {
+          text: "Test transcription",
+          language: "en",
+          confidence: 0.9,
+          words: [],
+          segments: [],
+        };
 
-      expect(mockDeepgramProvider.transcribe).toHaveBeenCalledWith(
-        { ...request, model: "nova-2" },
-        undefined
-      );
-      expect(result).toEqual(mockResponse);
-    });
+        mockOpenAIASRProvider.transcribe.mockResolvedValue(mockResponse);
+        const result = await client.audio.transcriptions.create(
+          request,
+          options
+        );
 
-    it("should throw error for unconfigured ASR provider", async () => {
-      const request: TranscriptionRequest = {
-        model: "unknown:model",
-        file: Buffer.from("test"),
-      };
-
-      await expect(client.audio.transcriptions.create(request)).rejects.toThrow(
-        ProviderNotConfiguredError
-      );
-    });
-
-    it("should pass options to ASR provider", async () => {
-      const audioBuffer = Buffer.from("test audio data");
-      const request: TranscriptionRequest = {
-        model: "deepgram:nova-2",
-        file: audioBuffer,
-        language: "en-US",
-      };
-
-      const options = { timeout: 30000 };
-
-      const mockResponse = {
-        text: "Test transcription",
-        language: "en-US",
-        confidence: 0.9,
-        words: [],
-        segments: [],
-      };
-
-      mockDeepgramProvider.transcribe.mockResolvedValue(mockResponse);
-
-      const result = await client.audio.transcriptions.create(request, options);
-
-      expect(mockDeepgramProvider.transcribe).toHaveBeenCalledWith(
-        { ...request, model: "nova-2" },
-        options
-      );
-      expect(result).toEqual(mockResponse);
-    });
-
-    it("should handle complex model names with multiple colons", async () => {
-      const audioBuffer = Buffer.from("test audio data");
-      const request: TranscriptionRequest = {
-        model: "deepgram:nova-2:enhanced",
-        file: audioBuffer,
-        language: "en-US",
-      };
-
-      const mockResponse = {
-        text: "Test transcription",
-        language: "en-US",
-        confidence: 0.9,
-        words: [],
-        segments: [],
-      };
-
-      mockDeepgramProvider.transcribe.mockResolvedValue(mockResponse);
-
-      const result = await client.audio.transcriptions.create(request);
-
-      expect(mockDeepgramProvider.transcribe).toHaveBeenCalledWith(
-        { ...request, model: "nova-2:enhanced" },
-        undefined
-      );
-      expect(result).toEqual(mockResponse);
+        expect(mockOpenAIASRProvider.transcribe).toHaveBeenCalledWith(
+          { ...request, model: "whisper-1" },
+          options
+        );
+        expect(result).toEqual(mockResponse);
+      });
     });
   });
 
