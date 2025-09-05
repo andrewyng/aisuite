@@ -19,8 +19,8 @@ jest.mock("../src/providers/openai");
 jest.mock("../src/providers/anthropic");
 jest.mock("../src/providers/mistral");
 jest.mock("../src/providers/groq");
-jest.mock("../src/providers/deepgram");
-jest.mock("../src/providers/openai/audio");
+jest.mock("../src/asr-providers/deepgram");
+jest.mock("../src/asr-providers/openai");
 
 describe("Client", () => {
   let mockOpenAIProvider: any;
@@ -68,8 +68,8 @@ describe("Client", () => {
     const anthropicModule = require("../src/providers/anthropic");
     const mistralModule = require("../src/providers/mistral");
     const groqModule = require("../src/providers/groq");
-    const deepgramModule = require("../src/providers/deepgram");
-    const opsnaiasrModule = require("../src/providers/openai/audio");
+    const deepgramModule = require("../src/asr-providers/deepgram");
+    const opsnaiasrModule = require("../src/asr-providers/openai");
 
     openaiModule.OpenAIProvider.mockImplementation(() => mockOpenAIProvider);
     anthropicModule.AnthropicProvider.mockImplementation(
@@ -415,7 +415,7 @@ describe("Client", () => {
           transcribe: jest.fn(),
         };
 
-        const { OpenAIASRProvider } = require("../src/providers/openai/audio");
+        const { OpenAIASRProvider } = require("../src/asr-providers/openai");
         OpenAIASRProvider.mockImplementation(() => mockOpenAIASRProvider);
       });
 

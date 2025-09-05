@@ -1,4 +1,4 @@
-import { OpenAIConfig } from "../types";
+import { OpenAIConfig } from "../../types";
 import OpenAI from "openai";
 
 export interface OpenAIASRConfig extends OpenAIConfig {}

@@ -15,8 +15,8 @@ import { OpenAIProvider } from "./providers/openai";
 import { AnthropicProvider } from "./providers/anthropic";
 import { MistralProvider } from "./providers/mistral";
 import { GroqProvider } from "./providers/groq";
-import { DeepgramASRProvider } from "./providers/deepgram";
-import { OpenAIASRProvider } from "./providers/openai/audio";
+import { DeepgramASRProvider } from "./asr-providers/deepgram";
+import { OpenAIASRProvider } from "./asr-providers/openai";
 
 export class Client {
   private chatProviders: Map<string, BaseProvider> = new Map();

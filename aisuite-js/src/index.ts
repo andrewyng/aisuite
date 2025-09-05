@@ -9,6 +9,9 @@ export {
   AnthropicProvider,
   GroqProvider,
   MistralProvider,
+} from "./providers";
+
+export {
   DeepgramASRProvider,
   OpenAIASRProvider,
-} from "./providers";
+} from "./asr-providers";

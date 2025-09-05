@@ -1,4 +1,4 @@
-import { DeepgramASRProvider } from "../../src/providers/deepgram/provider";
+import { DeepgramASRProvider } from "../../src/asr-providers/deepgram/provider";
 import { TranscriptionRequest } from "../../src/types";
 import { AISuiteError } from "../../src/core/errors";
 
@@ -262,7 +262,7 @@ describe("DeepgramASRProvider", () => {
       expect(
         mockDeepgramClient.listen.prerecorded.transcribeFile
       ).toHaveBeenCalledWith(
-        { buffer: Buffer.from("test audio data"), mimetype: "audio/wav" },
+        Buffer.from("test audio data"),
         expect.objectContaining({
           model: "nova-2",
         })
@@ -339,7 +339,7 @@ describe("DeepgramASRProvider", () => {
       expect(
         mockDeepgramClient.listen.prerecorded.transcribeFile
       ).toHaveBeenCalledWith(
-        { buffer: Buffer.from("test audio data"), mimetype: "audio/wav" },
+        Buffer.from("test audio data"),
         expect.any(Object)
       );
     });
@@ -380,10 +380,7 @@ describe("DeepgramASRProvider", () => {
 
       expect(
         mockDeepgramClient.listen.prerecorded.transcribeFile
-      ).toHaveBeenCalledWith(
-        { buffer: Buffer.from(uint8Array), mimetype: "audio/wav" },
-        expect.any(Object)
-      );
+      ).toHaveBeenCalledWith(Buffer.from(uint8Array), expect.any(Object));
     });
 
     it("should handle unsupported file type gracefully", async () => {
@@ -464,12 +461,10 @@ describe("DeepgramASRProvider", () => {
 
       expect(
         mockDeepgramClient.listen.prerecorded.transcribeFile
-      ).toHaveBeenCalledWith(
-        { buffer: Buffer.from("test audio data"), mimetype: "audio/wav" },
-        {
-          model: "nova-2"
-        }
-      );
+      ).toHaveBeenCalledWith(Buffer.from("test audio data"), {
+        model: "nova-2",
+        "mimetype": "audio/wav",
+      });
     });
 
     it("should translate parameters correctly", async () => {
@@ -513,7 +508,7 @@ describe("DeepgramASRProvider", () => {
       expect(
         mockDeepgramClient.listen.prerecorded.transcribeFile
       ).toHaveBeenCalledWith(
-        { buffer: Buffer.from("test audio data"), mimetype: "audio/wav" },
+        Buffer.from("test audio data"),
         expect.objectContaining({
           model: "nova-2",
           language: "en-US",
@@ -585,7 +580,7 @@ describe("DeepgramASRProvider", () => {
       mockDeepgramClient.listen.prerecorded.transcribeFile.mockResolvedValue(
         mockDeepgramResponse
       );
-      
+
       const result = await provider.transcribe(baseRequest);
 
       expect(result).toEqual({

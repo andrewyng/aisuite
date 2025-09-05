@@ -1,4 +1,4 @@
-import { OpenAIASRProvider } from "../../src/providers/openai/audio";
+import { OpenAIASRProvider } from "../../src/asr-providers/openai/provider";
 import { TranscriptionRequest } from "../../src/types";
 import { AISuiteError } from "../../src/core/errors";
 

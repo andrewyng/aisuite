@@ -1,4 +1,4 @@
-import { TranscriptionRequest, TranscriptionResult } from "../../../types";
+import { TranscriptionRequest, TranscriptionResult } from "../../types";
 import { OpenAIASRResponse } from "./types";
 import { Uploadable } from "openai/uploads";
 

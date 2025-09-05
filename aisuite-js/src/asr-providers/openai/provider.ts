@@ -1,12 +1,12 @@
-import { BaseASRProvider } from "../../../core/base-asr-provider";
+import { BaseASRProvider } from "../../core/base-asr-provider";
 import {
   TranscriptionRequest,
   TranscriptionResult,
   RequestOptions,
-} from "../../../types";
+} from "../../types";
 import { OpenAIASRConfig, OpenAIASRResponse } from "./types";
 import { adaptRequest, adaptResponse } from "./adapters";
-import { AISuiteError } from "../../../core/errors";
+import { AISuiteError } from "../../core/errors";
 import OpenAI from "openai";
 
 export class OpenAIASRProvider extends BaseASRProvider {
