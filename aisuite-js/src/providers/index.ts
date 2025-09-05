@@ -6,5 +6,5 @@ export type {
   OpenAIConfig,
   AnthropicConfig,
   MistralConfig,
-  GroqConfig,
+  GroqConfig,  
 } from "../types";

@@ -13,12 +13,15 @@
     "example:streaming": "tsx examples/streaming.ts",
     "example:mistral": "tsx examples/mistral.ts",
     "example:groq": "tsx examples/groq.ts",
+    "example:deepgram": "tsx examples/deepgram.ts",
+    "example:openai-asr": "tsx examples/openai-asr.ts",
     "lint": "eslint src/**/*.ts",
     "prepublishOnly": "npm run build",
     "dev": "tsc --watch"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
+    "@deepgram/sdk": "^4.11.2",
     "@mistralai/mistralai": "^0.1.3",
     "groq-sdk": "^0.29.0",
     "openai": "^4.0.0"
