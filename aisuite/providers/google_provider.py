@@ -2,7 +2,7 @@
 
 import os
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union, BinaryIO, AsyncGenerator
 
 import vertexai
 from vertexai.generative_models import (
@@ -15,7 +15,17 @@ from vertexai.generative_models import (
 )
 import pprint
 
-from aisuite.framework import ProviderInterface, ChatCompletionResponse, Message
+from aisuite.framework import ChatCompletionResponse, Message
+from aisuite.framework.message import (
+    TranscriptionResult,
+    Word,
+    Segment,
+    Alternative,
+    TranscriptionOptions,
+    StreamingTranscriptionChunk,
+)
+from aisuite.framework.parameter_mapper import ParameterMapper
+from aisuite.provider import Provider, ASRError, Audio
 
 
 DEFAULT_TEMPERATURE = 0.7
@@ -189,11 +199,13 @@ class GoogleMessageConverter:
         return openai_response
 
 
-class GoogleProvider(ProviderInterface):
+class GoogleProvider(Provider):
     """Implements the ProviderInterface for interacting with Google's Vertex AI."""
 
     def __init__(self, **config):
         """Set up the Google AI client with a project ID."""
+        super().__init__()
+
         self.project_id = config.get("project_id") or os.getenv("GOOGLE_PROJECT_ID")
         self.location = config.get("region") or os.getenv("GOOGLE_REGION")
         self.app_creds_path = config.get("application_credentials") or os.getenv(
@@ -210,6 +222,12 @@ class GoogleProvider(ProviderInterface):
         vertexai.init(project=self.project_id, location=self.location)
 
         self.transformer = GoogleMessageConverter()
+
+        # Initialize Speech client lazily
+        self._speech_client = None
+
+        # Initialize audio functionality
+        self.audio = GoogleAudio(self)
 
     def chat_completions_create(self, model, messages, **kwargs):
         """Request chat completions from the Google AI API.
@@ -296,3 +314,278 @@ class GoogleProvider(ProviderInterface):
 
         # Convert and return the response
         return self.transformer.convert_response(response)
+
+    @property
+    def speech_client(self):
+        """Lazy initialization of Google Cloud Speech client."""
+        if self._speech_client is None:
+            try:
+                from google.cloud import speech
+
+                self._speech_client = speech.SpeechClient()
+            except ImportError:
+                raise ImportError(
+                    "google-cloud-speech is required for ASR functionality. "
+                    "Install it with: pip install google-cloud-speech"
+                )
+        return self._speech_client
+
+
+# Audio Classes
+class GoogleAudio(Audio):
+    """Google Audio functionality container."""
+
+    def __init__(self, provider):
+        super().__init__()
+        self.provider = provider
+        self.transcriptions = self.Transcriptions(provider)
+
+    class Transcriptions(Audio.Transcription):
+        """Google Audio Transcriptions functionality."""
+
+        def __init__(self, provider):
+            self.provider = provider
+
+        def create(
+            self,
+            model: str,
+            file: Union[str, BinaryIO],
+            options: Optional[TranscriptionOptions] = None,
+            **kwargs,
+        ) -> TranscriptionResult:
+            """Create audio transcription using Google Cloud Speech-to-Text API."""
+            try:
+                from google.cloud import speech
+
+                api_params = self._prepare_api_params(model, options, kwargs)
+                audio_data = self._read_audio_data(file)
+                audio = speech.RecognitionAudio(content=audio_data)
+                config = self._build_recognition_config(api_params, speech, file)
+
+                response = self.provider.speech_client.recognize(
+                    config=config, audio=audio
+                )
+                return self._parse_google_response(response)
+
+            except ImportError:
+                raise ASRError(
+                    "google-cloud-speech is required for ASR functionality. "
+                    "Install it with: pip install google-cloud-speech"
+                )
+            except Exception as e:
+                raise ASRError(f"Google Speech-to-Text error: {e}")
+
+        async def create_stream_output(
+            self,
+            model: str,
+            file: Union[str, BinaryIO],
+            options: Optional[TranscriptionOptions] = None,
+            **kwargs,
+        ) -> AsyncGenerator[StreamingTranscriptionChunk, None]:
+            """Create streaming audio transcription using Google Cloud Speech-to-Text API."""
+            try:
+                from google.cloud import speech
+
+                api_params = self._prepare_api_params(model, options, kwargs)
+                config = self._build_recognition_config(api_params, speech, file)
+                streaming_config = speech.StreamingRecognitionConfig(
+                    config=config, interim_results=True, single_utterance=False
+                )
+
+                audio_data = self._read_audio_data(file)
+                request_generator = self._create_streaming_requests(
+                    speech, streaming_config, audio_data
+                )
+
+                responses = self.provider.speech_client.streaming_recognize(
+                    config=streaming_config, requests=request_generator
+                )
+
+                for response in responses:
+                    for result in response.results:
+                        if result.alternatives:
+                            alternative = result.alternatives[0]
+                            yield StreamingTranscriptionChunk(
+                                text=alternative.transcript,
+                                is_final=result.is_final,
+                                confidence=getattr(alternative, "confidence", None),
+                            )
+
+            except ImportError:
+                raise ASRError(
+                    "google-cloud-speech is required for ASR functionality. "
+                    "Install it with: pip install google-cloud-speech"
+                )
+            except Exception as e:
+                raise ASRError(f"Google Speech-to-Text streaming error: {e}")
+
+        def _extract_model_name(self, model: str) -> str:
+            """Use model name directly (client already extracted it)."""
+            return model
+
+        def _prepare_api_params(
+            self, model: str, options: Optional[TranscriptionOptions], kwargs: dict
+        ) -> dict:
+            """Prepare API parameters for Google Speech."""
+            if options is not None:
+                api_params = ParameterMapper.map_to_google(options)
+            else:
+                api_params = self._map_openai_to_google_params(kwargs)
+
+            model_name = self._extract_model_name(model)
+            api_params.setdefault("sample_rate_hertz", 16000)
+            api_params.setdefault("punctuate", True)
+            api_params["model"] = (
+                model_name if model_name != "default" else "latest_long"
+            )
+            return api_params
+
+        def _read_audio_data(self, file: Union[str, BinaryIO]) -> bytes:
+            """Read audio data from file or file-like object."""
+            if isinstance(file, str):
+                with open(file, "rb") as audio_file:
+                    return audio_file.read()
+            else:
+                return file.read()
+
+        def _detect_audio_encoding(self, file: Union[str, BinaryIO], speech):
+            """Detect audio encoding based on file extension or content."""
+            if isinstance(file, str):
+                # File path - detect by extension
+                file_lower = file.lower()
+                if file_lower.endswith(".mp3"):
+                    return speech.RecognitionConfig.AudioEncoding.MP3
+                elif file_lower.endswith(".flac"):
+                    return speech.RecognitionConfig.AudioEncoding.FLAC
+                elif file_lower.endswith(".wav"):
+                    return speech.RecognitionConfig.AudioEncoding.LINEAR16
+                elif file_lower.endswith(".ogg"):
+                    return speech.RecognitionConfig.AudioEncoding.OGG_OPUS
+                elif file_lower.endswith(".webm"):
+                    return speech.RecognitionConfig.AudioEncoding.WEBM_OPUS
+
+            # Default to LINEAR16 for unknown formats
+            return speech.RecognitionConfig.AudioEncoding.LINEAR16
+
+        def _build_recognition_config(
+            self, api_params: dict, speech, file: Union[str, BinaryIO]
+        ):
+            """Build Google Speech RecognitionConfig from parameters."""
+            # Auto-detect encoding if not specified
+            encoding = api_params.get("encoding")
+            if encoding is None:
+                encoding = self._detect_audio_encoding(file, speech)
+
+            config_params = {
+                "encoding": encoding,
+                "sample_rate_hertz": api_params.get("sample_rate_hertz", 16000),
+                "language_code": api_params.get("language", "en-US"),
+                "enable_word_time_offsets": True,
+                "enable_word_confidence": True,
+                "enable_automatic_punctuation": api_params.get("punctuate", True),
+                "model": api_params["model"],
+            }
+
+            for param in ["max_alternatives", "profanity_filter", "speech_contexts"]:
+                if param in api_params:
+                    config_params[param] = api_params[param]
+
+            return speech.RecognitionConfig(**config_params)
+
+        def _create_streaming_requests(
+            self, speech, streaming_config, audio_data: bytes
+        ):
+            """Create streaming requests generator for Google Speech API."""
+
+            def request_generator():
+                chunk_size = 8192
+                for i in range(0, len(audio_data), chunk_size):
+                    chunk = audio_data[i : i + chunk_size]
+                    yield speech.StreamingRecognizeRequest(audio_content=chunk)
+
+            return request_generator()
+
+        def _map_openai_to_google_params(self, openai_params: dict) -> dict:
+            """Map OpenAI-style parameters to Google Speech parameters."""
+            google_params = {}
+
+            if "language" in openai_params:
+                google_params["language"] = openai_params["language"]
+            if "prompt" in openai_params:
+                google_params["speech_contexts"] = [
+                    {"phrases": [openai_params["prompt"]]}
+                ]
+            if "timestamp_granularities" in openai_params:
+                granularities = openai_params["timestamp_granularities"]
+                if "word" in granularities:
+                    google_params["enable_word_time_offsets"] = True
+                    google_params["enable_word_confidence"] = True
+
+            return google_params
+
+        def _parse_google_response(self, response) -> TranscriptionResult:
+            """Convert Google Speech-to-Text response to unified TranscriptionResult."""
+            if not response.results or not response.results[0].alternatives:
+                return TranscriptionResult(
+                    text="", language=None, confidence=None, task="transcribe"
+                )
+
+            best_result = response.results[0]
+            best_alternative = best_result.alternatives[0]
+            text = best_alternative.transcript
+            confidence = getattr(best_alternative, "confidence", None)
+
+            words = []
+            if hasattr(best_alternative, "words") and best_alternative.words:
+                words = [
+                    Word(
+                        word=word.word,
+                        start=(
+                            word.start_time.total_seconds()
+                            if hasattr(word, "start_time")
+                            else 0.0
+                        ),
+                        end=(
+                            word.end_time.total_seconds()
+                            if hasattr(word, "end_time")
+                            else 0.0
+                        ),
+                        confidence=getattr(word, "confidence", None),
+                    )
+                    for word in best_alternative.words
+                ]
+
+            alternatives = [
+                Alternative(
+                    transcript=alt.transcript,
+                    confidence=getattr(alt, "confidence", None),
+                )
+                for alt in best_result.alternatives
+            ]
+
+            segments = []
+            if words:
+                segments = [
+                    Segment(
+                        id=0,
+                        seek=0,
+                        start=words[0].start,
+                        end=words[-1].end,
+                        text=text,
+                        tokens=[],
+                        temperature=0.0,
+                        avg_logprob=0.0,
+                        compression_ratio=0.0,
+                        no_speech_prob=0.0,
+                    )
+                ]
+
+            return TranscriptionResult(
+                text=text,
+                language=None,
+                confidence=confidence,
+                task="transcribe",
+                words=words or None,
+                alternatives=alternatives or None,
+                segments=segments or None,
+            )

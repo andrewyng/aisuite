@@ -1,8 +1,11 @@
 from unittest.mock import Mock, patch
+import io
 
 import pytest
 
 from aisuite import Client
+from aisuite.framework.message import TranscriptionResult
+from aisuite.provider import ASRError
 
 
 @pytest.fixture(scope="module")
@@ -38,6 +41,9 @@ def provider_configs():
         },
         "inception": {
             "api_key": "inception-api-key",
+        },
+        "deepgram": {
+            "api_key": "deepgram-api-key",
         },
     }
 
@@ -121,12 +127,20 @@ def test_invalid_provider_in_client_config():
         "invalid_provider": {"api_key": "invalid_api_key"},
     }
 
-    # Expect ValueError when initializing Client with invalid provider and verify message
+    # With lazy loading, Client initialization should succeed
+    client = Client()
+    client.configure(invalid_provider_configs)
+
+    messages = [
+        {"role": "user", "content": "Hello"},
+    ]
+
+    # Expect ValueError when actually trying to use the invalid provider
     with pytest.raises(
         ValueError,
         match=r"Invalid provider key 'invalid_provider'. Supported providers: ",
     ):
-        _ = Client(invalid_provider_configs)
+        client.chat.completions.create("invalid_provider:some-model", messages=messages)
 
 
 def test_invalid_model_format_in_create(monkeypatch):
@@ -160,3 +174,90 @@ def test_invalid_model_format_in_create(monkeypatch):
         ValueError, match=r"Invalid model format. Expected 'provider:model'"
     ):
         client.chat.completions.create(invalid_model, messages=messages)
+
+
+class TestClientASR:
+    """Test suite for Client ASR functionality - essential tests only."""
+
+    def test_audio_interface_initialization(self):
+        """Test that Audio interface is properly initialized."""
+        client = Client()
+        assert hasattr(client, "audio")
+        assert hasattr(client.audio, "transcriptions")
+
+    @patch("aisuite.provider.ProviderFactory.create_provider")
+    def test_transcriptions_create_success(
+        self, mock_create_provider, provider_configs
+    ):
+        """Test successful audio transcription with OpenAI."""
+        mock_result = TranscriptionResult(
+            text="Hello, this is a test transcription.",
+            language="en",
+            confidence=0.95,
+            task="transcribe",
+        )
+
+        # Create a mock provider with audio support
+        mock_provider = Mock()
+        mock_provider.audio.transcriptions.create.return_value = mock_result
+        mock_create_provider.return_value = mock_provider
+
+        client = Client()
+        client.configure(provider_configs)
+
+        audio_data = io.BytesIO(b"fake audio data")
+        result = client.audio.transcriptions.create(
+            model="openai:whisper-1", file=audio_data, language="en"
+        )
+
+        assert isinstance(result, TranscriptionResult)
+        assert result.text == "Hello, this is a test transcription."
+        mock_provider.audio.transcriptions.create.assert_called_once()
+
+    @patch("aisuite.provider.ProviderFactory.create_provider")
+    def test_transcriptions_create_deepgram(
+        self, mock_create_provider, provider_configs
+    ):
+        """Test audio transcription with Deepgram provider."""
+        mock_result = TranscriptionResult(
+            text="Deepgram transcription result.",
+            language="en",
+            confidence=0.92,
+            task="transcribe",
+        )
+
+        # Create a mock provider with audio support
+        mock_provider = Mock()
+        mock_provider.audio.transcriptions.create.return_value = mock_result
+        mock_create_provider.return_value = mock_provider
+
+        client = Client()
+        client.configure(provider_configs)
+
+        result = client.audio.transcriptions.create(
+            model="deepgram:nova-2", file="test_audio.wav", language="en"
+        )
+
+        assert isinstance(result, TranscriptionResult)
+        assert result.text == "Deepgram transcription result."
+        mock_provider.audio.transcriptions.create.assert_called_once()
+
+    def test_transcriptions_invalid_model_format(self, provider_configs):
+        """Test that invalid model format raises ValueError."""
+        client = Client()
+        client.configure(provider_configs)
+
+        with pytest.raises(ValueError, match="Invalid model format"):
+            client.audio.transcriptions.create(
+                model="invalid-format", file="test.wav", language="en"
+            )
+
+    def test_transcriptions_unsupported_provider(self, provider_configs):
+        """Test error handling for unsupported ASR provider."""
+        client = Client()
+        client.configure(provider_configs)
+
+        with pytest.raises(ValueError, match="is not available"):
+            client.audio.transcriptions.create(
+                model="unsupported:model", file="test.wav", language="en"
+            )
