@@ -3,6 +3,14 @@ from pathlib import Path
 import importlib
 import os
 import functools
+import logging
+import time
+from opentelemetry import trace
+
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
@@ -13,6 +21,37 @@ class LLMError(Exception):
 
 
 class Provider(ABC):
+    tracer = trace.get_tracer(__name__)
+
+    def log_request(self, method_name, **kwargs):
+        """Log details of the API call."""
+        logger.info(f"API call to {method_name} with parameters: {kwargs}")
+
+    def log_error(self, method_name, error):
+        """Log errors for debugging."""
+        logger.error(f"Error in {method_name}: {error}")
+
+    def trace_execution(self, method_name):
+        """Wrap a method with tracing."""
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                with self.tracer.start_as_current_span(method_name):
+                    start_time = time.time()
+                    try:
+                        result = func(*args, **kwargs)
+                        latency = time.time() - start_time
+                        logger.info(f"{method_name} executed in {latency:.2f}s")
+                        return result
+                    except Exception as e:
+                        self.log_error(method_name, e)
+                        raise e
+
+            return wrapper
+
+        return decorator
+
     @abstractmethod
     def chat_completions_create(self, model, messages):
         """Abstract method for chat completion calls, to be implemented by each provider."""
