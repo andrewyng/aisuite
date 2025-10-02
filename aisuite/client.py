@@ -4,7 +4,7 @@ from .utils.tools import Tools
 
 
 class Client:
-    def __init__(self, provider_configs: dict = {}):
+    def __init__(self, provider_configs: dict = None):
         """
         Initialize the client with provider configurations.
         Use the ProviderFactory to create provider instances.
@@ -24,6 +24,8 @@ class Client:
                 }
         """
         self.providers = {}
+        if provider_configs is None:
+            provider_configs = dict()
         self.provider_configs = provider_configs
         self._chat = None
         self._initialize_providers()
