@@ -370,26 +370,99 @@ npm install -g @modelcontextprotocol/server-filesystem
 
 ### Basic Usage
 
+There are two ways to use MCP tools with aisuite:
+
+#### Option 1: Config Dict Format (Recommended for Simple Use Cases)
+
+```python
+import aisuite as ai
+
+client = ai.Client()
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=[{"role": "user", "content": "List the files in the current directory"}],
+    tools=[{
+        "type": "mcp",
+        "name": "filesystem",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/directory"]
+    }],
+    max_turns=3
+)
+
+print(response.choices[0].message.content)
+```
+
+#### Option 2: Explicit MCPClient (Recommended for Advanced Use Cases)
+
 ```python
 import aisuite as ai
 from aisuite.mcp import MCPClient
 
-# Connect to an MCP server
+# Create MCP client once, reuse across requests
 mcp = MCPClient(
     command="npx",
     args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/directory"]
 )
 
-# Use MCP tools with any provider
+# Use with aisuite
 client = ai.Client()
 response = client.chat.completions.create(
     model="openai:gpt-4o",
-    messages=[{"role": "user", "content": "List the files in the current directory"}],
-    tools=mcp.get_callable_tools(),  # MCP tools work like Python functions!
+    messages=[{"role": "user", "content": "List the files"}],
+    tools=mcp.get_callable_tools(),
     max_turns=3
 )
 
 print(response.choices[0].message.content)
+mcp.close()  # Clean up
+```
+
+### Tool Filtering and Security
+
+Restrict which MCP tools are available using `allowed_tools`:
+
+```python
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=messages,
+    tools=[{
+        "type": "mcp",
+        "name": "filesystem",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/docs"],
+        "allowed_tools": ["read_file"]  # Security: only allow reading, not writing
+    }],
+    max_turns=2
+)
+```
+
+### Tool Name Prefixing
+
+When using multiple MCP servers, avoid tool name collisions with `use_tool_prefix`:
+
+```python
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=messages,
+    tools=[
+        {
+            "type": "mcp",
+            "name": "docs",
+            "command": "npx",
+            "args": ["...", "/docs"],
+            "use_tool_prefix": True  # Tools named "docs__read_file", "docs__list_directory"
+        },
+        {
+            "type": "mcp",
+            "name": "code",
+            "command": "npx",
+            "args": ["...", "/code"],
+            "use_tool_prefix": True  # Tools named "code__read_file", "code__list_directory"
+        }
+    ],
+    max_turns=3
+)
 ```
 
 ### Mixing MCP Tools with Python Functions
@@ -403,65 +476,71 @@ def get_current_time() -> str:
     from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# Mix MCP and Python tools
-all_tools = mcp.get_callable_tools() + [get_current_time]
-
+# Mix with config dict format
 response = client.chat.completions.create(
     model="anthropic:claude-3-5-sonnet-20240620",
     messages=[{"role": "user", "content": "What time is it? Also list the files."}],
-    tools=all_tools,
+    tools=[
+        get_current_time,  # Python function
+        {
+            "type": "mcp",
+            "name": "filesystem",
+            "command": "npx",
+            "args": ["..."]
+        }  # MCP config
+    ],
     max_turns=3
 )
 ```
 
-### Using Specific MCP Tools
+### MCP Config Dict Reference
 
-You can select specific tools instead of using all available tools:
-
-```python
-# Get only specific tools
-read_file = mcp.get_tool("read_file")
-write_file = mcp.get_tool("write_file")
-
-response = client.chat.completions.create(
-    model="openai:gpt-4o",
-    messages=messages,
-    tools=[read_file, write_file],
-    max_turns=2
-)
-```
-
-### Multiple MCP Servers
-
-Connect to multiple MCP servers and combine their tools:
+Complete list of supported config dict fields:
 
 ```python
-# Connect to different MCP servers
-filesystem_mcp = MCPClient(
-    command="npx",
-    args=["-y", "@modelcontextprotocol/server-filesystem", "/docs"]
-)
+{
+    # Required fields
+    "type": "mcp",                    # Must be "mcp"
+    "name": "server_name",            # Unique name for this server
 
-database_mcp = MCPClient(
-    command="python",
-    args=["path/to/database_server.py"]
-)
+    # Transport (stdio - currently supported)
+    "command": "npx",                 # Command to start MCP server
+    "args": ["server", "args"],       # Optional: command arguments
+    "env": {"VAR": "value"},          # Optional: environment variables
+    "cwd": "/path/to/dir",            # Optional: working directory
 
-# Combine tools from multiple sources
-all_tools = (
-    filesystem_mcp.get_callable_tools() +
-    database_mcp.get_callable_tools()
-)
+    # Transport (http - coming soon)
+    "server_url": "https://...",      # For HTTP-based MCP servers
+    "headers": {"Auth": "Bearer ..."},# Optional: HTTP headers
 
-response = client.chat.completions.create(
-    model="openai:gpt-4o",
-    messages=messages,
-    tools=all_tools,
-    max_turns=5
-)
+    # Tool filtering
+    "allowed_tools": ["tool1", "tool2"],  # Optional: allowlist of tools
+
+    # Namespacing
+    "use_tool_prefix": False,         # Optional: prefix tools with "name__"
+
+    # Safety limits (optional, with defaults)
+    "timeout_seconds": 30,            # Default: 30
+    "response_bytes_cap": 10485760,   # Default: 10MB
+    "lazy_connect": False             # Default: False
+}
 ```
 
-### Context Manager (Recommended)
+### When to Use Config Dict vs MCPClient
+
+**Use Config Dict when:**
+- Quick prototypes and scripts
+- One-off tool usage
+- Want automatic cleanup
+- Prefer less code
+
+**Use Explicit MCPClient when:**
+- Reusing connection across multiple requests
+- Need to inspect tools before using them
+- Want fine-grained lifecycle control
+- Building long-running applications
+
+### Context Manager (Recommended for MCPClient)
 
 Use MCPClient as a context manager to ensure proper cleanup:
 

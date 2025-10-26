@@ -20,6 +20,7 @@ except ImportError:
     )
 
 from .tool_wrapper import create_mcp_tool_wrapper
+from .config import MCPConfig, validate_mcp_config, get_transport_type
 
 
 class MCPClient:
@@ -60,6 +61,7 @@ class MCPClient:
         command: str,
         args: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
+        name: Optional[str] = None,
     ):
         """
         Initialize the MCP client and connect to an MCP server.
@@ -68,6 +70,7 @@ class MCPClient:
             command: Command to start the MCP server (e.g., "npx", "python")
             args: Arguments to pass to the command (e.g., ["-y", "server-package"])
             env: Optional environment variables for the server process
+            name: Optional name for this MCP client (used for logging and prefixing)
 
         Raises:
             ImportError: If the mcp package is not installed
@@ -78,15 +81,104 @@ class MCPClient:
             args=args or [],
             env=env,
         )
+        self.name = name or command
 
         self._session: Optional[ClientSession] = None
         self._read = None
         self._write = None
+        self._stdio_context = None  # Store the stdio context manager
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Initialize connection
         self._connect()
+
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "MCPClient":
+        """
+        Create an MCPClient from a configuration dictionary.
+
+        This method validates the config and creates an MCPClient instance.
+        It supports both stdio and http transports (currently only stdio is implemented).
+
+        Args:
+            config: MCP configuration dictionary
+
+        Returns:
+            MCPClient instance
+
+        Raises:
+            ValueError: If configuration is invalid
+            NotImplementedError: If http transport is requested (not yet supported)
+
+        Example:
+            >>> config = {
+            ...     "type": "mcp",
+            ...     "name": "filesystem",
+            ...     "command": "npx",
+            ...     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/docs"]
+            ... }
+            >>> mcp = MCPClient.from_config(config)
+        """
+        # Validate and normalize config
+        validated_config = validate_mcp_config(config)
+
+        # Determine transport type
+        transport = get_transport_type(validated_config)
+
+        if transport == "stdio":
+            return cls(
+                command=validated_config["command"],
+                args=validated_config.get("args", []),
+                env=validated_config.get("env"),
+                name=validated_config["name"],
+            )
+        else:  # http
+            raise NotImplementedError(
+                "HTTP transport for MCP is not yet implemented. "
+                "Currently only stdio transport is supported."
+            )
+
+    @staticmethod
+    def get_tools_from_config(config: Dict[str, Any]) -> List[Callable]:
+        """
+        Convenience method to create MCPClient and get callable tools from config.
+
+        This is a helper that combines from_config() and get_callable_tools()
+        in a single call. It respects the config's allowed_tools and use_tool_prefix
+        settings.
+
+        Args:
+            config: MCP configuration dictionary
+
+        Returns:
+            List of callable tool wrappers
+
+        Example:
+            >>> config = {
+            ...     "type": "mcp",
+            ...     "name": "filesystem",
+            ...     "command": "npx",
+            ...     "args": ["..."],
+            ...     "allowed_tools": ["read_file"],
+            ...     "use_tool_prefix": True
+            ... }
+            >>> tools = MCPClient.get_tools_from_config(config)
+            >>> # Returns callable tools filtered and prefixed per config
+        """
+        # Validate config first
+        validated_config = validate_mcp_config(config)
+
+        # Create client
+        client = MCPClient.from_config(validated_config)
+
+        # Get tools with config settings
+        tools = client.get_callable_tools(
+            allowed_tools=validated_config.get("allowed_tools"),
+            use_tool_prefix=validated_config.get("use_tool_prefix", False),
+        )
+
+        return tools
 
     def _connect(self):
         """
@@ -110,8 +202,9 @@ class MCPClient:
 
     async def _async_connect(self):
         """Async connection initialization."""
-        # Start the MCP server
-        self._read, self._write = await stdio_client(self.server_params).__aenter__()
+        # Start the MCP server and store the context manager
+        self._stdio_context = stdio_client(self.server_params)
+        self._read, self._write = await self._stdio_context.__aenter__()
 
         # Create session
         self._session = ClientSession(self._read, self._write)
@@ -122,7 +215,19 @@ class MCPClient:
 
         # List available tools and cache them
         tools_result = await self._session.list_tools()
-        self._tools_cache = tools_result.tools if hasattr(tools_result, 'tools') else []
+
+        # Convert Tool objects to dicts for easier handling
+        if hasattr(tools_result, 'tools'):
+            self._tools_cache = [
+                {
+                    "name": tool.name,
+                    "description": tool.description if hasattr(tool, 'description') else "",
+                    "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+                }
+                for tool in tools_result.tools
+            ]
+        else:
+            self._tools_cache = []
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """
@@ -140,7 +245,11 @@ class MCPClient:
             raise RuntimeError("Not connected to MCP server")
         return self._tools_cache
 
-    def get_callable_tools(self) -> List[Callable]:
+    def get_callable_tools(
+        self,
+        allowed_tools: Optional[List[str]] = None,
+        use_tool_prefix: bool = False,
+    ) -> List[Callable]:
         """
         Get all MCP tools as Python callables compatible with aisuite.
 
@@ -148,23 +257,43 @@ class MCPClient:
         a list of callable wrappers that can be passed directly to the `tools`
         parameter of `client.chat.completions.create()`.
 
+        Args:
+            allowed_tools: Optional list of tool names to include. If None, all tools are included.
+            use_tool_prefix: If True, prefix tool names with "{client_name}__"
+
         Returns:
             List of callable tool wrappers
 
         Example:
+            >>> # Get all tools
             >>> mcp_tools = mcp.get_callable_tools()
-            >>> response = client.chat.completions.create(
-            ...     model="openai:gpt-4o",
-            ...     messages=messages,
-            ...     tools=mcp_tools,
-            ...     max_turns=2
-            ... )
+            >>>
+            >>> # Get specific tools only
+            >>> mcp_tools = mcp.get_callable_tools(allowed_tools=["read_file"])
+            >>>
+            >>> # Get tools with name prefixing
+            >>> mcp_tools = mcp.get_callable_tools(use_tool_prefix=True)
+            >>> # Tools will be named "filesystem__read_file", etc.
         """
-        tools = self.list_tools()
-        return [
-            create_mcp_tool_wrapper(self, tool["name"], tool)
-            for tool in tools
-        ]
+        all_tools = self.list_tools()
+
+        # Filter tools if allowed_tools is specified
+        if allowed_tools is not None:
+            all_tools = [t for t in all_tools if t["name"] in allowed_tools]
+
+        # Create wrappers
+        wrappers = []
+        for tool in all_tools:
+            wrapper = create_mcp_tool_wrapper(self, tool["name"], tool)
+
+            # Apply prefix if requested
+            if use_tool_prefix:
+                original_name = wrapper.__name__
+                wrapper.__name__ = f"{self.name}__{original_name}"
+
+            wrappers.append(wrapper)
+
+        return wrappers
 
     def get_tool(self, tool_name: str) -> Optional[Callable]:
         """
@@ -262,11 +391,17 @@ class MCPClient:
 
     async def _async_close(self):
         """Async cleanup."""
-        if self._session:
-            await self._session.__aexit__(None, None, None)
-        if self._read and self._write:
-            # The stdio_client context manager handles cleanup
-            pass
+        try:
+            if self._session:
+                await self._session.__aexit__(None, None, None)
+        except Exception:
+            pass  # Ignore errors during session cleanup
+
+        try:
+            if self._stdio_context:
+                await self._stdio_context.__aexit__(None, None, None)
+        except Exception:
+            pass  # Ignore errors during stdio cleanup
 
     def __enter__(self):
         """Context manager entry."""
