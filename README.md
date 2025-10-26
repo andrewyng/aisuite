@@ -346,6 +346,155 @@ export HF_TOKEN="your-huggingface-token"
 
 For more examples and advanced usage, check out `examples/asr_example.ipynb`.
 
+## MCP (Model Context Protocol) Integration
+
+`aisuite` provides seamless integration with MCP servers, allowing AI models to access external tools and data sources through the Model Context Protocol. MCP tools work exactly like regular Python functions in aisuite's tool calling system.
+
+### What is MCP?
+
+MCP (Model Context Protocol) is a standardized protocol that enables AI applications to connect to external data sources and tools. MCP servers expose tools, resources, and prompts that AI models can use to interact with filesystems, databases, APIs, and more.
+
+### Installation
+
+Install aisuite with MCP support:
+
+```shell
+pip install 'aisuite[mcp]'
+```
+
+You'll also need an MCP server. For example, to use the filesystem server:
+
+```shell
+npm install -g @modelcontextprotocol/server-filesystem
+```
+
+### Basic Usage
+
+```python
+import aisuite as ai
+from aisuite.mcp import MCPClient
+
+# Connect to an MCP server
+mcp = MCPClient(
+    command="npx",
+    args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/directory"]
+)
+
+# Use MCP tools with any provider
+client = ai.Client()
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=[{"role": "user", "content": "List the files in the current directory"}],
+    tools=mcp.get_callable_tools(),  # MCP tools work like Python functions!
+    max_turns=3
+)
+
+print(response.choices[0].message.content)
+```
+
+### Mixing MCP Tools with Python Functions
+
+You can seamlessly combine MCP tools with regular Python functions:
+
+```python
+# Define a custom Python function
+def get_current_time() -> str:
+    """Get the current date and time."""
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# Mix MCP and Python tools
+all_tools = mcp.get_callable_tools() + [get_current_time]
+
+response = client.chat.completions.create(
+    model="anthropic:claude-3-5-sonnet-20240620",
+    messages=[{"role": "user", "content": "What time is it? Also list the files."}],
+    tools=all_tools,
+    max_turns=3
+)
+```
+
+### Using Specific MCP Tools
+
+You can select specific tools instead of using all available tools:
+
+```python
+# Get only specific tools
+read_file = mcp.get_tool("read_file")
+write_file = mcp.get_tool("write_file")
+
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=messages,
+    tools=[read_file, write_file],
+    max_turns=2
+)
+```
+
+### Multiple MCP Servers
+
+Connect to multiple MCP servers and combine their tools:
+
+```python
+# Connect to different MCP servers
+filesystem_mcp = MCPClient(
+    command="npx",
+    args=["-y", "@modelcontextprotocol/server-filesystem", "/docs"]
+)
+
+database_mcp = MCPClient(
+    command="python",
+    args=["path/to/database_server.py"]
+)
+
+# Combine tools from multiple sources
+all_tools = (
+    filesystem_mcp.get_callable_tools() +
+    database_mcp.get_callable_tools()
+)
+
+response = client.chat.completions.create(
+    model="openai:gpt-4o",
+    messages=messages,
+    tools=all_tools,
+    max_turns=5
+)
+```
+
+### Context Manager (Recommended)
+
+Use MCPClient as a context manager to ensure proper cleanup:
+
+```python
+with MCPClient(command="npx", args=["server"]) as mcp:
+    response = client.chat.completions.create(
+        model="openai:gpt-4o",
+        messages=messages,
+        tools=mcp.get_callable_tools(),
+        max_turns=2
+    )
+```
+
+### Provider Compatibility
+
+MCP tools work with all aisuite providers:
+- OpenAI (GPT-4, GPT-3.5)
+- Anthropic (Claude)
+- Google (Gemini)
+- And all other supported providers
+
+### Available MCP Servers
+
+Explore available MCP servers:
+- **Filesystem**: Access local files and directories
+- **Database**: Query databases (PostgreSQL, MySQL, SQLite)
+- **GitHub**: Interact with GitHub repositories
+- **Google Drive**: Access Google Drive files
+- **Slack**: Send and read Slack messages
+- And many more at: https://github.com/modelcontextprotocol/servers
+
+For detailed examples, see `examples/mcp_tools_example.ipynb`.
+
 ## License
 
 aisuite is released under the MIT License. You are free to use, modify, and distribute the code for both commercial and non-commercial purposes.
