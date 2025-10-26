@@ -26,13 +26,13 @@ export function adaptResponse(
   return {
     text: response.text,
     language: response.language || "en", // Default to English if not provided
-    confidence: response.segments?.[0]?.avg_logprob ?? 0,
+    confidence: response.segments?.[0]?.avg_logprob,
     words:
       response.words?.map((word) => ({
         text: word.text || "",
         start: word.start,
         end: word.end,
-        confidence: word.confidence || 1.0, // Default confidence if not provided
+        confidence: word?.confidence, // Default confidence if not provided
       })) ?? [],
     segments:
       response.segments?.map((segment) => ({

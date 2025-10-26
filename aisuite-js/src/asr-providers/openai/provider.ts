@@ -27,7 +27,7 @@ export class OpenAIASRProvider extends BaseASRProvider {
       throw new AISuiteError(
         "Model parameter is required",
         this.name,
-        "INVALID_MODEL"
+        "MODEL_PARAMETER_REQUIRED"
       );
     }
 
@@ -35,7 +35,7 @@ export class OpenAIASRProvider extends BaseASRProvider {
       throw new AISuiteError(
         "File parameter is required",
         this.name,
-        "INVALID_MODEL"
+        "MODEL_PARAMETER_REQUIRED"
       );
     }
   }

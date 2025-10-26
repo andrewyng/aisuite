@@ -1,4 +1,4 @@
-import { createClient } from "@deepgram/sdk";
+import { createClient, DeepgramClient } from "@deepgram/sdk";
 import { BaseASRProvider } from "../../core/base-asr-provider";
 import {
   TranscriptionRequest,
@@ -12,7 +12,7 @@ import * as fs from "fs";
 
 export class DeepgramASRProvider extends BaseASRProvider {
   public readonly name = "deepgram";
-  private client: any;
+  private client: DeepgramClient;
 
   constructor(config: DeepgramConfig) {
     super();
@@ -29,7 +29,7 @@ export class DeepgramASRProvider extends BaseASRProvider {
       throw new AISuiteError(
         "Model parameter is required",
         this.name,
-        "INVALID_MODEL"
+        "MODEL_PARAMETER_REQUIRED"
       );
     }
 
@@ -37,7 +37,7 @@ export class DeepgramASRProvider extends BaseASRProvider {
       throw new AISuiteError(
         "File parameter is required",
         this.name,
-        "INVALID_MODEL"
+        "MODEL_PARAMETER_REQUIRED"
       );
     }
   }
@@ -91,8 +91,7 @@ export class DeepgramASRProvider extends BaseASRProvider {
       // Use the v4 SDK format for transcription
       const response = await this.client.listen.prerecorded
         .transcribeFile(audioData, {
-          ...transcriptionOptions,
-          mimetype: 'audio/wav'
+          ...transcriptionOptions
         });
 
       // Check for errors in the response
