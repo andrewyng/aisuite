@@ -462,8 +462,7 @@ describe("DeepgramASRProvider", () => {
       expect(
         mockDeepgramClient.listen.prerecorded.transcribeFile
       ).toHaveBeenCalledWith(Buffer.from("test audio data"), {
-        model: "nova-2",
-        "mimetype": "audio/wav",
+        model: "nova-2",        
       });
     });
 

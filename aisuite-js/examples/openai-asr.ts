@@ -6,8 +6,7 @@ async function main() {
   // Initialize the client with OpenAI configuration
   const client = new Client({
     openai: {
-      apiKey: process.env.OPENAI_API_KEY || "your-openai-api-key",
-      audio: true,
+      apiKey: "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" 
     },
   });
 
@@ -16,7 +15,7 @@ async function main() {
   // Example: Transcribe an audio file
   try {
     // Path to your audio file
-    const testAudioPath = path.join("test-audio.wav");
+    const testAudioPath = "C:\\Users\\dev-5\\OneDrive\\Desktop\\backup\\2907\\aisuite-js\\aisuite-js\\examples\\test-audio.wav";
 
     // Check if test file exists
     if (!fs.existsSync(testAudioPath)) {
