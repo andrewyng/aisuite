@@ -10,3 +10,8 @@ export {
   GroqProvider,
   MistralProvider,
 } from "./providers";
+
+export {
+  DeepgramASRProvider,
+  OpenAIASRProvider,
+} from "./asr-providers";
