@@ -3,6 +3,9 @@ from pydantic import BaseModel
 from typing import Dict
 from aisuite.utils.tools import Tools  # Import your ToolManager class
 from enum import Enum
+import dataclasses
+from datetime import datetime
+from markupsafe import Markup
 
 
 # Define a sample tool function and Pydantic model for testing
@@ -21,6 +24,19 @@ class TemperatureParams(BaseModel):
     unit: str = "Celsius"
 
 
+@dataclasses.dataclass
+class WeatherReport:
+    temperature: int
+    temperature_unit: TemperatureUnit = TemperatureUnit.CELSIUS
+    last_forecast_datetime: datetime = datetime(2024, 1, 1, 11, 5, 5)
+    forecast: Markup = Markup(
+        """
+    <h1>Weather Report for Today</h1>
+    <section>It's looking really good.</section>
+    """
+    )
+
+
 def get_current_temperature(location: str, unit: str = "Celsius") -> Dict[str, str]:
     """Gets the current temperature for a specific location and unit."""
     return {"location": location, "unit": unit, "temperature": "72"}
@@ -36,6 +52,18 @@ def get_current_temperature_v2(
 ) -> Dict[str, str]:
     """Gets the current temperature for a specific location and unit (with enum support)."""
     return {"location": location, "unit": unit, "temperature": "72"}
+
+
+class WeatherReportParams(BaseModel):
+    location: str
+
+
+def get_weather_report_complex_type(location: str) -> WeatherReport:
+    """Gets a detailed weather report for a location"""
+    return WeatherReport(
+        20,
+        TemperatureUnit.CELSIUS,
+    )
 
 
 class TestToolManager(unittest.TestCase):
@@ -194,6 +222,35 @@ class TestToolManager(unittest.TestCase):
         assert (
             tools == expected_tool_spec
         ), f"Expected {expected_tool_spec}, but got {tools}"
+
+    def test_execute_tool_with_complex_type(self):
+        """Test executing a registered tool with valid parameters."""
+        self.tool_manager._add_tool(
+            get_weather_report_complex_type, WeatherReportParams
+        )
+        tool_call = {
+            "id": "call_1",
+            "function": {
+                "name": "get_weather_report_complex_type",
+                "arguments": {"location": "San Francisco"},
+            },
+        }
+        result, result_message = self.tool_manager.execute_tool(tool_call)
+
+        # Assuming result is returned as a list with a single dictionary
+        result_obj = result[0] if isinstance(result, list) else result
+        self.assertIsInstance(result_obj, WeatherReport)
+
+        # Check that the result matches expected output
+        self.assertEqual(
+            result_obj.forecast,
+            Markup(
+                "\n    <h1>Weather Report for Today</h1>\n    <section>It's looking really good.</section>\n    "
+            ),
+        )
+        self.assertEqual(
+            result_obj.last_forecast_datetime, datetime(2024, 1, 1, 11, 5, 5)
+        )
 
 
 if __name__ == "__main__":
