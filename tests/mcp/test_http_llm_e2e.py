@@ -10,16 +10,22 @@ which mocks HTTP responses, these tests verify the complete integration stack.
    - Tests are marked with @pytest.mark.llm
    - Tests are skipped if API keys are not present
 
-MCP Server Used:
+MCP Servers Used:
    - Context7 (https://mcp.context7.com/mcp)
-   - Public HTTP MCP server for library documentation
-   - No authentication required (optional API key for higher limits)
-   - Tools: resolve-library-id, get-library-docs
+     - Public HTTP MCP server for library documentation
+     - No authentication required (optional API key for higher limits)
+     - Tools: resolve-library-id, get-library-docs
+
+   - Exa (https://mcp.exa.ai/mcp)
+     - Web search and code context search
+     - Requires EXA_API_KEY for authentication
+     - Tools: web_search_exa, get_code_context_exa
 
 Requirements:
     - API keys in .env file:
         OPENAI_API_KEY=your-key
         ANTHROPIC_API_KEY=your-key
+        EXA_API_KEY=your-key (for Exa tests only)
     - pytest-asyncio, python-dotenv
 
 Running:
@@ -44,6 +50,11 @@ def has_openai_key():
 def has_anthropic_key():
     """Check if Anthropic API key is available."""
     return bool(os.getenv("ANTHROPIC_API_KEY"))
+
+
+def has_exa_key():
+    """Check if Exa API key is available."""
+    return bool(os.getenv("EXA_API_KEY"))
 
 
 @pytest.mark.llm
@@ -347,3 +358,257 @@ class TestHTTPMCPWithHeaders:
             keyword in content
             for keyword in ["pandas", "library", "id", "data"]
         ), f"Expected library info in response, got: {content}"
+
+
+@pytest.mark.llm
+@pytest.mark.integration
+class TestOpenAIWithExaMCP:
+    """Test OpenAI models with Exa HTTP MCP tools."""
+
+    @pytest.mark.skipif(
+        not has_openai_key() or not has_exa_key(),
+        reason="OPENAI_API_KEY or EXA_API_KEY not set",
+    )
+    def test_gpt4o_web_search_via_exa(self):
+        """Test GPT-4o can perform web search using Exa."""
+        client = Client()
+
+        exa_api_key = os.getenv("EXA_API_KEY")
+
+        response = client.chat.completions.create(
+            model="openai:gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Search for recent Python 3.12 features and summarize the top 2.",
+                }
+            ],
+            tools=[
+                {
+                    "type": "mcp",
+                    "name": "exa",
+                    "server_url": "https://mcp.exa.ai/mcp",
+                    "headers": {"Authorization": f"Bearer {exa_api_key}"},
+                    "allowed_tools": ["web_search_exa"],
+                    "timeout": 60.0,
+                }
+            ],
+            max_turns=3,
+        )
+
+        # Verify search results
+        content = response.choices[0].message.content.lower()
+        assert any(
+            keyword in content for keyword in ["python", "3.12", "feature"]
+        ), f"Expected Python 3.12 info in response, got: {content}"
+
+    @pytest.mark.skipif(
+        not has_openai_key() or not has_exa_key(),
+        reason="OPENAI_API_KEY or EXA_API_KEY not set",
+    )
+    def test_gpt4o_code_context_via_exa(self):
+        """Test GPT-4o can search code context using Exa."""
+        client = Client()
+
+        exa_api_key = os.getenv("EXA_API_KEY")
+
+        response = client.chat.completions.create(
+            model="openai:gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Find an example of using asyncio.gather in Python.",
+                }
+            ],
+            tools=[
+                {
+                    "type": "mcp",
+                    "name": "exa",
+                    "server_url": "https://mcp.exa.ai/mcp",
+                    "headers": {"Authorization": f"Bearer {exa_api_key}"},
+                    "allowed_tools": ["get_code_context_exa"],
+                    "timeout": 60.0,
+                }
+            ],
+            max_turns=3,
+        )
+
+        # Verify code context results
+        content = response.choices[0].message.content.lower()
+        assert any(
+            keyword in content for keyword in ["asyncio", "gather", "async", "await"]
+        ), f"Expected asyncio.gather info in response, got: {content}"
+
+    @pytest.mark.skipif(
+        not has_openai_key() or not has_exa_key(),
+        reason="OPENAI_API_KEY or EXA_API_KEY not set",
+    )
+    def test_gpt4o_mixed_tools_with_exa(self):
+        """Test GPT-4o with both Exa tools and Python functions."""
+
+        def get_current_year() -> str:
+            """Get the current year."""
+            from datetime import datetime
+
+            return str(datetime.now().year)
+
+        client = Client()
+        exa_api_key = os.getenv("EXA_API_KEY")
+
+        response = client.chat.completions.create(
+            model="openai:gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Get the current year, then search for major tech events from that year.",
+                }
+            ],
+            tools=[
+                get_current_year,  # Python function
+                {
+                    "type": "mcp",
+                    "name": "exa",
+                    "server_url": "https://mcp.exa.ai/mcp",
+                    "headers": {"Authorization": f"Bearer {exa_api_key}"},
+                    "allowed_tools": ["web_search_exa"],
+                    "timeout": 60.0,
+                },  # Exa HTTP MCP
+            ],
+            max_turns=4,
+        )
+
+        # Verify both tools were used
+        content = response.choices[0].message.content.lower()
+        # Should mention the year (from Python function)
+        assert any(
+            str(y) in content for y in [2024, 2025, 2026]
+        ), f"Expected year in response, got: {content}"
+        # Should mention tech or events (from web search)
+        assert any(
+            keyword in content for keyword in ["tech", "event", "technology"]
+        ), f"Expected tech events in response, got: {content}"
+
+
+@pytest.mark.llm
+@pytest.mark.integration
+class TestAnthropicWithExaMCP:
+    """Test Anthropic Claude models with Exa HTTP MCP tools."""
+
+    @pytest.mark.skipif(
+        not has_anthropic_key() or not has_exa_key(),
+        reason="ANTHROPIC_API_KEY or EXA_API_KEY not set",
+    )
+    def test_claude_web_search_via_exa(self):
+        """Test Claude can perform web search using Exa."""
+        client = Client()
+
+        exa_api_key = os.getenv("EXA_API_KEY")
+
+        response = client.chat.completions.create(
+            model="anthropic:claude-sonnet-4-5",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Search for information about Rust programming language features.",
+                }
+            ],
+            tools=[
+                {
+                    "type": "mcp",
+                    "name": "exa",
+                    "server_url": "https://mcp.exa.ai/mcp",
+                    "headers": {"Authorization": f"Bearer {exa_api_key}"},
+                    "allowed_tools": ["web_search_exa"],
+                    "timeout": 60.0,
+                }
+            ],
+            max_turns=3,
+        )
+
+        # Verify search results
+        content = response.choices[0].message.content.lower()
+        assert any(
+            keyword in content for keyword in ["rust", "programming", "language"]
+        ), f"Expected Rust info in response, got: {content}"
+
+    @pytest.mark.skipif(
+        not has_anthropic_key() or not has_exa_key(),
+        reason="ANTHROPIC_API_KEY or EXA_API_KEY not set",
+    )
+    def test_claude_code_context_via_exa(self):
+        """Test Claude can search code context using Exa."""
+        client = Client()
+
+        exa_api_key = os.getenv("EXA_API_KEY")
+
+        response = client.chat.completions.create(
+            model="anthropic:claude-sonnet-4-5",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Find code examples for FastAPI route decorators.",
+                }
+            ],
+            tools=[
+                {
+                    "type": "mcp",
+                    "name": "exa",
+                    "server_url": "https://mcp.exa.ai/mcp",
+                    "headers": {"Authorization": f"Bearer {exa_api_key}"},
+                    "allowed_tools": ["get_code_context_exa"],
+                    "timeout": 60.0,
+                }
+            ],
+            max_turns=3,
+        )
+
+        # Verify code context results
+        content = response.choices[0].message.content.lower()
+        assert any(
+            keyword in content for keyword in ["fastapi", "route", "decorator", "@"]
+        ), f"Expected FastAPI route info in response, got: {content}"
+
+    @pytest.mark.skipif(
+        not has_anthropic_key() or not has_exa_key(),
+        reason="ANTHROPIC_API_KEY or EXA_API_KEY not set",
+    )
+    def test_claude_mixed_tools_with_exa(self):
+        """Test Claude with both Exa tools and Python functions."""
+
+        def get_language() -> str:
+            """Get the primary programming language."""
+            return "Python"
+
+        client = Client()
+        exa_api_key = os.getenv("EXA_API_KEY")
+
+        response = client.chat.completions.create(
+            model="anthropic:claude-sonnet-4-5",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Get the language name, then search for its latest version features.",
+                }
+            ],
+            tools=[
+                get_language,  # Python function
+                {
+                    "type": "mcp",
+                    "name": "exa",
+                    "server_url": "https://mcp.exa.ai/mcp",
+                    "headers": {"Authorization": f"Bearer {exa_api_key}"},
+                    "allowed_tools": ["web_search_exa"],
+                    "timeout": 60.0,
+                },  # Exa HTTP MCP
+            ],
+            max_turns=4,
+        )
+
+        # Verify both tools were used
+        content = response.choices[0].message.content.lower()
+        # Should mention Python (from Python function)
+        assert "python" in content, f"Expected Python in response, got: {content}"
+        # Should mention version or features (from web search)
+        assert any(
+            keyword in content for keyword in ["version", "feature", "3."]
+        ), f"Expected version info in response, got: {content}"
