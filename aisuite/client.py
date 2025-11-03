@@ -2,6 +2,7 @@ from .provider import ProviderFactory
 import os
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
+from contextlib import ExitStack
 from .framework.message import (
     TranscriptionResponse,
 )
@@ -113,9 +114,8 @@ class Chat:
 class Completions:
     def __init__(self, client: "Client"):
         self.client = client
-        self._mcp_clients = []  # Track MCP clients for cleanup
 
-    def _process_mcp_configs(self, tools: list) -> list:
+    def _process_mcp_configs(self, tools: list) -> tuple[list, list]:
         """
         Process tools list and convert MCP config dicts to callable tools.
 
@@ -124,13 +124,15 @@ class Completions:
         2. Creates MCPClient instances from configs
         3. Extracts callable tools with filtering and prefixing
         4. Mixes MCP tools with regular callable tools
-        5. Tracks MCP clients for cleanup
+        5. Returns both processed tools and MCP clients for cleanup
 
         Args:
             tools: List of tools (mix of callables and MCP configs)
 
         Returns:
-            List of callable tools only
+            Tuple of (processed_tools, mcp_clients):
+                - processed_tools: List of callable tools only
+                - mcp_clients: List of MCPClient instances to be cleaned up
 
         Example:
             >>> tools = [
@@ -138,8 +140,8 @@ class Completions:
             ...     {"type": "mcp", "name": "fs", "command": "npx", "args": [...]},
             ...     another_function
             ... ]
-            >>> callable_tools = self._process_mcp_configs(tools)
-            >>> # Returns: [my_function, fs_tool1, fs_tool2, ..., another_function]
+            >>> callable_tools, mcp_clients = self._process_mcp_configs(tools)
+            >>> # Returns: ([my_function, fs_tool1, fs_tool2, ..., another_function], [mcp_client])
         """
         if not MCP_AVAILABLE:
             # If MCP not installed, check if user is trying to use it
@@ -148,16 +150,17 @@ class Completions:
                     "MCP tools require the 'mcp' package. "
                     "Install it with: pip install 'aisuite[mcp]' or pip install mcp"
                 )
-            return tools
+            return tools, []
 
         processed_tools = []
+        mcp_clients = []
 
         for tool in tools:
             if isinstance(tool, dict) and is_mcp_config(tool):
                 # It's an MCP config dict - convert to callable tools
                 try:
                     mcp_client = MCPClient.from_config(tool)
-                    self._mcp_clients.append(mcp_client)
+                    mcp_clients.append(mcp_client)
 
                     # Get tools with config settings
                     mcp_tools = mcp_client.get_callable_tools(
@@ -175,16 +178,7 @@ class Completions:
                 # Regular callable tool - pass through
                 processed_tools.append(tool)
 
-        return processed_tools
-
-    def _cleanup_mcp_clients(self):
-        """Clean up any MCP clients created during this request."""
-        for mcp_client in self._mcp_clients:
-            try:
-                mcp_client.close()
-            except Exception:
-                pass  # Ignore cleanup errors
-        self._mcp_clients = []
+        return processed_tools, mcp_clients
 
     def _extract_thinking_content(self, response):
         """
@@ -319,6 +313,8 @@ class Completions:
             )
 
         # Initialize provider if not already initialized
+        # TODO: Add thread-safe provider initialization with lock to prevent race conditions
+        # when multiple threads try to initialize the same provider simultaneously.
         if provider_key not in self.client.providers:
             config = self.client.provider_configs.get(provider_key, {})
             self.client.providers[provider_key] = ProviderFactory.create_provider(
@@ -333,13 +329,18 @@ class Completions:
         max_turns = kwargs.pop("max_turns", None)
         tools = kwargs.pop("tools", None)
 
-        # Convert MCP config dicts to callable tools
-        if tools is not None:
-            tools = self._process_mcp_configs(tools)
+        # Use ExitStack to manage MCP client cleanup automatically
+        with ExitStack() as stack:
+            # Convert MCP config dicts to callable tools and get MCP clients
+            mcp_clients = []
+            if tools is not None:
+                tools, mcp_clients = self._process_mcp_configs(tools)
+                # Register all MCP clients for automatic cleanup
+                for mcp_client in mcp_clients:
+                    stack.enter_context(mcp_client)
 
-        # Check environment variable before allowing multi-turn tool execution
-        if max_turns is not None and tools is not None:
-            try:
+            # Check environment variable before allowing multi-turn tool execution
+            if max_turns is not None and tools is not None:
                 return self._tool_runner(
                     provider,
                     model_name,
@@ -348,18 +349,11 @@ class Completions:
                     max_turns,
                     **kwargs,
                 )
-            finally:
-                # Clean up MCP clients after tool execution
-                self._cleanup_mcp_clients()
 
-        # Default behavior without tool execution
-        # Delegate the chat completion to the correct provider's implementation
-        try:
+            # Default behavior without tool execution
+            # Delegate the chat completion to the correct provider's implementation
             response = provider.chat_completions_create(model_name, messages, **kwargs)
             return self._extract_thinking_content(response)
-        finally:
-            # Clean up MCP clients even if no max_turns
-            self._cleanup_mcp_clients()
 
 
 class Audio:

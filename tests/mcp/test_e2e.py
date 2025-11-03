@@ -270,44 +270,13 @@ class TestMCPCleanup:
         with patch.object(client.chat.completions, "_tool_runner") as mock_runner:
             mock_runner.return_value = create_mock_response("Success")
 
-            completions = client.chat.completions
+            # Patch MCPClient to track close() calls
+            with patch("aisuite.client.MCPClient") as mock_mcp_class:
+                mock_mcp_instance = MagicMock()
+                mock_mcp_class.from_config.return_value = mock_mcp_instance
+                mock_mcp_instance.get_callable_tools.return_value = []
 
-            # Before request, no MCP clients
-            assert len(completions._mcp_clients) == 0
-
-            response = client.chat.completions.create(
-                model="openai:gpt-4o",
-                messages=[{"role": "user", "content": "Test"}],
-                tools=[
-                    {
-                        "type": "mcp",
-                        "name": "filesystem",
-                        "command": "npx",
-                        "args": [
-                            "-y",
-                            "@modelcontextprotocol/server-filesystem",
-                            temp_test_dir,
-                        ],
-                    }
-                ],
-                max_turns=2,
-            )
-
-            # After request, MCP clients should be cleaned up
-            assert len(completions._mcp_clients) == 0
-
-    def test_cleanup_after_error(self, temp_test_dir, skip_if_no_npx):
-        """Test MCP clients are cleaned up even after error."""
-        client = Client()
-
-        with patch.object(client.chat.completions, "_tool_runner") as mock_runner:
-            # Make tool_runner raise an error
-            mock_runner.side_effect = ValueError("Test error")
-
-            completions = client.chat.completions
-
-            with pytest.raises(ValueError, match="Test error"):
-                client.chat.completions.create(
+                response = client.chat.completions.create(
                     model="openai:gpt-4o",
                     messages=[{"role": "user", "content": "Test"}],
                     tools=[
@@ -325,8 +294,46 @@ class TestMCPCleanup:
                     max_turns=2,
                 )
 
-            # Even after error, MCP clients should be cleaned up
-            assert len(completions._mcp_clients) == 0
+                # Verify MCP client was used as context manager (cleanup called)
+                mock_mcp_instance.__enter__.assert_called_once()
+                mock_mcp_instance.__exit__.assert_called_once()
+
+    def test_cleanup_after_error(self, temp_test_dir, skip_if_no_npx):
+        """Test MCP clients are cleaned up even after error."""
+        client = Client()
+
+        with patch.object(client.chat.completions, "_tool_runner") as mock_runner:
+            # Make tool_runner raise an error
+            mock_runner.side_effect = ValueError("Test error")
+
+            # Patch MCPClient to track close() calls
+            with patch("aisuite.client.MCPClient") as mock_mcp_class:
+                mock_mcp_instance = MagicMock()
+                mock_mcp_class.from_config.return_value = mock_mcp_instance
+                mock_mcp_instance.get_callable_tools.return_value = []
+
+                with pytest.raises(ValueError, match="Test error"):
+                    client.chat.completions.create(
+                        model="openai:gpt-4o",
+                        messages=[{"role": "user", "content": "Test"}],
+                        tools=[
+                            {
+                                "type": "mcp",
+                                "name": "filesystem",
+                                "command": "npx",
+                                "args": [
+                                    "-y",
+                                    "@modelcontextprotocol/server-filesystem",
+                                    temp_test_dir,
+                                ],
+                            }
+                        ],
+                        max_turns=2,
+                    )
+
+                # Even after error, MCP client context manager exit should be called
+                mock_mcp_instance.__enter__.assert_called_once()
+                mock_mcp_instance.__exit__.assert_called_once()
 
 
 @pytest.mark.integration

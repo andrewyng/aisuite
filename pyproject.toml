@@ -81,4 +81,5 @@ build-backend = "poetry.core.masonry.api"
 testpaths="tests"
 markers = [
     "integration: marks tests as integration tests that interact with external services",
+    "llm: marks tests that make real LLM API calls and incur costs (subset of integration)",
 ]

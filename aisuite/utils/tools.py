@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any, Type, Optional
+from typing import Callable, Dict, Any, Type, Optional, get_origin, get_args, Union
 from pydantic import BaseModel, create_model, Field, ValidationError
 import inspect
 import json
@@ -33,6 +33,25 @@ class Tools:
             return self.__convert_to_openai_format()
         return [tool["spec"] for tool in self._tools.values()]
 
+    def _unwrap_optional(self, field_type: Type) -> tuple[Type, bool]:
+        """
+        Unwrap Optional[T] to get the base type T.
+
+        Returns:
+            tuple: (base_type, is_optional)
+        """
+        # Check if it's Optional (Union with None)
+        origin = get_origin(field_type)
+        if origin is Union:
+            args = get_args(field_type)
+            # Optional[T] is Union[T, None]
+            if type(None) in args:
+                # Get the non-None type
+                non_none_types = [arg for arg in args if arg is not type(None)]
+                if len(non_none_types) == 1:
+                    return non_none_types[0], True
+        return field_type, False
+
     # Convert the function and its Pydantic model to a unified tool specification.
     def _convert_to_tool_spec(
         self, func: Callable, param_model: Type[BaseModel]
@@ -43,6 +62,9 @@ class Tools:
         properties = {}
         for field_name, field in param_model.model_fields.items():
             field_type = field.annotation
+
+            # Unwrap Optional[T] to get base type T
+            field_type, is_optional = self._unwrap_optional(field_type)
 
             # Handle enum types
             if hasattr(field_type, "__members__"):  # Check if it's an enum
