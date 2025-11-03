@@ -129,6 +129,7 @@ class MCPClient:
             # HTTP-specific state (initialized in _async_connect_http)
             self._http_client = None
             self._request_id = 0
+            self._session_id: Optional[str] = None  # MCP session ID from server
 
         # Shared state
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
@@ -289,6 +290,73 @@ class MCPClient:
         else:
             self._tools_cache = []
 
+    async def _parse_sse_response(
+        self, response: httpx.Response, request_id: int
+    ) -> Dict[str, Any]:
+        """
+        Parse SSE stream and extract JSON-RPC response.
+
+        SSE format per spec:
+            data: {"jsonrpc": "2.0", "id": 1, "result": {...}}
+
+            data: {"jsonrpc": "2.0", "method": "notification", ...}
+
+        The server may send multiple events (notifications, requests) before
+        sending the final response. We collect events until we find the
+        response matching our request_id.
+
+        Args:
+            response: HTTP response with text/event-stream content type
+            request_id: The JSON-RPC request ID to match
+
+        Returns:
+            Response result dictionary
+
+        Raises:
+            RuntimeError: If server returns an error or no matching response found
+        """
+        result = None
+
+        async for line in response.aiter_lines():
+            line = line.strip()
+
+            # Skip empty lines and comments
+            if not line or line.startswith(':'):
+                continue
+
+            # Parse SSE data field
+            if line.startswith('data: '):
+                data = line[6:]  # Remove 'data: ' prefix
+
+                try:
+                    message = json.loads(data)
+
+                    # Check if this is the response to our request
+                    if message.get("id") == request_id:
+                        if "error" in message:
+                            error = message["error"]
+                            raise RuntimeError(
+                                f"MCP server error: {error.get('message', 'Unknown error')} "
+                                f"(code: {error.get('code', 'unknown')})"
+                            )
+                        result = message.get("result", {})
+                        # Found our response, can stop parsing
+                        break
+
+                    # Note: Server may send other notifications/requests
+                    # which we ignore for now (future enhancement for bidirectional comms)
+
+                except json.JSONDecodeError:
+                    # Invalid JSON in SSE data, skip this event
+                    continue
+
+        if result is None:
+            raise RuntimeError(
+                f"No response received in SSE stream for request {request_id}"
+            )
+
+        return result
+
     async def _send_http_request(
         self, method: str, params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -322,10 +390,12 @@ class MCPClient:
         url = self.server_url.rstrip('/')
 
         # Build headers: MCP requires Accept header with both content types
-        # Merge with any user-provided headers
+        # Merge with any user-provided headers and session ID
         request_headers = {
             "Accept": "application/json, text/event-stream",
         }
+        if self._session_id:
+            request_headers["Mcp-Session-Id"] = self._session_id
         if self.headers:
             request_headers.update(self.headers)
 
@@ -335,20 +405,80 @@ class MCPClient:
             )
             response.raise_for_status()
 
-            result = response.json()
+            # Check for MCP session ID in response headers
+            if "Mcp-Session-Id" in response.headers and not self._session_id:
+                self._session_id = response.headers["Mcp-Session-Id"]
 
-            # Check for JSON-RPC error
-            if "error" in result:
-                error = result["error"]
+            # Check Content-Type to determine response format
+            content_type = response.headers.get("content-type", "").lower()
+
+            if "application/json" in content_type:
+                # Handle JSON response (simple request-response)
+                result = response.json()
+
+                # Check for JSON-RPC error
+                if "error" in result:
+                    error = result["error"]
+                    raise RuntimeError(
+                        f"MCP server error: {error.get('message', 'Unknown error')} "
+                        f"(code: {error.get('code', 'unknown')})"
+                    )
+
+                return result.get("result", {})
+
+            elif "text/event-stream" in content_type:
+                # Handle SSE stream response
+                return await self._parse_sse_response(response, request_data["id"])
+
+            else:
                 raise RuntimeError(
-                    f"MCP server error: {error.get('message', 'Unknown error')} "
-                    f"(code: {error.get('code', 'unknown')})"
+                    f"Unexpected Content-Type from MCP server: {content_type}"
                 )
 
-            return result.get("result", {})
-
         except httpx.HTTPError as e:
-            raise RuntimeError(f"HTTP request to MCP server failed: {str(e)}")
+            raise RuntimeError(
+                f"HTTP request to MCP server failed: {type(e).__name__}: {str(e)}"
+            )
+
+    async def _send_notification(self, method: str, params: Optional[Dict[str, Any]] = None):
+        """
+        Send a JSON-RPC notification (no response expected).
+
+        Notifications are JSON-RPC messages without an ID field.
+        Per the spec, the server should not send a response.
+
+        Args:
+            method: JSON-RPC method name
+            params: Optional parameters
+        """
+        # Build JSON-RPC notification (no id field)
+        notification = {
+            "jsonrpc": "2.0",
+            "method": method,
+        }
+
+        if params:
+            notification["params"] = params
+
+        # Build headers
+        url = self.server_url.rstrip('/')
+        request_headers = {
+            "Accept": "application/json, text/event-stream",
+        }
+        if self._session_id:
+            request_headers["Mcp-Session-Id"] = self._session_id
+        if self.headers:
+            request_headers.update(self.headers)
+
+        try:
+            # Send notification - don't wait for/expect a response
+            await self._http_client.post(
+                url, json=notification, headers=request_headers
+            )
+            # Note: We don't check response for notifications
+        except httpx.HTTPError:
+            # Notifications may timeout or fail, which is acceptable
+            pass
 
     async def _async_connect_http(self):
         """Async connection initialization for HTTP transport."""
@@ -363,6 +493,9 @@ class MCPClient:
         }
 
         await self._send_http_request("initialize", init_params)
+
+        # Send initialized notification (required by MCP spec)
+        await self._send_notification("notifications/initialized")
 
         # List available tools
         tools_result = await self._send_http_request("tools/list")

@@ -102,6 +102,7 @@ class TestOpenAIWithHTTPMCP:
                     "name": "context7",
                     "server_url": "https://mcp.context7.com/mcp",
                     "allowed_tools": ["resolve-library-id", "get-library-docs"],
+                    "timeout": 90.0,  # Increase timeout - docs fetching can be slow
                 }
             ],
             max_turns=5,
@@ -215,6 +216,7 @@ class TestAnthropicWithHTTPMCP:
                     "name": "context7",
                     "server_url": "https://mcp.context7.com/mcp",
                     "allowed_tools": ["resolve-library-id", "get-library-docs"],
+                    "timeout": 90.0,  # Increase timeout - docs fetching can be slow
                 }
             ],
             max_turns=5,

@@ -25,6 +25,7 @@ class TestHTTPTransportBasics:
 
             # Mock initialize response
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -37,6 +38,7 @@ class TestHTTPTransportBasics:
 
             # Mock tools/list response
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -55,9 +57,13 @@ class TestHTTPTransportBasics:
             }
             mock_response_tools.raise_for_status = MagicMock()
 
-            # Set up post responses in order
+            # Set up post responses in order (init + notification + tools)
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[
+                    mock_response_init,
+                    MagicMock(),  # initialized notification
+                    mock_response_tools
+                ]
             )
 
             # Create client
@@ -80,6 +86,7 @@ class TestHTTPTransportBasics:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -88,6 +95,7 @@ class TestHTTPTransportBasics:
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -96,7 +104,7 @@ class TestHTTPTransportBasics:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             # Create client with headers
@@ -134,6 +142,7 @@ class TestHTTPToolCalling:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -142,6 +151,7 @@ class TestHTTPToolCalling:
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -163,7 +173,7 @@ class TestHTTPToolCalling:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             mcp = MCPClient(server_url="http://localhost:8000")
@@ -183,10 +193,12 @@ class TestHTTPToolCalling:
 
             # Mock init and tools/list
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -204,6 +216,7 @@ class TestHTTPToolCalling:
 
             # Mock tool call response
             mock_response_call = MagicMock()
+            mock_response_call.headers = {"content-type": "application/json"}
             mock_response_call.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 3,
@@ -212,11 +225,7 @@ class TestHTTPToolCalling:
             mock_response_call.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[
-                    mock_response_init,
-                    mock_response_tools,
-                    mock_response_call,
-                ]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools, mock_response_call]
             )
 
             mcp = MCPClient(server_url="http://localhost:8000")
@@ -235,10 +244,12 @@ class TestHTTPToolCalling:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -255,7 +266,7 @@ class TestHTTPToolCalling:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             mcp = MCPClient(server_url="http://localhost:8000")
@@ -280,10 +291,12 @@ class TestHTTPFromConfig:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -292,7 +305,7 @@ class TestHTTPFromConfig:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             config = {
@@ -320,10 +333,12 @@ class TestHTTPFromConfig:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -337,7 +352,7 @@ class TestHTTPFromConfig:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             config = {
@@ -380,6 +395,7 @@ class TestHTTPErrorHandling:
 
             # Mock JSON-RPC error response
             mock_response = MagicMock()
+            mock_response.headers = {"content-type": "application/json"}
             mock_response.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -423,10 +439,12 @@ class TestHTTPEndpointHandling:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -435,17 +453,19 @@ class TestHTTPEndpointHandling:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             # Use full endpoint URL
             mcp = MCPClient(server_url="http://localhost:8000/mcp/v1")
 
             # Verify that post was called with exact URL (no modification)
+            # Calls: initialize, initialized notification, tools/list
             calls = mock_client_instance.post.call_args_list
-            assert len(calls) == 2
-            assert calls[0][0][0] == "http://localhost:8000/mcp/v1"
-            assert calls[1][0][0] == "http://localhost:8000/mcp/v1"
+            assert len(calls) == 3
+            assert calls[0][0][0] == "http://localhost:8000/mcp/v1"  # initialize
+            assert calls[1][0][0] == "http://localhost:8000/mcp/v1"  # initialized notification
+            assert calls[2][0][0] == "http://localhost:8000/mcp/v1"  # tools/list
 
             mcp.close()
 
@@ -457,10 +477,12 @@ class TestHTTPEndpointHandling:
 
             # Mock responses
             mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
             mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
             mock_response_init.raise_for_status = MagicMock()
 
             mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
             mock_response_tools.json.return_value = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -469,7 +491,7 @@ class TestHTTPEndpointHandling:
             mock_response_tools.raise_for_status = MagicMock()
 
             mock_client_instance.post = AsyncMock(
-                side_effect=[mock_response_init, mock_response_tools]
+                side_effect=[mock_response_init, MagicMock(), mock_response_tools]
             )
 
             # URL with trailing slash
@@ -478,5 +500,249 @@ class TestHTTPEndpointHandling:
             # Verify trailing slash is removed
             calls = mock_client_instance.post.call_args_list
             assert calls[0][0][0] == "http://localhost:8000/mcp/v1"
+
+            mcp.close()
+
+
+@pytest.mark.integration
+class TestHTTPSSEResponses:
+    """Test SSE (Server-Sent Events) response handling."""
+
+    def test_sse_response_parsing(self):
+        """Test handling SSE stream responses."""
+        with patch("aisuite.mcp.client.httpx.AsyncClient") as mock_async_client:
+            mock_client_instance = AsyncMock()
+            mock_async_client.return_value = mock_client_instance
+
+            # Mock initialize (JSON response)
+            mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
+            mock_response_init.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {},
+            }
+            mock_response_init.raise_for_status = MagicMock()
+
+            # Mock tools/list (JSON response)
+            mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
+            mock_response_tools.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"tools": []},
+            }
+            mock_response_tools.raise_for_status = MagicMock()
+
+            # Mock tool call (SSE response)
+            mock_response_sse = MagicMock()
+            mock_response_sse.headers = {"content-type": "text/event-stream"}
+            mock_response_sse.raise_for_status = MagicMock()
+
+            # Simulate SSE stream with data lines
+            # MCP format: result has "content" array with text items
+            async def mock_aiter_lines():
+                lines = [
+                    'data: {"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "SSE result"}]}}',
+                    '',
+                ]
+                for line in lines:
+                    yield line
+
+            mock_response_sse.aiter_lines = mock_aiter_lines
+
+            mock_client_instance.post = AsyncMock(
+                side_effect=[
+                    mock_response_init,
+                    MagicMock(),  # initialized notification (no response checked)
+                    mock_response_tools,
+                    mock_response_sse,
+                ]
+            )
+
+            mcp = MCPClient(server_url="http://localhost:8000")
+
+            # Call tool which returns SSE response
+            result = mcp.call_tool("test_tool", {})
+
+            # Verify SSE response was parsed correctly
+            # call_tool extracts the text from content array
+            assert result == "SSE result"
+
+            mcp.close()
+
+    def test_session_id_management(self):
+        """Test Mcp-Session-Id header handling."""
+        with patch("aisuite.mcp.client.httpx.AsyncClient") as mock_async_client:
+            mock_client_instance = AsyncMock()
+            mock_async_client.return_value = mock_client_instance
+
+            # Mock initialize with session ID in response
+            mock_response_init = MagicMock()
+            mock_response_init.headers = {
+                "content-type": "application/json",
+                "Mcp-Session-Id": "test-session-123"
+            }
+            mock_response_init.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {},
+            }
+            mock_response_init.raise_for_status = MagicMock()
+
+            # Mock tools/list
+            mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
+            mock_response_tools.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"tools": []},
+            }
+            mock_response_tools.raise_for_status = MagicMock()
+
+            mock_client_instance.post = AsyncMock(
+                side_effect=[
+                    mock_response_init,
+                    MagicMock(),  # initialized notification
+                    mock_response_tools,
+                ]
+            )
+
+            mcp = MCPClient(server_url="http://localhost:8000")
+
+            # Verify session ID was captured
+            assert mcp._session_id == "test-session-123"
+
+            # Verify subsequent requests include session ID
+            calls = mock_client_instance.post.call_args_list
+            # tools/list request (3rd call, index 2) should have session ID
+            tools_call = calls[2]
+            headers = tools_call[1]["headers"]
+            assert "Mcp-Session-Id" in headers
+            assert headers["Mcp-Session-Id"] == "test-session-123"
+
+            mcp.close()
+
+    def test_sse_with_multiple_events(self):
+        """Test SSE stream with multiple events before final response."""
+        with patch("aisuite.mcp.client.httpx.AsyncClient") as mock_async_client:
+            mock_client_instance = AsyncMock()
+            mock_async_client.return_value = mock_client_instance
+
+            # Mock initialize and tools/list
+            mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
+            mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
+            mock_response_init.raise_for_status = MagicMock()
+
+            mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
+            mock_response_tools.json.return_value = {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}}
+            mock_response_tools.raise_for_status = MagicMock()
+
+            # Mock SSE response with notifications before result
+            mock_response_sse = MagicMock()
+            mock_response_sse.headers = {"content-type": "text/event-stream"}
+            mock_response_sse.raise_for_status = MagicMock()
+
+            async def mock_aiter_lines():
+                lines = [
+                    'data: {"jsonrpc": "2.0", "method": "notification", "params": {"status": "processing"}}',
+                    '',
+                    'data: {"jsonrpc": "2.0", "method": "notification", "params": {"status": "almost done"}}',
+                    '',
+                    'data: {"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "final result"}]}}',
+                    '',
+                ]
+                for line in lines:
+                    yield line
+
+            mock_response_sse.aiter_lines = mock_aiter_lines
+
+            mock_client_instance.post = AsyncMock(
+                side_effect=[
+                    mock_response_init,
+                    MagicMock(),  # initialized notification
+                    mock_response_tools,
+                    mock_response_sse,
+                ]
+            )
+
+            mcp = MCPClient(server_url="http://localhost:8000")
+            result = mcp.call_tool("test_tool", {})
+
+            # Should return the final result, ignoring notifications
+            assert result == "final result"
+
+            mcp.close()
+
+    def test_mixed_json_and_sse_responses(self):
+        """Test that client handles both JSON and SSE responses from same server."""
+        with patch("aisuite.mcp.client.httpx.AsyncClient") as mock_async_client:
+            mock_client_instance = AsyncMock()
+            mock_async_client.return_value = mock_client_instance
+
+            # Mock initialize (JSON)
+            mock_response_init = MagicMock()
+            mock_response_init.headers = {"content-type": "application/json"}
+            mock_response_init.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {}}
+            mock_response_init.raise_for_status = MagicMock()
+
+            # Mock tools/list (JSON)
+            mock_response_tools = MagicMock()
+            mock_response_tools.headers = {"content-type": "application/json"}
+            mock_response_tools.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {
+                    "tools": [
+                        {"name": "fast_tool", "description": "Fast", "inputSchema": {}},
+                        {"name": "slow_tool", "description": "Slow", "inputSchema": {}},
+                    ]
+                },
+            }
+            mock_response_tools.raise_for_status = MagicMock()
+
+            # Mock fast tool call (JSON response)
+            mock_response_fast = MagicMock()
+            mock_response_fast.headers = {"content-type": "application/json"}
+            mock_response_fast.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "result": {"content": [{"type": "text", "text": "fast"}]}
+            }
+            mock_response_fast.raise_for_status = MagicMock()
+
+            # Mock slow tool call (SSE response)
+            mock_response_slow = MagicMock()
+            mock_response_slow.headers = {"content-type": "text/event-stream"}
+            mock_response_slow.raise_for_status = MagicMock()
+
+            async def mock_aiter_lines():
+                lines = ['data: {"jsonrpc": "2.0", "id": 4, "result": {"content": [{"type": "text", "text": "slow"}]}}', '']
+                for line in lines:
+                    yield line
+
+            mock_response_slow.aiter_lines = mock_aiter_lines
+
+            mock_client_instance.post = AsyncMock(
+                side_effect=[
+                    mock_response_init,
+                    MagicMock(),  # initialized notification
+                    mock_response_tools,
+                    mock_response_fast,
+                    mock_response_slow,
+                ]
+            )
+
+            mcp = MCPClient(server_url="http://localhost:8000")
+
+            # Call fast tool (JSON response)
+            result1 = mcp.call_tool("fast_tool", {})
+            assert result1 == "fast"
+
+            # Call slow tool (SSE response)
+            result2 = mcp.call_tool("slow_tool", {})
+            assert result2 == "slow"
 
             mcp.close()
