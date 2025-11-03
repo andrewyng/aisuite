@@ -149,6 +149,17 @@ def validate_mcp_config(config: Dict[str, Any]) -> MCPConfig:
                 f"MCP 'headers' must be a dict, got: {type(config['headers'])}"
             )
 
+        # timeout is optional but should be a number if present
+        if "timeout" in config:
+            if not isinstance(config["timeout"], (int, float)):
+                raise ValueError(
+                    f"MCP 'timeout' must be a number, got: {type(config['timeout'])}"
+                )
+            if config["timeout"] <= 0:
+                raise ValueError(
+                    f"MCP 'timeout' must be positive, got: {config['timeout']}"
+                )
+
     # Validate optional fields
     if "allowed_tools" in config:
         if not isinstance(config["allowed_tools"], list):
@@ -202,6 +213,8 @@ def validate_mcp_config(config: Dict[str, Any]) -> MCPConfig:
         normalized["server_url"] = config["server_url"]
         if "headers" in config:
             normalized["headers"] = config["headers"]
+        if "timeout" in config:
+            normalized["timeout"] = config["timeout"]
 
     # Copy optional fields with defaults
     if "allowed_tools" in config:

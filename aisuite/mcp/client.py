@@ -13,11 +13,19 @@ from contextlib import contextmanager
 try:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
-except ImportError:
-    raise ImportError(
-        "MCP support requires the 'mcp' package. "
-        "Install it with: pip install 'aisuite[mcp]' or pip install mcp"
-    )
+    import httpx
+except ImportError as e:
+    if "mcp" in str(e):
+        raise ImportError(
+            "MCP support requires the 'mcp' package. "
+            "Install it with: pip install 'aisuite[mcp]' or pip install mcp"
+        )
+    elif "httpx" in str(e):
+        raise ImportError(
+            "HTTP transport requires the 'httpx' package. "
+            "Install it with: pip install httpx"
+        )
+    raise
 
 from .tool_wrapper import create_mcp_tool_wrapper
 from .config import MCPConfig, validate_mcp_config, get_transport_type
@@ -58,35 +66,71 @@ class MCPClient:
 
     def __init__(
         self,
-        command: str,
+        command: Optional[str] = None,
         args: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
+        server_url: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+        timeout: float = 30.0,
         name: Optional[str] = None,
     ):
         """
         Initialize the MCP client and connect to an MCP server.
 
+        Supports both stdio and HTTP transports. Provide either stdio parameters
+        (command) OR HTTP parameters (server_url), but not both.
+
         Args:
-            command: Command to start the MCP server (e.g., "npx", "python")
-            args: Arguments to pass to the command (e.g., ["-y", "server-package"])
-            env: Optional environment variables for the server process
+            command: Command to start the MCP server (e.g., "npx", "python") - for stdio transport
+            args: Arguments to pass to the command (e.g., ["-y", "server-package"]) - for stdio transport
+            env: Optional environment variables for the server process - for stdio transport
+            server_url: Base URL of the MCP server (e.g., "http://localhost:8000") - for HTTP transport
+            headers: Optional HTTP headers (e.g., for authentication) - for HTTP transport
+            timeout: Request timeout in seconds - for HTTP transport (default: 30.0)
             name: Optional name for this MCP client (used for logging and prefixing)
 
         Raises:
-            ImportError: If the mcp package is not installed
+            ImportError: If the mcp or httpx package is not installed
+            ValueError: If both stdio and HTTP parameters are provided, or neither
             RuntimeError: If connection to the MCP server fails
         """
-        self.server_params = StdioServerParameters(
-            command=command,
-            args=args or [],
-            env=env,
-        )
-        self.name = name or command
+        # Validate transport parameters
+        has_stdio = command is not None
+        has_http = server_url is not None
 
-        self._session: Optional[ClientSession] = None
-        self._read = None
-        self._write = None
-        self._stdio_context = None  # Store the stdio context manager
+        if not has_stdio and not has_http:
+            raise ValueError(
+                "Must provide either 'command' for stdio transport or 'server_url' for HTTP transport"
+            )
+        if has_stdio and has_http:
+            raise ValueError(
+                "Cannot mix stdio parameters (command) with HTTP parameters (server_url). "
+                "Use either stdio OR HTTP transport, not both."
+            )
+
+        # Store parameters based on transport type
+        if has_stdio:
+            self.server_params = StdioServerParameters(
+                command=command,
+                args=args or [],
+                env=env,
+            )
+            self.name = name or command
+            # Stdio-specific state
+            self._session: Optional[ClientSession] = None
+            self._read = None
+            self._write = None
+            self._stdio_context = None
+        else:  # HTTP
+            self.server_url = server_url
+            self.headers = headers or {}
+            self.timeout = timeout
+            self.name = name or server_url
+            # HTTP-specific state (initialized in _async_connect_http)
+            self._http_client = None
+            self._request_id = 0
+
+        # Shared state
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -99,7 +143,7 @@ class MCPClient:
         Create an MCPClient from a configuration dictionary.
 
         This method validates the config and creates an MCPClient instance.
-        It supports both stdio and http transports (currently only stdio is implemented).
+        It supports both stdio and HTTP transports.
 
         Args:
             config: MCP configuration dictionary
@@ -109,14 +153,22 @@ class MCPClient:
 
         Raises:
             ValueError: If configuration is invalid
-            NotImplementedError: If http transport is requested (not yet supported)
 
-        Example:
+        Example (stdio):
             >>> config = {
             ...     "type": "mcp",
             ...     "name": "filesystem",
             ...     "command": "npx",
             ...     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/docs"]
+            ... }
+            >>> mcp = MCPClient.from_config(config)
+
+        Example (HTTP):
+            >>> config = {
+            ...     "type": "mcp",
+            ...     "name": "api-server",
+            ...     "server_url": "http://localhost:8000",
+            ...     "headers": {"Authorization": "Bearer token"}
             ... }
             >>> mcp = MCPClient.from_config(config)
         """
@@ -134,9 +186,11 @@ class MCPClient:
                 name=validated_config["name"],
             )
         else:  # http
-            raise NotImplementedError(
-                "HTTP transport for MCP is not yet implemented. "
-                "Currently only stdio transport is supported."
+            return cls(
+                server_url=validated_config["server_url"],
+                headers=validated_config.get("headers"),
+                timeout=validated_config.get("timeout", 30.0),
+                name=validated_config["name"],
             )
 
     @staticmethod
@@ -186,9 +240,10 @@ class MCPClient:
 
         This method:
         1. Creates an event loop if needed
-        2. Starts the MCP server process
-        3. Performs the MCP initialization handshake
-        4. Caches the available tools
+        2. Detects transport type (stdio or HTTP)
+        3. Establishes connection via appropriate transport
+        4. Performs the MCP initialization handshake
+        5. Caches the available tools
         """
         # Get or create event loop
         try:
@@ -197,11 +252,16 @@ class MCPClient:
             self._event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._event_loop)
 
-        # Run the async connection
-        self._event_loop.run_until_complete(self._async_connect())
+        # Detect transport type and run appropriate async connection
+        if hasattr(self, "server_url"):
+            # HTTP transport
+            self._event_loop.run_until_complete(self._async_connect_http())
+        else:
+            # Stdio transport
+            self._event_loop.run_until_complete(self._async_connect())
 
     async def _async_connect(self):
-        """Async connection initialization."""
+        """Async connection initialization for stdio transport."""
         # Start the MCP server and store the context manager
         self._stdio_context = stdio_client(self.server_params)
         self._read, self._write = await self._stdio_context.__aenter__()
@@ -228,6 +288,94 @@ class MCPClient:
             ]
         else:
             self._tools_cache = []
+
+    async def _send_http_request(
+        self, method: str, params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Send JSON-RPC request to MCP server via HTTP.
+
+        Args:
+            method: JSON-RPC method name
+            params: Optional parameters
+
+        Returns:
+            Response result
+
+        Raises:
+            RuntimeError: If HTTP request fails or server returns an error
+        """
+        # Increment request ID
+        self._request_id += 1
+
+        # Build JSON-RPC 2.0 request
+        request_data = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": method,
+        }
+
+        if params:
+            request_data["params"] = params
+
+        # Use the exact server URL provided by the user
+        url = self.server_url.rstrip('/')
+
+        # Build headers: MCP requires Accept header with both content types
+        # Merge with any user-provided headers
+        request_headers = {
+            "Accept": "application/json, text/event-stream",
+        }
+        if self.headers:
+            request_headers.update(self.headers)
+
+        try:
+            response = await self._http_client.post(
+                url, json=request_data, headers=request_headers
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Check for JSON-RPC error
+            if "error" in result:
+                error = result["error"]
+                raise RuntimeError(
+                    f"MCP server error: {error.get('message', 'Unknown error')} "
+                    f"(code: {error.get('code', 'unknown')})"
+                )
+
+            return result.get("result", {})
+
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"HTTP request to MCP server failed: {str(e)}")
+
+    async def _async_connect_http(self):
+        """Async connection initialization for HTTP transport."""
+        # Create HTTP client
+        self._http_client = httpx.AsyncClient(timeout=self.timeout)
+
+        # Send initialize request
+        init_params = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"roots": {"listChanged": True}, "sampling": {}},
+            "clientInfo": {"name": "aisuite-mcp-client", "version": "1.0.0"},
+        }
+
+        await self._send_http_request("initialize", init_params)
+
+        # List available tools
+        tools_result = await self._send_http_request("tools/list")
+
+        # Cache tools
+        self._tools_cache = [
+            {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "inputSchema": tool.get("inputSchema", {}),
+            }
+            for tool in tools_result.get("tools", [])
+        ]
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """
@@ -322,6 +470,7 @@ class MCPClient:
 
         This method is called by MCPToolWrapper when the LLM requests a tool.
         It handles the async MCP protocol communication and returns the result.
+        Automatically routes to the appropriate transport (stdio or HTTP).
 
         Args:
             tool_name: Name of the tool to call
@@ -333,18 +482,26 @@ class MCPClient:
         Raises:
             RuntimeError: If not connected or tool call fails
         """
-        if self._session is None:
-            raise RuntimeError("Not connected to MCP server")
-
-        # Run the async tool call
-        result = self._event_loop.run_until_complete(
-            self._async_call_tool(tool_name, arguments)
-        )
+        # Detect transport type and route to appropriate method
+        if hasattr(self, "_http_client") and self._http_client is not None:
+            # HTTP transport
+            if self._http_client is None:
+                raise RuntimeError("Not connected to MCP server (HTTP)")
+            result = self._event_loop.run_until_complete(
+                self._async_call_tool_http(tool_name, arguments)
+            )
+        else:
+            # Stdio transport
+            if self._session is None:
+                raise RuntimeError("Not connected to MCP server (stdio)")
+            result = self._event_loop.run_until_complete(
+                self._async_call_tool(tool_name, arguments)
+            )
         return result
 
     async def _async_call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """
-        Async implementation of tool calling.
+        Async implementation of tool calling for stdio transport.
 
         Args:
             tool_name: Name of the tool
@@ -371,12 +528,48 @@ class MCPClient:
         # If no content attribute, return the whole result
         return str(result)
 
+    async def _async_call_tool_http(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Any:
+        """
+        Async implementation of tool calling for HTTP transport.
+
+        Args:
+            tool_name: Name of the tool
+            arguments: Tool arguments
+
+        Returns:
+            Tool execution result
+        """
+        params = {"name": tool_name, "arguments": arguments}
+
+        result = await self._send_http_request("tools/call", params)
+
+        # Extract content from MCP result (HTTP format)
+        # Similar to stdio, but result is already a dict
+        if "content" in result:
+            content = result["content"]
+            if isinstance(content, list) and len(content) > 0:
+                # Get first content item
+                content_item = content[0]
+                if isinstance(content_item, dict):
+                    if "text" in content_item:
+                        return content_item["text"]
+                    elif "data" in content_item:
+                        return content_item["data"]
+                return str(content_item)
+            return content
+
+        # If no content field, return the whole result
+        return json.dumps(result)
+
     def close(self):
         """
         Close the connection to the MCP server.
 
-        It's recommended to use the MCPClient as a context manager to ensure
-        proper cleanup, but this method can be called manually if needed.
+        Works for both stdio and HTTP transports. It's recommended to use
+        the MCPClient as a context manager to ensure proper cleanup, but
+        this method can be called manually if needed.
 
         Example:
             >>> mcp = MCPClient(command="npx", args=["server"])
@@ -386,22 +579,36 @@ class MCPClient:
             ... finally:
             ...     mcp.close()
         """
-        if self._session is not None:
+        # Check if we need to cleanup (either stdio or HTTP)
+        needs_cleanup = (
+            (hasattr(self, "_session") and self._session is not None)
+            or (hasattr(self, "_http_client") and self._http_client is not None)
+        )
+
+        if needs_cleanup:
             self._event_loop.run_until_complete(self._async_close())
 
     async def _async_close(self):
-        """Async cleanup."""
+        """Async cleanup for both stdio and HTTP transports."""
+        # Cleanup stdio transport
         try:
-            if self._session:
+            if hasattr(self, "_session") and self._session:
                 await self._session.__aexit__(None, None, None)
         except Exception:
             pass  # Ignore errors during session cleanup
 
         try:
-            if self._stdio_context:
+            if hasattr(self, "_stdio_context") and self._stdio_context:
                 await self._stdio_context.__aexit__(None, None, None)
         except Exception:
             pass  # Ignore errors during stdio cleanup
+
+        # Cleanup HTTP transport
+        try:
+            if hasattr(self, "_http_client") and self._http_client:
+                await self._http_client.aclose()
+        except Exception:
+            pass  # Ignore errors during HTTP client cleanup
 
     def __enter__(self):
         """Context manager entry."""
@@ -415,4 +622,7 @@ class MCPClient:
     def __repr__(self) -> str:
         """String representation."""
         num_tools = len(self._tools_cache) if self._tools_cache else 0
-        return f"MCPClient(command={self.server_params.command!r}, tools={num_tools})"
+        if hasattr(self, "server_url"):
+            return f"MCPClient(server_url={self.server_url!r}, tools={num_tools})"
+        else:
+            return f"MCPClient(command={self.server_params.command!r}, tools={num_tools})"

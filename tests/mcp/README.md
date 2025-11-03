@@ -30,9 +30,9 @@ To run these tests, you need:
 
 ## Running Tests
 
-### Run all MCP integration tests:
+### Run all MCP integration tests (mocked LLM, free):
 ```bash
-pytest tests/mcp/ -v -m integration
+pytest tests/mcp/ -v -m "integration and not llm"
 ```
 
 ### Run specific test file:
@@ -40,8 +40,24 @@ pytest tests/mcp/ -v -m integration
 # MCPClient tests
 pytest tests/mcp/test_client.py -v -m integration
 
-# End-to-end tests
+# End-to-end tests (mocked LLM)
 pytest tests/mcp/test_e2e.py -v -m integration
+
+# Real LLM tests with stdio (⚠️ costs money, requires API keys)
+pytest tests/mcp/test_llm_e2e.py -v -m llm
+
+# Real LLM tests with HTTP (⚠️ costs money, requires API keys)
+pytest tests/mcp/test_http_llm_e2e.py -v -m llm
+```
+
+### Run ONLY real LLM tests (⚠️ costs ~$0.50):
+```bash
+pytest tests/mcp/ -v -m llm
+```
+
+### Run ALL tests including LLM (⚠️ costs money):
+```bash
+pytest tests/mcp/ -v -m integration
 ```
 
 ### Run a specific test:
@@ -66,13 +82,38 @@ Tests the `MCPClient` class with a real MCP server:
 - `from_config()` method
 - Context manager support
 
-### `test_e2e.py` - End-to-End Tests
+### `test_e2e.py` - End-to-End Tests (Mocked LLM)
 Tests the complete flow with `client.chat.completions.create()`:
 - Config dict format
 - Mixing MCP configs with Python functions
 - Multiple MCP servers with prefixing
 - Automatic cleanup
 - Error handling
+- **Note:** LLM responses are mocked, so no API calls are made
+
+### `test_llm_e2e.py` - Real LLM End-to-End Tests with stdio (⚠️ Costs Money)
+Tests with **actual API calls** to verify stdio MCP works with real LLMs:
+- OpenAI GPT-4o reading files via stdio MCP
+- Anthropic Claude reading files via stdio MCP
+- Mixed tools (stdio MCP + Python functions)
+- Multiple MCP servers with prefixing
+- **Uses:** `@modelcontextprotocol/server-filesystem` (stdio)
+- **Note:** These tests make real API calls (~$0.05-0.10 per test)
+- **Marked with:** `@pytest.mark.llm`
+- **Skipped if:** API keys not present in .env
+
+### `test_http_llm_e2e.py` - Real LLM End-to-End Tests with HTTP (⚠️ Costs Money)
+Tests with **actual API calls** to verify HTTP MCP works with real LLMs:
+- OpenAI GPT-4o using HTTP MCP tools (Context7)
+- Anthropic Claude using HTTP MCP tools (Context7)
+- Mixed tools (HTTP MCP + Python functions)
+- Config dict format with HTTP transport
+- Custom headers support
+- **Uses:** Context7 HTTP MCP server (`https://mcp.context7.com/mcp`)
+- **Tools:** `resolve-library-id`, `get-library-docs` (library documentation)
+- **Note:** These tests make real API calls (~$0.05-0.10 per test)
+- **Marked with:** `@pytest.mark.llm`
+- **Skipped if:** API keys not present in .env
 
 ### `conftest.py` - Test Fixtures
 - `temp_test_dir` - Creates temp directory with test files
@@ -80,13 +121,21 @@ Tests the complete flow with `client.chat.completions.create()`:
 
 ## What Gets Tested
 
-These tests use the **real** `@modelcontextprotocol/server-filesystem` MCP server from Anthropic, which:
+### stdio Transport Tests
+Use the **real** `@modelcontextprotocol/server-filesystem` MCP server from Anthropic, which:
 - Provides file system access tools (read_file, write_file, list_directory, etc.)
 - Is installed automatically via `npx -y @modelcontextprotocol/server-filesystem`
 - Runs in a temporary test directory for isolation
 
+### HTTP Transport Tests
+Use the **real** Context7 HTTP MCP server (`https://mcp.context7.com/mcp`), which:
+- Provides library documentation tools
+- Tools: `resolve-library-id`, `get-library-docs`
+- No installation required (hosted service)
+- No authentication required (optional API key for higher rate limits)
+
 The tests verify:
-1. ✅ Connection to real MCP servers
+1. ✅ Connection to real MCP servers (stdio and HTTP)
 2. ✅ Tool discovery and schema parsing
 3. ✅ Tool execution and result handling
 4. ✅ Config dict → callable conversion
@@ -94,6 +143,7 @@ The tests verify:
 6. ✅ Integration with aisuite's tool system
 7. ✅ Proper resource cleanup
 8. ✅ Error handling
+9. ✅ HTTP transport with headers and timeout
 
 ## CI/CD
 
@@ -118,10 +168,21 @@ With Node.js:
 ## Notes
 
 - Tests are marked with `@pytest.mark.integration` to allow selective running
-- Tests use mocking for LLM API calls to avoid costs
+- Most tests use mocking for LLM API calls to avoid costs
+- Real LLM tests are marked with `@pytest.mark.llm` and can be skipped
 - Each test creates isolated temp directories for file operations
 - MCP servers are started fresh for each test
 - Cleanup is automatic via fixtures and context managers
+
+## Test Markers
+
+- `@pytest.mark.integration` - All MCP tests (includes both mocked and real LLM)
+- `@pytest.mark.llm` - Real LLM tests only (makes actual API calls, costs money)
+
+To run tests without LLM costs:
+```bash
+pytest tests/mcp/ -v -m "integration and not llm"
+```
 
 ## Troubleshooting
 
