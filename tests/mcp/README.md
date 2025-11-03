@@ -12,13 +12,21 @@ To run these tests, you need:
 
 2. **Python test dependencies**:
    ```bash
-   pip install pytest pytest-asyncio
+   pip install pytest pytest-asyncio python-dotenv
    ```
 
 3. **MCP package** (should already be installed if you have aisuite[mcp]):
    ```bash
    pip install 'aisuite[mcp]'
    ```
+
+4. **Environment variables** (for e2e tests that mock LLM calls):
+   Create a `.env` file in the project root with your API keys:
+   ```bash
+   OPENAI_API_KEY=your-key-here
+   ANTHROPIC_API_KEY=your-key-here
+   ```
+   Note: E2E tests mock LLM responses, so API keys won't be charged, but providers validate keys on initialization.
 
 ## Running Tests
 

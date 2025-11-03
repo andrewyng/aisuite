@@ -331,12 +331,11 @@ class Completions:
 
         # Extract tool-related parameters
         max_turns = kwargs.pop("max_turns", None)
-        tools = kwargs.get("tools", None)
+        tools = kwargs.pop("tools", None)
 
         # Convert MCP config dicts to callable tools
-        if tools is not None and MCP_AVAILABLE:
+        if tools is not None:
             tools = self._process_mcp_configs(tools)
-            kwargs["tools"] = tools
 
         # Check environment variable before allowing multi-turn tool execution
         if max_turns is not None and tools is not None:
