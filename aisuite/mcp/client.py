@@ -245,6 +245,9 @@ class MCPClient:
         3. Establishes connection via appropriate transport
         4. Performs the MCP initialization handshake
         5. Caches the available tools
+
+        Note: Automatically handles Jupyter/IPython environments where an event loop
+        is already running by using nest_asyncio.
         """
         # Get or create event loop
         try:
@@ -252,6 +255,17 @@ class MCPClient:
         except RuntimeError:
             self._event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._event_loop)
+
+        # Enable nested event loops for Jupyter/IPython compatibility
+        # This allows run_until_complete() to work in environments where
+        # an event loop is already running (like Jupyter notebooks)
+        try:
+            import nest_asyncio
+            nest_asyncio.apply()
+        except ImportError:
+            # nest_asyncio not available - will work fine in regular Python
+            # but may fail in Jupyter. User should install: pip install nest-asyncio
+            pass
 
         # Detect transport type and run appropriate async connection
         if hasattr(self, "server_url"):

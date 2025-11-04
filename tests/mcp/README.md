@@ -25,6 +25,7 @@ To run these tests, you need:
    ```bash
    OPENAI_API_KEY=your-key-here
    ANTHROPIC_API_KEY=your-key-here
+   EXA_API_KEY=your-key-here  # Optional: for Exa MCP tests
    ```
    Note: E2E tests mock LLM responses, so API keys won't be charged, but providers validate keys on initialization.
 
@@ -104,13 +105,17 @@ Tests with **actual API calls** to verify stdio MCP works with real LLMs:
 
 ### `test_http_llm_e2e.py` - Real LLM End-to-End Tests with HTTP (⚠️ Costs Money)
 Tests with **actual API calls** to verify HTTP MCP works with real LLMs:
-- OpenAI GPT-4o using HTTP MCP tools (Context7)
-- Anthropic Claude using HTTP MCP tools (Context7)
+- OpenAI GPT-4o using HTTP MCP tools (Context7 and Exa)
+- Anthropic Claude using HTTP MCP tools (Context7 and Exa)
 - Mixed tools (HTTP MCP + Python functions)
 - Config dict format with HTTP transport
-- Custom headers support
-- **Uses:** Context7 HTTP MCP server (`https://mcp.context7.com/mcp`)
-- **Tools:** `resolve-library-id`, `get-library-docs` (library documentation)
+- Custom headers support (including Authorization headers for Exa)
+- **Uses:**
+  - Context7 HTTP MCP server (`https://mcp.context7.com/mcp`)
+    - Tools: `resolve-library-id`, `get-library-docs` (library documentation)
+  - Exa HTTP MCP server (`https://mcp.exa.ai/mcp`)
+    - Tools: `web_search_exa`, `get_code_context_exa` (web search and code context)
+    - Requires: EXA_API_KEY in .env
 - **Note:** These tests make real API calls (~$0.05-0.10 per test)
 - **Marked with:** `@pytest.mark.llm`
 - **Skipped if:** API keys not present in .env
@@ -128,11 +133,19 @@ Use the **real** `@modelcontextprotocol/server-filesystem` MCP server from Anthr
 - Runs in a temporary test directory for isolation
 
 ### HTTP Transport Tests
-Use the **real** Context7 HTTP MCP server (`https://mcp.context7.com/mcp`), which:
-- Provides library documentation tools
-- Tools: `resolve-library-id`, `get-library-docs`
-- No installation required (hosted service)
-- No authentication required (optional API key for higher rate limits)
+Use **real** HTTP MCP servers:
+
+1. **Context7** (`https://mcp.context7.com/mcp`):
+   - Provides library documentation tools
+   - Tools: `resolve-library-id`, `get-library-docs`
+   - No installation required (hosted service)
+   - No authentication required (optional API key for higher rate limits)
+
+2. **Exa** (`https://mcp.exa.ai/mcp`):
+   - Provides web search and code context tools
+   - Tools: `web_search_exa`, `get_code_context_exa`, `deep_researcher`
+   - No installation required (hosted service)
+   - Requires: EXA_API_KEY (via Authorization header)
 
 The tests verify:
 1. ✅ Connection to real MCP servers (stdio and HTTP)
