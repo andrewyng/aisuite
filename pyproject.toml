@@ -11,12 +11,17 @@ anthropic = { version = "^0.30.1", optional = true }
 boto3 = { version = "^1.34.144", optional = true }
 cohere = { version = "^5.12.0", optional = true }
 vertexai = { version = "^1.63.0", optional = true }
+google-cloud-speech = { version = "^2.33.0", optional = true }
+deepgram-sdk = { version = "^5.0.0", optional = true }
+soundfile = { version = "^0.12.1", optional = true }
+scipy = { version = "^1.11.0", optional = true }
+numpy = { version = "^1.24.0", optional = true }
 groq = { version = "^0.9.0", optional = true }
 mistralai = { version = "^1.0.3", optional = true }
-openai = { version = "^1.35.8", optional = true }
 ibm-watsonx-ai = { version = "^1.1.16", optional = true }
 docstring-parser = { version = "^0.14.0", optional = true }
 cerebras_cloud_sdk = { version = "^1.19.0", optional = true }
+openai = { version = "^1.107.0", optional = true }
 
 # Optional dependencies for different providers
 httpx = "~0.27.0"
@@ -26,21 +31,22 @@ aws = ["boto3"]
 azure = []
 cerebras = ["cerebras_cloud_sdk"]
 cohere = ["cohere"]
+deepgram = ["deepgram-sdk", "soundfile", "scipy", "numpy"]
 deepseek = ["openai"]
-google = ["vertexai"]
+google = ["vertexai", "google-cloud-speech"]
 groq = ["groq"]
 huggingface = []
 mistral = ["mistralai"]
 ollama = []
 openai = ["openai"]
 watsonx = ["ibm-watsonx-ai"]
-all = ["anthropic", "aws", "cerebras_cloud_sdk", "google", "groq", "mistral", "openai", "cohere", "watsonx"]  # To install all providers
+all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy"]  # To install all providers
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.1"
 black = "^24.4.2"
 python-dotenv = "^1.0.1"
-openai = "^1.35.8"
+openai = "^1.107.0"
 groq = "^0.9.0"
 anthropic = "^0.30.1"
 notebook = "^7.2.1"
@@ -52,6 +58,8 @@ chromadb = "^0.5.4"
 sentence-transformers = "^3.0.1"
 datasets = "^2.20.0"
 vertexai = "^1.63.0"
+google-cloud-speech = "^2.33.0"
+deepgram-sdk = "^5.0.0"
 ibm-watsonx-ai = "^1.1.16"
 cerebras_cloud_sdk = "^1.19.0"
 
@@ -61,6 +69,7 @@ optional = true
 [tool.poetry.group.test.dependencies]
 pytest = "^8.2.2"
 pytest-cov = "^6.0.0"
+pytest-asyncio = "^0.24.0"
 
 [build-system]
 requires = ["poetry-core"]

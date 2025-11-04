@@ -5,20 +5,10 @@
 
 Simple, unified interface to multiple Generative AI providers.
 
-`aisuite` makes it easy for developers to use multiple LLM through a standardized interface. Using an interface similar to OpenAI's, `aisuite` makes it easy to interact with the most popular LLMs and compare the results. It is a thin wrapper around python client libraries, and allows creators to seamlessly swap out and test responses from different LLM providers without changing their code. Today, the library is primarily focussed on chat completions. We will expand it cover more use cases in near future.
+`aisuite` makes it easy for developers to interact with multiple Gen-AI services through a standardized interface. Using an interface similar to OpenAI's, `aisuite` supports **chat completions** and **audio transcription**, making it easy to work with the most popular AI providers and compare results. It is a thin wrapper around python client libraries, and allows creators to seamlessly swap out and test different providers without changing their code.
 
-Currently supported providers are:
-- Anthropic
-- AWS
-- Azure
-- Cerebras
-- Google
-- Groq
-- HuggingFace Ollama
-- Mistral
-- OpenAI
-- Sambanova
-- Watsonx
+All of the top providers are supported.
+Sample list of supported providers include - Anthropic, AWS, Azure, Cerebras, Cohere, Google, Groq, HuggingFace, Ollama, Mistral, OpenAI, Sambanova, Watsonx and others.
 
 To maximize stability, `aisuite` uses either the HTTP endpoint or the SDK for making calls to the provider.
 
@@ -212,6 +202,149 @@ When `max_turns` is specified, `aisuite` will:
 
 In addition to `response.choices[0].message`, there is an additional field `response.choices[0].intermediate_messages`: which contains the list of all messages including tool interactions used. This can be used to continue the conversation with the model.
 For more detailed examples of tool calling, check out the `examples/tool_calling_abstraction.ipynb` notebook.
+
+## Audio Transcription
+
+> **Note:** Audio transcription support is currently under development. The API and features described below are subject to change.
+
+`aisuite` provides audio transcription (speech-to-text) with the same unified interface pattern used for chat completions. Transcribe audio files across multiple providers with consistent code.
+
+### Basic Usage
+
+```python
+import aisuite as ai
+client = ai.Client()
+
+# Transcribe an audio file
+result = client.audio.transcriptions.create(
+    model="openai:whisper-1",
+    file="meeting.mp3"
+)
+print(result.text)
+
+# Switch providers without changing your code
+result = client.audio.transcriptions.create(
+    model="deepgram:nova-2",
+    file="meeting.mp3"
+)
+print(result.text)
+```
+
+### Common Parameters
+
+Use OpenAI-style parameters that work across all providers:
+
+```python
+result = client.audio.transcriptions.create(
+    model="openai:whisper-1",
+    file="interview.mp3",
+    language="en",           # Specify audio language
+    prompt="Technical discussion about AI",  # Context hints
+    temperature=0.2          # Sampling temperature (where supported)
+)
+```
+
+These parameters are automatically mapped to each provider's native format.
+
+### Provider-Specific Features
+
+Each provider offers unique capabilities you can access directly:
+
+**OpenAI Whisper:**
+```python
+result = client.audio.transcriptions.create(
+    model="openai:whisper-1",
+    file="speech.mp3",
+    response_format="verbose_json",       # Get detailed metadata
+    timestamp_granularities=["word"]      # Word-level timestamps
+)
+```
+
+**Deepgram:**
+```python
+result = client.audio.transcriptions.create(
+    model="deepgram:nova-2",
+    file="meeting.mp3",
+    punctuate=True,                       # Auto-add punctuation
+    diarize=True,                         # Identify speakers
+    sentiment=True,                       # Sentiment analysis
+    summarize=True                        # Auto-summarization
+)
+```
+
+**Google Speech-to-Text:**
+```python
+result = client.audio.transcriptions.create(
+    model="google:default",
+    file="call.mp3",
+    enable_automatic_punctuation=True,
+    enable_speaker_diarization=True,
+    diarization_speaker_count=2
+)
+```
+
+**Hugging Face:**
+```python
+result = client.audio.transcriptions.create(
+    model="huggingface:openai/whisper-large-v3",
+    file="presentation.mp3",
+    return_timestamps="word"                  # Word-level timestamps
+)
+```
+
+### Streaming Transcription
+
+For real-time or large audio files, use streaming:
+
+```python
+async def transcribe_stream():
+    stream = client.audio.transcriptions.create_stream_output(
+        model="deepgram:nova-2",
+        file="long_recording.mp3"
+    )
+
+    async for chunk in stream:
+        print(chunk.text, end="", flush=True)
+        if chunk.is_final:
+            print()  # New line for final results
+
+# Run the async function
+import asyncio
+asyncio.run(transcribe_stream())
+```
+
+### Supported Providers
+
+- **OpenAI**: `whisper-1`
+- **Deepgram**: `nova-2`, `nova`, `enhanced`, `base`
+- **Google**: `default`, `latest_long`, `latest_short`
+- **Hugging Face**: `openai/whisper-large-v3`, `openai/whisper-tiny`, `facebook/wav2vec2-base-960h`, `facebook/wav2vec2-large-xlsr-53`
+
+### Installation
+
+Install transcription providers:
+
+```shell
+# Install with specific provider
+pip install 'aisuite[openai]'      # For OpenAI Whisper
+pip install 'aisuite[deepgram]'    # For Deepgram
+pip install 'aisuite[google]'      # For Google Speech-to-Text
+pip install 'aisuite[huggingface]' # For Hugging Face models
+
+# Install all providers
+pip install 'aisuite[all]'
+```
+
+Set API keys:
+
+```shell
+export OPENAI_API_KEY="your-openai-api-key"
+export DEEPGRAM_API_KEY="your-deepgram-api-key"
+export GOOGLE_APPLICATION_CREDENTIALS="path/to/credentials.json"
+export HF_TOKEN="your-huggingface-token"
+```
+
+For more examples and advanced usage, check out `examples/asr_example.ipynb`.
 
 ## License
 
