@@ -5,15 +5,15 @@ import {
   RequestOptions 
 } from '../types';
 
-export abstract class BaseProvider {
-  abstract readonly name: string;
+export interface Provider {
+  readonly name: string;
   
-  abstract chatCompletion(
+  chatCompletion(
     request: ChatCompletionRequest,
     options?: RequestOptions
   ): Promise<ChatCompletionResponse>;
   
-  abstract streamChatCompletion(
+  streamChatCompletion(
     request: ChatCompletionRequest,
     options?: RequestOptions
   ): AsyncIterable<ChatCompletionChunk>;

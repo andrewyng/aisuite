@@ -11,7 +11,4 @@ export {
   MistralProvider,
 } from "./providers";
 
-export {
-  DeepgramASRProvider,
-  OpenAIASRProvider,
-} from "./asr-providers";
+export { DeepgramASRProvider } from "./asr-providers";
