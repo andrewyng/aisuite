@@ -16,9 +16,9 @@ load_dotenv()
 # Create aisuite client
 client = ai.Client()
 
-print("="*70)
+print("=" * 70)
 print("Example 1: Basic Config Dict Usage")
-print("="*70)
+print("=" * 70)
 
 # Instead of creating MCPClient explicitly, pass config dict directly!
 response = client.chat.completions.create(
@@ -26,44 +26,47 @@ response = client.chat.completions.create(
     messages=[
         {"role": "user", "content": "List all Python files in the current directory"}
     ],
-    tools=[{
-        "type": "mcp",
-        "name": "filesystem",
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()]
-    }],
-    max_turns=2
+    tools=[
+        {
+            "type": "mcp",
+            "name": "filesystem",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
+        }
+    ],
+    max_turns=2,
 )
 
 print(response.choices[0].message.content)
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("Example 2: Filtering Tools with allowed_tools")
-print("="*70)
+print("=" * 70)
 
 # Only allow specific tools for security
 response = client.chat.completions.create(
     model="openai:gpt-4o",
-    messages=[
-        {"role": "user", "content": "Read the README.md file"}
+    messages=[{"role": "user", "content": "Read the README.md file"}],
+    tools=[
+        {
+            "type": "mcp",
+            "name": "filesystem",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
+            "allowed_tools": ["read_file"],  # Security: only allow reading, not writing
+        }
     ],
-    tools=[{
-        "type": "mcp",
-        "name": "filesystem",
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
-        "allowed_tools": ["read_file"]  # Security: only allow reading, not writing
-    }],
-    max_turns=2
+    max_turns=2,
 )
 
 print(response.choices[0].message.content)
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("Example 3: Multiple MCP Servers with Tool Prefixing")
-print("="*70)
+print("=" * 70)
 
 import tempfile
+
 temp_dir = tempfile.mkdtemp()
 
 # Connect to two different filesystem servers with prefixing
@@ -71,7 +74,10 @@ temp_dir = tempfile.mkdtemp()
 response = client.chat.completions.create(
     model="anthropic:claude-3-5-sonnet-20240620",
     messages=[
-        {"role": "user", "content": "How many files are in the current directory vs the temp directory?"}
+        {
+            "role": "user",
+            "content": "How many files are in the current directory vs the temp directory?",
+        }
     ],
     tools=[
         {
@@ -79,24 +85,24 @@ response = client.chat.completions.create(
             "name": "current_dir",
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
-            "use_tool_prefix": True  # Tools named "current_dir__list_directory", etc.
+            "use_tool_prefix": True,  # Tools named "current_dir__list_directory", etc.
         },
         {
             "type": "mcp",
             "name": "temp_dir",
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-filesystem", temp_dir],
-            "use_tool_prefix": True  # Tools named "temp_dir__list_directory", etc.
-        }
+            "use_tool_prefix": True,  # Tools named "temp_dir__list_directory", etc.
+        },
     ],
-    max_turns=3
+    max_turns=3,
 )
 
 print(response.choices[0].message.content)
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("Example 4: Mixing MCP Configs with Python Functions")
-print("="*70)
+print("=" * 70)
 
 from datetime import datetime
 
@@ -115,7 +121,7 @@ def calculate_stats(numbers: list) -> dict:
     return {
         "count": len(numbers),
         "sum": sum(numbers),
-        "average": sum(numbers) / len(numbers) if numbers else 0
+        "average": sum(numbers) / len(numbers) if numbers else 0,
     }
 
 
@@ -125,29 +131,30 @@ response = client.chat.completions.create(
     messages=[
         {
             "role": "user",
-            "content": "What time is it? Also, list all files in the current directory."
+            "content": "What time is it? Also, list all files in the current directory.",
         }
     ],
     tools=[
         get_current_time,  # Regular Python function
-        calculate_stats,   # Another Python function
+        calculate_stats,  # Another Python function
         {
             "type": "mcp",
             "name": "filesystem",
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()]
-        }  # MCP config dict
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
+        },  # MCP config dict
     ],
-    max_turns=3
+    max_turns=3,
 )
 
 print(response.choices[0].message.content)
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("Example 5: When to Use Config Dict vs MCPClient")
-print("="*70)
+print("=" * 70)
 
-print("""
+print(
+    """
 Use Config Dict When:
 ✓ Quick prototypes and simple scripts
 ✓ One-off tool usage
@@ -163,14 +170,14 @@ Use Explicit MCPClient When:
 ✓ Want to manually manage resources
 
 Example of explicit MCPClient:
-""")
+"""
+)
 
 from aisuite.mcp import MCPClient
 
 # Create once, reuse many times
 mcp = MCPClient(
-    command="npx",
-    args=["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()]
+    command="npx", args=["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()]
 )
 
 # Inspect available tools
@@ -182,12 +189,12 @@ for query in ["List files", "Count files", "Check if README exists"]:
         model="openai:gpt-4o",
         messages=[{"role": "user", "content": query}],
         tools=mcp.get_callable_tools(),
-        max_turns=2
+        max_turns=2,
     )
     print(f"\\n{query}: {response.choices[0].message.content[:100]}...")
 
 mcp.close()
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("All examples completed!")
-print("="*70)
+print("=" * 70)

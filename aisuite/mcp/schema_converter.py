@@ -105,9 +105,7 @@ def mcp_schema_to_annotations(input_schema: Dict[str, Any]) -> Dict[str, type]:
 
 
 def create_function_signature(
-    func_name: str,
-    annotations: Dict[str, type],
-    docstring: Optional[str] = None
+    func_name: str, annotations: Dict[str, type], docstring: Optional[str] = None
 ) -> inspect.Signature:
     """
     Create a function signature from parameter annotations.
@@ -178,8 +176,7 @@ def extract_parameter_descriptions(input_schema: Dict[str, Any]) -> Dict[str, st
 
 
 def build_docstring(
-    tool_description: str,
-    parameter_descriptions: Dict[str, str]
+    tool_description: str, parameter_descriptions: Dict[str, str]
 ) -> str:
     """
     Build a Python docstring from MCP tool description and parameter descriptions.

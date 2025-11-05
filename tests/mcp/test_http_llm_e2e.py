@@ -355,8 +355,7 @@ class TestHTTPMCPWithHeaders:
         # Verify it worked with headers
         content = response.choices[0].message.content.lower()
         assert any(
-            keyword in content
-            for keyword in ["pandas", "library", "id", "data"]
+            keyword in content for keyword in ["pandas", "library", "id", "data"]
         ), f"Expected library info in response, got: {content}"
 
 

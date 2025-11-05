@@ -79,9 +79,7 @@ def validate_mcp_config(config: Dict[str, Any]) -> MCPConfig:
     """
     # Check type field
     if config.get("type") != "mcp":
-        raise ValueError(
-            f"Invalid config type: {config.get('type')}. Expected 'mcp'"
-        )
+        raise ValueError(f"Invalid config type: {config.get('type')}. Expected 'mcp'")
 
     # Check name field (required)
     if "name" not in config:
@@ -119,15 +117,11 @@ def validate_mcp_config(config: Dict[str, Any]) -> MCPConfig:
 
         # args is optional but should be a list if present
         if "args" in config and not isinstance(config["args"], list):
-            raise ValueError(
-                f"MCP 'args' must be a list, got: {type(config['args'])}"
-            )
+            raise ValueError(f"MCP 'args' must be a list, got: {type(config['args'])}")
 
         # env is optional but should be a dict if present
         if "env" in config and not isinstance(config["env"], dict):
-            raise ValueError(
-                f"MCP 'env' must be a dict, got: {type(config['env'])}"
-            )
+            raise ValueError(f"MCP 'env' must be a dict, got: {type(config['env'])}")
 
     # Validate http transport
     if has_http:

@@ -156,6 +156,7 @@ class TestMCPClientCallableTools:
 
             # Test calling it with absolute path
             import os
+
             test_file_path = os.path.join(temp_test_dir, "test.txt")
             result = read_file(path=test_file_path)
             assert "Hello from MCP test!" in result
@@ -180,6 +181,7 @@ class TestMCPClientCallableTools:
 
             # Test it works with absolute path
             import os
+
             test_file_path = os.path.join(temp_test_dir, "test.txt")
             result = tools[0](path=test_file_path)
             assert "Hello from MCP test!" in result
@@ -224,6 +226,7 @@ class TestMCPClientCallableTools:
 
             # Test it works with absolute path
             import os
+
             readme_path = os.path.join(temp_test_dir, "README.md")
             result = read_file(path=readme_path)
             assert "Test Directory" in result
@@ -301,6 +304,7 @@ class TestMCPClientFromConfig:
 
         # Test the tool works with absolute path
         import os
+
         test_file_path = os.path.join(temp_test_dir, "test.txt")
         result = tools[0](path=test_file_path)
         assert "Hello from MCP test!" in result

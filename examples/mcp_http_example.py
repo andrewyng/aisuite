@@ -101,9 +101,7 @@ def example_3_with_authentication():
 
     response = client.chat.completions.create(
         model="openai:gpt-4o",
-        messages=[
-            {"role": "user", "content": "Fetch the user profile using the API."}
-        ],
+        messages=[{"role": "user", "content": "Fetch the user profile using the API."}],
         tools=[
             {
                 "type": "mcp",
@@ -130,7 +128,8 @@ def example_4_context_manager():
     print("=" * 60)
 
     with MCPClient(
-        server_url="http://localhost:8000/mcp/v1", name="api-server"  # Full endpoint URL
+        server_url="http://localhost:8000/mcp/v1",
+        name="api-server",  # Full endpoint URL
     ) as mcp:
         client = ai.Client()
 
@@ -200,9 +199,7 @@ def example_6_tool_filtering():
                 "type": "mcp",
                 "name": "api-server",
                 "server_url": "http://localhost:8000/mcp/v1",  # Full endpoint URL
-                "allowed_tools": [
-                    "get_weather"
-                ],  # Only allow this specific tool
+                "allowed_tools": ["get_weather"],  # Only allow this specific tool
             }
         ],
         max_turns=2,

@@ -80,6 +80,7 @@ class TestOpenAIWithMCP:
         if hasattr(response.choices[0], "intermediate_messages"):
             print("\n=== Intermediate Messages ===")
             import json
+
             for i, msg in enumerate(response.choices[0].intermediate_messages):
                 print(f"\nMessage {i}:")
                 # Handle both dict and object formats
@@ -91,7 +92,9 @@ class TestOpenAIWithMCP:
                         print(f"Content: {msg.content[:200]}")
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
-                            print(f"Tool Call: {tc.function.name}({tc.function.arguments})")
+                            print(
+                                f"Tool Call: {tc.function.name}({tc.function.arguments})"
+                            )
 
         # Verify the LLM actually read the file
         content = response.choices[0].message.content.lower()
@@ -122,9 +125,7 @@ class TestOpenAIWithMCP:
                         "@modelcontextprotocol/server-filesystem",
                         temp_test_dir,
                     ],
-                    "allowed_tools": [
-                        "list_directory"
-                    ],  # Security: only allow listing
+                    "allowed_tools": ["list_directory"],  # Security: only allow listing
                 }
             ],
             max_turns=3,

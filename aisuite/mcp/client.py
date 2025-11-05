@@ -261,6 +261,7 @@ class MCPClient:
         # an event loop is already running (like Jupyter notebooks)
         try:
             import nest_asyncio
+
             nest_asyncio.apply()
         except ImportError:
             # nest_asyncio not available - will work fine in regular Python
@@ -292,12 +293,16 @@ class MCPClient:
         tools_result = await self._session.list_tools()
 
         # Convert Tool objects to dicts for easier handling
-        if hasattr(tools_result, 'tools'):
+        if hasattr(tools_result, "tools"):
             self._tools_cache = [
                 {
                     "name": tool.name,
-                    "description": tool.description if hasattr(tool, 'description') else "",
-                    "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+                    "description": (
+                        tool.description if hasattr(tool, "description") else ""
+                    ),
+                    "inputSchema": (
+                        tool.inputSchema if hasattr(tool, "inputSchema") else {}
+                    ),
                 }
                 for tool in tools_result.tools
             ]
@@ -335,11 +340,11 @@ class MCPClient:
             line = line.strip()
 
             # Skip empty lines and comments
-            if not line or line.startswith(':'):
+            if not line or line.startswith(":"):
                 continue
 
             # Parse SSE data field
-            if line.startswith('data: '):
+            if line.startswith("data: "):
                 data = line[6:]  # Remove 'data: ' prefix
 
                 try:
@@ -401,7 +406,7 @@ class MCPClient:
             request_data["params"] = params
 
         # Use the exact server URL provided by the user
-        url = self.server_url.rstrip('/')
+        url = self.server_url.rstrip("/")
 
         # Build headers: MCP requires Accept header with both content types
         # Merge with any user-provided headers and session ID
@@ -454,7 +459,9 @@ class MCPClient:
                 f"HTTP request to MCP server failed: {type(e).__name__}: {str(e)}"
             )
 
-    async def _send_notification(self, method: str, params: Optional[Dict[str, Any]] = None):
+    async def _send_notification(
+        self, method: str, params: Optional[Dict[str, Any]] = None
+    ):
         """
         Send a JSON-RPC notification (no response expected).
 
@@ -475,7 +482,7 @@ class MCPClient:
             notification["params"] = params
 
         # Build headers
-        url = self.server_url.rstrip('/')
+        url = self.server_url.rstrip("/")
         request_headers = {
             "Accept": "application/json, text/event-stream",
         }
@@ -661,13 +668,13 @@ class MCPClient:
 
         # Extract content from MCP result
         # MCP returns results in various formats, we try to extract the most useful content
-        if hasattr(result, 'content'):
+        if hasattr(result, "content"):
             if isinstance(result.content, list) and len(result.content) > 0:
                 # Get first content item
                 content_item = result.content[0]
-                if hasattr(content_item, 'text'):
+                if hasattr(content_item, "text"):
                     return content_item.text
-                elif hasattr(content_item, 'data'):
+                elif hasattr(content_item, "data"):
                     return content_item.data
                 return str(content_item)
             return result.content
@@ -727,9 +734,8 @@ class MCPClient:
             ...     mcp.close()
         """
         # Check if we need to cleanup (either stdio or HTTP)
-        needs_cleanup = (
-            (hasattr(self, "_session") and self._session is not None)
-            or (hasattr(self, "_http_client") and self._http_client is not None)
+        needs_cleanup = (hasattr(self, "_session") and self._session is not None) or (
+            hasattr(self, "_http_client") and self._http_client is not None
         )
 
         if needs_cleanup:
@@ -772,4 +778,6 @@ class MCPClient:
         if hasattr(self, "server_url"):
             return f"MCPClient(server_url={self.server_url!r}, tools={num_tools})"
         else:
-            return f"MCPClient(command={self.server_params.command!r}, tools={num_tools})"
+            return (
+                f"MCPClient(command={self.server_params.command!r}, tools={num_tools})"
+            )
