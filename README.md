@@ -15,11 +15,13 @@ It’s designed for low learning curve — so you can focus on building AI syste
 
 ## Key Features
 
-* Unified API for multiple model providers.
-* Easy agentic app or agent creation using a single parameter 'max_turns'.
-* **Pass Tool calls easily** – pass real Python functions instead of JSON specs; aisuite handles schema generation and execution.
-* **MCP tools** – Connect to MCP-based tools without writing boilerplate; aisuite handles connection, schema and execution.
-* Modular and extensible provider architecture to add support for more providers.
+`aisuite` is designed to eliminate the complexity of working with multiple LLM providers while keeping your code simple and portable. Whether you're building a chatbot, an agentic application, or experimenting with different models, `aisuite` provides the abstractions you need without getting in your way.
+
+* **Unified API for multiple model providers** – Write your code once and run it with any supported provider. Switch between OpenAI, Anthropic, Google, and others with a single parameter change.
+* **Easy agentic app or agent creation** – Build multi-turn agentic applications using a single parameter `max_turns`. No need to manually manage tool execution loops.
+* **Pass Tool calls easily** – Pass real Python functions instead of JSON specs; aisuite handles schema generation and execution automatically.
+* **MCP tools** – Connect to MCP-based tools without writing boilerplate; aisuite handles connection, schema and execution seamlessly.
+* **Modular and extensible provider architecture** – Add support for new providers with minimal code. The plugin-style architecture makes extensions straightforward.
 
 ---
 
@@ -117,7 +119,14 @@ There are two ways to use tools with `aisuite`:
 
 ### 1. Manual Tool Handling
 
-This is the default behavior when `max_turns` is not specified.
+This is the default behavior when `max_turns` is not specified. In this mode, you have full control over the tool execution flow. You pass tools using the standard OpenAI JSON schema format, and `aisuite` returns the LLM's tool call requests in the response. You're then responsible for executing the tools, processing results, and sending them back to the model in subsequent requests.
+
+This approach is useful when you need:
+- Fine-grained control over tool execution logic
+- Custom error handling or validation before executing tools
+- The ability to selectively execute or skip certain tool calls
+- Integration with existing tool execution pipelines
+
 You can pass tools in the OpenAI tool format:
 
 ```python
