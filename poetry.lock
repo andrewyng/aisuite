@@ -3527,11 +3527,12 @@ version = "1.6.0"
 description = "Patch asyncio to allow nested event loops"
 optional = false
 python-versions = ">=3.5"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c"},
     {file = "nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe"},
 ]
+markers = {main = "extra == \"mcp\" or extra == \"all\""}
 
 [[package]]
 name = "networkx"
@@ -7372,7 +7373,7 @@ test = ["big-O", "importlib-resources ; python_version < \"3.9\"", "jaraco.funct
 type = ["pytest-mypy"]
 
 [extras]
-all = ["anthropic", "boto3", "cerebras_cloud_sdk", "cohere", "deepgram-sdk", "google-cloud-speech", "groq", "ibm-watsonx-ai", "mcp", "mistralai", "numpy", "openai", "scipy", "soundfile", "vertexai"]
+all = ["anthropic", "boto3", "cerebras_cloud_sdk", "cohere", "deepgram-sdk", "google-cloud-speech", "groq", "ibm-watsonx-ai", "mcp", "mistralai", "nest-asyncio", "numpy", "openai", "scipy", "soundfile", "vertexai"]
 anthropic = ["anthropic"]
 aws = ["boto3"]
 azure = []
@@ -7383,7 +7384,7 @@ deepseek = ["openai"]
 google = ["google-cloud-speech", "vertexai"]
 groq = ["groq"]
 huggingface = []
-mcp = ["mcp"]
+mcp = ["mcp", "nest-asyncio"]
 mistral = ["mistralai"]
 ollama = []
 openai = ["openai"]
@@ -7392,4 +7393,4 @@ watsonx = ["ibm-watsonx-ai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "8b311844978fd866205a27e3bc3f8a81a86ce91851ee395b0a7dad8492fbc06b"
+content-hash = "7dd8dc372c4bc96f5ba6d065c83ea504fc7a5a86b69bc04f337008c230fe75f0"
