@@ -149,12 +149,10 @@ class Tools:
         return {
             "name": func.__name__,
             "description": func.__doc__ or "",
-            "parameters": input_schema  # Use original schema directly!
+            "parameters": input_schema,  # Use original schema directly!
         }
 
-    def _create_pydantic_model_from_mcp_schema(
-        self, func: Callable
-    ) -> Type[BaseModel]:
+    def _create_pydantic_model_from_mcp_schema(self, func: Callable) -> Type[BaseModel]:
         """
         Create a Pydantic model from MCP inputSchema for parameter validation.
 

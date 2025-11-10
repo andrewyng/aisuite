@@ -77,7 +77,9 @@ class TestToolsMCPSchema(unittest.TestCase):
         tool_spec = tools[0]["function"]
 
         # Verify complex array schema is preserved
-        self.assertEqual(tool_spec["parameters"]["properties"]["entities"]["type"], "array")
+        self.assertEqual(
+            tool_spec["parameters"]["properties"]["entities"]["type"], "array"
+        )
         self.assertIn("items", tool_spec["parameters"]["properties"]["entities"])
         self.assertEqual(
             tool_spec["parameters"]["properties"]["entities"]["items"]["type"], "object"
@@ -105,7 +107,9 @@ class TestToolsMCPSchema(unittest.TestCase):
             "required": ["user"],
         }
 
-        tool = MockMCPToolWrapper("create_user", "Create user with address", input_schema)
+        tool = MockMCPToolWrapper(
+            "create_user", "Create user with address", input_schema
+        )
         self.tool_manager._add_tool(tool)
 
         tools = self.tool_manager.tools()
@@ -113,7 +117,9 @@ class TestToolsMCPSchema(unittest.TestCase):
 
         # Verify nested structure is preserved
         self.assertEqual(tool_spec["parameters"], input_schema)
-        self.assertIn("address", tool_spec["parameters"]["properties"]["user"]["properties"])
+        self.assertIn(
+            "address", tool_spec["parameters"]["properties"]["user"]["properties"]
+        )
 
     def test_mcp_tool_with_array_of_strings(self):
         """Test MCP tool with array of simple types (List[str])."""
@@ -160,13 +166,21 @@ class TestToolsMCPSchema(unittest.TestCase):
         input_schema = {
             "type": "object",
             "properties": {
-                "required_param": {"type": "string", "description": "Required parameter"},
-                "optional_param": {"type": "integer", "description": "Optional parameter"},
+                "required_param": {
+                    "type": "string",
+                    "description": "Required parameter",
+                },
+                "optional_param": {
+                    "type": "integer",
+                    "description": "Optional parameter",
+                },
             },
             "required": ["required_param"],
         }
 
-        tool = MockMCPToolWrapper("mixed_params", "Tool with mixed params", input_schema)
+        tool = MockMCPToolWrapper(
+            "mixed_params", "Tool with mixed params", input_schema
+        )
         self.tool_manager._add_tool(tool)
 
         tools = self.tool_manager.tools()
@@ -202,7 +216,9 @@ class TestToolsMCPSchema(unittest.TestCase):
             "required": ["status"],
         }
 
-        tool = MockMCPToolWrapper("advanced_schema", "Tool with advanced schema", input_schema)
+        tool = MockMCPToolWrapper(
+            "advanced_schema", "Tool with advanced schema", input_schema
+        )
         self.tool_manager._add_tool(tool)
 
         tools = self.tool_manager.tools()
@@ -217,7 +233,9 @@ class TestToolsMCPSchema(unittest.TestCase):
 
         # Verify format is preserved
         self.assertIn("format", tool_spec["parameters"]["properties"]["email"])
-        self.assertEqual(tool_spec["parameters"]["properties"]["email"]["format"], "email")
+        self.assertEqual(
+            tool_spec["parameters"]["properties"]["email"]["format"], "email"
+        )
 
         # Verify min/max are preserved
         self.assertIn("minimum", tool_spec["parameters"]["properties"]["count"])
@@ -234,7 +252,9 @@ class TestToolsMCPSchema(unittest.TestCase):
             "required": ["name"],
         }
 
-        tool = MockMCPToolWrapper("validate_tool", "Tool for validation test", input_schema)
+        tool = MockMCPToolWrapper(
+            "validate_tool", "Tool for validation test", input_schema
+        )
         self.tool_manager._add_tool(tool)
 
         # Test valid execution
@@ -297,7 +317,10 @@ class TestToolsMCPSchema(unittest.TestCase):
             "properties": {
                 "data": {
                     "type": "array",
-                    "items": {"type": "object", "properties": {"key": {"type": "string"}}},
+                    "items": {
+                        "type": "object",
+                        "properties": {"key": {"type": "string"}},
+                    },
                 }
             },
             "required": ["data"],
@@ -308,7 +331,9 @@ class TestToolsMCPSchema(unittest.TestCase):
 
         schema_copy = copy.deepcopy(original_schema)
 
-        tool = MockMCPToolWrapper("immutable_tool", "Test immutability", original_schema)
+        tool = MockMCPToolWrapper(
+            "immutable_tool", "Test immutability", original_schema
+        )
         self.tool_manager._add_tool(tool)
 
         # Verify original schema wasn't modified

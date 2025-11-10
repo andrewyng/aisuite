@@ -3,6 +3,7 @@ Integration test simulating the memory MCP server schema that was causing BadReq
 
 This test verifies that the fix for List[dict] schema conversion works correctly.
 """
+
 import unittest
 from aisuite.utils.tools import Tools
 
@@ -27,25 +28,23 @@ class MockMemoryMCPTool:
                         "properties": {
                             "name": {
                                 "type": "string",
-                                "description": "The name of the entity"
+                                "description": "The name of the entity",
                             },
                             "entityType": {
                                 "type": "string",
-                                "description": "The type of the entity"
+                                "description": "The type of the entity",
                             },
                             "observations": {
                                 "type": "array",
                                 "description": "An array of observation contents",
-                                "items": {
-                                    "type": "string"
-                                }
-                            }
+                                "items": {"type": "string"},
+                            },
                         },
-                        "required": ["name", "entityType", "observations"]
-                    }
+                        "required": ["name", "entityType", "observations"],
+                    },
                 }
             },
-            "required": ["entities"]
+            "required": ["entities"],
         }
 
     def __call__(self, **kwargs):
@@ -97,6 +96,7 @@ class TestMCPMemoryIntegration(unittest.TestCase):
 
         # Check that there are no Python type strings in the schema
         import json
+
         schema_json = json.dumps(tool_spec["parameters"])
 
         # These should NOT appear in valid OpenAI JSON Schema
@@ -125,16 +125,19 @@ class TestMCPMemoryIntegration(unittest.TestCase):
                         {
                             "name": "MCP",
                             "entityType": "Protocol",
-                            "observations": ["Enables LLM tool calling", "Uses JSON Schema"]
+                            "observations": [
+                                "Enables LLM tool calling",
+                                "Uses JSON Schema",
+                            ],
                         },
                         {
                             "name": "aisuite",
                             "entityType": "Library",
-                            "observations": ["Unified API", "Multi-provider support"]
-                        }
+                            "observations": ["Unified API", "Multi-provider support"],
+                        },
                     ]
-                }
-            }
+                },
+            },
         }
 
         # This should execute successfully
