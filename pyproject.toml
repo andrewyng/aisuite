@@ -1,8 +1,9 @@
 [tool.poetry]
 name = "aisuite"
-version = "0.1.11"
+version = "0.1.13"
 description = "Uniform access layer for LLMs"
-authors = ["Andrew Ng, Rohit P"]
+authors = ["Andrew Ng <ng@deeplearning.ai>", "Rohit P <rohit.prasad15@gmail.com>"]
+maintainers = ["Andrew Ng <ng@deeplearning.ai>", "Rohit P <rohit.prasad15@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
@@ -19,7 +20,7 @@ numpy = { version = "^1.24.0", optional = true }
 groq = { version = "^0.9.0", optional = true }
 mistralai = { version = "^1.0.3", optional = true }
 ibm-watsonx-ai = { version = "^1.1.16", optional = true }
-docstring-parser = { version = "^0.14.0", optional = true }
+docstring-parser = { version = "^0.14.0" }
 cerebras_cloud_sdk = { version = "^1.19.0", optional = true }
 openai = { version = "^1.107.0", optional = true }
 mcp = { version = "^1.1.2", optional = true }
