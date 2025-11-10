@@ -98,14 +98,9 @@ class MCPClient:
         has_stdio = command is not None
         has_http = server_url is not None
 
-        if not has_stdio and not has_http:
+        if not (has_stdio ^ has_http):
             raise ValueError(
-                "Must provide either 'command' for stdio transport or 'server_url' for HTTP transport"
-            )
-        if has_stdio and has_http:
-            raise ValueError(
-                "Cannot mix stdio parameters (command) with HTTP parameters (server_url). "
-                "Use either stdio OR HTTP transport, not both."
+                "Must provide exactly one transport: either 'command' (stdio) or 'server_url' (HTTP)."
             )
 
         # Store parameters based on transport type
