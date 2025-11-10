@@ -69,6 +69,11 @@ class MCPToolWrapper:
         # This allows aisuite's Tools class to introspect the parameters
         self.__signature__ = self._create_signature(input_schema)
 
+        # Store the original MCP inputSchema for direct use by Tools class
+        # This avoids lossy round-trip conversion through Python type annotations
+        # and preserves all JSON Schema details (arrays, nested objects, etc.)
+        self.__mcp_input_schema__ = input_schema
+
     def _create_signature(self, input_schema: Dict[str, Any]) -> inspect.Signature:
         """
         Create a signature for this wrapper based on MCP tool schema.
