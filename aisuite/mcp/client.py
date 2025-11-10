@@ -742,14 +742,24 @@ class MCPClient:
         try:
             if hasattr(self, "_session") and self._session:
                 await self._session.__aexit__(None, None, None)
+        except RuntimeError as e:
+            # Suppress anyio cancel scope errors that occur in Jupyter/nest_asyncio environments
+            # This is a known incompatibility between nest_asyncio and anyio task groups
+            if "cancel scope" not in str(e).lower():
+                raise
         except Exception:
-            pass  # Ignore errors during session cleanup
+            pass  # Ignore other errors during session cleanup
 
         try:
             if hasattr(self, "_stdio_context") and self._stdio_context:
                 await self._stdio_context.__aexit__(None, None, None)
+        except RuntimeError as e:
+            # Suppress anyio cancel scope errors that occur in Jupyter/nest_asyncio environments
+            # This is a known incompatibility between nest_asyncio and anyio task groups
+            if "cancel scope" not in str(e).lower():
+                raise
         except Exception:
-            pass  # Ignore errors during stdio cleanup
+            pass  # Ignore other errors during stdio cleanup
 
         # Cleanup HTTP transport
         try:

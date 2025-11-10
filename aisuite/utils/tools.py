@@ -15,7 +15,13 @@ class Tools:
     # Add a tool function with or without a Pydantic model.
     def _add_tool(self, func: Callable, param_model: Optional[Type[BaseModel]] = None):
         """Register a tool function with metadata. If no param_model is provided, infer from function signature."""
-        if param_model:
+        # Check if this is an MCP tool with original schema
+        if hasattr(func, "__mcp_input_schema__") and func.__mcp_input_schema__:
+            # Use the original MCP schema directly to preserve all JSON Schema details
+            tool_spec = self._convert_mcp_schema_to_tool_spec(func)
+            # Create Pydantic model from MCP schema for validation
+            param_model = self._create_pydantic_model_from_mcp_schema(func)
+        elif param_model:
             tool_spec = self._convert_to_tool_spec(func, param_model)
         else:
             tool_spec, param_model = self.__infer_from_signature(func)
@@ -124,6 +130,63 @@ class Tools:
             param_descriptions[param.arg_name] = param.description or ""
 
         return param_descriptions
+
+    def _convert_mcp_schema_to_tool_spec(self, func: Callable) -> Dict[str, Any]:
+        """
+        Convert MCP tool with original inputSchema to tool spec.
+
+        This preserves the original JSON Schema from MCP without round-trip conversion,
+        avoiding information loss for complex types like arrays and nested objects.
+
+        Args:
+            func: MCP tool wrapper with __mcp_input_schema__ attribute
+
+        Returns:
+            Tool specification compatible with OpenAI format
+        """
+        input_schema = func.__mcp_input_schema__
+
+        return {
+            "name": func.__name__,
+            "description": func.__doc__ or "",
+            "parameters": input_schema,  # Use original schema directly!
+        }
+
+    def _create_pydantic_model_from_mcp_schema(self, func: Callable) -> Type[BaseModel]:
+        """
+        Create a Pydantic model from MCP inputSchema for parameter validation.
+
+        This is needed for the execute() method to validate tool call arguments.
+
+        Args:
+            func: MCP tool wrapper with __mcp_input_schema__ attribute
+
+        Returns:
+            Pydantic model for parameter validation
+        """
+        from ..mcp.schema_converter import mcp_schema_to_annotations
+
+        input_schema = func.__mcp_input_schema__
+        properties = input_schema.get("properties", {})
+        required = input_schema.get("required", [])
+
+        # Get type annotations from MCP schema
+        annotations = mcp_schema_to_annotations(input_schema)
+
+        fields = {}
+        for param_name, param_type in annotations.items():
+            param_schema = properties.get(param_name, {})
+            description = param_schema.get("description", "")
+
+            if param_name in required:
+                fields[param_name] = (param_type, Field(..., description=description))
+            else:
+                fields[param_name] = (
+                    param_type,
+                    Field(default=None, description=description),
+                )
+
+        return create_model(f"{func.__name__.capitalize()}Params", **fields)
 
     def __infer_from_signature(
         self, func: Callable
