@@ -22,6 +22,8 @@ ibm-watsonx-ai = { version = "^1.1.16", optional = true }
 docstring-parser = { version = "^0.14.0", optional = true }
 cerebras_cloud_sdk = { version = "^1.19.0", optional = true }
 openai = { version = "^1.107.0", optional = true }
+mcp = { version = "^1.1.2", optional = true }
+nest-asyncio = { version = "^1.6.0", optional = true }
 
 # Optional dependencies for different providers
 httpx = "~0.27.0"
@@ -40,7 +42,8 @@ mistral = ["mistralai"]
 ollama = []
 openai = ["openai"]
 watsonx = ["ibm-watsonx-ai"]
-all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy"]  # To install all providers
+mcp = ["mcp", "nest-asyncio"]
+all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy", "mcp", "nest-asyncio"]  # To install all providers
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.1"
@@ -79,4 +82,6 @@ build-backend = "poetry.core.masonry.api"
 testpaths="tests"
 markers = [
     "integration: marks tests as integration tests that interact with external services",
+    "llm: marks tests that make real LLM API calls and incur costs (subset of integration)",
+    "mcp_server: marks tests that require MCP server functionality (e.g., npx, external MCP servers)",
 ]
