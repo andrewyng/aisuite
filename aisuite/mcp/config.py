@@ -96,16 +96,10 @@ def validate_mcp_config(config: Dict[str, Any]) -> MCPConfig:
     has_stdio = "command" in config
     has_http = "server_url" in config
 
-    if has_stdio and has_http:
+    if not (has_stdio ^ has_http):
         raise ValueError(
-            "MCP config cannot have both 'command' and 'server_url'. "
+            "MCP config must have either 'command' or 'server_url'."
             "Use one or the other to specify transport type."
-        )
-
-    if not has_stdio and not has_http:
-        raise ValueError(
-            "MCP config must have either 'command' (for stdio transport) "
-            "or 'server_url' (for http transport)."
         )
 
     # Validate stdio transport
