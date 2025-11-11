@@ -140,13 +140,24 @@ class AnthropicMessageConverter:
 
     def _get_message(self, response):
         """Get the appropriate message based on response type."""
-        if response.stop_reason == "tool_use":
+        # Check if response contains any tool use blocks (regardless of stop_reason)
+        has_tool_use = any(
+            content.type == "tool_use" for content in response.content
+        )
+
+        if has_tool_use:
             tool_message = self.convert_response_with_tool_use(response)
             if tool_message:
                 return tool_message
 
+        # Safely extract text content from any position in content blocks
+        text_content = next(
+            (content.text for content in response.content if content.type == "text"),
+            "",
+        )
+
         return Message(
-            content=response.content[0].text,
+            content=text_content or None,
             role="assistant",
             tool_calls=None,
             refusal=None,
