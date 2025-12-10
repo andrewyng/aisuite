@@ -1,22 +1,28 @@
-import { 
-  ChatCompletionRequest, 
-  ChatCompletionResponse, 
+import {
+  ChatCompletionRequest,
+  ChatCompletionResponse,
   ChatCompletionChunk,
   ChatMessage,
   ToolCall,
-  Tool
-} from '../../types';
-import type { 
-  ChatCompletion, 
+  Tool,
+  TranscriptionRequest,
+  TranscriptionResult,
+} from "../../types";
+import type {
+  ChatCompletion,
   ChatCompletionChunk as OpenAIChunk,
-  ChatCompletionCreateParams
-} from 'openai/resources/chat/completions';
+  ChatCompletionCreateParams,
+} from "openai/resources/chat/completions";
+import { Uploadable } from "openai/uploads";
+import { OpenAIASRResponse } from "./types";
 
-export function adaptRequest(request: ChatCompletionRequest): ChatCompletionCreateParams {
+export function adaptRequest(
+  request: ChatCompletionRequest
+): ChatCompletionCreateParams {
   // OpenAI is our base format, so minimal transformation needed
   // Don't pass stream parameter to avoid accidental streaming
   const { stream, ...requestWithoutStream } = request;
-  
+
   return {
     model: requestWithoutStream.model,
     messages: requestWithoutStream.messages.map(adaptMessage),
@@ -42,20 +48,22 @@ function adaptMessage(message: ChatMessage): any {
   };
 }
 
-export function adaptResponse(response: ChatCompletion): ChatCompletionResponse {
+export function adaptResponse(
+  response: ChatCompletion
+): ChatCompletionResponse {
   return {
     id: response.id,
-    object: 'chat.completion',
+    object: "chat.completion",
     created: response.created,
     model: response.model,
-    choices: response.choices.map(choice => ({
+    choices: response.choices.map((choice) => ({
       index: choice.index,
       message: {
         role: choice.message.role as any,
         content: choice.message.content,
         tool_calls: choice.message.tool_calls?.map(adaptToolCall),
       },
-      finish_reason: choice.finish_reason || 'stop',
+      finish_reason: choice.finish_reason || "stop",
     })),
     usage: {
       prompt_tokens: response.usage?.prompt_tokens || 0,
@@ -69,10 +77,10 @@ export function adaptResponse(response: ChatCompletion): ChatCompletionResponse 
 export function adaptChunk(chunk: OpenAIChunk): ChatCompletionChunk {
   return {
     id: chunk.id,
-    object: 'chat.completion.chunk',
+    object: "chat.completion.chunk",
     created: chunk.created,
     model: chunk.model,
-    choices: chunk.choices.map(choice => ({
+    choices: chunk.choices.map((choice) => ({
       index: choice.index,
       delta: {
         role: choice.delta.role as any,
@@ -81,21 +89,64 @@ export function adaptChunk(chunk: OpenAIChunk): ChatCompletionChunk {
       },
       finish_reason: choice.finish_reason || undefined,
     })),
-    usage: chunk.usage ? {
-      prompt_tokens: chunk.usage.prompt_tokens || 0,
-      completion_tokens: chunk.usage.completion_tokens || 0,
-      total_tokens: chunk.usage.total_tokens || 0,
-    } : undefined,
+    usage: chunk.usage
+      ? {
+          prompt_tokens: chunk.usage.prompt_tokens || 0,
+          completion_tokens: chunk.usage.completion_tokens || 0,
+          total_tokens: chunk.usage.total_tokens || 0,
+        }
+      : undefined,
   };
 }
 
 function adaptToolCall(toolCall: any): ToolCall {
   return {
     id: toolCall.id,
-    type: 'function',
+    type: "function",
     function: {
       name: toolCall.function.name,
       arguments: toolCall.function.arguments,
     },
+  };
+}
+
+export function adaptASRRequest(request: TranscriptionRequest): {
+  file: Uploadable;
+  model: string;
+} {
+  if (!(request.file instanceof Buffer)) {
+    throw new Error("File must be provided as a Buffer");
+  }
+
+  const file = new File([request.file], "audio.mp3", {
+    type: "audio/mpeg",
+  }) as unknown as Uploadable;
+
+  return {
+    file,
+    model: request.model,
+  };
+}
+
+export function adaptASRResponse(
+  response: OpenAIASRResponse
+): TranscriptionResult {
+  return {
+    text: response.text,
+    language: response.language || "en", // Default to English if not provided
+    confidence: response.segments?.[0]?.avg_logprob,
+    words:
+      response.words?.map((word) => ({
+        text: word.text || "",
+        start: word.start,
+        end: word.end,
+        confidence: word?.confidence, // Default confidence if not provided
+      })) ?? [],
+    segments:
+      response.segments?.map((segment) => ({
+        text: segment.text,
+        start: segment.start,
+        end: segment.end,
+      })) ?? [],
   };
 }

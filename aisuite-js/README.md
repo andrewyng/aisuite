@@ -28,8 +28,7 @@ import { Client } from 'aisuite';
 
 const client = new Client({
   openai: { 
-    apiKey: process.env.OPENAI_API_KEY,
-    audio: true  // Enable Whisper ASR support
+    apiKey: process.env.OPENAI_API_KEY,    
   },
   anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
   deepgram: { apiKey: process.env.DEEPGRAM_API_KEY },
@@ -154,8 +153,7 @@ try {
 // Initialize client with audio support for OpenAI
 const client = new Client({
   openai: { 
-    apiKey: process.env.OPENAI_API_KEY,
-    audio: true  // Required for Whisper ASR
+    apiKey: process.env.OPENAI_API_KEY,    
   },
   deepgram: { apiKey: process.env.DEEPGRAM_API_KEY }
 });
@@ -170,7 +168,7 @@ const deepgramResponse = await client.audio.transcriptions.create({
   speaker_labels: true,
 });
 
-// Using OpenAI Whisper (requires audio: true in config)
+// Using OpenAI Whisper
 const openaiResponse = await client.audio.transcriptions.create({
   model: 'openai:whisper-1',
   file: audioBuffer,
@@ -214,8 +212,7 @@ const client = new Client({
   openai?: {
     apiKey: string;
     baseURL?: string;
-    organization?: string;
-    audio?: boolean;      // Enable Whisper ASR support
+    organization?: string;    
   },
   anthropic?: {
     apiKey: string;
@@ -280,7 +277,6 @@ client.isASRProviderConfigured('deepgram'); // true
 - Streaming tool calls require manual accumulation of arguments
 - ASR support is limited to OpenAI Whisper (requires explicit audio configuration) and Deepgram
 - Some provider-specific ASR features might require using provider-specific parameters
-- OpenAI Whisper support requires additional `audio: true` configuration
 
 ## Development
 

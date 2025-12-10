@@ -6,8 +6,7 @@ async function main() {
   // Initialize the client with OpenAI configuration
   const client = new Client({
     openai: {
-      apiKey: process.env.OPENAI_API_KEY || "your-openai-api-key",
-      audio: true,
+      apiKey: process.env.OPENAI_API_KEY!, 
     },
   });
 

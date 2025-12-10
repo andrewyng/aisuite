@@ -1,5 +1,5 @@
 import Groq from "groq-sdk";
-import { BaseProvider } from "../../core/base-provider";
+import { Provider } from "../../core/base-provider";
 import {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -11,13 +11,11 @@ import { adaptRequest, adaptResponse, adaptStreamResponse } from "./adapters";
 import { AISuiteError } from "../../core/errors";
 import { generateId } from "../../utils/streaming";
 
-export class GroqProvider extends BaseProvider {
+export class GroqProvider implements Provider {
   public readonly name = "groq";
   private client: Groq;
 
   constructor(config: GroqConfig) {
-    super();
-
     this.client = new Groq({
       apiKey: config.apiKey,
       dangerouslyAllowBrowser: config.dangerouslyAllowBrowser || false, // Allow browser usage for chat app

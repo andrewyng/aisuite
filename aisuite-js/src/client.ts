@@ -7,8 +7,8 @@ import {
   TranscriptionRequest,
   TranscriptionResult,
 } from "./types";
-import { BaseProvider } from "./core/base-provider";
-import { BaseASRProvider } from "./core/base-asr-provider";
+import { Provider } from "./core/base-provider";
+import { ASRProvider } from "./core/base-asr-provider";
 import { parseModel } from "./core/model-parser";
 import { ProviderNotConfiguredError } from "./core/errors";
 import { OpenAIProvider } from "./providers/openai";
@@ -16,11 +16,10 @@ import { AnthropicProvider } from "./providers/anthropic";
 import { MistralProvider } from "./providers/mistral";
 import { GroqProvider } from "./providers/groq";
 import { DeepgramASRProvider } from "./asr-providers/deepgram";
-import { OpenAIASRProvider } from "./asr-providers/openai";
 
 export class Client {
-  private chatProviders: Map<string, BaseProvider> = new Map();
-  private asrProviders: Map<string, BaseASRProvider> = new Map();
+  private chatProviders: Map<string, Provider> = new Map();
+  private asrProviders: Map<string, ASRProvider> = new Map();
 
   constructor(config: ProviderConfigs) {
     this.initializeProviders(config);
@@ -28,11 +27,9 @@ export class Client {
 
   private initializeProviders(config: ProviderConfigs): void {
     if (config.openai) {
-      if (config.openai.audio) {
-        this.asrProviders.set("openai", new OpenAIASRProvider(config.openai));
-      } else {
-        this.chatProviders.set("openai", new OpenAIProvider(config.openai));
-      }
+      const openaiProvider = new OpenAIProvider(config.openai);
+      this.chatProviders.set("openai", openaiProvider);
+      this.asrProviders.set("openai", openaiProvider);
     }
 
     if (config.anthropic) {

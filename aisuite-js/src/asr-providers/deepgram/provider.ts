@@ -1,5 +1,5 @@
 import { createClient, DeepgramClient } from "@deepgram/sdk";
-import { BaseASRProvider } from "../../core/base-asr-provider";
+import { ASRProvider } from "../../core/base-asr-provider";
 import {
   TranscriptionRequest,
   TranscriptionResult,
@@ -10,13 +10,11 @@ import { adaptResponse } from "./adapters";
 import { AISuiteError } from "../../core/errors";
 import * as fs from "fs";
 
-export class DeepgramASRProvider extends BaseASRProvider {
+export class DeepgramASRProvider implements ASRProvider {
   public readonly name = "deepgram";
   private client: DeepgramClient;
 
   constructor(config: DeepgramConfig) {
-    super();
-
     // Use the new createClient API instead of the deprecated Deepgram constructor
     this.client = createClient({
       key: config.apiKey,

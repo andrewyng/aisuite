@@ -1,12 +1,12 @@
-import { OpenAIASRProvider } from "../../src/asr-providers/openai/provider";
 import { TranscriptionRequest } from "../../src/types";
 import { AISuiteError } from "../../src/core/errors";
+import { OpenAIProvider } from "../../src/providers/openai";
 
-describe("OpenAIASRProvider", () => {
-  let provider: OpenAIASRProvider;
+describe("OpenAIProvider", () => {
+  let provider: OpenAIProvider;
 
   beforeEach(() => {
-    provider = new OpenAIASRProvider({
+    provider = new OpenAIProvider({
       apiKey: "test-api-key",
     });
   });

@@ -4,19 +4,19 @@ import {
   RequestOptions 
 } from '../types';
 
-export abstract class BaseASRProvider {
-  abstract readonly name: string;
+export interface ASRProvider {
+  readonly name: string;
   
-  abstract transcribe(
+  transcribe(
     request: TranscriptionRequest,
     options?: RequestOptions
   ): Promise<TranscriptionResult>;
   
-  abstract validateParams(    
+  validateParams(    
     params: { [key: string]: any }
   ): void;
   
-  abstract translateParams(    
+  translateParams(    
     params: { [key: string]: any }
   ): { [key: string]: any };
 }

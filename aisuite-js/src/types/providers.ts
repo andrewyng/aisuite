@@ -10,7 +10,6 @@ export interface OpenAIConfig {
   apiKey: string;
   baseURL?: string;
   organization?: string;
-  audio?:  boolean; // Enable OpenAI ASR provider
 }
 
 export interface AnthropicConfig {
