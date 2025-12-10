@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any, Type, Optional
+from typing import Callable, Dict, Any, Type, Optional, get_origin, get_args, Union
 from pydantic import BaseModel, create_model, Field, ValidationError
 import inspect
 import json
@@ -15,7 +15,13 @@ class Tools:
     # Add a tool function with or without a Pydantic model.
     def _add_tool(self, func: Callable, param_model: Optional[Type[BaseModel]] = None):
         """Register a tool function with metadata. If no param_model is provided, infer from function signature."""
-        if param_model:
+        # Check if this is an MCP tool with original schema
+        if hasattr(func, "__mcp_input_schema__") and func.__mcp_input_schema__:
+            # Use the original MCP schema directly to preserve all JSON Schema details
+            tool_spec = self._convert_mcp_schema_to_tool_spec(func)
+            # Create Pydantic model from MCP schema for validation
+            param_model = self._create_pydantic_model_from_mcp_schema(func)
+        elif param_model:
             tool_spec = self._convert_to_tool_spec(func, param_model)
         else:
             tool_spec, param_model = self.__infer_from_signature(func)
@@ -33,6 +39,25 @@ class Tools:
             return self.__convert_to_openai_format()
         return [tool["spec"] for tool in self._tools.values()]
 
+    def _unwrap_optional(self, field_type: Type) -> tuple[Type, bool]:
+        """
+        Unwrap Optional[T] to get the base type T.
+
+        Returns:
+            tuple: (base_type, is_optional)
+        """
+        # Check if it's Optional (Union with None)
+        origin = get_origin(field_type)
+        if origin is Union:
+            args = get_args(field_type)
+            # Optional[T] is Union[T, None]
+            if type(None) in args:
+                # Get the non-None type
+                non_none_types = [arg for arg in args if arg is not type(None)]
+                if len(non_none_types) == 1:
+                    return non_none_types[0], True
+        return field_type, False
+
     # Convert the function and its Pydantic model to a unified tool specification.
     def _convert_to_tool_spec(
         self, func: Callable, param_model: Type[BaseModel]
@@ -43,6 +68,9 @@ class Tools:
         properties = {}
         for field_name, field in param_model.model_fields.items():
             field_type = field.annotation
+
+            # Unwrap Optional[T] to get base type T
+            field_type, is_optional = self._unwrap_optional(field_type)
 
             # Handle enum types
             if hasattr(field_type, "__members__"):  # Check if it's an enum
@@ -102,6 +130,63 @@ class Tools:
             param_descriptions[param.arg_name] = param.description or ""
 
         return param_descriptions
+
+    def _convert_mcp_schema_to_tool_spec(self, func: Callable) -> Dict[str, Any]:
+        """
+        Convert MCP tool with original inputSchema to tool spec.
+
+        This preserves the original JSON Schema from MCP without round-trip conversion,
+        avoiding information loss for complex types like arrays and nested objects.
+
+        Args:
+            func: MCP tool wrapper with __mcp_input_schema__ attribute
+
+        Returns:
+            Tool specification compatible with OpenAI format
+        """
+        input_schema = func.__mcp_input_schema__
+
+        return {
+            "name": func.__name__,
+            "description": func.__doc__ or "",
+            "parameters": input_schema,  # Use original schema directly!
+        }
+
+    def _create_pydantic_model_from_mcp_schema(self, func: Callable) -> Type[BaseModel]:
+        """
+        Create a Pydantic model from MCP inputSchema for parameter validation.
+
+        This is needed for the execute() method to validate tool call arguments.
+
+        Args:
+            func: MCP tool wrapper with __mcp_input_schema__ attribute
+
+        Returns:
+            Pydantic model for parameter validation
+        """
+        from ..mcp.schema_converter import mcp_schema_to_annotations
+
+        input_schema = func.__mcp_input_schema__
+        properties = input_schema.get("properties", {})
+        required = input_schema.get("required", [])
+
+        # Get type annotations from MCP schema
+        annotations = mcp_schema_to_annotations(input_schema)
+
+        fields = {}
+        for param_name, param_type in annotations.items():
+            param_schema = properties.get(param_name, {})
+            description = param_schema.get("description", "")
+
+            if param_name in required:
+                fields[param_name] = (param_type, Field(..., description=description))
+            else:
+                fields[param_name] = (
+                    param_type,
+                    Field(default=None, description=description),
+                )
+
+        return create_model(f"{func.__name__.capitalize()}Params", **fields)
 
     def __infer_from_signature(
         self, func: Callable
