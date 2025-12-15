@@ -4,6 +4,7 @@ export interface ChatMessage {
   name?: string;
   tool_call_id?: string;
   tool_calls?: ToolCall[];
+  provider_data?: Record<string, any>; // Provider-specific data (e.g., thought signatures for Gemini 3)
 }
 
 export interface ChatCompletionRequest {
@@ -29,6 +30,7 @@ export interface ChatCompletionResponse {
   choices: ChatChoice[];
   usage: Usage;
   system_fingerprint?: string;
+  provider_data?: Record<string, any>; // Provider-specific data (e.g., thinking content, thought signatures)
 }
 
 export interface ChatCompletionChunk {
@@ -46,6 +48,7 @@ export interface ChatCompletionChunk {
     finish_reason?: string;
   }>;
   usage?: Usage;
+  provider_data?: Record<string, any>; // Provider-specific data (e.g., thinking_delta for streaming)
 }
 
 export interface ChatChoice {

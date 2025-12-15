@@ -170,6 +170,79 @@ describeIfEnv("GOOGLE_API_KEY")("Google Gemini Integration", () => {
 });
 
 // ============================================================================
+// Google Gemini 3 Integration Tests (Thinking/Reasoning)
+// ============================================================================
+describeIfEnv("GOOGLE_API_KEY")("Google Gemini 3 Integration", () => {
+  const client = new Client();
+  const model = "google:gemini-3-pro-preview";
+
+  it("should complete a chat request with thinking_level", async () => {
+    const response = (await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: 'Say "hello" and nothing else' }],
+    }, { thinking_level: "high" })) as ChatCompletionResponse;
+
+    expect(response.choices[0].message.content?.toLowerCase()).toContain(
+      "hello"
+    );
+  });
+
+  it("should return thought_signature in provider_data", async () => {
+    const response = (await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: "What is 5 + 5?" }],
+    }, { thinking_level: "high" })) as ChatCompletionResponse;
+
+    expect(response.choices[0].message.content).toContain("10");
+    expect(response.provider_data).toBeDefined();
+    expect(response.provider_data?.thought_signature).toBeDefined();
+    expect(typeof response.provider_data?.thought_signature).toBe("string");
+  });
+
+  it("should handle multi-turn with thought signatures", async () => {
+    // First turn
+    const response1 = (await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: "What is 10 + 5?" }],
+    }, { thinking_level: "high" })) as ChatCompletionResponse;
+
+    expect(response1.provider_data?.thought_signature).toBeDefined();
+
+    // Second turn with thought signature from first turn
+    const response2 = (await client.chat.completions.create({
+      model,
+      messages: [
+        { role: "user", content: "What is 10 + 5?" },
+        {
+          role: "assistant",
+          content: response1.choices[0].message.content,
+          provider_data: { thought_signature: response1.provider_data?.thought_signature }
+        },
+        { role: "user", content: "Double that number" }
+      ],
+    }, { thinking_level: "high" })) as ChatCompletionResponse;
+
+    expect(response2.choices[0].message.content).toBeTruthy();
+    expect(response2.provider_data?.thought_signature).toBeDefined();
+  });
+
+  it("should handle tool calls with thinking", async () => {
+    const response = (await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: "What is the weather in Paris?" }],
+      tools: [weatherTool],
+    }, { thinking_level: "high" })) as ChatCompletionResponse;
+
+    const toolCall = response.choices[0].message.tool_calls?.[0];
+    expect(toolCall).toBeDefined();
+    expect(toolCall?.function.name).toBe("get_weather");
+    expect(toolCall?.function.arguments.toLowerCase()).toContain("paris");
+    // Thought signature should still be present with tool calls
+    expect(response.provider_data?.thought_signature).toBeDefined();
+  });
+});
+
+// ============================================================================
 // Anthropic Integration Tests
 // ============================================================================
 describeIfEnv("ANTHROPIC_API_KEY")("Anthropic Integration", () => {

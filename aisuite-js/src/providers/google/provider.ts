@@ -34,7 +34,7 @@ export class GoogleProvider implements Provider {
         );
       }
 
-      const geminiRequest = adaptRequest(request);
+      const geminiRequest = adaptRequest(request, options);
       const response = await this.client.models.generateContent(geminiRequest);
 
       return adaptResponse(response, request.model);
@@ -55,7 +55,7 @@ export class GoogleProvider implements Provider {
     options?: RequestOptions
   ): AsyncIterable<ChatCompletionChunk> {
     try {
-      const geminiRequest = adaptRequest(request);
+      const geminiRequest = adaptRequest(request, options);
       const stream = await this.client.models.generateContentStream(geminiRequest);
 
       const streamId = generateId();

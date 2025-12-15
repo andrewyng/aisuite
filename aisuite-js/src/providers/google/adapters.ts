@@ -5,7 +5,8 @@ import {
   ChatMessage,
   Tool,
   ToolCall,
-  ToolChoice
+  ToolChoice,
+  RequestOptions
 } from '../../types';
 import { generateId, createChunk } from '../../utils/streaming';
 import type {
@@ -22,7 +23,7 @@ export interface GeminiRequest {
   config?: GenerateContentConfig;
 }
 
-export function adaptRequest(request: ChatCompletionRequest): GeminiRequest {
+export function adaptRequest(request: ChatCompletionRequest, options?: RequestOptions): GeminiRequest {
   const { systemInstruction, contents } = transformMessages(request.messages);
 
   const config: GenerateContentConfig = {};
@@ -54,6 +55,13 @@ export function adaptRequest(request: ChatCompletionRequest): GeminiRequest {
   if (request.tool_choice) {
     config.toolConfig = {
       functionCallingConfig: adaptToolChoice(request.tool_choice),
+    };
+  }
+
+  // Add Gemini 3 thinking/reasoning configuration from RequestOptions
+  if (options?.thinking_level) {
+    (config as any).thinkingConfig = {
+      thinkingLevel: options.thinking_level.toUpperCase() // 'low' -> 'LOW', 'high' -> 'HIGH'
     };
   }
 
@@ -113,13 +121,23 @@ function transformMessages(messages: ChatMessage[]): {
         });
       }
 
-      contents.push({ role: 'model', parts });
+      const content: Content = { role: 'model', parts };
+      // Include thought signature from provider_data for Gemini 3 multi-turn
+      if (msg.provider_data?.thought_signature) {
+        (content as any).thoughtSignature = msg.provider_data.thought_signature;
+      }
+      contents.push(content);
     } else {
       // Regular user or assistant message
-      contents.push({
+      const content: Content = {
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.content || '' }],
-      });
+      };
+      // Include thought signature from provider_data for Gemini 3 multi-turn
+      if (msg.role === 'assistant' && msg.provider_data?.thought_signature) {
+        (content as any).thoughtSignature = msg.provider_data.thought_signature;
+      }
+      contents.push(content);
     }
   }
 
@@ -216,6 +234,33 @@ export function adaptResponse(
   // Extract usage metadata
   const usageMetadata = response.usageMetadata || {};
 
+  // Extract Gemini 3 thinking content and thought signature for provider_data
+  const providerData: Record<string, any> = {};
+
+  // Extract thinking content from response parts (Gemini 3 thinking feature)
+  if (response.candidates?.[0]?.content?.parts) {
+    const thinkingParts = response.candidates[0].content.parts.filter(
+      (p: any) => p.thought !== undefined
+    );
+    if (thinkingParts.length > 0) {
+      providerData.thinking = thinkingParts.map((p: any) => p.thought).join('');
+    }
+  }
+
+  // Extract thought signature for multi-turn conversations (Gemini 3)
+  // Thought signature can be at candidate level OR inside parts
+  if (response.candidates?.[0]?.thoughtSignature) {
+    providerData.thought_signature = response.candidates[0].thoughtSignature;
+  } else if (response.candidates?.[0]?.content?.parts) {
+    // Check for thoughtSignature inside parts (Gemini 3 format)
+    const partWithSignature = response.candidates[0].content.parts.find(
+      (p: any) => p.thoughtSignature !== undefined
+    );
+    if (partWithSignature?.thoughtSignature) {
+      providerData.thought_signature = partWithSignature.thoughtSignature;
+    }
+  }
+
   return {
     id: generateId(),
     object: 'chat.completion',
@@ -235,6 +280,7 @@ export function adaptResponse(
       completion_tokens: usageMetadata.candidatesTokenCount || 0,
       total_tokens: usageMetadata.totalTokenCount || 0,
     },
+    provider_data: Object.keys(providerData).length > 0 ? providerData : undefined,
   };
 }
 
@@ -257,11 +303,39 @@ export function adaptStreamEvent(
     }
   }
 
-  if (textContent) {
-    return createChunk(streamId, originalModel, textContent);
+  // Handle Gemini 3 thinking content in stream
+  let thinkingContent: string | undefined;
+  if (chunk.candidates?.[0]?.content?.parts) {
+    const thinkingPart = chunk.candidates[0].content.parts.find(
+      (p: any) => p.thought !== undefined
+    );
+    thinkingContent = thinkingPart?.thought;
   }
 
-  // Handle function calls in stream
+  // Extract thought signature if present (typically in final chunks)
+  // Thought signature can be at candidate level OR inside parts
+  let thoughtSignature: string | undefined;
+  if (chunk.candidates?.[0]?.thoughtSignature) {
+    thoughtSignature = chunk.candidates[0].thoughtSignature;
+  } else if (chunk.candidates?.[0]?.content?.parts) {
+    const partWithSignature = chunk.candidates[0].content.parts.find(
+      (p: any) => p.thoughtSignature !== undefined
+    );
+    if (partWithSignature?.thoughtSignature) {
+      thoughtSignature = partWithSignature.thoughtSignature;
+    }
+  }
+
+  // Build provider_data if we have thinking content or thought signature
+  const providerData: Record<string, any> = {};
+  if (thinkingContent) {
+    providerData.thinking_delta = thinkingContent;
+  }
+  if (thoughtSignature) {
+    providerData.thought_signature = thoughtSignature;
+  }
+
+  // Handle function calls in stream (check first to include provider_data)
   const functionCalls = chunk.functionCalls || [];
   if (functionCalls.length > 0) {
     const toolCalls = functionCalls.map((fc: any) => ({
@@ -272,7 +346,26 @@ export function adaptStreamEvent(
         arguments: JSON.stringify(fc.args || {}),
       },
     }));
-    return createChunk(streamId, originalModel, undefined, undefined, toolCalls);
+    const result = createChunk(streamId, originalModel, undefined, undefined, toolCalls);
+    if (Object.keys(providerData).length > 0) {
+      result.provider_data = providerData;
+    }
+    return result;
+  }
+
+  if (textContent) {
+    const result = createChunk(streamId, originalModel, textContent);
+    if (Object.keys(providerData).length > 0) {
+      result.provider_data = providerData;
+    }
+    return result;
+  }
+
+  // Handle thinking content without text (stream thinking separately)
+  if (thinkingContent || thoughtSignature) {
+    const result = createChunk(streamId, originalModel, undefined);
+    result.provider_data = providerData;
+    return result;
   }
 
   return null;
