@@ -157,21 +157,7 @@ export function adaptResponse(
   response: any,
   originalModel: string
 ): ChatCompletionResponse {
-  // Extract text content
-  let textContent = '';
-  try {
-    textContent = response.text || '';
-  } catch {
-    // If .text accessor fails, try to extract from candidates
-    if (response.candidates?.[0]?.content?.parts) {
-      const textPart = response.candidates[0].content.parts.find(
-        (p: any) => p.text !== undefined
-      );
-      textContent = textPart?.text || '';
-    }
-  }
-
-  // Extract function calls
+  // Extract function calls FIRST to avoid triggering SDK warning when accessing .text
   const toolCalls: ToolCall[] = [];
   const functionCalls = response.functionCalls || [];
 
@@ -184,6 +170,31 @@ export function adaptResponse(
         arguments: JSON.stringify(fc.args || {}),
       },
     });
+  }
+
+  // Extract text content - only use .text accessor if no function calls
+  // (accessing .text when there are function calls triggers a SDK warning)
+  let textContent = '';
+  if (functionCalls.length === 0) {
+    try {
+      textContent = response.text || '';
+    } catch {
+      // If .text accessor fails, try to extract from candidates
+      if (response.candidates?.[0]?.content?.parts) {
+        const textPart = response.candidates[0].content.parts.find(
+          (p: any) => p.text !== undefined
+        );
+        textContent = textPart?.text || '';
+      }
+    }
+  } else {
+    // When there are function calls, extract text from candidates directly
+    if (response.candidates?.[0]?.content?.parts) {
+      const textPart = response.candidates[0].content.parts.find(
+        (p: any) => p.text !== undefined
+      );
+      textContent = textPart?.text || '';
+    }
   }
 
   // Determine finish reason
