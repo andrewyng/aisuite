@@ -286,16 +286,44 @@ npm install
 
 # Build the project
 npm run build
+```
 
-# Run tests
+### Running Tests
+
+**Unit Tests (no API keys required):**
+```bash
 npm test
+```
+Runs all unit tests with mocked API responses. No API keys needed.
 
-# Run examples
-#Run basic usage example only:
+**Integration Tests (API keys required):**
+
+Create a `.env` file in the project root with your API keys:
+```bash
+# .env
+OPENAI_API_KEY=your-key
+GOOGLE_API_KEY=your-key
+ANTHROPIC_API_KEY=your-key
+MISTRAL_API_KEY=your-key
+GROQ_API_KEY=your-key
+```
+
+Then run:
+```bash
+npm run test:integration
+```
+Makes real API calls to verify provider integrations work. Tests for providers without API keys are skipped. **Fails if no API keys are set.**
+
+### Running Examples
+
+```bash
+# Run basic usage example
 npm run example:basic
-# Run tool calling example only:
+
+# Run tool calling example
 npm run example:tools
-# Run the full test suite:
+
+# Run the full example suite
 npm run test:examples
 ```
 

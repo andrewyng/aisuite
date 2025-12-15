@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "test": "jest --config=jest.config.ts",
+    "test:integration": "jest --config=jest.integration.config.ts",
     "test:examples": "tsx examples/test-suite.ts",
     "example:basic": "tsx examples/basic-usage.ts",
     "example:tools": "tsx examples/tool-calling.ts",
