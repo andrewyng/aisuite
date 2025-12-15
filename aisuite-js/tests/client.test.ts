@@ -23,6 +23,7 @@ jest.mock("../src/providers/openai");
 jest.mock("../src/providers/anthropic");
 jest.mock("../src/providers/mistral");
 jest.mock("../src/providers/groq");
+jest.mock("../src/providers/google");
 jest.mock("../src/asr-providers/deepgram");
 
 describe("Client", () => {
@@ -30,6 +31,7 @@ describe("Client", () => {
   let mockAnthropicProvider: any;
   let mockMistralProvider: any;
   let mockGroqProvider: any;
+  let mockGoogleProvider: any;
   let mockDeepgramProvider: any;
   let mockOpenAIASRProvider: any;
 
@@ -78,6 +80,7 @@ describe("Client", () => {
     mockAnthropicProvider = new MockProvider("anthropic");
     mockMistralProvider = new MockProvider("mistral");
     mockGroqProvider = new MockProvider("groq");
+    mockGoogleProvider = new MockProvider("google");
 
     mockDeepgramProvider = {
       transcribe: jest.fn(),
@@ -92,17 +95,23 @@ describe("Client", () => {
     const anthropicModule = jest.requireMock("../src/providers/anthropic");
     const mistralModule = jest.requireMock("../src/providers/mistral");
     const groqModule = jest.requireMock("../src/providers/groq");
+    const googleModule = jest.requireMock("../src/providers/google");
     const deepgramModule = jest.requireMock("../src/asr-providers/deepgram");
 
     openaiModule.OpenAIProvider = jest.fn().mockImplementation(() => mockOpenAIProvider);
     anthropicModule.AnthropicProvider = jest.fn().mockImplementation(() => mockAnthropicProvider);
     mistralModule.MistralProvider = jest.fn().mockImplementation(() => mockMistralProvider);
     groqModule.GroqProvider = jest.fn().mockImplementation(() => mockGroqProvider);
+    googleModule.GoogleProvider = jest.fn().mockImplementation(() => mockGoogleProvider);
     deepgramModule.DeepgramASRProvider = jest.fn().mockImplementation(() => mockDeepgramProvider);
   });
 
   describe("constructor", () => {
-    it("should initialize providers based on config", () => {
+    // All providers are now always registered (for env var support)
+    const allChatProviders = ["openai", "anthropic", "mistral", "groq", "google"];
+    const allASRProviders = ["openai", "deepgram"];
+
+    it("should register all providers regardless of config", () => {
       const config: ProviderConfigs = {
         openai: { apiKey: "openai-key" },
         anthropic: { apiKey: "anthropic-key" },
@@ -113,21 +122,18 @@ describe("Client", () => {
 
       const client = new Client(config);
 
-      expect(client.listProviders()).toEqual([
-        "openai",
-        "anthropic",
-        "mistral",
-        "groq",
-      ]);
-      expect(client.listASRProviders()).toEqual(["openai", "deepgram"]);
+      // All providers are always registered (can use env vars if no explicit config)
+      expect(client.listProviders()).toEqual(allChatProviders);
+      expect(client.listASRProviders()).toEqual(allASRProviders);
       expect(client.isProviderConfigured("openai")).toBe(true);
       expect(client.isProviderConfigured("anthropic")).toBe(true);
       expect(client.isProviderConfigured("mistral")).toBe(true);
       expect(client.isProviderConfigured("groq")).toBe(true);
+      expect(client.isProviderConfigured("google")).toBe(true);
       expect(client.isASRProviderConfigured("deepgram")).toBe(true);
     });
 
-    it("should only initialize configured providers", () => {
+    it("should register all providers even with partial config", () => {
       const config: ProviderConfigs = {
         openai: { apiKey: "openai-key" },
         groq: { apiKey: "groq-key" },
@@ -136,25 +142,36 @@ describe("Client", () => {
 
       const client = new Client(config);
 
-      expect(client.listProviders()).toEqual(["openai", "groq"]);
-      expect(client.listASRProviders()).toEqual(["openai", "deepgram"]);
+      // All providers are registered (those without explicit config will use env vars)
+      expect(client.listProviders()).toEqual(allChatProviders);
+      expect(client.listASRProviders()).toEqual(allASRProviders);
       expect(client.isProviderConfigured("openai")).toBe(true);
-      expect(client.isProviderConfigured("anthropic")).toBe(false);
-      expect(client.isProviderConfigured("mistral")).toBe(false);
+      expect(client.isProviderConfigured("anthropic")).toBe(true);
+      expect(client.isProviderConfigured("mistral")).toBe(true);
       expect(client.isProviderConfigured("groq")).toBe(true);
+      expect(client.isProviderConfigured("google")).toBe(true);
       expect(client.isASRProviderConfigured("deepgram")).toBe(true);
       expect(client.isASRProviderConfigured("unknown")).toBe(false);
     });
 
-    it("should handle empty config", () => {
+    it("should register all providers even with empty config", () => {
       const config: ProviderConfigs = {};
 
       const client = new Client(config);
 
-      expect(client.listProviders()).toEqual([]);
-      expect(client.listASRProviders()).toEqual([]);
-      expect(client.isProviderConfigured("openai")).toBe(false);
-      expect(client.isASRProviderConfigured("deepgram")).toBe(false);
+      // All providers are registered (will use env vars for API keys)
+      expect(client.listProviders()).toEqual(allChatProviders);
+      expect(client.listASRProviders()).toEqual(allASRProviders);
+      expect(client.isProviderConfigured("openai")).toBe(true);
+      expect(client.isASRProviderConfigured("deepgram")).toBe(true);
+    });
+
+    it("should work with no config argument", () => {
+      const client = new Client();
+
+      // All providers are registered (will use env vars for API keys)
+      expect(client.listProviders()).toEqual(allChatProviders);
+      expect(client.listASRProviders()).toEqual(allASRProviders);
     });
   });
 
@@ -574,7 +591,10 @@ describe("Client", () => {
   });
 
   describe("listProviders", () => {
-    it("should return list of configured providers", () => {
+    // All providers are now always registered (for env var support)
+    const allChatProviders = ["openai", "anthropic", "mistral", "groq", "google"];
+
+    it("should return all providers (always registered for env var support)", () => {
       const config: ProviderConfigs = {
         openai: { apiKey: "openai-key" },
         groq: { apiKey: "groq-key" },
@@ -582,40 +602,42 @@ describe("Client", () => {
 
       const client = new Client(config);
 
-      expect(client.listProviders()).toEqual(["openai", "groq"]);
+      expect(client.listProviders()).toEqual(allChatProviders);
     });
 
-    it("should return empty array when no providers configured", () => {
+    it("should return all providers even with empty config", () => {
       const config: ProviderConfigs = {};
 
       const client = new Client(config);
 
-      expect(client.listProviders()).toEqual([]);
+      expect(client.listProviders()).toEqual(allChatProviders);
     });
   });
 
   describe("listASRProviders", () => {
-    it("should return list of configured ASR providers", () => {
+    const allASRProviders = ["openai", "deepgram"];
+
+    it("should return all ASR providers (always registered for env var support)", () => {
       const config: ProviderConfigs = {
         deepgram: { apiKey: "deepgram-key" },
       };
 
       const client = new Client(config);
 
-      expect(client.listASRProviders()).toEqual(["deepgram"]);
+      expect(client.listASRProviders()).toEqual(allASRProviders);
     });
 
-    it("should return empty array when no ASR providers configured", () => {
+    it("should return all ASR providers even with empty config", () => {
       const config: ProviderConfigs = {};
 
       const client = new Client(config);
 
-      expect(client.listASRProviders()).toEqual([]);
+      expect(client.listASRProviders()).toEqual(allASRProviders);
     });
   });
 
   describe("isProviderConfigured", () => {
-    it("should return true for configured providers", () => {
+    it("should return true for all known providers (always registered)", () => {
       const config: ProviderConfigs = {
         openai: { apiKey: "openai-key" },
         anthropic: { apiKey: "anthropic-key" },
@@ -623,25 +645,28 @@ describe("Client", () => {
 
       const client = new Client(config);
 
+      // All known providers return true (they're always registered)
       expect(client.isProviderConfigured("openai")).toBe(true);
       expect(client.isProviderConfigured("anthropic")).toBe(true);
+      expect(client.isProviderConfigured("mistral")).toBe(true);
+      expect(client.isProviderConfigured("groq")).toBe(true);
+      expect(client.isProviderConfigured("google")).toBe(true);
     });
 
-    it("should return false for unconfigured providers", () => {
+    it("should return false for unknown providers", () => {
       const config: ProviderConfigs = {
         openai: { apiKey: "openai-key" },
       };
 
       const client = new Client(config);
 
-      expect(client.isProviderConfigured("anthropic")).toBe(false);
-      expect(client.isProviderConfigured("mistral")).toBe(false);
-      expect(client.isProviderConfigured("groq")).toBe(false);
+      expect(client.isProviderConfigured("unknown")).toBe(false);
+      expect(client.isProviderConfigured("nonexistent")).toBe(false);
     });
   });
 
   describe("isASRProviderConfigured", () => {
-    it("should return true for configured ASR providers", () => {
+    it("should return true for all known ASR providers (always registered)", () => {
       const config: ProviderConfigs = {
         deepgram: { apiKey: "deepgram-key" },
       };
@@ -649,15 +674,16 @@ describe("Client", () => {
       const client = new Client(config);
 
       expect(client.isASRProviderConfigured("deepgram")).toBe(true);
+      expect(client.isASRProviderConfigured("openai")).toBe(true);
     });
 
-    it("should return false for unconfigured ASR providers", () => {
+    it("should return false for unknown ASR providers", () => {
       const config: ProviderConfigs = {};
 
       const client = new Client(config);
 
-      expect(client.isASRProviderConfigured("deepgram")).toBe(false);
       expect(client.isASRProviderConfigured("unknown")).toBe(false);
+      expect(client.isASRProviderConfigured("nonexistent")).toBe(false);
     });
   });
 });
