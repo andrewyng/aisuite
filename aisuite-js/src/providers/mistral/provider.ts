@@ -1,5 +1,5 @@
 import MistralClient from "@mistralai/mistralai";
-import { BaseProvider } from "../../core/base-provider";
+import { Provider } from "../../core/base-provider";
 import {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -11,12 +11,11 @@ import { adaptRequest, adaptResponse, adaptStreamResponse } from "./adapters";
 import { AISuiteError } from "../../core/errors";
 import { generateId } from "../../utils/streaming";
 
-export class MistralProvider extends BaseProvider {
+export class MistralProvider implements Provider {
   public readonly name = "mistral";
   private client: MistralClient;
 
   constructor(config: MistralConfig) {
-    super();
     this.client = new MistralClient(config.apiKey);
     if (config.baseURL) {
       (this.client as any).baseURL = config.baseURL;

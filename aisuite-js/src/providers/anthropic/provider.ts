@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { BaseProvider } from '../../core/base-provider';
+import { Provider } from '../../core/base-provider';
 import { 
   ChatCompletionRequest, 
   ChatCompletionResponse, 
@@ -11,12 +11,11 @@ import { adaptRequest, adaptResponse, adaptStreamEvent } from './adapters';
 import { AISuiteError } from '../../core/errors';
 import { generateId } from '../../utils/streaming';
 
-export class AnthropicProvider extends BaseProvider {
+export class AnthropicProvider implements Provider {
   public readonly name = 'anthropic';
   private client: Anthropic;
 
   constructor(config: AnthropicConfig) {
-    super();
     this.client = new Anthropic({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
