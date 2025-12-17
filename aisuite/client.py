@@ -1,5 +1,4 @@
 from .provider import ProviderFactory
-import os
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
 from contextlib import ExitStack
@@ -21,7 +20,7 @@ except ImportError:
 class Client:
     def __init__(
         self,
-        provider_configs: dict = {},
+        provider_configs: dict | None = None,
         extra_param_mode: Literal["strict", "warn", "permissive"] = "warn",
     ):
         """
@@ -47,7 +46,10 @@ class Client:
                 - "permissive": Allow all params without validation (testing)
         """
         self.providers = {}
-        self.provider_configs = provider_configs
+        if provider_configs:
+            self.provider_configs = provider_configs
+        else:
+            self.provider_configs = {}
         self.extra_param_mode = extra_param_mode
         self.param_validator = ParamValidator(extra_param_mode)
         self._chat = None
@@ -171,8 +173,7 @@ class Completions:
                     processed_tools.extend(mcp_tools)
                 except Exception as e:
                     raise ValueError(
-                        f"Failed to create MCP client from config: {e}\n"
-                        f"Config: {tool}"
+                        f"Failed to create MCP client from config: {e}\nConfig: {tool}"
                     )
             else:
                 # Regular callable tool - pass through
