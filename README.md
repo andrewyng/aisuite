@@ -1,4 +1,4 @@
-#  aisuite
+# aisuite
 
 [![PyPI](https://img.shields.io/pypi/v/aisuite)](https://pypi.org/project/aisuite/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -55,7 +55,7 @@ install the provider-specific library either separately or when installing aisui
 The API Keys can be set as environment variables, or can be passed as config to the aisuite Client constructor.
 You can use tools like [`python-dotenv`](https://pypi.org/project/python-dotenv/) or [`direnv`](https://direnv.net/) to set the environment variables manually. Please take a look at the `examples` folder to see usage.
 
-Here is a short example of using `aisuite` to generate chat completion responses from gpt-4o and claude-3-5-sonnet.
+Here is a short example of using `aisuite` to generate chat completion responses from gpt-4o and claude-4-5-sonnet.
 
 Set the API keys.
 
@@ -70,7 +70,7 @@ Use the python client.
 import aisuite as ai
 client = ai.Client()
 
-models = ["openai:gpt-4o", "anthropic:claude-3-5-sonnet-20240620"]
+models = ["openai:gpt-4o", "anthropic:claude-sonnet-4-5-20250929"]
 
 messages = [
     {"role": "system", "content": "Respond in Pirate English."},
