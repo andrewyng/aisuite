@@ -17,6 +17,14 @@ try:
 except ImportError:
     MCP_AVAILABLE = False
 
+    # Define a fallback is_mcp_config when MCP is not installed
+    # This allows checking for MCP configs to provide helpful error messages
+    def is_mcp_config(obj: Any) -> bool:
+        """Check if an object looks like an MCP config dict."""
+        if not isinstance(obj, dict):
+            return False
+        return obj.get("type") == "mcp" and "name" in obj
+
 
 class Client:
     def __init__(
