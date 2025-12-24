@@ -1,4 +1,5 @@
 from .provider import ProviderFactory
+import re
 import os
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
@@ -296,13 +297,16 @@ class Completions:
         Supports automatic tool execution when max_turns is specified.
         """
         # Check that correct format is used
-        if ":" not in model:
+        pattern = r"^([a-zA-Z0-9_]+):([a-zA-Z0-9_\-\.\:]+)$"
+        match = re.match(pattern, model)
+
+        if not match:
             raise ValueError(
                 f"Invalid model format. Expected 'provider:model', got '{model}'"
             )
 
         # Extract the provider key from the model identifier, e.g., "google:gemini-xx"
-        provider_key, model_name = model.split(":", 1)
+        provider_key, model_name = match.groups()
 
         # Validate if the provider is supported
         supported_providers = ProviderFactory.get_supported_providers()
