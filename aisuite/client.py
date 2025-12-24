@@ -1,4 +1,4 @@
-from .provider import ProviderFactory
+from .provider import ProviderFactory, Provider
 import os
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
@@ -16,7 +16,6 @@ try:
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
-
 
 class Client:
     def __init__(
@@ -321,7 +320,7 @@ class Completions:
                 provider_key, config
             )
 
-        provider = self.client.providers.get(provider_key)
+        provider: Provider = self.client.providers.get(provider_key)
         if not provider:
             raise ValueError(f"Could not load provider for '{provider_key}'.")
 
