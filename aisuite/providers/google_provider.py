@@ -81,8 +81,8 @@ class GoogleMessageConverter:
             part = Part.from_function_response(
                 name=message["name"], response=content_json
             )
-            # TODO: Return Content instead of Part. But returning Content is not working.
-            return part
+            # Wrap tool response in Content so history is a list of Content objects.
+            return Content(role="function", parts=[part])
         except json.JSONDecodeError:
             raise ValueError("Tool result message must be valid JSON")
 
@@ -303,8 +303,8 @@ class GoogleProvider(Provider):
         # If the last message is a function response, send the Part object directly
         # Otherwise, send just the text content
         message_to_send = (
-            Content(role="function", parts=[last_message])
-            if isinstance(last_message, Part)
+            last_message
+            if isinstance(last_message, Content) and last_message.role == "function"
             else last_message.parts[0].text
         )
         # response = chat.send_message(message_to_send)
