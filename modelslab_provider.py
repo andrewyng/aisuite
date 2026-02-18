@@ -19,7 +19,7 @@ from aisuite.framework.message import (
 )
 
 
-class ModelsLabProvider(Provider):
+class ModelslabProvider(Provider):
     """ModelsLab provider implementation for aisuite."""
     
     def __init__(self, **config):
