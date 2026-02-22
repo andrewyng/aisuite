@@ -42,6 +42,7 @@ huggingface = []
 mistral = ["mistralai"]
 ollama = []
 openai = ["openai"]
+sarvam = ["openai"]
 watsonx = ["ibm-watsonx-ai"]
 mcp = ["mcp", "nest-asyncio"]
 all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy", "mcp", "nest-asyncio"]  # To install all providers
