@@ -1,82 +1,109 @@
-[tool.poetry]
+[project]
 name = "aisuite"
 version = "0.1.14"
 description = "Uniform access layer for LLMs"
-authors = ["Andrew Ng <ng@deeplearning.ai>", "Rohit P <rohit.prasad15@gmail.com>"]
-maintainers = ["Andrew Ng <ng@deeplearning.ai>", "Rohit P <rohit.prasad15@gmail.com>"]
+authors = [
+    {name = "Andrew Ng", email = "ng@deeplearning.ai"},
+    {name = "Rohit P", email = "rohit.prasad15@gmail.com"},
+]
+maintainers = [
+    {name = "Andrew Ng", email = "ng@deeplearning.ai"},
+    {name = "Rohit P", email = "rohit.prasad15@gmail.com"},
+]
 readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "docstring-parser~=0.17.0",
+    "httpx~=0.28.1",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-anthropic = { version = "^0.30.1", optional = true }
-boto3 = { version = "^1.34.144", optional = true }
-cohere = { version = "^5.12.0", optional = true }
-vertexai = { version = "^1.63.0", optional = true }
-google-cloud-speech = { version = "^2.33.0", optional = true }
-deepgram-sdk = { version = "^5.0.0", optional = true }
-soundfile = { version = "^0.12.1", optional = true }
-scipy = { version = "^1.11.0", optional = true }
-numpy = { version = "^1.24.0", optional = true }
-groq = { version = "^0.9.0", optional = true }
-mistralai = { version = "^1.0.3", optional = true }
-ibm-watsonx-ai = { version = "^1.1.16", optional = true }
-docstring-parser = { version = "^0.15.0" }
-cerebras_cloud_sdk = { version = "^1.19.0", optional = true }
-openai = { version = "^1.107.0", optional = true }
-mcp = { version = "^1.1.2", optional = true }
-nest-asyncio = { version = "^1.6.0", optional = true }
-
-# Optional dependencies for different providers
-httpx = "~0.27.0"
-[tool.poetry.extras]
-anthropic = ["anthropic"]
-aws = ["boto3"]
+[project.optional-dependencies]
+# Provider / feature extras (install with e.g. pip install aisuite[aws])
+anthropic = ["anthropic~=0.84.0"]
+aws = ["boto3~=1.42.58"]
+cerebras = ["cerebras_cloud_sdk~=1.67.0"]
+cohere = ["cohere~=5.20.7"]
+deepgram = [
+    "deepgram-sdk~=6.0.1",
+    "soundfile~=0.13.1",
+    "scipy~=1.15.3",
+    "numpy~=2.2.6",
+]
+deepseek = ["openai~=2.24.0"]
+google = [
+    "vertexai~=1.71.1",
+    "google-cloud-speech~=2.36.1",
+]
+groq = ["groq~=1.0.0"]
+mistral = ["mistralai~=1.12.4"]
+openai = ["openai~=2.24.0"]
+watsonx = ["ibm-watsonx-ai~=1.3.42"]
+mcp = ["mcp~=1.26.0", "nest-asyncio~=1.6.0"]
 azure = []
-cerebras = ["cerebras_cloud_sdk"]
-cohere = ["cohere"]
-deepgram = ["deepgram-sdk", "soundfile", "scipy", "numpy"]
-deepseek = ["openai"]
-google = ["vertexai", "google-cloud-speech"]
-groq = ["groq"]
 huggingface = []
-mistral = ["mistralai"]
 ollama = []
-openai = ["openai"]
-watsonx = ["ibm-watsonx-ai"]
-mcp = ["mcp", "nest-asyncio"]
-all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy", "mcp", "nest-asyncio"]  # To install all providers
+# Install all providers
+all = [
+    "anthropic~=0.84.0",
+    "boto3~=1.42.58",
+    "cerebras_cloud_sdk~=1.67.0",
+    "cohere~=5.20.7",
+    "deepgram-sdk~=6.0.1",
+    "google-cloud-speech~=2.36.1",
+    "groq~=1.0.0",
+    "ibm-watsonx-ai~=1.3.42",
+    "mcp~=1.26.0",
+    "mistralai~=1.12.4",
+    "nest-asyncio~=1.6.0",
+    "numpy~=2.2.6",
+    "openai~=2.24.0",
+    "scipy~=1.15.3",
+    "soundfile~=0.13.1",
+    "vertexai~=1.71.1",
+]
 
-[tool.poetry.group.dev.dependencies]
-pre-commit = "^3.7.1"
-black = "^24.4.2"
-python-dotenv = "^1.0.1"
-openai = "^1.107.0"
-groq = "^0.9.0"
-anthropic = "^0.30.1"
-notebook = "^7.2.1"
-ollama = "^0.2.1"
-mistralai = "^1.0.3"
-boto3 = "^1.34.144"
-fireworks-ai = "^0.14.0"
-chromadb = "^0.5.4"
-sentence-transformers = "^3.0.1"
-datasets = "^2.20.0"
-vertexai = "^1.63.0"
-google-cloud-speech = "^2.33.0"
-deepgram-sdk = "^5.0.0"
-ibm-watsonx-ai = "^1.1.16"
-cerebras_cloud_sdk = "^1.19.0"
+# Dev and test
+[dependency-groups]
+dev = [
+    "anthropic~=0.84.0",
+    "black~=26.1.0",
+    "boto3~=1.42.58",
+    "cerebras_cloud_sdk~=1.67.0",
+    "chromadb~=1.5.1",
+    "datasets~=4.6.0",
+    "deepgram-sdk~=6.0.1",
+    "fireworks-ai~=0.19.20",
+    "google-cloud-speech~=2.36.1",
+    "groq~=1.0.0",
+    "ibm-watsonx-ai~=1.3.42",
+    "mistralai~=1.12.4",
+    "notebook~=7.5.4",
+    "ollama~=0.6.1",
+    "onnxruntime~=1.23.0; python_version >= '3.10' and python_version < '3.11'",
+    "onnxruntime~=1.24.0; python_version >= '3.11'",
+    "openai~=2.24.0",
+    "pre-commit~=4.5.1",
+    "python-dotenv~=1.2.1",
+    "sentence-transformers~=5.2.3",
+    "vertexai~=1.71.1",
+    {include-group = "test"},
+]
+test = [
+    "pytest~=9.0.2",
+    "pytest-cov~=7.0.0",
+    "pytest-asyncio~=1.3.0",
+]
+
+[tool.poetry.group.dev]
+optional = true
+include-groups = []
 
 [tool.poetry.group.test]
 optional = true
-
-[tool.poetry.group.test.dependencies]
-pytest = "^8.2.2"
-pytest-cov = "^6.0.0"
-pytest-asyncio = "^0.24.0"
+include-groups = []
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=2.2.1,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
