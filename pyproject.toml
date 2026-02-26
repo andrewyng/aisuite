@@ -59,6 +59,10 @@ mistralai = "^1.0.3"
 boto3 = "^1.34.144"
 fireworks-ai = "^0.14.0"
 chromadb = "^0.5.4"
+onnxruntime = [
+    { version = "~=1.23.0", markers = "python_version == '3.10'" },
+    { version = "~=1.24.0", markers = "python_version >= '3.11'" },
+]
 sentence-transformers = "^3.0.1"
 datasets = "^2.20.0"
 vertexai = "^1.63.0"
