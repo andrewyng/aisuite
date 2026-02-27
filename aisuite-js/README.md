@@ -27,8 +27,8 @@ npm install aisuite
 import { Client } from 'aisuite';
 
 const client = new Client({
-  openai: { 
-    apiKey: process.env.OPENAI_API_KEY,    
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY,
   },
   anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
   deepgram: { apiKey: process.env.DEEPGRAM_API_KEY },
@@ -152,8 +152,8 @@ try {
 ```typescript
 // Initialize client with audio support for OpenAI
 const client = new Client({
-  openai: { 
-    apiKey: process.env.OPENAI_API_KEY,    
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY,
   },
   deepgram: { apiKey: process.env.DEEPGRAM_API_KEY }
 });
@@ -212,7 +212,7 @@ const client = new Client({
   openai?: {
     apiKey: string;
     baseURL?: string;
-    organization?: string;    
+    organization?: string;
   },
   anthropic?: {
     apiKey: string;
@@ -254,7 +254,7 @@ interface TranscriptionRequest {
   timestamps?: boolean;      // Include word-level timestamps
   [key: string]: any;        // Additional provider-specific parameters:
                             // For OpenAI: See https://platform.openai.com/docs/api-reference/audio/createTranscription
-                            // For Deepgram: See https://developers.deepgram.com/reference/speech-to-text-api/listen  
+                            // For Deepgram: See https://developers.deepgram.com/reference/speech-to-text-api/listen
 }
 ```
 

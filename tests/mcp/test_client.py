@@ -13,7 +13,6 @@ Requirements:
 
 import pytest
 from aisuite.mcp import MCPClient
-from aisuite.mcp.config import validate_mcp_config
 
 
 @pytest.mark.integration
@@ -264,7 +263,6 @@ class TestMCPClientFromConfig:
 
     def test_from_config_with_env(self, temp_test_dir, skip_if_no_npx):
         """Test creating MCPClient with environment variables."""
-        import os
 
         config = {
             "type": "mcp",
@@ -318,7 +316,7 @@ class TestMCPClientErrorHandling:
         """Test that invalid command raises appropriate error."""
         with pytest.raises(Exception):
             # This should fail to connect
-            mcp = MCPClient(
+            MCPClient(
                 command="nonexistent_command_12345",
                 args=["--test"],
             )

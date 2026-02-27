@@ -122,9 +122,9 @@ class CohereMessageConverter:
             normalized_response.choices[0].finish_reason = "tool_calls"
         else:
             # Handle regular text response
-            normalized_response.choices[0].message.content = (
-                response_data.message.content[0].text
-            )
+            normalized_response.choices[
+                0
+            ].message.content = response_data.message.content[0].text
             normalized_response.choices[0].finish_reason = "stop"
 
         return normalized_response

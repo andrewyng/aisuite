@@ -1,6 +1,6 @@
 # LM Studio
 
-LM Studio allows users to locally host open-source models available in [their model catalog](https://lmstudio.ai/models). 
+LM Studio allows users to locally host open-source models available in [their model catalog](https://lmstudio.ai/models).
 It also provides a web portal with a ChatGPT-like interface.
 Once an LM Studio instance is locally running in your setup (default `http://localhost:1234`), you can use the `aisuite` API for chat completions as shown below.
 No API Key is needed for these locally hosted models.
@@ -23,11 +23,11 @@ def main():
     )
     messages = [
         {
-            "role": "system", 
+            "role": "system",
             "content": "Be verbose"
         },
         {
-            "role": "user", 
+            "role": "user",
             "content": "Tell me something about University of Michigan's CSE department."
         },
     ]
@@ -35,8 +35,8 @@ def main():
     lmstudio_llama = "lmstudio:llama-3.2-3b-instruct"
 
     response = client.chat.completions.create(
-        model=lmstudio_llama, 
-        messages=messages, 
+        model=lmstudio_llama,
+        messages=messages,
         temperature=0.75,
     )
     print(response.choices[0].message.content)

@@ -1,6 +1,5 @@
 import os
 import json
-import time
 from typing import Union, BinaryIO
 import requests
 from huggingface_hub import InferenceClient

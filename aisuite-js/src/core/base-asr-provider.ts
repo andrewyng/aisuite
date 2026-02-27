@@ -1,22 +1,22 @@
-import { 
-  TranscriptionRequest, 
+import {
+  TranscriptionRequest,
   TranscriptionResult,
-  RequestOptions 
+  RequestOptions
 } from '../types';
 
 export interface ASRProvider {
   readonly name: string;
-  
+
   transcribe(
     request: TranscriptionRequest,
     options?: RequestOptions
   ): Promise<TranscriptionResult>;
-  
-  validateParams(    
+
+  validateParams(
     params: { [key: string]: any }
   ): void;
-  
-  translateParams(    
+
+  translateParams(
     params: { [key: string]: any }
   ): { [key: string]: any };
 }

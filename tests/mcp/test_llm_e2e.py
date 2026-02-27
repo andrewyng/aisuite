@@ -98,9 +98,9 @@ class TestOpenAIWithMCP:
 
         # Verify the LLM actually read the file
         content = response.choices[0].message.content.lower()
-        assert (
-            "hello from mcp test" in content or "hello from mcp" in content
-        ), f"Expected file content in response, got: {content}"
+        assert "hello from mcp test" in content or "hello from mcp" in content, (
+            f"Expected file content in response, got: {content}"
+        )
 
     @pytest.mark.skipif(not has_openai_key(), reason="OPENAI_API_KEY not set")
     def test_gpt4o_lists_files_via_mcp(self, temp_test_dir, skip_if_no_npx):
@@ -134,9 +134,9 @@ class TestOpenAIWithMCP:
         # Verify the LLM found the test files
         content = response.choices[0].message.content.lower()
         # Test dir has: test.txt, README.md, data.json, subdir/
-        assert (
-            "test.txt" in content or "readme" in content
-        ), f"Expected file names in response, got: {content}"
+        assert "test.txt" in content or "readme" in content, (
+            f"Expected file names in response, got: {content}"
+        )
 
     @pytest.mark.skipif(not has_openai_key(), reason="OPENAI_API_KEY not set")
     def test_gpt4o_mixed_tools(self, temp_test_dir, skip_if_no_npx):
@@ -179,13 +179,13 @@ class TestOpenAIWithMCP:
         # Verify both tools were used
         content = response.choices[0].message.content.lower()
         # Should mention the date (from Python function)
-        assert any(
-            str(y) in content for y in [2024, 2025, 2026]
-        ), f"Expected date in response, got: {content}"
+        assert any(str(y) in content for y in [2024, 2025, 2026]), (
+            f"Expected date in response, got: {content}"
+        )
         # Should mention the file content (from MCP tool)
-        assert (
-            "hello" in content or "mcp test" in content
-        ), f"Expected file content in response, got: {content}"
+        assert "hello" in content or "mcp test" in content, (
+            f"Expected file content in response, got: {content}"
+        )
 
 
 @pytest.mark.llm
@@ -224,9 +224,9 @@ class TestAnthropicWithMCP:
 
         # Verify Claude actually read the file
         content = response.choices[0].message.content.lower()
-        assert (
-            "hello from mcp test" in content or "hello from mcp" in content
-        ), f"Expected file content in response, got: {content}"
+        assert "hello from mcp test" in content or "hello from mcp" in content, (
+            f"Expected file content in response, got: {content}"
+        )
 
     @pytest.mark.skipif(not has_anthropic_key(), reason="ANTHROPIC_API_KEY not set")
     def test_claude_lists_files_via_mcp(self, temp_test_dir, skip_if_no_npx):
@@ -259,9 +259,9 @@ class TestAnthropicWithMCP:
 
         # Verify Claude found the test files
         content = response.choices[0].message.content.lower()
-        assert (
-            "test.txt" in content or "readme" in content or "data.json" in content
-        ), f"Expected file names in response, got: {content}"
+        assert "test.txt" in content or "readme" in content or "data.json" in content, (
+            f"Expected file names in response, got: {content}"
+        )
 
     @pytest.mark.skipif(not has_anthropic_key(), reason="ANTHROPIC_API_KEY not set")
     def test_claude_mixed_tools(self, temp_test_dir, skip_if_no_npx):
@@ -306,13 +306,13 @@ class TestAnthropicWithMCP:
         # Verify both tools were used
         content = response.choices[0].message.content.lower()
         # Should mention weather (from Python function)
-        assert (
-            "weather" in content or "sunny" in content or "72" in content
-        ), f"Expected weather info in response, got: {content}"
+        assert "weather" in content or "sunny" in content or "72" in content, (
+            f"Expected weather info in response, got: {content}"
+        )
         # Should mention the README content (from MCP tool)
-        assert (
-            "test directory" in content or "readme" in content
-        ), f"Expected README content in response, got: {content}"
+        assert "test directory" in content or "readme" in content, (
+            f"Expected README content in response, got: {content}"
+        )
 
 
 @pytest.mark.llm
@@ -373,9 +373,9 @@ class TestToolPrefixingWithLLM:
 
         # Verify the LLM found files from both directories
         content = response.choices[0].message.content.lower()
-        assert (
-            "file1" in content or "dir1" in content
-        ), f"Expected dir1 content, got: {content}"
-        assert (
-            "file2" in content or "dir2" in content
-        ), f"Expected dir2 content, got: {content}"
+        assert "file1" in content or "dir1" in content, (
+            f"Expected dir1 content, got: {content}"
+        )
+        assert "file2" in content or "dir2" in content, (
+            f"Expected dir2 content, got: {content}"
+        )

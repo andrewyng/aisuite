@@ -86,9 +86,9 @@ class TestParamValidatorTransformations:
 
         for input_lang, expected_output in test_cases.items():
             result = validator.validate_and_map("google", {"language": input_lang})
-            assert result == {
-                "language_code": expected_output
-            }, f"Failed for {input_lang}: expected {expected_output}, got {result}"
+            assert result == {"language_code": expected_output}, (
+                f"Failed for {input_lang}: expected {expected_output}, got {result}"
+            )
 
     def test_google_language_expansion_unknown_code(self):
         """Test Google language code expansion for unknown 2-letter code (fallback to -US)."""

@@ -63,9 +63,9 @@ def test_model_pirate_response(model_id: str):
         ), f"Model {model_id} did not include required phrase 'No rum No fun'"
 
         assert len(content) > 0, f"Model {model_id} returned empty response"
-        assert isinstance(
-            content, str
-        ), f"Model {model_id} returned non-string response"
+        assert isinstance(content, str), (
+            f"Model {model_id} returned non-string response"
+        )
 
     except Exception as e:
         pytest.fail(f"Error testing model {model_id}: {str(e)}")
@@ -110,13 +110,13 @@ def test_asr_portable_transcription(model_id: str):
         )
 
         # Verify result has text
-        assert hasattr(
-            result, "text"
-        ), f"Model {model_id} result missing 'text' attribute"
+        assert hasattr(result, "text"), (
+            f"Model {model_id} result missing 'text' attribute"
+        )
         assert len(result.text) > 0, f"Model {model_id} returned empty transcription"
-        assert isinstance(
-            result.text, str
-        ), f"Model {model_id} returned non-string transcription"
+        assert isinstance(result.text, str), (
+            f"Model {model_id} returned non-string transcription"
+        )
 
         # Verify transcription contains expected content from tests/test-data/test_audio.mp3
         # Audio: "Why did the scarecrow win an award? Because he was outstanding in the field."
@@ -132,9 +132,9 @@ def test_asr_portable_transcription(model_id: str):
         # Optional: Check for language if available and returned by provider
         # Note: Some providers (e.g., Deepgram) only return language if detect_language=True
         if hasattr(result, "language") and result.language is not None:
-            assert isinstance(
-                result.language, str
-            ), f"Model {model_id} returned invalid language type"
+            assert isinstance(result.language, str), (
+                f"Model {model_id} returned invalid language type"
+            )
 
     except FileNotFoundError:
         pytest.skip(f"Test audio file not found for {model_id}. Skipping test.")
@@ -229,9 +229,9 @@ def test_asr_huggingface_word_timestamps():
             words_with_timestamps = [
                 w for w in result.words if w.start is not None and w.end is not None
             ]
-            assert (
-                len(words_with_timestamps) > 0
-            ), "No words with timestamps found in result"
+            assert len(words_with_timestamps) > 0, (
+                "No words with timestamps found in result"
+            )
 
     except FileNotFoundError:
         pytest.skip("Test audio file not found. Skipping Hugging Face feature test.")

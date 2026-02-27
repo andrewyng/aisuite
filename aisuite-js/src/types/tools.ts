@@ -22,7 +22,7 @@ export interface ToolCall {
   };
 }
 
-export type ToolChoice = 
-  | 'auto' 
-  | 'none' 
+export type ToolChoice =
+  | 'auto'
+  | 'none'
   | { type: 'function'; function: { name: string } };

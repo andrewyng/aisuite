@@ -1,5 +1,3 @@
-import os
-import requests
 import streamlit as st
 import sys
 import yaml
@@ -22,7 +20,7 @@ st.markdown(
         html, body, [class*="css"] {
             font-size: 14px !important;
         }
-        
+
         /* Style for Reset button focus */
         button[data-testid="stButton"][aria-label="Reset Chat"]:focus {
             border-color: red !important;
@@ -39,7 +37,7 @@ st.markdown(
         #MainMenu {visibility: hidden;}
         header {visibility: hidden;}
         footer {visibility: hidden;}
-        
+
         /* Remove top padding/margin */
         .block-container {
             padding-top: 0rem;
@@ -51,7 +49,7 @@ st.markdown(
         .appview-container {
             padding-top: 0rem;
         }
-        
+
         /* Custom CSS for scrollable chat container */
         .chat-container {
             height: 650px;
@@ -62,21 +60,21 @@ st.markdown(
             padding: 20px;
             margin: 10px 0;
         }
-        
+
         /* Ensure the container takes full width */
         .stMarkdown {
             width: 100%;
         }
-        
+
         /* Style for chat messages to ensure they're visible */
         .chat-message {
             margin: 10px 0;
             padding: 10px;
         }
-        
+
         #text_area_1 {
             min-height: 20px !important;
-        } 
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -93,7 +91,7 @@ client = Client()
 # Function to display chat history
 def display_chat_history(chat_history, model_name):
     for message in chat_history:
-        role_display = "User" if message["role"] == "user" else model_name
+        "User" if message["role"] == "user" else model_name
         role = "user" if message["role"] == "user" else "assistant"
         if role == "user":
             with st.chat_message(role, avatar="👤"):

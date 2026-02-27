@@ -46,4 +46,4 @@ export interface AISuiteConfig {
     apiKey: string;
     baseURL?: string;
   };
-} 
+}

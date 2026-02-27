@@ -18,11 +18,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, modelName }) 
           <Bot className="w-4 h-4 text-primary-foreground" />
         </div>
       )}
-      
+
       <div className={`max-w-[80%] ${isUser ? 'order-first' : ''}`}>
         <div className={`rounded-lg p-3 ${
-          isUser 
-            ? 'bg-primary text-primary-foreground' 
+          isUser
+            ? 'bg-primary text-primary-foreground'
             : 'bg-muted text-foreground'
         }`}>
           <div className="text-sm font-medium mb-1 opacity-70">
@@ -48,4 +48,4 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, modelName }) 
       )}
     </div>
   );
-}; 
+};

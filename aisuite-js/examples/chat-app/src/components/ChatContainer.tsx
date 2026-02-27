@@ -8,10 +8,10 @@ interface ChatContainerProps {
   isLoading?: boolean;
 }
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({ 
-  messages, 
-  modelName, 
-  isLoading = false 
+export const ChatContainer: React.FC<ChatContainerProps> = ({
+  messages,
+  modelName,
+  isLoading = false
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -36,14 +36,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </div>
           ) : (
             messages.map((message, index) => (
-              <ChatMessage 
-                key={index} 
-                message={message} 
+              <ChatMessage
+                key={index}
+                message={message}
                 modelName={modelName}
               />
             ))
           )}
-          
+
           {isLoading && (
             <div className="flex gap-3 p-4 justify-start">
               <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center">
@@ -66,10 +66,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               </div>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
       </div>
     </div>
   );
-}; 
+};

@@ -1,12 +1,9 @@
 import unittest
-from unittest.mock import MagicMock
 from aisuite.providers.aws_provider import BedrockMessageConverter
-from aisuite.framework.message import Message, ChatCompletionMessageToolCall
 from aisuite.framework import ChatCompletionResponse
 
 
 class TestBedrockMessageConverter(unittest.TestCase):
-
     def setUp(self):
         self.converter = BedrockMessageConverter()
 

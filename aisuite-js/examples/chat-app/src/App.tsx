@@ -129,14 +129,14 @@ function App() {
   // Get all available providers (show all by default)
   const allProviders = ['openai', 'anthropic', 'groq', 'mistral'];
   const availableProviders = allProviders;
-  
+
   // Get configured providers (those with API keys)
-  const configuredProviders = Object.keys(apiConfig).filter(provider => 
+  const configuredProviders = Object.keys(apiConfig).filter(provider =>
     apiConfig[provider as keyof AISuiteConfig]?.apiKey
   );
 
   // Get models for the selected provider
-  const availableModels = selectedProvider 
+  const availableModels = selectedProvider
     ? configuredLLMs.filter(model => model.provider === selectedProvider)
     : [];
 
@@ -261,8 +261,8 @@ function App() {
 
             {/* Chat Containers */}
             {selectedProvider && selectedModel1 && (
-              <div className="grid grid-cols-1 gap-6" style={{ 
-                gridTemplateColumns: useComparisonMode && selectedModel2 ? '1fr 1fr' : '1fr' 
+              <div className="grid grid-cols-1 gap-6" style={{
+                gridTemplateColumns: useComparisonMode && selectedModel2 ? '1fr 1fr' : '1fr'
               }}>
                 <div className="border rounded-lg bg-card h-[500px] flex flex-col">
                   <div className="border-b p-4">
@@ -330,4 +330,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

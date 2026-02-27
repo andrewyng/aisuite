@@ -63,9 +63,10 @@ class TestHuggingFaceProvider:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_huggingface_response
 
-        with patch("builtins.open", mock_open(read_data=b"fake audio data")), patch(
-            "requests.post", return_value=mock_response
-        ) as mock_post:
+        with (
+            patch("builtins.open", mock_open(read_data=b"fake audio data")),
+            patch("requests.post", return_value=mock_response) as mock_post,
+        ):
             result = huggingface_provider.audio.transcriptions.create(
                 model="huggingface:openai/whisper-large-v3", file="test_audio.wav"
             )
@@ -125,9 +126,10 @@ class TestHuggingFaceProvider:
         ]
 
         for filename, expected_content_type in test_cases:
-            with patch("builtins.open", mock_open(read_data=b"audio")), patch(
-                "requests.post", return_value=mock_response
-            ) as mock_post:
+            with (
+                patch("builtins.open", mock_open(read_data=b"audio")),
+                patch("requests.post", return_value=mock_response) as mock_post,
+            ):
                 huggingface_provider.audio.transcriptions.create(
                     model="huggingface:test-model", file=filename
                 )
@@ -157,9 +159,10 @@ class TestHuggingFaceProvider:
 
         responses = [mock_response_503, mock_response_success]
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch(
-            "requests.post", side_effect=responses
-        ) as mock_post:
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch("requests.post", side_effect=responses) as mock_post,
+        ):
             result = huggingface_provider.audio.transcriptions.create(
                 model="huggingface:test-model", file="test.wav"
             )
@@ -179,8 +182,9 @@ class TestHuggingFaceProvider:
         mock_response.status_code = 400
         mock_response.raise_for_status.side_effect = Exception("Bad Request")
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch(
-            "requests.post", return_value=mock_response
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch("requests.post", return_value=mock_response),
         ):
             with pytest.raises(ASRError, match="Hugging Face transcription error"):
                 huggingface_provider.audio.transcriptions.create(
@@ -230,9 +234,10 @@ class TestHuggingFaceProvider:
         mock_response.status_code = 200
         mock_response.json.return_value = {"text": "test"}
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch(
-            "requests.post", return_value=mock_response
-        ) as mock_post:
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch("requests.post", return_value=mock_response) as mock_post,
+        ):
             huggingface_provider.audio.transcriptions.create(
                 model="huggingface:openai/whisper-large-v3", file="test.wav"
             )

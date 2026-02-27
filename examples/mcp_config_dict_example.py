@@ -9,6 +9,9 @@ directly to the tools parameter.
 import os
 from dotenv import load_dotenv
 import aisuite as ai
+from datetime import datetime
+import tempfile
+from aisuite.mcp import MCPClient
 
 # Load environment variables
 load_dotenv()
@@ -65,7 +68,6 @@ print("\n" + "=" * 70)
 print("Example 3: Multiple MCP Servers with Tool Prefixing")
 print("=" * 70)
 
-import tempfile
 
 temp_dir = tempfile.mkdtemp()
 
@@ -103,8 +105,6 @@ print(response.choices[0].message.content)
 print("\n" + "=" * 70)
 print("Example 4: Mixing MCP Configs with Python Functions")
 print("=" * 70)
-
-from datetime import datetime
 
 
 def get_current_time() -> str:
@@ -172,8 +172,6 @@ Use Explicit MCPClient When:
 Example of explicit MCPClient:
 """
 )
-
-from aisuite.mcp import MCPClient
 
 # Create once, reuse many times
 mcp = MCPClient(

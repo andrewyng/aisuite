@@ -33,7 +33,7 @@ async function main() {
 
   // Test 1: Basic functionality
   console.log('🔍 Testing basic functionality...\n');
-  
+
   await runTest('Model parser - valid format', async () => {
     const { parseModel } = await import('../src');
     const result = parseModel('openai:gpt-4');
@@ -150,7 +150,7 @@ async function main() {
       for await (const chunk of stream) {
         content += chunk.choices[0]?.delta?.content || '';
       }
-      
+
       if (!content.toLowerCase().includes('stream')) {
         throw new Error('Streaming response did not contain expected content');
       }
@@ -241,7 +241,7 @@ async function main() {
       for await (const chunk of stream) {
         content += chunk.choices[0]?.delta?.content || '';
       }
-      
+
       if (!content.toLowerCase().includes('stream')) {
         throw new Error('Streaming response did not contain expected content');
       }
@@ -275,9 +275,9 @@ async function main() {
 
       console.log(`   OpenAI: ${openaiResponse.choices[0].message.content?.trim()}`);
       console.log(`   Anthropic: ${anthropicResponse.choices[0].message.content?.trim()}`);
-      
+
       // Both should mention "4" in their response
-      if (!openaiResponse.choices[0].message.content?.includes('4') || 
+      if (!openaiResponse.choices[0].message.content?.includes('4') ||
           !anthropicResponse.choices[0].message.content?.includes('4')) {
         throw new Error('Providers gave inconsistent results');
       }

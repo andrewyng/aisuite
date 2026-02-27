@@ -80,7 +80,7 @@ async function main() {
       const content = chunk.choices[0]?.delta?.content || '';
       process.stdout.write(content);
       charCount += content.length;
-      
+
       // Show progress in title (if supported)
       if (process.stdout.isTTY) {
         process.stdout.write(`\x1b]0;Streaming: ${charCount} chars\x07`);
@@ -95,7 +95,7 @@ async function main() {
   console.log('\n--- Streaming with Abort Controller ---');
   try {
     const controller = new AbortController();
-    
+
     // Abort after 2 seconds
     const timeout = setTimeout(() => {
       console.log('\n\n⏹️  Aborting stream...');
@@ -160,17 +160,17 @@ async function main() {
     }) as AsyncIterable<ChatCompletionChunk>;
 
     console.log('Streaming response with potential tool calls:\n');
-    
+
     let currentToolCall: any = null;
     let toolCalls: any[] = [];
-    
+
     for await (const chunk of stream) {
       // Handle text content
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
         process.stdout.write(content);
       }
-      
+
       // Handle tool calls
       const deltaToolCalls = chunk.choices[0]?.delta?.tool_calls;
       if (deltaToolCalls) {
@@ -192,7 +192,7 @@ async function main() {
           }
         }
       }
-      
+
       // Check if we're done
       if (chunk.choices[0]?.finish_reason === 'tool_calls') {
         console.log('\n\nTool calls detected:');

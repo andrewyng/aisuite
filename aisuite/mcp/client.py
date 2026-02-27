@@ -8,7 +8,6 @@ exposes their tools as Python callables compatible with aisuite's tool system.
 import asyncio
 import json
 from typing import Any, Callable, Dict, List, Optional
-from contextlib import contextmanager
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -28,7 +27,7 @@ except ImportError as e:
     raise
 
 from .tool_wrapper import create_mcp_tool_wrapper
-from .config import MCPConfig, validate_mcp_config, get_transport_type
+from .config import validate_mcp_config, get_transport_type
 
 
 class MCPClient:

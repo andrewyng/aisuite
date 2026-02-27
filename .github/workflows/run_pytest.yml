@@ -21,4 +21,3 @@ jobs:
           poetry install --all-extras --with test
       - name: Test with pytest
         run: poetry run pytest -m "not integration"
-

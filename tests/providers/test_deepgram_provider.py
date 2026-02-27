@@ -10,7 +10,6 @@ from aisuite.provider import ASRError
 from aisuite.framework.message import (
     TranscriptionResult,
     TranscriptionOptions,
-    StreamingTranscriptionChunk,
 )
 
 
@@ -87,12 +86,13 @@ class TestDeepgramProvider:
         mock_sdk_response.to_dict.return_value = mock_deepgram_response
         mock_sdk_response.model_dump.return_value = mock_deepgram_response
 
-        with patch(
-            "builtins.open", mock_open(read_data=b"fake audio data")
-        ), patch.object(
-            deepgram_provider.client.listen.v1.media,
-            "transcribe_file",
-            return_value=mock_sdk_response,
+        with (
+            patch("builtins.open", mock_open(read_data=b"fake audio data")),
+            patch.object(
+                deepgram_provider.client.listen.v1.media,
+                "transcribe_file",
+                return_value=mock_sdk_response,
+            ),
         ):
             result = deepgram_provider.audio.transcriptions.create(
                 model="deepgram:nova-2", file="test_audio.mp3"
@@ -139,13 +139,14 @@ class TestDeepgramProvider:
         mock_response.to_dict.return_value = mock_deepgram_response
         mock_response.model_dump.return_value = mock_deepgram_response
 
-        with patch(
-            "builtins.open", mock_open(read_data=b"fake audio data")
-        ), patch.object(
-            deepgram_provider.client.listen.v1.media,
-            "transcribe_file",
-            return_value=mock_response,
-        ) as mock_transcribe:
+        with (
+            patch("builtins.open", mock_open(read_data=b"fake audio data")),
+            patch.object(
+                deepgram_provider.client.listen.v1.media,
+                "transcribe_file",
+                return_value=mock_response,
+            ) as mock_transcribe,
+        ):
             result = deepgram_provider.audio.transcriptions.create(
                 model="deepgram:nova-2", file="test_audio.mp3", options=options
             )
@@ -156,12 +157,13 @@ class TestDeepgramProvider:
 
     def test_audio_transcriptions_create_error_handling(self, deepgram_provider):
         """Test error handling for API failures."""
-        with patch(
-            "builtins.open", mock_open(read_data=b"fake audio data")
-        ), patch.object(
-            deepgram_provider.client.listen.v1.media,
-            "transcribe_file",
-            side_effect=Exception("API Error"),
+        with (
+            patch("builtins.open", mock_open(read_data=b"fake audio data")),
+            patch.object(
+                deepgram_provider.client.listen.v1.media,
+                "transcribe_file",
+                side_effect=Exception("API Error"),
+            ),
         ):
             with pytest.raises(
                 ASRError, match="Deepgram transcription error: API Error"
@@ -195,12 +197,13 @@ class TestDeepgramProvider:
 
             return MockAsyncContextManager()
 
-        with patch(
-            "soundfile.read", return_value=(mock_audio_data, 16000)
-        ), patch.object(
-            deepgram_provider.client.listen.v1,
-            "connect",
-            side_effect=mock_connect,
+        with (
+            patch("soundfile.read", return_value=(mock_audio_data, 16000)),
+            patch.object(
+                deepgram_provider.client.listen.v1,
+                "connect",
+                side_effect=mock_connect,
+            ),
         ):
             result = deepgram_provider.audio.transcriptions.create_stream_output(
                 model="deepgram:nova-2",

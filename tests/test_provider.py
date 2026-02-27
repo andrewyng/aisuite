@@ -2,13 +2,12 @@
 
 import pytest
 from unittest.mock import MagicMock
-from typing import Union, BinaryIO, Optional, AsyncGenerator
+from typing import Union, BinaryIO, Optional
 
 from aisuite.provider import Provider, ASRError, Audio
 from aisuite.framework.message import (
     TranscriptionResult,
     TranscriptionOptions,
-    StreamingTranscriptionChunk,
 )
 
 
