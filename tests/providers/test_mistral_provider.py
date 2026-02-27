@@ -63,9 +63,7 @@ def test_mistral_provider_with_usage():
         },
     }
 
-    with patch.object(
-        provider.client.chat, "complete", return_value=mock_response
-    ) as mock_create:
+    with patch.object(provider.client.chat, "complete", return_value=mock_response):
         response = provider.chat_completions_create(
             messages=message_history,
             model=selected_model,

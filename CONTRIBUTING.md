@@ -64,7 +64,7 @@ you to investigate carefully, collect information and describe the issue in deta
 complete the following steps in advance to help us fix any potential bug as fast as possible.
 
 - Make sure that you are using the latest version.
-- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment 
+- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment
   components/versions (Make sure that you have read the [documentation](https://github.com/andrewyng/aisuite/blob/main/README.md).
   If you are looking for support, you might want to check [this section](#i-have-a-question)).
 - To see if other users have experienced (and potentially already solved) the same issue you are having,
@@ -99,7 +99,7 @@ We use GitHub issues to track bugs and errors. If you run into an issue with the
 Once it's filed:
 
 - The project team will label the issue accordingly.
-- A team member will try to reproduce the issue with your provided steps. If there are no reproduction 
+- A team member will try to reproduce the issue with your provided steps. If there are no reproduction
   steps or no obvious way to reproduce the issue, the team will ask you for those steps and mark the
   issue as `needs-repro`. Bugs with the `needs-repro` tag will not be addressed until they are reproduced.
 - If the team is able to reproduce the issue, it will be marked `needs-fix`, as well as possibly other

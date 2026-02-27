@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 import importlib
-import os
 import functools
 from typing import Union, BinaryIO, Optional
 

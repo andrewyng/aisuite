@@ -47,7 +47,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             style={{ minHeight: '60px', maxHeight: '120px' }}
           />
         </div>
-        
+
         <div className="flex flex-col gap-2">
           <button
             onClick={handleSend}
@@ -56,7 +56,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           >
             <Send className="w-4 h-4" />
           </button>
-          
+
           <button
             onClick={onResetChat}
             disabled={isLoading}
@@ -67,7 +67,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </button>
         </div>
       </div>
-      
+
       {isLoading && (
         <div className="mt-2 text-sm text-muted-foreground flex items-center gap-2">
           <div className="w-4 h-4 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
@@ -76,4 +76,4 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       )}
     </div>
   );
-}; 
+};

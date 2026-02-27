@@ -54,4 +54,4 @@ export const getLLMConfigByName = (name: string): LLMConfig | undefined => {
 
 export const getLLMConfigByProviderAndModel = (provider: string, model: string): LLMConfig | undefined => {
   return configuredLLMs.find(llm => llm.provider === provider && llm.model === model);
-}; 
+};

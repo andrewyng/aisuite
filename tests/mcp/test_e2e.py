@@ -15,7 +15,7 @@ Requirements:
 """
 
 import pytest
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 from aisuite import Client
 
 
@@ -117,7 +117,7 @@ class TestMCPConfigDictFormat:
         with patch.object(client.chat.completions, "_tool_runner") as mock_runner:
             mock_runner.return_value = create_mock_response("Success")
 
-            response = client.chat.completions.create(
+            client.chat.completions.create(
                 model="openai:gpt-4o",
                 messages=[{"role": "user", "content": "Test"}],
                 tools=[
@@ -276,7 +276,7 @@ class TestMCPCleanup:
                 mock_mcp_class.from_config.return_value = mock_mcp_instance
                 mock_mcp_instance.get_callable_tools.return_value = []
 
-                response = client.chat.completions.create(
+                client.chat.completions.create(
                     model="openai:gpt-4o",
                     messages=[{"role": "user", "content": "Test"}],
                     tools=[

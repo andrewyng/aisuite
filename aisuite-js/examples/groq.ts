@@ -182,7 +182,7 @@ async function main() {
       for (const toolCall of message.tool_calls) {
         console.log(`- Function: ${toolCall.function.name}`);
         console.log(`  Arguments: ${toolCall.function.arguments}`);
-        
+
         // Execute the function
         const args = JSON.parse(toolCall.function.arguments);
         const result = getWeather(args.location, args.unit);

@@ -35,4 +35,4 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       </select>
     </div>
   );
-}; 
+};

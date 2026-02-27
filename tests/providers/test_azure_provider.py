@@ -1,6 +1,6 @@
 import unittest
 from aisuite.providers.azure_provider import AzureMessageConverter
-from aisuite.framework.message import Message, ChatCompletionMessageToolCall
+from aisuite.framework.message import Message
 from aisuite.framework import ChatCompletionResponse
 
 

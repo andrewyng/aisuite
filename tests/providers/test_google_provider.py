@@ -11,7 +11,6 @@ from aisuite.provider import ASRError
 from aisuite.framework.message import (
     TranscriptionResult,
     TranscriptionOptions,
-    StreamingTranscriptionChunk,
 )
 from vertexai.generative_models import Content, Part
 

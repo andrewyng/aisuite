@@ -1,6 +1,6 @@
 # Mistral
 
-To use Mistral with `aisuite`, you’ll need a [Mistral account](https://console.mistral.ai/). 
+To use Mistral with `aisuite`, you’ll need a [Mistral account](https://console.mistral.ai/).
 
 After logging in, go to [Workspace billing](https://console.mistral.ai/billing) and choose a plan
 - **Experiment** *(Free, 1 request per second); or*

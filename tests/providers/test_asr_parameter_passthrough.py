@@ -5,9 +5,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from aisuite.providers.openai_provider import OpenaiProvider
-from aisuite.providers.deepgram_provider import DeepgramProvider
 from aisuite.providers.google_provider import GoogleProvider
-from aisuite.framework.message import TranscriptionResult
 
 
 @pytest.fixture(autouse=True)
@@ -31,10 +29,14 @@ class TestOpenAIParameterPassthrough:
         mock_response.language = "en"
         mock_response.segments = None
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch.object(
-            provider.client.audio.transcriptions, "create", return_value=mock_response
-        ) as mock_create:
-
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch.object(
+                provider.client.audio.transcriptions,
+                "create",
+                return_value=mock_response,
+            ) as mock_create,
+        ):
             provider.audio.transcriptions.create(
                 model="whisper-1", file="test.mp3", language="en"
             )
@@ -53,10 +55,14 @@ class TestOpenAIParameterPassthrough:
         mock_response.language = "en"
         mock_response.segments = None
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch.object(
-            provider.client.audio.transcriptions, "create", return_value=mock_response
-        ) as mock_create:
-
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch.object(
+                provider.client.audio.transcriptions,
+                "create",
+                return_value=mock_response,
+            ) as mock_create,
+        ):
             provider.audio.transcriptions.create(
                 model="whisper-1", file="test.mp3", temperature=0.7
             )
@@ -73,10 +79,14 @@ class TestOpenAIParameterPassthrough:
         mock_response.language = "en"
         mock_response.segments = None
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch.object(
-            provider.client.audio.transcriptions, "create", return_value=mock_response
-        ) as mock_create:
-
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch.object(
+                provider.client.audio.transcriptions,
+                "create",
+                return_value=mock_response,
+            ) as mock_create,
+        ):
             provider.audio.transcriptions.create(
                 model="whisper-1", file="test.mp3", response_format="verbose_json"
             )
@@ -93,10 +103,14 @@ class TestOpenAIParameterPassthrough:
         mock_response.language = "en"
         mock_response.segments = None
 
-        with patch("builtins.open", mock_open(read_data=b"audio")), patch.object(
-            provider.client.audio.transcriptions, "create", return_value=mock_response
-        ) as mock_create:
-
+        with (
+            patch("builtins.open", mock_open(read_data=b"audio")),
+            patch.object(
+                provider.client.audio.transcriptions,
+                "create",
+                return_value=mock_response,
+            ) as mock_create,
+        ):
             provider.audio.transcriptions.create(
                 model="whisper-1",
                 file="test.mp3",
@@ -123,7 +137,6 @@ class TestOpenAIParameterPassthrough:
         with patch.object(
             provider.client.audio.transcriptions, "create", return_value=mock_response
         ) as mock_create:
-
             provider.audio.transcriptions.create(
                 model="whisper-1", file=audio_data, language="en"
             )

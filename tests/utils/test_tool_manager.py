@@ -75,9 +75,9 @@ class TestToolManager(unittest.TestCase):
         self.assertIn(
             "get_current_temperature", [tool["function"]["name"] for tool in tools]
         )
-        assert (
-            tools == expected_tool_spec
-        ), f"Expected {expected_tool_spec}, but got {tools}"
+        assert tools == expected_tool_spec, (
+            f"Expected {expected_tool_spec}, but got {tools}"
+        )
 
     def test_add_tool_with_signature_inference(self):
         """Test adding a tool and inferring parameters from the function signature."""
@@ -112,9 +112,9 @@ class TestToolManager(unittest.TestCase):
         self.assertIn(
             "get_current_temperature", [tool["function"]["name"] for tool in tools]
         )
-        assert (
-            tools == expected_tool_spec
-        ), f"Expected {expected_tool_spec}, but got {tools}"
+        assert tools == expected_tool_spec, (
+            f"Expected {expected_tool_spec}, but got {tools}"
+        )
 
     def test_add_tool_missing_annotation_raises_exception(self):
         """Test that adding a tool with missing type annotations raises a TypeError."""
@@ -191,9 +191,9 @@ class TestToolManager(unittest.TestCase):
         ]
 
         tools = self.tool_manager.tools()
-        assert (
-            tools == expected_tool_spec
-        ), f"Expected {expected_tool_spec}, but got {tools}"
+        assert tools == expected_tool_spec, (
+            f"Expected {expected_tool_spec}, but got {tools}"
+        )
 
 
 if __name__ == "__main__":

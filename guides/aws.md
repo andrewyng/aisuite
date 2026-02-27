@@ -12,10 +12,10 @@ directly or by clicking on the `Get started` link.
 
 You will first need to give your AWS account access to the foundation models by
 visiting the [modelaccess](https://us-west-2.console.aws.amazon.com/bedrock/home?region=us-west-2#/modelaccess)
-page to enable the models you would like to use. 
+page to enable the models you would like to use.
 
-After enabling the foundation models, navigate to [providers page](https://us-west-2.console.aws.amazon.com/bedrock/home?region=us-west-2#/providers) 
-and select the provider of the model you would like to use. From this page select the specific model you would like to use and 
+After enabling the foundation models, navigate to [providers page](https://us-west-2.console.aws.amazon.com/bedrock/home?region=us-west-2#/providers)
+and select the provider of the model you would like to use. From this page select the specific model you would like to use and
 make note of the `Model ID` (currently located near the bottom) this will be used when using the chat completion example below.
 
 Once that has been enabled set your Access Key and Secret in the env variables:
@@ -23,7 +23,7 @@ Once that has been enabled set your Access Key and Secret in the env variables:
 ```shell
 export AWS_ACCESS_KEY="your-access-key"
 export AWS_SECRET_KEY="your-secret-key"
-export AWS_REGION="region-name" 
+export AWS_REGION="region-name"
 ```
 *Note: AWS_REGION is optional, a default of `us-west-2` has been set for easy of use*
 
@@ -64,8 +64,3 @@ print(response.choices[0].message.content)
 ```
 
 Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).
-
-
-
-
-

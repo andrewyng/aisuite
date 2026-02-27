@@ -28,5 +28,5 @@ class NebiusProvider(Provider):
         return self.client.chat.completions.create(
             model=model,
             messages=messages,
-            **kwargs  # Pass any additional arguments to the Nebius API
+            **kwargs,  # Pass any additional arguments to the Nebius API
         )

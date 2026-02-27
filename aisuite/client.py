@@ -1,5 +1,4 @@
 from .provider import ProviderFactory
-import os
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
 from contextlib import ExitStack
@@ -171,8 +170,7 @@ class Completions:
                     processed_tools.extend(mcp_tools)
                 except Exception as e:
                     raise ValueError(
-                        f"Failed to create MCP client from config: {e}\n"
-                        f"Config: {tool}"
+                        f"Failed to create MCP client from config: {e}\nConfig: {tool}"
                     )
             else:
                 # Regular callable tool - pass through

@@ -5,7 +5,6 @@ import pytest
 
 from aisuite import Client
 from aisuite.framework.message import TranscriptionResult
-from aisuite.provider import ASRError
 
 
 @pytest.fixture(scope="module")

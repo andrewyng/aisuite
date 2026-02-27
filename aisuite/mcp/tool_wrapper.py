@@ -6,14 +6,20 @@ wrappers around MCP tools that are compatible with aisuite's existing tool
 calling infrastructure.
 """
 
-from typing import Any, Callable, Dict, Optional
-import asyncio
+from __future__ import annotations
+
+from typing import Any, Callable, Dict
+from typing import TYPE_CHECKING
+
 import inspect
 from .schema_converter import (
     mcp_schema_to_annotations,
     extract_parameter_descriptions,
     build_docstring,
 )
+
+if TYPE_CHECKING:
+    from .client import MCPClient
 
 
 class MCPToolWrapper:
@@ -37,7 +43,7 @@ class MCPToolWrapper:
 
     def __init__(
         self,
-        mcp_client: "MCPClient",  # Forward reference to avoid circular import
+        mcp_client: MCPClient,
         tool_name: str,
         tool_schema: Dict[str, Any],
     ):
@@ -81,7 +87,7 @@ class MCPToolWrapper:
         This allows inspect.signature() to see the proper parameters with
         type annotations, rather than just **kwargs.
         """
-        properties = input_schema.get("properties", {})
+        input_schema.get("properties", {})
         required = input_schema.get("required", [])
 
         parameters = []
@@ -134,7 +140,7 @@ class MCPToolWrapper:
 
 
 def create_mcp_tool_wrapper(
-    mcp_client: "MCPClient",
+    mcp_client: MCPClient,
     tool_name: str,
     tool_schema: Dict[str, Any],
 ) -> Callable:

@@ -1,18 +1,18 @@
-import { 
-  ChatCompletionRequest, 
-  ChatCompletionResponse, 
+import {
+  ChatCompletionRequest,
+  ChatCompletionResponse,
   ChatCompletionChunk,
-  RequestOptions 
+  RequestOptions
 } from '../types';
 
 export interface Provider {
   readonly name: string;
-  
+
   chatCompletion(
     request: ChatCompletionRequest,
     options?: RequestOptions
   ): Promise<ChatCompletionResponse>;
-  
+
   streamChatCompletion(
     request: ChatCompletionRequest,
     options?: RequestOptions

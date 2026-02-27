@@ -48,7 +48,7 @@ all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-spe
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.1"
-black = "^24.4.2"
+ruff = "^0.15.4"
 python-dotenv = "^1.0.1"
 openai = "^1.107.0"
 groq = "^0.9.0"

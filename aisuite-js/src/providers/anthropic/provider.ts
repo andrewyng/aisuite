@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Provider } from '../../core/base-provider';
-import { 
-  ChatCompletionRequest, 
-  ChatCompletionResponse, 
+import {
+  ChatCompletionRequest,
+  ChatCompletionResponse,
   ChatCompletionChunk,
-  RequestOptions 
+  RequestOptions
 } from '../../types';
 import { AnthropicConfig } from './types';
 import { adaptRequest, adaptResponse, adaptStreamEvent } from './adapters';

@@ -59,4 +59,4 @@ class AISuiteService {
   }
 }
 
-export const aiSuiteService = new AISuiteService(); 
+export const aiSuiteService = new AISuiteService();

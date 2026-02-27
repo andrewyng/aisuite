@@ -3,12 +3,12 @@
 [![PyPI](https://img.shields.io/pypi/v/aisuite)](https://pypi.org/project/aisuite/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-`aisuite` is a lightweight Python library that provides a **unified API for working with multiple Generative AI providers**.  
-It offers a consistent interface for models from *OpenAI, Anthropic, Google, Hugging Face, AWS, Cohere, Mistral, Ollama*, and others—abstracting away SDK differences, authentication details, and parameter variations.  
+`aisuite` is a lightweight Python library that provides a **unified API for working with multiple Generative AI providers**.
+It offers a consistent interface for models from *OpenAI, Anthropic, Google, Hugging Face, AWS, Cohere, Mistral, Ollama*, and others—abstracting away SDK differences, authentication details, and parameter variations.
 Its design is modeled after OpenAI’s API style, making it instantly familiar and easy to adopt.
 
-`aisuite` lets developers build and **run LLM-based or agentic applications across providers** with minimal setup.  
-While it’s not a full-blown agents framework, it includes simple abstractions for creating standalone, lightweight agents.  
+`aisuite` lets developers build and **run LLM-based or agentic applications across providers** with minimal setup.
+While it’s not a full-blown agents framework, it includes simple abstractions for creating standalone, lightweight agents.
 It’s designed for low learning curve — so you can focus on building AI systems, not integrating APIs.
 
 ---
@@ -132,7 +132,7 @@ You can pass tools in the OpenAI tool format:
 ```python
 def will_it_rain(location: str, time_of_day: str):
     """Check if it will rain in a location at a given time today.
-    
+
     Args:
         location (str): Name of the city
         time_of_day (str): Time of the day in HH:MM format.
@@ -175,7 +175,7 @@ When `max_turns` is specified, you can pass a list of callable Python functions 
 ```python
 def will_it_rain(location: str, time_of_day: str):
     """Check if it will rain in a location at a given time today.
-    
+
     Args:
         location (str): Name of the city
         time_of_day (str): Time of the day in HH:MM format.

@@ -5,7 +5,7 @@ This module provides utilities for validating and normalizing MCP tool
 configuration dictionaries passed to aisuite's chat completion API.
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Dict, List, Literal, TypedDict
 
 
 class MCPConfig(TypedDict, total=False):

@@ -7,7 +7,6 @@ All HTTP requests are mocked to avoid requiring a real HTTP MCP server.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import json
 import httpx
 from aisuite.mcp.client import MCPClient
 

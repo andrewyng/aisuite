@@ -14,7 +14,7 @@ A modern React TypeScript chat application built with AISuite, allowing you to c
 
 ## Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - npm or yarn
 - API keys for the AI providers you want to use:
   - OpenAI API key
@@ -207,4 +207,4 @@ For issues and questions:
 
 - API keys are stored in localStorage (client-side only)
 - No API keys are sent to any server except the AI providers
-- Consider using environment variables for production deployments 
+- Consider using environment variables for production deployments

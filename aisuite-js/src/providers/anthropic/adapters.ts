@@ -1,13 +1,13 @@
-import { 
-  ChatCompletionRequest, 
-  ChatCompletionResponse, 
+import {
+  ChatCompletionRequest,
+  ChatCompletionResponse,
   ChatCompletionChunk,
   ChatMessage,
   Tool,
   ToolCall
 } from '../../types';
-import type { 
-  Message, 
+import type {
+  Message,
   MessageCreateParams,
   MessageStreamEvent
 } from '@anthropic-ai/sdk/resources/messages';
@@ -15,7 +15,7 @@ import { generateId, createChunk } from '../../utils/streaming';
 
 export function adaptRequest(request: ChatCompletionRequest): MessageCreateParams {
   const { systemMessage, userMessages } = transformMessages(request.messages);
-  
+
   // Don't pass stream parameter to avoid accidental streaming
   const params: MessageCreateParams = {
     model: request.model,
@@ -40,9 +40,9 @@ export function adaptRequest(request: ChatCompletionRequest): MessageCreateParam
 function transformMessages(messages: ChatMessage[]) {
   const systemMessages = messages.filter(msg => msg.role === 'system');
   const otherMessages = messages.filter(msg => msg.role !== 'system');
-  
+
   const systemMessage = systemMessages.map(msg => msg.content).join('\n') || undefined;
-  
+
   const userMessages = otherMessages.map(msg => {
     if (msg.role === 'tool') {
       // Transform tool response to user message with tool_result
@@ -57,18 +57,18 @@ function transformMessages(messages: ChatMessage[]) {
         ]
       };
     }
-    
+
     if (msg.role === 'assistant' && msg.tool_calls) {
       // Transform assistant message with tool calls
       const content: any[] = [];
-      
+
       if (msg.content) {
         content.push({
           type: 'text',
           text: msg.content
         });
       }
-      
+
       msg.tool_calls.forEach(toolCall => {
         content.push({
           type: 'tool_use',
@@ -77,19 +77,19 @@ function transformMessages(messages: ChatMessage[]) {
           input: JSON.parse(toolCall.function.arguments)
         });
       });
-      
+
       return {
         role: 'assistant' as const,
         content
       };
     }
-    
+
     return {
       role: msg.role as 'user' | 'assistant',
       content: msg.content!,
     };
   });
-  
+
   return {
     systemMessage,
     userMessages,
@@ -109,7 +109,7 @@ function adaptTool(tool: Tool): any {
 }
 
 export function adaptResponse(response: Message, originalModel: string): ChatCompletionResponse {
-  const content = Array.isArray(response.content) 
+  const content = Array.isArray(response.content)
     ? response.content.find(block => block.type === 'text')?.text || ''
     : response.content;
 
@@ -152,8 +152,8 @@ export function adaptResponse(response: Message, originalModel: string): ChatCom
 }
 
 export function adaptStreamEvent(
-  event: MessageStreamEvent, 
-  streamId: string, 
+  event: MessageStreamEvent,
+  streamId: string,
   originalModel: string
 ): ChatCompletionChunk | null {
   switch (event.type) {
@@ -162,7 +162,7 @@ export function adaptStreamEvent(
         return createChunk(streamId, originalModel, event.delta.text);
       }
       break;
-      
+
     case 'content_block_start':
       if (event.content_block.type === 'tool_use') {
         return createChunk(streamId, originalModel, undefined, undefined, [{
@@ -175,13 +175,13 @@ export function adaptStreamEvent(
         }]);
       }
       break;
-      
+
     case 'message_stop':
       return createChunk(streamId, originalModel, undefined, 'stop');
-      
+
     default:
       return null;
   }
-  
+
   return null;
 }

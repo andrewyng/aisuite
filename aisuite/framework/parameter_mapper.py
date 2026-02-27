@@ -3,7 +3,7 @@ Parameter mapping utilities for ASR providers.
 Maps unified TranscriptionOptions to provider-specific parameters.
 """
 
-from typing import Dict, Any, List, TYPE_CHECKING
+from typing import Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .message import TranscriptionOptions

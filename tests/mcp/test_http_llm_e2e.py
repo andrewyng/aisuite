@@ -163,13 +163,13 @@ class TestOpenAIWithHTTPMCP:
         # Verify both tools were used
         content = response.choices[0].message.content.lower()
         # Should mention the year (from Python function)
-        assert any(
-            str(y) in content for y in [2024, 2025, 2026]
-        ), f"Expected year in response, got: {content}"
+        assert any(str(y) in content for y in [2024, 2025, 2026]), (
+            f"Expected year in response, got: {content}"
+        )
         # Should mention requests or library (from HTTP MCP tool)
-        assert any(
-            keyword in content for keyword in ["requests", "library", "id"]
-        ), f"Expected library info in response, got: {content}"
+        assert any(keyword in content for keyword in ["requests", "library", "id"]), (
+            f"Expected library info in response, got: {content}"
+        )
 
 
 @pytest.mark.llm
@@ -275,9 +275,9 @@ class TestAnthropicWithHTTPMCP:
         # Should mention Python (from Python function)
         assert "python" in content, f"Expected Python in response, got: {content}"
         # Should mention django or library (from HTTP MCP tool)
-        assert any(
-            keyword in content for keyword in ["django", "library", "id"]
-        ), f"Expected library info in response, got: {content}"
+        assert any(keyword in content for keyword in ["django", "library", "id"]), (
+            f"Expected library info in response, got: {content}"
+        )
 
 
 @pytest.mark.llm
@@ -397,9 +397,9 @@ class TestOpenAIWithExaMCP:
 
         # Verify search results
         content = response.choices[0].message.content.lower()
-        assert any(
-            keyword in content for keyword in ["python", "3.12", "feature"]
-        ), f"Expected Python 3.12 info in response, got: {content}"
+        assert any(keyword in content for keyword in ["python", "3.12", "feature"]), (
+            f"Expected Python 3.12 info in response, got: {content}"
+        )
 
     @pytest.mark.skipif(
         not has_openai_key() or not has_exa_key(),
@@ -479,13 +479,13 @@ class TestOpenAIWithExaMCP:
         # Verify both tools were used
         content = response.choices[0].message.content.lower()
         # Should mention the year (from Python function)
-        assert any(
-            str(y) in content for y in [2024, 2025, 2026]
-        ), f"Expected year in response, got: {content}"
+        assert any(str(y) in content for y in [2024, 2025, 2026]), (
+            f"Expected year in response, got: {content}"
+        )
         # Should mention tech or events (from web search)
-        assert any(
-            keyword in content for keyword in ["tech", "event", "technology"]
-        ), f"Expected tech events in response, got: {content}"
+        assert any(keyword in content for keyword in ["tech", "event", "technology"]), (
+            f"Expected tech events in response, got: {content}"
+        )
 
 
 @pytest.mark.llm
@@ -608,6 +608,6 @@ class TestAnthropicWithExaMCP:
         # Should mention Python (from Python function)
         assert "python" in content, f"Expected Python in response, got: {content}"
         # Should mention version or features (from web search)
-        assert any(
-            keyword in content for keyword in ["version", "feature", "3."]
-        ), f"Expected version info in response, got: {content}"
+        assert any(keyword in content for keyword in ["version", "feature", "3."]), (
+            f"Expected version info in response, got: {content}"
+        )
