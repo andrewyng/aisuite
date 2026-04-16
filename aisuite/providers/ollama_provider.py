@@ -2,6 +2,7 @@ import os
 import httpx
 from aisuite.provider import Provider, LLMError
 from aisuite.framework import ChatCompletionResponse
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
 
 class OllamaProvider(Provider):
@@ -26,15 +27,23 @@ class OllamaProvider(Provider):
         # Optionally set a custom timeout (default to 30s)
         self.timeout = config.get("timeout", 30)
 
+        # Initialize the message converter to sanitize aisuite Message objects into JSON
+        self.transformer = OpenAICompliantMessageConverter()
+
     def chat_completions_create(self, model, messages, **kwargs):
         """
         Makes a request to the chat completions endpoint using httpx.
         """
         kwargs["stream"] = False
+
+        # Convert internal aisuite Message objects to standard dictionaries
+        transformed_messages = self.transformer.convert_request(messages)
+
         data = {
             "model": model,
-            "messages": messages,
-            **kwargs,  # Pass any additional arguments to the API
+            "messages": transformed_messages,
+            # Pass any additional arguments to the API (like tools, temperature)
+            **kwargs,
         }
 
         try:
@@ -59,7 +68,15 @@ class OllamaProvider(Provider):
         Normalize the API response to a common format (ChatCompletionResponse).
         """
         normalized_response = ChatCompletionResponse()
-        normalized_response.choices[0].message.content = response_data["message"][
-            "content"
-        ]
+        message_data = response_data.get("message", {})
+
+        # Map the standard text content (defaults to empty string if missing)
+        normalized_response.choices[0].message.content = message_data.get("content", "")
+
+        # Map the tool calls if the LLM generated them
+        if "tool_calls" in message_data and message_data["tool_calls"]:
+            normalized_response.choices[0].message.tool_calls = message_data[
+                "tool_calls"
+            ]
+
         return normalized_response
