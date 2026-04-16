@@ -4,7 +4,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 `aisuite` is a lightweight Python library that provides a **unified API for working with multiple Generative AI providers**.  
-It offers a consistent interface for models from *OpenAI, Anthropic, Google, Hugging Face, AWS, Cohere, Mistral, Ollama*, and others—abstracting away SDK differences, authentication details, and parameter variations.  
+It offers a consistent interface for models from *OpenAI, Anthropic, Google, Hugging Face, AWS, Cohere, Mistral, Ollama, OpenRouter*, and others—abstracting away SDK differences, authentication details, and parameter variations.  
 Its design is modeled after OpenAI’s API style, making it instantly familiar and easy to adopt.
 
 `aisuite` lets developers build and **run LLM-based or agentic applications across providers** with minimal setup.  
@@ -62,6 +62,7 @@ Set the API keys.
 ```shell
 export OPENAI_API_KEY="your-openai-api-key"
 export ANTHROPIC_API_KEY="your-anthropic-api-key"
+export OPENROUTER_API_KEY="your-openrouter-api-key"
 ```
 
 Use the python client.
@@ -70,7 +71,7 @@ Use the python client.
 import aisuite as ai
 client = ai.Client()
 
-models = ["openai:gpt-4o", "anthropic:claude-3-5-sonnet-20240620"]
+models = ["openai:gpt-4o", "anthropic:claude-3-5-sonnet-20240620","openrouter:google/gemma-4-26b-a4b-it:free"]
 
 messages = [
     {"role": "system", "content": "Respond in Pirate English."},
