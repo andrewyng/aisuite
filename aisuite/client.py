@@ -215,6 +215,8 @@ class Completions:
         messages: list,
         tools: Any,
         max_turns: int,
+        tool_policy=None,
+        tool_policy_context=None,
         **kwargs,
     ):
         """
@@ -245,6 +247,8 @@ class Completions:
         turns = 0
         intermediate_responses = []  # Store intermediate responses
         intermediate_messages = []  # Store all messages including tool interactions
+        tool_policy_events = []
+        tool_events = []
 
         while turns < max_turns:
             # Make the API call
@@ -270,10 +274,20 @@ class Completions:
                     :-1
                 ]  # Exclude final response
                 response.choices[0].intermediate_messages = intermediate_messages
+                response.tool_policy_events = tool_policy_events
+                response.tool_events = tool_events
                 return response
 
             # Execute tools and get results
-            results, tool_messages = tools_instance.execute_tool(tool_calls)
+            results, tool_messages = tools_instance.execute_tool(
+                tool_calls,
+                tool_policy=tool_policy,
+                tool_policy_context=tool_policy_context,
+            )
+            tool_policy_events.extend(
+                getattr(tools_instance, "last_policy_events", [])
+            )
+            tool_events.extend(getattr(tools_instance, "last_tool_events", []))
 
             # Add tool messages to intermediate messages
             intermediate_messages.extend(tool_messages)
@@ -288,6 +302,8 @@ class Completions:
             :-1
         ]  # Exclude final response
         response.choices[0].intermediate_messages = intermediate_messages
+        response.tool_policy_events = tool_policy_events
+        response.tool_events = tool_events
         return response
 
     def create(self, model: str, messages: list, **kwargs):
@@ -328,6 +344,8 @@ class Completions:
         # Extract tool-related parameters
         max_turns = kwargs.pop("max_turns", None)
         tools = kwargs.pop("tools", None)
+        tool_policy = kwargs.pop("tool_policy", None)
+        tool_policy_context = kwargs.pop("tool_policy_context", None)
 
         # Use ExitStack to manage MCP client cleanup automatically
         with ExitStack() as stack:
@@ -347,6 +365,8 @@ class Completions:
                     messages.copy(),
                     tools,
                     max_turns,
+                    tool_policy=tool_policy,
+                    tool_policy_context=tool_policy_context,
                     **kwargs,
                 )
 

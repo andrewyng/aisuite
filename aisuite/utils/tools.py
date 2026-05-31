@@ -8,6 +8,8 @@ from docstring_parser import parse
 class Tools:
     def __init__(self, tools: list[Callable] = None):
         self._tools = {}
+        self.last_policy_events = []
+        self.last_tool_events = []
         if tools:
             for tool in tools:
                 self._add_tool(tool)
@@ -313,7 +315,47 @@ class Tools:
 
         return results
 
-    def execute_tool(self, tool_calls) -> tuple[list, list]:
+    def _evaluate_tool_policy(
+        self,
+        tool_policy,
+        tool_policy_context,
+        tool_name: str,
+        arguments: dict,
+    ):
+        if tool_policy is None:
+            return None
+
+        from ..agents import ToolPolicyContext, ToolPolicyDecision
+
+        base_context = tool_policy_context or {}
+        context = ToolPolicyContext(
+            agent_name=base_context.get("agent_name", ""),
+            tool_name=tool_name,
+            arguments=arguments,
+            run_name=base_context.get("run_name"),
+            trace_id=base_context.get("trace_id"),
+            group_id=base_context.get("group_id"),
+            tags=list(base_context.get("tags", [])),
+            metadata=dict(base_context.get("metadata", {})),
+            messages=list(base_context.get("messages", [])),
+        )
+
+        if hasattr(tool_policy, "evaluate"):
+            raw_decision = tool_policy.evaluate(context)
+        else:
+            raw_decision = tool_policy(context)
+
+        if isinstance(raw_decision, ToolPolicyDecision):
+            return raw_decision
+        if isinstance(raw_decision, bool):
+            return ToolPolicyDecision(allowed=raw_decision)
+        raise TypeError(
+            "Tool policy must return a bool or ToolPolicyDecision instance."
+        )
+
+    def execute_tool(
+        self, tool_calls, tool_policy=None, tool_policy_context=None
+    ) -> tuple[list, list]:
         """Executes registered tools based on the tool calls from the model.
 
         Args:
@@ -324,6 +366,8 @@ class Tools:
         """
         results = []
         messages = []
+        self.last_policy_events = []
+        self.last_tool_events = []
 
         # Handle single tool call or list of tool calls
         if not isinstance(tool_calls, list):
@@ -354,7 +398,57 @@ class Tools:
             # Validate and parse the arguments with Pydantic if a model exists
             try:
                 validated_args = param_model(**arguments)
-                result = tool_func(**validated_args.model_dump())
+                validated_args_dict = validated_args.model_dump()
+                decision = self._evaluate_tool_policy(
+                    tool_policy,
+                    tool_policy_context,
+                    tool_name,
+                    validated_args_dict,
+                )
+                if decision is not None:
+                    self.last_policy_events.append(
+                        {
+                            "tool_name": tool_name,
+                            "allowed": decision.allowed,
+                            "reason": decision.reason,
+                            "metadata": decision.metadata,
+                        }
+                    )
+                if decision is not None and not decision.allowed:
+                    self.last_tool_events.append(
+                        {
+                            "type": "tool_call",
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "allowed": False,
+                            "reason": decision.reason,
+                            "metadata": decision.metadata,
+                        }
+                    )
+                    result = {
+                        "error": "Tool call denied by policy",
+                        "reason": decision.reason,
+                    }
+                else:
+                    self.last_tool_events.append(
+                        {
+                            "type": "tool_call",
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "allowed": True,
+                            "reason": decision.reason if decision else None,
+                            "metadata": decision.metadata if decision else {},
+                        }
+                    )
+                    result = tool_func(**validated_args_dict)
+                    self.last_tool_events.append(
+                        {
+                            "type": "tool_result",
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "status": "success",
+                        }
+                    )
                 results.append(result)
                 messages.append(
                     {
