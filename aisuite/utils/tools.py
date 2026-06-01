@@ -334,6 +334,7 @@ class Tools:
             arguments=arguments,
             run_name=base_context.get("run_name"),
             trace_id=base_context.get("trace_id"),
+            parent_run_id=base_context.get("parent_run_id"),
             group_id=base_context.get("group_id"),
             tags=list(base_context.get("tags", [])),
             metadata=dict(base_context.get("metadata", {})),

@@ -29,6 +29,11 @@ def test_trace_to_dict_includes_observability_fields():
     assert trace["status"] == "completed"
     assert trace["tags"] == ["agent", "run"]
     assert trace["metadata"] == {"request_id": "req_1"}
+    assert trace["final_output"] == "ok"
+    assert trace["message_count"] == len(result.messages)
+    assert trace["step_count"] == len(result.steps)
+    assert trace["messages"] == result.messages
+    assert trace["new_items"] == result.new_items
     assert [step["type"] for step in trace["steps"]] == ["agent", "model_response"]
 
 
@@ -55,5 +60,6 @@ def test_print_trace_outputs_human_readable_trace():
     assert "status=completed" in text
     assert "Group: group_1" in text
     assert "Metadata: request_id=req_1" in text
+    assert "Final output: ok" in text
     assert "- agent: assistant" in text
     assert "- model_response: model_response" in text
