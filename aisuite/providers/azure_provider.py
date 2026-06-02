@@ -133,4 +133,4 @@ class AzureProvider(Provider):
             error_message = f"The request failed with status code: {error.code}\n"
             error_message += f"Headers: {error.info()}\n"
             error_message += error.read().decode("utf-8", "ignore")
-            raise Exception(error_message)
+            raise RuntimeError(error_message)
