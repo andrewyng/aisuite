@@ -13,6 +13,61 @@ def tool_call(name, arguments, call_id):
     )
 
 
+def test_parent_agent_subagent_flow_is_reconstructable_from_jsonl_store(tmp_path):
+    client = ai.Client()
+    provider = Mock()
+    first_response = chat_response(None)
+    first_response.choices[0].message = Message(
+        role="assistant",
+        tool_calls=[
+            tool_call(
+                "research_topic",
+                '{"input": "agent observability"}',
+                "call_research",
+            )
+        ],
+    )
+    provider.chat_completions_create.side_effect = [
+        first_response,
+        chat_response("research notes"),
+        chat_response("final recommendation"),
+    ]
+    client.providers["openai"] = provider
+    trace_file = tmp_path / "events.jsonl"
+    sink = ai.tracing.LocalTraceSink(trace_file)
+    researcher = ai.Agent(name="researcher", model="openai:gpt-4o-mini")
+    writer = ai.Agent(
+        name="writer",
+        model="openai:gpt-4o",
+        tools=[ai.agent_tool(researcher, name="research_topic")],
+    )
+
+    parent = ai.Runner.run_sync(
+        writer,
+        "Write a recommendation",
+        client=client,
+        run_name="recommendation",
+        group_id="workflow_1",
+        tags=["integration"],
+        metadata={"request_id": "req_1"},
+        trace_sinks=[sink],
+    )
+
+    runs = ai.tracing.JsonlTraceStore(trace_file).list_runs()
+    parent_run = next(run for run in runs if run["trace_id"] == parent.trace_id)
+    child_run = next(run for run in runs if run["agent_name"] == "researcher")
+
+    assert parent_run["final_output"] == "final recommendation"
+    assert child_run["final_output"] == "research notes"
+    assert child_run["parent_run_id"] == parent.trace_id
+    assert {run["group_id"] for run in runs} == {"workflow_1"}
+    assert [call.args[0] for call in provider.chat_completions_create.call_args_list] == [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4o",
+    ]
+
+
 def test_denied_tool_policy_flow_emits_denial_event():
     client = ai.Client()
     provider = Mock()
