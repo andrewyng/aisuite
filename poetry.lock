@@ -7409,9 +7409,10 @@ deepseek = ["openai"]
 google = ["google-cloud-speech", "vertexai"]
 groq = ["groq"]
 huggingface = []
+lmstudio = ["openai"]
 mcp = ["mcp", "nest-asyncio"]
 mistral = ["mistralai"]
-ollama = []
+ollama = ["openai"]
 openai = ["openai"]
 postgres = ["psycopg"]
 watsonx = ["ibm-watsonx-ai"]
@@ -7419,4 +7420,4 @@ watsonx = ["ibm-watsonx-ai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "ef66fdb04d2af80fb072ecac84f47ffd68d150648d493650bf3f8272691fc537"
+content-hash = "d3cce565f222995dc263bcef89f493282e09293e5c29ed3fb40bb93d647b5a2f"
