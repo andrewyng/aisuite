@@ -42,6 +42,7 @@ result = ai.Runner.run_sync(
 
 print(result.final_output)
 result.print_trace()
+result.write_trace_jsonl(".aisuite/runs.jsonl")
 
 next_result = ai.Runner.continue_sync(
     result,
@@ -51,3 +52,4 @@ next_result = ai.Runner.continue_sync(
 
 print(next_result.final_output)
 next_result.print_trace()
+next_result.write_trace_jsonl(".aisuite/runs.jsonl")

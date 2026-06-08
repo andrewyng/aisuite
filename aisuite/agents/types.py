@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Literal, Optional, Protocol, TextIO
 
 from ..client import Client
@@ -98,6 +99,7 @@ class ToolPolicyContext:
     tags: list[str]
     metadata: dict[str, Any]
     messages: list[dict[str, Any]]
+    parent_run_id: Optional[str] = None
 
 
 class ToolPolicy(Protocol):
@@ -112,6 +114,7 @@ class RunState:
     status: RunStatus = "completed"
     run_name: Optional[str] = None
     trace_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
     group_id: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -130,6 +133,7 @@ class RunState:
             "status": self.status,
             "run_name": self.run_name,
             "trace_id": self.trace_id,
+            "parent_run_id": self.parent_run_id,
             "group_id": self.group_id,
             "tags": copy.deepcopy(self.tags),
             "metadata": copy.deepcopy(self.metadata),
@@ -146,6 +150,7 @@ class RunState:
             status=data.get("status", "completed"),
             run_name=data.get("run_name"),
             trace_id=data.get("trace_id"),
+            parent_run_id=data.get("parent_run_id"),
             group_id=data.get("group_id"),
             tags=copy.deepcopy(data.get("tags", [])),
             metadata=copy.deepcopy(data.get("metadata", {})),
@@ -166,6 +171,7 @@ class RunResult:
     raw_responses: list[Any]
     run_name: Optional[str]
     trace_id: str
+    parent_run_id: Optional[str]
     group_id: Optional[str]
     tags: list[str]
     metadata: dict[str, Any]
@@ -180,6 +186,7 @@ class RunResult:
             status=self.status,
             run_name=self.run_name,
             trace_id=self.trace_id,
+            parent_run_id=self.parent_run_id,
             group_id=self.group_id,
             tags=copy.deepcopy(self.tags),
             metadata=copy.deepcopy(self.metadata),
@@ -188,16 +195,29 @@ class RunResult:
         )
 
     def trace_to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "trace_id": self.trace_id,
+            "parent_run_id": self.parent_run_id,
             "group_id": self.group_id,
             "run_name": self.run_name,
             "agent_name": self.last_agent.name,
             "status": self.status,
             "tags": copy.deepcopy(self.tags),
             "metadata": copy.deepcopy(self.metadata),
+            "final_output": copy.deepcopy(self.final_output),
+            "messages": copy.deepcopy(self.messages),
+            "new_items": copy.deepcopy(self.new_items),
+            "message_count": len(self.messages),
+            "step_count": len(self.steps),
             "steps": [step.to_dict() for step in self.steps],
         }
+        return ensure_json_serializable(data)
+
+    def write_trace_jsonl(self, path: str | Path) -> None:
+        trace_path = Path(path)
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        with trace_path.open("a", encoding="utf-8") as trace_file:
+            trace_file.write(json.dumps(self.trace_to_dict()) + "\n")
 
     def print_trace(self, file: Optional[TextIO] = None) -> None:
         output = file or sys.stdout
@@ -217,6 +237,8 @@ class RunResult:
                 f"{key}={value}" for key, value in sorted(self.metadata.items())
             )
             print(f"Metadata: {metadata}", file=output)
+        if self.final_output is not None:
+            print(f"Final output: {self.final_output}", file=output)
 
         for step in self.steps:
             name = step.name or "-"
