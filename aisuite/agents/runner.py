@@ -4,8 +4,12 @@ import copy
 from typing import Any, Callable, Optional
 
 from ..client import Client
+from ..tracing.normalize import normalize_model_input, normalize_model_response
 from ..tracing.sinks import TraceEvent, TraceSink, emit_event, get_configured_sinks
+from .artifact_store import ArtifactStore
+from .artifacts import dehydrate_messages, hydrate_messages
 from .context import ActiveRunContext, reset_active_run_context, set_active_run_context
+from .state_store import StateStore
 from .types import Agent, RunResult, RunState, RunStatus, RunStep, ToolPolicy
 from .utils import (
     build_input_messages,
@@ -16,6 +20,14 @@ from .utils import (
     new_id,
     now,
 )
+
+
+class StateNotFoundError(RuntimeError):
+    """Raised when persisted continuation is requested for a missing thread."""
+
+
+class ThreadAlreadyExistsError(RuntimeError):
+    """Raised when a new persisted run would overwrite an existing thread."""
 
 
 class Runner:
@@ -34,6 +46,9 @@ class Runner:
         tool_policy: Optional[ToolPolicy | Callable] = None,
         trace_sinks: Optional[list[TraceSink]] = None,
         tracing_disabled: bool = False,
+        state_store: Optional[StateStore] = None,
+        thread_id: Optional[str] = None,
+        artifact_store: Optional[ArtifactStore] = None,
         **kwargs: Any,
     ) -> RunResult:
         return Runner.run_sync(
@@ -49,6 +64,9 @@ class Runner:
             tool_policy=tool_policy,
             trace_sinks=trace_sinks,
             tracing_disabled=tracing_disabled,
+            state_store=state_store,
+            thread_id=thread_id,
+            artifact_store=artifact_store,
             **kwargs,
         )
 
@@ -67,8 +85,19 @@ class Runner:
         tool_policy: Optional[ToolPolicy | Callable] = None,
         trace_sinks: Optional[list[TraceSink]] = None,
         tracing_disabled: bool = False,
+        state_store: Optional[StateStore] = None,
+        thread_id: Optional[str] = None,
+        artifact_store: Optional[ArtifactStore] = None,
         **kwargs: Any,
     ) -> RunResult:
+        if (state_store is None) != (thread_id is None):
+            raise ValueError("state_store and thread_id must be provided together.")
+        if state_store is not None and state_store.load_state(thread_id) is not None:
+            raise ThreadAlreadyExistsError(
+                f"Thread {thread_id!r} already exists. Use continue_sync(...) "
+                "to continue persisted state."
+            )
+
         active_client = client or Client()
         trace_id = None if tracing_disabled else new_id("trace")
         active_trace_id = trace_id or ""
@@ -100,6 +129,7 @@ class Runner:
             effective_max_turns = max_turns
             prior_steps = []
 
+        messages = hydrate_messages(messages, artifact_store)
         request_kwargs = {**agent.model_settings, **kwargs}
         if agent.tools:
             request_kwargs["tools"] = agent.tools
@@ -147,28 +177,34 @@ class Runner:
                 "model": agent.model,
             },
         )
-        Runner._emit_trace_event(
-            active_sinks,
-            "model.started",
-            active_trace_id,
-            agent.name,
-            span_id=agent_step.id,
-            run_name=effective_run_name,
-            parent_run_id=effective_parent_run_id,
-            group_id=effective_group_id,
-            tags=effective_tags,
-            metadata=effective_metadata,
-            data={"model": agent.model, "message_count": len(messages)},
-        )
+        client_will_emit_model_events = bool(agent.tools)
+        if not client_will_emit_model_events:
+            Runner._emit_trace_event(
+                active_sinks,
+                "model.send",
+                active_trace_id,
+                agent.name,
+                span_id=agent_step.id,
+                run_name=effective_run_name,
+                parent_run_id=effective_parent_run_id,
+                group_id=effective_group_id,
+                tags=effective_tags,
+                metadata=effective_metadata,
+                data=normalize_model_input(messages, model=agent.model),
+            )
         context_token = set_active_run_context(
             ActiveRunContext(
                 client=active_client,
                 trace_id=active_trace_id,
+                agent_name=agent.name,
+                run_name=effective_run_name,
+                parent_run_id=effective_parent_run_id,
                 group_id=effective_group_id,
                 tags=copy.deepcopy(effective_tags),
                 metadata=copy.deepcopy(effective_metadata),
                 trace_sinks=active_sinks,
                 tool_policy=tool_policy,
+                artifact_store=artifact_store,
             )
         )
         try:
@@ -180,6 +216,24 @@ class Runner:
             status: RunStatus = "completed"
         except Exception as exc:
             agent_step.ended_at = now()
+            if not client_will_emit_model_events:
+                Runner._emit_trace_event(
+                    active_sinks,
+                    "model.error",
+                    active_trace_id,
+                    agent.name,
+                    span_id=agent_step.id,
+                    run_name=effective_run_name,
+                    parent_run_id=effective_parent_run_id,
+                    group_id=effective_group_id,
+                    tags=effective_tags,
+                    metadata=effective_metadata,
+                    data={
+                        "model": agent.model,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                )
             Runner._emit_trace_event(
                 active_sinks,
                 "run.failed",
@@ -229,23 +283,23 @@ class Runner:
             max_turns=effective_max_turns,
             _client=active_client,
         )
-        Runner._emit_trace_event(
-            active_sinks,
-            "model.completed",
-            active_trace_id,
-            agent.name,
-            span_id=agent_step.id,
-            run_name=effective_run_name,
-            parent_run_id=effective_parent_run_id,
-            group_id=effective_group_id,
-            tags=effective_tags,
-            metadata=effective_metadata,
-            data={
-                "final_output": copy.deepcopy(result.final_output),
-                "message_count": len(result.messages),
-            },
-        )
+        if not client_will_emit_model_events:
+            Runner._emit_trace_event(
+                active_sinks,
+                "model.response",
+                active_trace_id,
+                agent.name,
+                span_id=agent_step.id,
+                run_name=effective_run_name,
+                parent_run_id=effective_parent_run_id,
+                group_id=effective_group_id,
+                tags=effective_tags,
+                metadata=effective_metadata,
+                data=normalize_model_response(response, model=agent.model),
+            )
         for event in getattr(response, "tool_events", []):
+            if getattr(response, "tool_events_emitted", False):
+                break
             Runner._emit_tool_event(
                 active_sinks,
                 event,
@@ -269,30 +323,75 @@ class Runner:
             metadata=effective_metadata,
             data={"run": result.trace_to_dict()},
         )
+        if state_store is not None:
+            state = result.to_state()
+            state.messages = dehydrate_messages(state.messages, artifact_store)
+            state_store.save_state(thread_id, state)
         return result
 
     @staticmethod
     async def continue_run(
-        result: RunResult,
+        target: RunResult | Agent,
         input: str | list[dict[str, Any]],
         **overrides: Any,
     ) -> RunResult:
-        return Runner.continue_sync(result, input, **overrides)
+        return Runner.continue_sync(target, input, **overrides)
 
     @staticmethod
     def continue_sync(
-        result: RunResult,
+        target: RunResult | Agent,
         input: str | list[dict[str, Any]],
+        *,
+        state_store: Optional[StateStore] = None,
+        thread_id: Optional[str] = None,
+        artifact_store: Optional[ArtifactStore] = None,
         **overrides: Any,
     ) -> RunResult:
-        state = result.to_state()
+        if isinstance(target, RunResult):
+            state = target.to_state()
+            state.add_user_message(input)
+            result = Runner.run_sync(
+                target.last_agent,
+                state,
+                client=overrides.pop("client", target._client),
+                artifact_store=artifact_store,
+                **overrides,
+            )
+            if state_store is not None or thread_id is not None:
+                if state_store is None or thread_id is None:
+                    raise ValueError(
+                        "state_store and thread_id must be provided together."
+                    )
+                stored = state_store.load_state(thread_id)
+                revision = stored.revision if stored else None
+                state = result.to_state()
+                state.messages = dehydrate_messages(state.messages, artifact_store)
+                state_store.save_state(thread_id, state, revision=revision)
+            return result
+
+        if not isinstance(target, Agent):
+            raise TypeError("continue_sync target must be a RunResult or Agent.")
+        if state_store is None or thread_id is None:
+            raise ValueError(
+                "Persisted continuation requires state_store and thread_id."
+            )
+
+        stored = state_store.load_state(thread_id)
+        if stored is None:
+            raise StateNotFoundError(f"No state stored for thread_id {thread_id!r}.")
+
+        state = stored.state
         state.add_user_message(input)
-        return Runner.run_sync(
-            result.last_agent,
+        result = Runner.run_sync(
+            target,
             state,
-            client=overrides.pop("client", result._client),
+            artifact_store=artifact_store,
             **overrides,
         )
+        next_state = result.to_state()
+        next_state.messages = dehydrate_messages(next_state.messages, artifact_store)
+        state_store.save_state(thread_id, next_state, revision=stored.revision)
+        return result
 
     @staticmethod
     def _build_messages(
@@ -401,7 +500,9 @@ class Runner:
         tags: list[str],
         metadata: dict[str, Any],
     ) -> None:
-        if tool_event.get("type") == "tool_result":
+        if tool_event.get("status") == "failed":
+            event_type = "tool.failed"
+        elif tool_event.get("type") == "tool_result":
             event_type = "tool.completed"
         elif tool_event.get("allowed") is False:
             event_type = "tool.denied"

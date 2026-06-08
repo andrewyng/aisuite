@@ -11,6 +11,7 @@ from ..client import Client
 
 
 RunStatus = Literal["completed", "requires_input", "max_turns_exceeded", "failed"]
+ToolRiskLevel = Literal["low", "medium", "high"]
 RunStepType = Literal[
     "agent",
     "model_response",
@@ -89,6 +90,42 @@ class ToolPolicyDecision:
 
 
 @dataclass
+class ToolMetadata:
+    name: Optional[str] = None
+    category: Optional[str] = None
+    risk_level: ToolRiskLevel = "low"
+    capabilities: list[str] = field(default_factory=list)
+    requires_approval: bool = False
+    description: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return ensure_json_serializable(
+            {
+                "name": self.name,
+                "category": self.category,
+                "risk_level": self.risk_level,
+                "capabilities": copy.deepcopy(self.capabilities),
+                "requires_approval": self.requires_approval,
+                "description": self.description,
+                "metadata": copy.deepcopy(self.metadata),
+            }
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ToolMetadata":
+        return cls(
+            name=data.get("name"),
+            category=data.get("category"),
+            risk_level=data.get("risk_level", "low"),
+            capabilities=copy.deepcopy(data.get("capabilities", [])),
+            requires_approval=data.get("requires_approval", False),
+            description=data.get("description"),
+            metadata=copy.deepcopy(data.get("metadata", {})),
+        )
+
+
+@dataclass
 class ToolPolicyContext:
     agent_name: str
     tool_name: str
@@ -100,6 +137,7 @@ class ToolPolicyContext:
     metadata: dict[str, Any]
     messages: list[dict[str, Any]]
     parent_run_id: Optional[str] = None
+    tool_metadata: Optional[ToolMetadata] = None
 
 
 class ToolPolicy(Protocol):

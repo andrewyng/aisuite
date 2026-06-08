@@ -7,6 +7,8 @@ from .framework.message import (
     TranscriptionResponse,
 )
 from .framework.asr_params import ParamValidator
+from .tracing.normalize import normalize_model_input, normalize_model_response
+from .tracing.sinks import TraceEvent, emit_event
 
 # Import MCP utilities for config dict support
 try:
@@ -115,6 +117,30 @@ class Completions:
     def __init__(self, client: "Client"):
         self.client = client
 
+    def _active_trace_context(self):
+        from .agents.context import get_active_run_context
+
+        return get_active_run_context()
+
+    def _emit_model_event(self, event_type, data):
+        context = self._active_trace_context()
+        if not context or not context.trace_sinks or not context.trace_id:
+            return
+        emit_event(
+            context.trace_sinks,
+            TraceEvent(
+                event_type=event_type,
+                trace_id=context.trace_id,
+                agent_name=context.agent_name,
+                run_name=context.run_name,
+                parent_run_id=context.parent_run_id,
+                group_id=context.group_id,
+                tags=list(context.tags),
+                metadata=dict(context.metadata),
+                data=data,
+            ),
+        )
+
     def _process_mcp_configs(self, tools: list) -> tuple[list, list]:
         """
         Process tools list and convert MCP config dicts to callable tools.
@@ -212,6 +238,7 @@ class Completions:
         self,
         provider,
         model_name: str,
+        model_identifier: str,
         messages: list,
         tools: Any,
         max_turns: int,
@@ -252,8 +279,29 @@ class Completions:
 
         while turns < max_turns:
             # Make the API call
-            response = provider.chat_completions_create(model_name, messages, **kwargs)
+            self._emit_model_event(
+                "model.send",
+                normalize_model_input(messages, model=model_identifier),
+            )
+            try:
+                response = provider.chat_completions_create(
+                    model_name, messages, **kwargs
+                )
+            except Exception as exc:
+                self._emit_model_event(
+                    "model.error",
+                    {
+                        "model": model_identifier,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise
             response = self._extract_thinking_content(response)
+            self._emit_model_event(
+                "model.response",
+                normalize_model_response(response, model=model_identifier),
+            )
 
             # Store intermediate response
             intermediate_responses.append(response)
@@ -276,6 +324,7 @@ class Completions:
                 response.choices[0].intermediate_messages = intermediate_messages
                 response.tool_policy_events = tool_policy_events
                 response.tool_events = tool_events
+                response.tool_events_emitted = self._active_trace_context() is not None
                 return response
 
             # Execute tools and get results
@@ -304,6 +353,7 @@ class Completions:
         response.choices[0].intermediate_messages = intermediate_messages
         response.tool_policy_events = tool_policy_events
         response.tool_events = tool_events
+        response.tool_events_emitted = self._active_trace_context() is not None
         return response
 
     def create(self, model: str, messages: list, **kwargs):
@@ -362,6 +412,7 @@ class Completions:
                 return self._tool_runner(
                     provider,
                     model_name,
+                    model,
                     messages.copy(),
                     tools,
                     max_turns,

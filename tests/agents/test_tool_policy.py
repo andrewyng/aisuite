@@ -1,5 +1,7 @@
+import json
 from unittest.mock import Mock
 
+import aisuite as ai
 from aisuite import Agent, Client, RunState, Runner, ToolPolicyDecision
 from aisuite.framework.message import ChatCompletionMessageToolCall, Function, Message
 from tests.agents.helpers import chat_response
@@ -58,6 +60,7 @@ def test_allowed_tool_policy_executes_tool():
         "type": "tool_call",
         "tool_name": "lookup",
         "tool_call_id": "call_1",
+        "arguments": {"city": "Paris"},
         "allowed": True,
         "reason": None,
         "metadata": {},
@@ -67,11 +70,57 @@ def test_allowed_tool_policy_executes_tool():
         "tool_name": "lookup",
         "tool_call_id": "call_1",
         "status": "success",
+        "result_preview": '"Paris found"',
     }
 
     state = RunState.from_dict(result.to_state().to_dict())
     assert [step.type for step in state.steps[-2:]] == ["tool_call", "tool_result"]
     assert state.steps[-2].data["allowed"] is True
+
+
+def test_tool_trace_events_are_emitted_in_execution_order():
+    client = Client()
+    provider = Mock()
+    first_response = chat_response(None)
+    first_response.choices[0].message = Message(
+        role="assistant",
+        tool_calls=[tool_call("lookup", '{"city": "Paris"}')],
+    )
+    provider.chat_completions_create.side_effect = [
+        first_response,
+        chat_response("done"),
+    ]
+    client.providers["openai"] = provider
+
+    def lookup(city: str) -> str:
+        """Lookup a city."""
+        return f"{city} found"
+
+    sink = ai.tracing.InMemoryTraceSink()
+    agent = Agent(name="assistant", model="openai:gpt-4o", tools=[lookup])
+
+    Runner.run_sync(agent, "Find Paris", client=client, trace_sinks=[sink])
+
+    assert [event.event_type for event in sink.events] == [
+        "run.started",
+        "model.send",
+        "model.response",
+        "tool.allowed",
+        "tool.started",
+        "tool.completed",
+        "model.send",
+        "model.response",
+        "run.completed",
+    ]
+    first_model_response = sink.events[2].data["response"]
+    assert first_model_response["kind"] == "tool_calls"
+    assert first_model_response["tool_calls"][0]["name"] == "lookup"
+    tool_result = sink.events[5].data
+    assert tool_result["tool_name"] == "lookup"
+    assert tool_result["result_preview"] == '"Paris found"'
+    final_model_response = sink.events[7].data["response"]
+    assert final_model_response["kind"] == "text"
+    assert final_model_response["text_preview"] == "done"
 
 
 def test_denied_tool_policy_does_not_execute_tool():
@@ -120,6 +169,7 @@ def test_denied_tool_policy_does_not_execute_tool():
         "type": "tool_call",
         "tool_name": "lookup",
         "tool_call_id": "call_1",
+        "arguments": {"city": "Paris"},
         "allowed": False,
         "reason": "lookup disabled",
         "metadata": {"policy": "deny_lookup"},
@@ -128,6 +178,41 @@ def test_denied_tool_policy_does_not_execute_tool():
 
     state = RunState.from_dict(result.to_state().to_dict())
     assert state.steps[-1].data["allowed"] is False
+
+
+def test_tool_result_preview_remains_valid_json_when_truncated():
+    client = Client()
+    provider = Mock()
+    first_response = chat_response(None)
+    first_response.choices[0].message = Message(
+        role="assistant",
+        tool_calls=[tool_call("collect_output", "{}")],
+    )
+    provider.chat_completions_create.side_effect = [
+        first_response,
+        chat_response("done"),
+    ]
+    client.providers["openai"] = provider
+
+    def collect_output() -> dict:
+        """Collect output."""
+        return {
+            "exit_code": 0,
+            "stdout": "x" * 5000,
+            "stderr": "",
+            "timed_out": False,
+        }
+
+    result = Runner.run_sync(
+        Agent(name="assistant", model="openai:gpt-4o", tools=[collect_output]),
+        "Collect output",
+        client=client,
+    )
+
+    preview = json.loads(result.steps[-1].data["result_preview"])
+    assert preview["exit_code"] == 0
+    assert preview["stdout"].endswith("...")
+    assert len(preview["stdout"]) < 1000
 
 
 def test_class_based_tool_policy_works():

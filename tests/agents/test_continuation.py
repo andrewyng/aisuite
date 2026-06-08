@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
+import aisuite as ai
 from aisuite import Agent, Client, RunState, Runner
 from tests.agents.helpers import chat_response
 
@@ -93,6 +94,124 @@ def test_continue_sync_reuses_result_context_and_appends_input():
     assert second.tags == ["agent", "run"]
     assert second.metadata == {"team": "growth", "request_id": "req_1"}
     assert second.trace_id != first.trace_id
+
+
+def test_run_sync_with_state_store_persists_first_turn():
+    client = Client()
+    client.chat.completions.create = Mock(return_value=chat_response("first"))
+    agent = Agent(name="assistant", model="openai:gpt-4o")
+    store = ai.InMemoryStateStore()
+
+    result = Runner.run_sync(
+        agent,
+        "Hello",
+        client=client,
+        state_store=store,
+        thread_id="thread_1",
+        run_name="chat",
+    )
+
+    stored = store.load_state("thread_1")
+    assert stored.revision == 1
+    assert stored.state.messages == result.messages
+    assert stored.state.run_name == "chat"
+
+
+def test_run_sync_with_existing_thread_raises():
+    client = Client()
+    client.chat.completions.create = Mock(return_value=chat_response("first"))
+    agent = Agent(name="assistant", model="openai:gpt-4o")
+    store = ai.InMemoryStateStore()
+    Runner.run_sync(agent, "Hello", client=client, state_store=store, thread_id="thread_1")
+
+    with pytest.raises(ai.ThreadAlreadyExistsError):
+        Runner.run_sync(
+            agent,
+            "Start over",
+            client=client,
+            state_store=store,
+            thread_id="thread_1",
+        )
+
+
+def test_continue_sync_with_agent_loads_and_saves_persisted_state():
+    client = Client()
+    client.chat.completions.create = Mock(return_value=chat_response("second"))
+    agent = Agent(name="assistant", model="openai:gpt-4o")
+    store = ai.InMemoryStateStore()
+    store.save_state(
+        "thread_1",
+        RunState(
+            agent_name="assistant",
+            messages=[
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "first"},
+            ],
+            run_name="chat",
+            metadata={"request_id": "req_1"},
+        ),
+    )
+
+    result = Runner.continue_sync(
+        agent,
+        "Follow up",
+        client=client,
+        state_store=store,
+        thread_id="thread_1",
+    )
+
+    assert client.chat.completions.create.call_args.kwargs["messages"] == [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "first"},
+        {"role": "user", "content": "Follow up"},
+    ]
+    stored = store.load_state("thread_1")
+    assert stored.revision == 2
+    assert stored.state.messages == result.messages
+    assert stored.state.messages[-1] == {"role": "assistant", "content": "second"}
+
+
+def test_continue_sync_with_missing_persisted_state_raises():
+    agent = Agent(name="assistant", model="openai:gpt-4o")
+
+    with pytest.raises(ai.StateNotFoundError):
+        Runner.continue_sync(
+            agent,
+            "Follow up",
+            state_store=ai.InMemoryStateStore(),
+            thread_id="missing",
+        )
+
+
+def test_continue_sync_result_can_persist_after_in_memory_continuation():
+    client = Client()
+    client.chat.completions.create = Mock(
+        side_effect=[chat_response("first"), chat_response("second")]
+    )
+    agent = Agent(name="assistant", model="openai:gpt-4o")
+    store = ai.InMemoryStateStore()
+
+    first = Runner.run_sync(agent, "Hello", client=client)
+    second = Runner.continue_sync(
+        first,
+        "Follow up",
+        state_store=store,
+        thread_id="thread_1",
+    )
+
+    stored = store.load_state("thread_1")
+    assert stored.revision == 1
+    assert stored.state.messages == second.messages
+
+
+def test_persisted_state_requires_store_and_thread_id_together():
+    agent = Agent(name="assistant", model="openai:gpt-4o")
+
+    with pytest.raises(ValueError, match="state_store and thread_id"):
+        Runner.run_sync(agent, "Hello", state_store=ai.InMemoryStateStore())
+
+    with pytest.raises(ValueError, match="Persisted continuation requires"):
+        Runner.continue_sync(agent, "Follow up", state_store=ai.InMemoryStateStore())
 
 
 def test_state_serialization_rejects_non_json_metadata():
