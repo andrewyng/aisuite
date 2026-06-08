@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+import asyncio
 import importlib
 import os
 import functools
@@ -29,6 +30,18 @@ class Provider(ABC):
     def chat_completions_create(self, model, messages):
         """Abstract method for chat completion calls, to be implemented by each provider."""
         pass
+
+    async def achat_completions_create(self, model, messages, **kwargs):
+        """Async chat completion.
+
+        Default implementation offloads the provider's synchronous
+        ``chat_completions_create`` to a worker thread, so every provider is
+        awaitable without per-provider work. Providers with a native async
+        SDK (e.g. OpenAI) should override this for true non-blocking I/O.
+        """
+        return await asyncio.to_thread(
+            lambda: self.chat_completions_create(model, messages, **kwargs)
+        )
 
 
 class ProviderFactory:
