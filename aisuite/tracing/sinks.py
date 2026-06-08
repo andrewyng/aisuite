@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import copy
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional, Protocol
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
-from .store import JsonlTraceStore
+from .store import JsonlTraceStore, TraceStore
 
 
 TRACE_SCHEMA_VERSION = "2026-05-15"
@@ -17,11 +20,14 @@ TraceEventType = Literal[
     "run.started",
     "run.completed",
     "run.failed",
-    "model.started",
-    "model.completed",
+    "model.send",
+    "model.response",
+    "model.error",
     "tool.allowed",
     "tool.denied",
+    "tool.started",
     "tool.completed",
+    "tool.failed",
 ]
 
 
@@ -81,6 +87,51 @@ class LocalTraceSink:
 
     def emit(self, event: TraceEvent) -> None:
         self.store.write_event(event)
+
+
+class TraceStoreSink:
+    def __init__(self, store: TraceStore):
+        self.store = store
+
+    def emit(self, event: TraceEvent) -> None:
+        self.store.append_event(event)
+
+
+class HttpTraceSink:
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        timeout: float = 2.0,
+        headers: Optional[dict[str, str]] = None,
+        fail_silently: bool = True,
+    ):
+        self.endpoint = endpoint
+        self.timeout = timeout
+        self.headers = headers or {}
+        self.fail_silently = fail_silently
+
+    def emit(self, event: TraceEvent) -> None:
+        body = json.dumps(event.to_dict()).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            **self.headers,
+        }
+        request = Request(
+            self.endpoint,
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                if response.status >= 400:
+                    raise RuntimeError(
+                        f"Trace HTTP sink failed with status {response.status}"
+                    )
+        except (OSError, RuntimeError, URLError):
+            if not self.fail_silently:
+                raise
 
 
 class InMemoryTraceSink:
