@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "aisuite-code-cli"
+version = "0.1.0"
+description = "A local coding agent CLI built on aisuite."
+authors = ["aisuite contributors"]
+readme = "README.md"
+packages = [{ include = "aisuite_code_cli" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+aisuite = { path = "../../..", develop = true }
+openai = ">=1.107.0,<2.0.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.2.2"
+
+[tool.poetry.scripts]
+aisuite-code = "aisuite_code_cli.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

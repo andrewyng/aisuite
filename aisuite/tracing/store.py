@@ -7,7 +7,29 @@ from typing import Any, Optional, Protocol
 
 
 class TraceStore(Protocol):
-    def write_event(self, event: Any) -> None:
+    """Storage contract used by the local viewer and trace sinks.
+
+    Implementations may store raw trace_event records, legacy run snapshots,
+    or both. Read methods return reconstructed run dictionaries and raw event
+    records so the viewer API does not depend on the physical storage backend.
+    """
+
+    def append_event(self, event: Any) -> None:
+        ...
+
+    def append_events(self, events: list[Any]) -> None:
+        ...
+
+    def append_record(self, record: dict[str, Any]) -> None:
+        ...
+
+    def append_records(self, records: list[dict[str, Any]]) -> None:
+        ...
+
+    def import_jsonl(self, content: str) -> int:
+        ...
+
+    def list_records(self) -> list[dict[str, Any]]:
         ...
 
     def list_runs(self) -> list[dict[str, Any]]:
@@ -21,13 +43,38 @@ class TraceStore(Protocol):
 
 
 class JsonlTraceStore:
+    """TraceStore implementation backed by a local JSONL file."""
+
     def __init__(self, path: str | Path = ".aisuite/events.jsonl"):
         self.path = Path(path)
 
-    def write_event(self, event: Any) -> None:
+    def append_event(self, event: Any) -> None:
+        self.append_record(event.to_dict())
+
+    def append_events(self, events: list[Any]) -> None:
+        self.append_records([event.to_dict() for event in events])
+
+    def append_record(self, record: dict[str, Any]) -> None:
+        self.append_records([record])
+
+    def append_records(self, records: list[dict[str, Any]]) -> None:
+        if not records:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event.to_dict()) + "\n")
+            for record in records:
+                handle.write(json.dumps(record) + "\n")
+
+    def write_event(self, event: Any) -> None:
+        self.append_event(event)
+
+    def write_record(self, record: dict[str, Any]) -> None:
+        self.append_record(record)
+
+    def import_jsonl(self, content: str) -> int:
+        records = parse_jsonl_records(content)
+        self.append_records(records)
+        return len(records)
 
     def list_records(self) -> list[dict[str, Any]]:
         if not self.path.exists():
@@ -61,6 +108,64 @@ class JsonlTraceStore:
             if record.get("record_type") == "trace_event"
             and record.get("trace_id") == trace_id
         ]
+
+
+class InMemoryTraceStore:
+    """TraceStore implementation backed by an in-memory record list."""
+
+    def __init__(self, records: Optional[list[dict[str, Any]]] = None):
+        self.records = list(records or [])
+
+    def append_event(self, event: Any) -> None:
+        self.append_record(event.to_dict())
+
+    def append_events(self, events: list[Any]) -> None:
+        self.append_records([event.to_dict() for event in events])
+
+    def append_record(self, record: dict[str, Any]) -> None:
+        self.append_records([record])
+
+    def append_records(self, records: list[dict[str, Any]]) -> None:
+        self.records.extend(copy.deepcopy(records))
+
+    def import_jsonl(self, content: str) -> int:
+        records = parse_jsonl_records(content)
+        self.append_records(records)
+        return len(records)
+
+    def list_records(self) -> list[dict[str, Any]]:
+        return copy.deepcopy(self.records)
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        return reconstruct_runs(self.list_records())
+
+    def get_run(self, trace_id: str) -> Optional[dict[str, Any]]:
+        for run in self.list_runs():
+            if run.get("trace_id") == trace_id:
+                return run
+        return None
+
+    def list_events(self, trace_id: str) -> list[dict[str, Any]]:
+        return [
+            record
+            for record in self.list_records()
+            if record.get("record_type") == "trace_event"
+            and record.get("trace_id") == trace_id
+        ]
+
+
+def parse_jsonl_records(content: str) -> list[dict[str, Any]]:
+    records = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        records.append(record)
+    return records
 
 
 def reconstruct_runs(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
