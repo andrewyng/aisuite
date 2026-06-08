@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Any, Type, Optional
 from pydantic import BaseModel, create_model, Field, ValidationError
+import asyncio
 import inspect
 import json
 from docstring_parser import parse
@@ -436,6 +437,182 @@ class Tools:
             "Tool policy must return a bool or ToolPolicyDecision instance."
         )
 
+    def _prepare_tool_call(self, tool_call, tool_policy, tool_policy_context) -> dict:
+        """Parse, validate, evaluate policy, and emit pre-invocation events.
+
+        Returns a context dict shared by the sync and async execution paths. If
+        the call is denied, ``ctx["denied"]`` is True and ``ctx["result"]`` holds
+        the denial result; otherwise the caller invokes ``ctx["tool_func"]`` with
+        ``ctx["args"]``.
+        """
+        # Handle both dictionary and object-style tool calls
+        if isinstance(tool_call, dict):
+            tool_name = tool_call["function"]["name"]
+            arguments = tool_call["function"]["arguments"]
+            tool_call_id = tool_call["id"]
+        else:
+            tool_name = tool_call.function.name
+            arguments = tool_call.function.arguments
+            tool_call_id = tool_call.id
+
+        # Ensure arguments is a dict
+        if isinstance(arguments, str):
+            arguments = json.loads(arguments)
+
+        if tool_name not in self._tools:
+            raise ValueError(f"Tool '{tool_name}' not registered.")
+
+        tool = self._tools[tool_name]
+        tool_func = tool["function"]
+        param_model = tool["param_model"]
+        tool_metadata = tool.get("metadata")
+        tool_metadata_dict = (
+            tool_metadata.to_dict() if tool_metadata is not None else None
+        )
+
+        # Validate and parse the arguments with Pydantic if a model exists
+        try:
+            validated_args = param_model(**arguments)
+        except ValidationError as e:
+            raise ValueError(f"Error in tool '{tool_name}' parameters: {e}")
+        validated_args_dict = validated_args.model_dump()
+        trace_arguments, argument_artifacts = self._artifactized_trace_value(
+            validated_args_dict
+        )
+        decision = self._evaluate_tool_policy(
+            tool_policy,
+            tool_policy_context,
+            tool_name,
+            validated_args_dict,
+            tool_metadata,
+        )
+        if decision is not None:
+            policy_event = {
+                "tool_name": tool_name,
+                "allowed": decision.allowed,
+                "reason": decision.reason,
+                "metadata": decision.metadata,
+            }
+            if tool_metadata_dict is not None:
+                policy_event["tool_metadata"] = tool_metadata_dict
+            self.last_policy_events.append(policy_event)
+
+        ctx = {
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "tool_func": tool_func,
+            "args": validated_args_dict,
+            "tool_metadata_dict": tool_metadata_dict,
+            "denied": False,
+            "result": None,
+        }
+
+        if decision is not None and not decision.allowed:
+            tool_event = {
+                "type": "tool_call",
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "arguments": trace_arguments,
+                "allowed": False,
+                "reason": decision.reason,
+                "metadata": decision.metadata,
+            }
+            if argument_artifacts:
+                tool_event["argument_artifacts"] = argument_artifacts
+            if tool_metadata_dict is not None:
+                tool_event["tool_metadata"] = tool_metadata_dict
+            self.last_tool_events.append(tool_event)
+            self._emit_tool_trace_event("tool.denied", tool_event)
+            ctx["denied"] = True
+            ctx["result"] = {
+                "error": "Tool call denied by policy",
+                "reason": decision.reason,
+            }
+            return ctx
+
+        tool_event = {
+            "type": "tool_call",
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "arguments": trace_arguments,
+            "allowed": True,
+            "reason": decision.reason if decision else None,
+            "metadata": decision.metadata if decision else {},
+        }
+        if argument_artifacts:
+            tool_event["argument_artifacts"] = argument_artifacts
+        if tool_metadata_dict is not None:
+            tool_event["tool_metadata"] = tool_metadata_dict
+        self.last_tool_events.append(tool_event)
+        self._emit_tool_trace_event("tool.allowed", tool_event)
+        self._emit_tool_trace_event("tool.started", tool_event)
+        return ctx
+
+    def _record_tool_failure(self, ctx: dict, exc: Exception) -> None:
+        failed_event = {
+            "type": "tool_result",
+            "tool_name": ctx["tool_name"],
+            "tool_call_id": ctx["tool_call_id"],
+            "status": "failed",
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+        }
+        if ctx["tool_metadata_dict"] is not None:
+            failed_event["tool_metadata"] = ctx["tool_metadata_dict"]
+        self.last_tool_events.append(failed_event)
+        self._emit_tool_trace_event("tool.failed", failed_event)
+
+    def _invoke_tool_sync(self, ctx: dict):
+        try:
+            return ctx["tool_func"](**ctx["args"])
+        except Exception as exc:
+            self._record_tool_failure(ctx, exc)
+            raise
+
+    async def _invoke_tool_async(self, ctx: dict):
+        tool_func = ctx["tool_func"]
+        try:
+            if inspect.iscoroutinefunction(tool_func):
+                return await tool_func(**ctx["args"])
+            # Run blocking sync tools off the event loop.
+            return await asyncio.to_thread(lambda: tool_func(**ctx["args"]))
+        except Exception as exc:
+            self._record_tool_failure(ctx, exc)
+            raise
+
+    def _finalize_tool_call(
+        self, ctx: dict, result, results: list, messages: list
+    ) -> None:
+        if not ctx["denied"]:
+            result_event = {
+                "type": "tool_result",
+                "tool_name": ctx["tool_name"],
+                "tool_call_id": ctx["tool_call_id"],
+                "status": "success",
+                "result_preview": _preview_tool_result(result),
+            }
+            artifactized_result, result_artifacts = self._artifactized_trace_value(
+                result
+            )
+            if result_artifacts:
+                result_event["result_artifacts"] = result_artifacts
+                result_event["result_preview"] = _preview_tool_result(
+                    artifactized_result
+                )
+            if ctx["tool_metadata_dict"] is not None:
+                result_event["tool_metadata"] = ctx["tool_metadata_dict"]
+            self.last_tool_events.append(result_event)
+            self._emit_tool_trace_event("tool.completed", result_event)
+        results.append(result)
+        messages.append(
+            {
+                "role": "tool",
+                "name": ctx["tool_name"],
+                "content": json.dumps(result),
+                "tool_call_id": ctx["tool_call_id"],
+            }
+        )
+
     def execute_tool(
         self, tool_calls, tool_policy=None, tool_policy_context=None
     ) -> tuple[list, list]:
@@ -457,137 +634,34 @@ class Tools:
             tool_calls = [tool_calls]
 
         for tool_call in tool_calls:
-            # Handle both dictionary and object-style tool calls
-            if isinstance(tool_call, dict):
-                tool_name = tool_call["function"]["name"]
-                arguments = tool_call["function"]["arguments"]
-                tool_call_id = tool_call["id"]
-            else:
-                tool_name = tool_call.function.name
-                arguments = tool_call.function.arguments
-                tool_call_id = tool_call.id
+            ctx = self._prepare_tool_call(tool_call, tool_policy, tool_policy_context)
+            result = ctx["result"] if ctx["denied"] else self._invoke_tool_sync(ctx)
+            self._finalize_tool_call(ctx, result, results, messages)
 
-            # Ensure arguments is a dict
-            if isinstance(arguments, str):
-                arguments = json.loads(arguments)
+        return results, messages
 
-            if tool_name not in self._tools:
-                raise ValueError(f"Tool '{tool_name}' not registered.")
+    async def aexecute_tool(
+        self, tool_calls, tool_policy=None, tool_policy_context=None
+    ) -> tuple[list, list]:
+        """Async variant of ``execute_tool``.
 
-            tool = self._tools[tool_name]
-            tool_func = tool["function"]
-            param_model = tool["param_model"]
-            tool_metadata = tool.get("metadata")
-            tool_metadata_dict = (
-                tool_metadata.to_dict() if tool_metadata is not None else None
+        Awaits ``async def`` tool callables and runs blocking sync tools in a
+        worker thread. Policy evaluation, validation, event recording, and
+        message building are shared with the sync path.
+        """
+        results = []
+        messages = []
+        self.last_policy_events = []
+        self.last_tool_events = []
+
+        if not isinstance(tool_calls, list):
+            tool_calls = [tool_calls]
+
+        for tool_call in tool_calls:
+            ctx = self._prepare_tool_call(tool_call, tool_policy, tool_policy_context)
+            result = (
+                ctx["result"] if ctx["denied"] else await self._invoke_tool_async(ctx)
             )
-
-            # Validate and parse the arguments with Pydantic if a model exists
-            try:
-                validated_args = param_model(**arguments)
-                validated_args_dict = validated_args.model_dump()
-                trace_arguments, argument_artifacts = self._artifactized_trace_value(
-                    validated_args_dict
-                )
-                decision = self._evaluate_tool_policy(
-                    tool_policy,
-                    tool_policy_context,
-                    tool_name,
-                    validated_args_dict,
-                    tool_metadata,
-                )
-                if decision is not None:
-                    policy_event = {
-                        "tool_name": tool_name,
-                        "allowed": decision.allowed,
-                        "reason": decision.reason,
-                        "metadata": decision.metadata,
-                    }
-                    if tool_metadata_dict is not None:
-                        policy_event["tool_metadata"] = tool_metadata_dict
-                    self.last_policy_events.append(policy_event)
-                if decision is not None and not decision.allowed:
-                    tool_event = {
-                        "type": "tool_call",
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "arguments": trace_arguments,
-                        "allowed": False,
-                        "reason": decision.reason,
-                        "metadata": decision.metadata,
-                    }
-                    if argument_artifacts:
-                        tool_event["argument_artifacts"] = argument_artifacts
-                    if tool_metadata_dict is not None:
-                        tool_event["tool_metadata"] = tool_metadata_dict
-                    self.last_tool_events.append(tool_event)
-                    self._emit_tool_trace_event("tool.denied", tool_event)
-                    result = {
-                        "error": "Tool call denied by policy",
-                        "reason": decision.reason,
-                    }
-                else:
-                    tool_event = {
-                        "type": "tool_call",
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "arguments": trace_arguments,
-                        "allowed": True,
-                        "reason": decision.reason if decision else None,
-                        "metadata": decision.metadata if decision else {},
-                    }
-                    if argument_artifacts:
-                        tool_event["argument_artifacts"] = argument_artifacts
-                    if tool_metadata_dict is not None:
-                        tool_event["tool_metadata"] = tool_metadata_dict
-                    self.last_tool_events.append(tool_event)
-                    self._emit_tool_trace_event("tool.allowed", tool_event)
-                    self._emit_tool_trace_event("tool.started", tool_event)
-                    try:
-                        result = tool_func(**validated_args_dict)
-                    except Exception as exc:
-                        failed_event = {
-                            "type": "tool_result",
-                            "tool_name": tool_name,
-                            "tool_call_id": tool_call_id,
-                            "status": "failed",
-                            "error": str(exc),
-                            "error_type": type(exc).__name__,
-                        }
-                        if tool_metadata_dict is not None:
-                            failed_event["tool_metadata"] = tool_metadata_dict
-                        self.last_tool_events.append(failed_event)
-                        self._emit_tool_trace_event("tool.failed", failed_event)
-                        raise
-                    result_event = {
-                        "type": "tool_result",
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "status": "success",
-                        "result_preview": _preview_tool_result(result),
-                    }
-                    artifactized_result, result_artifacts = (
-                        self._artifactized_trace_value(result)
-                    )
-                    if result_artifacts:
-                        result_event["result_artifacts"] = result_artifacts
-                        result_event["result_preview"] = _preview_tool_result(
-                            artifactized_result
-                        )
-                    if tool_metadata_dict is not None:
-                        result_event["tool_metadata"] = tool_metadata_dict
-                    self.last_tool_events.append(result_event)
-                    self._emit_tool_trace_event("tool.completed", result_event)
-                results.append(result)
-                messages.append(
-                    {
-                        "role": "tool",
-                        "name": tool_name,
-                        "content": json.dumps(result),
-                        "tool_call_id": tool_call_id,
-                    }
-                )
-            except ValidationError as e:
-                raise ValueError(f"Error in tool '{tool_name}' parameters: {e}")
+            self._finalize_tool_call(ctx, result, results, messages)
 
         return results, messages
