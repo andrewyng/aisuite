@@ -30,10 +30,14 @@ class TestGoogleMessageConverter(unittest.TestCase):
         ]
         converted_messages = self.converter.convert_request(messages)
 
+        # Tool results come back wrapped in a Content (role="function") so the
+        # whole history is a list of Content objects (#270).
         self.assertEqual(len(converted_messages), 1)
-        self.assertEqual(converted_messages[0].function_response.name, "get_weather")
+        self.assertEqual(converted_messages[0].role, "function")
+        function_response = converted_messages[0].parts[0].function_response
+        self.assertEqual(function_response.name, "get_weather")
         self.assertEqual(
-            converted_messages[0].function_response.response,
+            function_response.response,
             {"temperature": "15", "unit": "Celsius"},
         )
 
