@@ -4,6 +4,7 @@ import {
   getArtifacts,
   getBrowserState,
   readArtifact,
+  revealArtifact,
   takeBrowserScreenshot,
   type ArtifactContent,
   type ArtifactInfo,
@@ -11,8 +12,17 @@ import {
 } from "../api";
 import type { TodoItem } from "../types";
 import { Icon } from "./Icon";
+import { Markdown } from "./Markdown";
 
 type Panel = "progress" | "browser" | "artifacts";
+
+// Quiet file-type icons for the artifact list (the colored kind pills read as noisy).
+function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
+  if (kind === "image") return "image";
+  if (kind === "html" || kind === "code") return "fileCode";
+  if (kind === "csv" || kind === "sheet") return "table";
+  return "file"; // markdown, text, pdf, everything else
+}
 
 interface Props {
   active: boolean;
@@ -21,10 +31,9 @@ interface Props {
   toolNames: string[];
   todo: TodoItem[];
   running: boolean;
-  onHide: () => void;
 }
 
-export function RightRail({ active, sessionId, refreshKey, toolNames, todo, running, onHide }: Props) {
+export function RightRail({ active, sessionId, refreshKey, toolNames, todo, running }: Props) {
   const [open, setOpen] = useState<Record<Panel, boolean>>({
     progress: true,
     browser: false,
@@ -43,6 +52,13 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
     refreshBrowser();
     refreshArtifacts();
   }, [active, sessionId, refreshKey]);
+
+  // Switching conversations closes any open artifact — it belongs to the previous session's
+  // workspace, which the new session can't (and shouldn't) read.
+  useEffect(() => {
+    setSelected(null);
+    setContent(null);
+  }, [sessionId]);
 
   useEffect(() => {
     setContent(null);
@@ -63,14 +79,11 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
     <aside className={"right-rail" + (selected ? " artifact-mode" : "")}>
       {selected ? (
         <ArtifactViewer
+          sessionId={sessionId}
           artifact={selected}
           content={content}
           onReload={reloadSelected}
           onBack={() => setSelected(null)}
-          onClose={() => {
-            setSelected(null);
-            onHide();
-          }}
         />
       ) : (
         <>
@@ -96,7 +109,9 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
               <div className="artifact-list">
                 {artifacts.slice(0, 16).map((a) => (
                   <button className="artifact-row" key={a.path} onClick={() => setSelected(a)}>
-                    <span className={`artifact-kind ${a.kind}`}>{a.kind}</span>
+                    <span className="artifact-ico" title={a.kind}>
+                      <Icon name={kindIcon(a.kind)} size={17} />
+                    </span>
                     <span className="artifact-name">
                       {a.name}
                       <span className="artifact-row-meta">{formatBytes(a.size)} · {formatTime(a.modified_at)}</span>
@@ -199,20 +214,21 @@ function BrowserMini({ state, onRefresh }: { state: BrowserState | null; onRefre
 }
 
 function ArtifactViewer({
+  sessionId,
   artifact,
   content,
   onReload,
   onBack,
-  onClose,
 }: {
+  sessionId: string;
   artifact: ArtifactInfo;
   content: ArtifactContent | null;
   onReload: () => Promise<void>;
   onBack: () => void;
-  onClose: () => void;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const isHtml = content?.kind === "html" && !content.error;
+  const isApp = content?.kind === "sheet" || content?.kind === "pdf"; // best viewed in a real app
 
   return (
     <div className="artifact-viewer">
@@ -238,11 +254,26 @@ function ArtifactViewer({
               <Icon name="refresh" size={16} />
             </button>
           )}
+          {isApp && (
+            <button
+              className="artifact-icon-btn"
+              onClick={() => revealArtifact(sessionId, artifact.path, "open")}
+              aria-label="Open in default app"
+              title="Open in default app"
+            >
+              <Icon name="panelOpen" size={16} />
+            </button>
+          )}
           <button className="artifact-icon-btn" onClick={() => navigator.clipboard?.writeText(artifact.path)} aria-label="Copy path" title="Copy path">
             <Icon name="copy" size={16} />
           </button>
-          <button className="artifact-icon-btn" onClick={onClose} aria-label="Hide artifact viewer" title="Hide">
-            <Icon name="panelClose" size={16} />
+          <button
+            className="artifact-icon-btn"
+            onClick={() => revealArtifact(sessionId, artifact.path, "reveal")}
+            aria-label="Reveal in Finder"
+            title="Reveal in Finder"
+          >
+            <Icon name="folder" size={16} />
           </button>
         </div>
       </div>
@@ -259,9 +290,17 @@ function ArtifactViewer({
             srcDoc={content.content || ""}
           />
         ) : content.kind === "markdown" ? (
-          <MarkdownPreview text={content.content || ""} />
+          <div className="artifact-md">
+            <Markdown text={content.content || ""} />
+          </div>
         ) : content.kind === "image" ? (
           <img className="artifact-image" src={content.data_url} />
+        ) : content.kind === "pdf" ? (
+          <embed className="artifact-pdf" src={content.data_url} type="application/pdf" />
+        ) : content.kind === "csv" ? (
+          <CsvTable text={content.content || ""} />
+        ) : content.kind === "sheet" ? (
+          <SheetViewer dataUrl={content.data_url || ""} />
         ) : (
           <pre className="artifact-code">{content.content}</pre>
         )}
@@ -270,42 +309,122 @@ function ArtifactViewer({
   );
 }
 
-function MarkdownPreview({ text }: { text: string }) {
-  const blocks = parseMarkdownBlocks(text);
+const MAX_TABLE_ROWS = 500;
+
+function GridTable({ rows, note }: { rows: unknown[][]; note?: string }) {
+  const [head, ...body] = rows;
   return (
-    <div className="markdown-preview">
-      {blocks.map((block, i) => {
-        if (block.type === "code") return <pre className="md-code" key={i}>{block.text}</pre>;
-        const trimmed = block.text.trim();
-        if (block.type === "h1") return <h1 key={i}>{trimmed}</h1>;
-        if (block.type === "h2") return <h2 key={i}>{trimmed}</h2>;
-        if (block.type === "h3") return <h3 key={i}>{trimmed}</h3>;
-        if (block.type === "quote") return <blockquote key={i}>{trimmed}</blockquote>;
-        if (block.type === "ol") return <ol key={i}>{block.lines.map((line, j) => <li key={j}>{line}</li>)}</ol>;
-        if (block.type === "ul") return <ul key={i}>{block.lines.map((line, j) => <li key={j}>{line}</li>)}</ul>;
-        return <p key={i}>{trimmed}</p>;
-      })}
+    <div className="artifact-tablewrap">
+      <table className="artifact-table">
+        {head && (
+          <thead>
+            <tr>{head.map((c, i) => <th key={i}>{String(c ?? "")}</th>)}</tr>
+          </thead>
+        )}
+        <tbody>
+          {body.slice(0, MAX_TABLE_ROWS).map((r, i) => (
+            <tr key={i}>{r.map((c, j) => <td key={j}>{String(c ?? "")}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+      {(note || body.length > MAX_TABLE_ROWS) && (
+        <div className="rail-muted artifact-table-note">
+          {note}
+          {body.length > MAX_TABLE_ROWS ? ` Showing first ${MAX_TABLE_ROWS} of ${body.length} rows.` : ""}
+        </div>
+      )}
     </div>
   );
 }
 
-function parseMarkdownBlocks(text: string): Array<{ type: string; text: string; lines: string[] }> {
-  const out: Array<{ type: string; text: string; lines: string[] }> = [];
-  const chunks = text.split(/\n{2,}/);
-  for (const chunk of chunks) {
-    const raw = chunk.trim();
-    if (!raw) continue;
-    if (raw.startsWith("```")) {
-      out.push({ type: "code", text: raw.replace(/^```[a-zA-Z0-9_-]*\n?/, "").replace(/\n?```$/, ""), lines: [] });
-    } else if (raw.startsWith("# ")) out.push({ type: "h1", text: raw.slice(2), lines: [] });
-    else if (raw.startsWith("## ")) out.push({ type: "h2", text: raw.slice(3), lines: [] });
-    else if (raw.startsWith("### ")) out.push({ type: "h3", text: raw.slice(4), lines: [] });
-    else if (/^>\s/.test(raw)) out.push({ type: "quote", text: raw.split("\n").map((l) => l.replace(/^>\s?/, "")).join("\n"), lines: [] });
-    else if (/^[-*]\s/m.test(raw)) out.push({ type: "ul", text: "", lines: raw.split("\n").map((l) => l.replace(/^[-*]\s+/, "")) });
-    else if (/^\d+\.\s/m.test(raw)) out.push({ type: "ol", text: "", lines: raw.split("\n").map((l) => l.replace(/^\d+\.\s+/, "")) });
-    else out.push({ type: "p", text: raw, lines: [] });
+// Minimal RFC-4180-ish CSV parsing: quoted fields, escaped quotes, CRLF. TSV via tab sniffing.
+function parseCsv(text: string): string[][] {
+  const delim = text.includes("\t") && !text.split("\n")[0]?.includes(",") ? "\t" : ",";
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else quoted = false;
+      } else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === delim) {
+      row.push(cell);
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell);
+      cell = "";
+      rows.push(row);
+      row = [];
+    } else cell += ch;
   }
-  return out;
+  if (cell !== "" || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((c) => c !== ""));
+}
+
+function CsvTable({ text }: { text: string }) {
+  const rows = parseCsv(text);
+  if (!rows.length) return <div className="rail-muted artifact-table-note">Empty file.</div>;
+  return <GridTable rows={rows} />;
+}
+
+// xlsx/xls preview via SheetJS (loaded on demand — it's a heavy module): sheet tabs + a capped
+// grid. Real spreadsheet work belongs in Numbers/Excel via "Open in default app".
+function SheetViewer({ dataUrl }: { dataUrl: string }) {
+  const [sheets, setSheets] = useState<{ name: string; rows: unknown[][] }[] | null>(null);
+  const [error, setError] = useState("");
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSheets(null);
+    setError("");
+    setActive(0);
+    const base64 = dataUrl.split(",")[1] || "";
+    import("xlsx")
+      .then((XLSX) => {
+        if (cancelled) return;
+        const wb = XLSX.read(base64, { type: "base64" });
+        setSheets(
+          wb.SheetNames.map((name) => ({
+            name,
+            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "" }) as unknown[][],
+          })),
+        );
+      })
+      .catch((e) => !cancelled && setError(String(e?.message || e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [dataUrl]);
+
+  if (error) return <div className="rail-error artifact-table-note">Could not parse spreadsheet: {error}</div>;
+  if (!sheets) return <div className="rail-muted artifact-table-note">Parsing spreadsheet…</div>;
+  const sheet = sheets[active];
+  return (
+    <div className="sheet-viewer">
+      {sheets.length > 1 && (
+        <div className="sheet-tabs">
+          {sheets.map((s, i) => (
+            <button key={s.name} className={"sheet-tab" + (i === active ? " active" : "")} onClick={() => setActive(i)}>
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {sheet.rows.length ? <GridTable rows={sheet.rows} /> : <div className="rail-muted artifact-table-note">Empty sheet.</div>}
+    </div>
+  );
 }
 
 function formatBytes(bytes: number): string {

@@ -25,7 +25,12 @@ type IconName =
   | "chevronDown"
   | "moreHorizontal"
   | "pin"
-  | "archive";
+  | "archive"
+  | "shield"
+  | "file"
+  | "fileCode"
+  | "image"
+  | "table";
 
 export function Icon({
   name,
@@ -62,6 +67,46 @@ export function Icon({
         <svg {...s}>
           <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
           <path d="M3.4 10h17.2" />
+        </svg>
+      );
+    case "shield":
+      return (
+        <svg {...s}>
+          <path d="M12 3.2l7 2.8v5.1c0 4.3-2.9 7.4-7 9.7-4.1-2.3-7-5.4-7-9.7V6l7-2.8z" />
+          <path d="M9.3 12.1l1.9 1.9 3.5-3.6" />
+        </svg>
+      );
+    case "file":
+      // Document with a folded corner + text lines.
+      return (
+        <svg {...s}>
+          <path d="M6.5 3.5h7L18 8v11a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5z" />
+          <path d="M13.5 3.5V8H18M8.5 12.5h7M8.5 16h5" />
+        </svg>
+      );
+    case "fileCode":
+      // Document with </> marks (html/code).
+      return (
+        <svg {...s}>
+          <path d="M6.5 3.5h7L18 8v11a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5z" />
+          <path d="M13.5 3.5V8H18M10.2 12l-2 2.2 2 2.2M13.3 12l2 2.2-2 2.2" />
+        </svg>
+      );
+    case "image":
+      // Picture frame: sun + mountains.
+      return (
+        <svg {...s}>
+          <rect x="4" y="5" width="16" height="14" rx="2" />
+          <circle cx="9" cy="10" r="1.6" />
+          <path d="M4.5 16.5l4.5-4 3.5 3 3-2.5 4 3.5" />
+        </svg>
+      );
+    case "table":
+      // Spreadsheet grid (csv/xlsx).
+      return (
+        <svg {...s}>
+          <rect x="4" y="5" width="16" height="14" rx="2" />
+          <path d="M4 10h16M10 10v9M4 14.5h16" />
         </svg>
       );
     case "folderPlus":

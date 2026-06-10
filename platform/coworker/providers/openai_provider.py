@@ -191,6 +191,29 @@ def _parse_tool_calls(raw_tool_calls: Any) -> list[ToolCall]:
 # Gated on: tools were requested AND no structured calls came back. Never fires for OpenAI.
 _TOOLCALL_OPEN = re.compile(r"<tool_call>\s*", re.IGNORECASE)
 
+# Qwen/Hermes native tool-call template — NOT JSON. The model writes the call as nested XML:
+#   <function=write_file><parameter=path>hello.txt</parameter><parameter=content>hi</parameter></function>
+# (usually wrapped in <tool_call>…</tool_call>). qwen3-coder emits exactly this, so we parse the
+# function/parameter tags directly. Values are taken verbatim (stripped); only no-whitespace JSON
+# tokens (numbers, bools, objects/arrays) are coerced, so free-text content stays a string.
+_FUNCTION_BLOCK = re.compile(
+    r"<function\s*=\s*(?P<name>[^>\s]+)\s*>(?P<body>.*?)</function\s*>", re.IGNORECASE | re.DOTALL
+)
+_PARAM_BLOCK = re.compile(
+    r"<parameter\s*=\s*(?P<key>[^>\s]+)\s*>(?P<val>.*?)</parameter\s*>", re.IGNORECASE | re.DOTALL
+)
+
+
+def _coerce_param(raw: str) -> Any:
+    """Keep free-text verbatim (the common case: file content), but recover real JSON values when
+    the whole token is unambiguous JSON (no embedded whitespace) — e.g. `3`, `true`, `{"a":1}`."""
+    s = raw.strip()
+    if s and not any(c.isspace() for c in s):
+        v = _loads(s)
+        if isinstance(v, (dict, list, int, float, bool)):
+            return v
+    return s
+
 
 def _maybe_salvage_tool_calls(
     text: Optional[str], tool_calls: list[ToolCall], *, tools: Optional[list[dict[str, Any]]]
@@ -331,6 +354,16 @@ def _salvage_tool_calls_from_text(
                 c = _call_from_dict(d, names)
                 if c:
                     calls.append(c)
+    if calls:
+        return _renumber(calls)
+
+    # 1b) Qwen/Hermes XML calls: <function=NAME><parameter=KEY>VAL</parameter>…</function>.
+    for fm in _FUNCTION_BLOCK.finditer(text):
+        name = fm.group("name").strip()
+        if names is not None and name not in names:
+            continue
+        args = {pm.group("key").strip(): _coerce_param(pm.group("val")) for pm in _PARAM_BLOCK.finditer(fm.group("body"))}
+        calls.append(ToolCall(id="", name=name, arguments=args))
     if calls:
         return _renumber(calls)
 

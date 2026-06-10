@@ -14,8 +14,6 @@ const SURFACES: { key: string; label: string; icon: "diamond" | "chat" | "code";
 interface Props {
   agent: string;
   workspace: string;
-  model: string;
-  mode: string;
   surfaces: SurfaceVisibility;
   sessions: SessionInfo[];
   projects: RecentWorkspace[];
@@ -39,13 +37,19 @@ interface Props {
 }
 
 const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
-const needsWorkspace = (a: string) => a === "code" || a === "cowork";
 
 export function Sidebar(props: Props) {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const mine = props.sessions.filter((s) => s.agent === props.agent && !s.session_id.startsWith("__"));
-  const workspaceSurface = needsWorkspace(props.agent);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const all = props.sessions.filter((s) => s.agent === props.agent && !s.session_id.startsWith("__"));
+  const mine = all.filter((s) => !s.archived);
+  const archived = all.filter((s) => s.archived);
+  // Only Code groups sessions by project folder. Cowork conversations are orphan (each has its
+  // own per-conversation scratch dir), so they list flat like Chat.
+  const workspaceSurface = props.agent === "code";
 
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (s: SessionInfo) =>
@@ -55,33 +59,62 @@ export function Sidebar(props: Props) {
 
   const sessionRow = (s: SessionInfo) => {
     const title = s.title || s.session_id;
+    const editing = editingId === s.session_id;
+    const commitRename = () => {
+      const next = editValue.trim();
+      if (next && next !== title) props.onRenameSession(s.session_id, next);
+      setEditingId(null);
+    };
     return (
       <div
         key={s.session_id}
         className={"session" + (s.session_id === props.activeSession ? " active" : "")}
-        onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
-        title={title}
+        onClick={() => {
+          if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
+        }}
+        title={editing ? undefined : title}
       >
-        <span className="session-title">{title}</span>
-        <span className="session-actions" onClick={(e) => e.stopPropagation()}>
-          <button
-            title="Rename"
-            onClick={() => {
-              const next = window.prompt("Rename conversation", title);
-              if (next && next.trim() && next.trim() !== title) props.onRenameSession(s.session_id, next.trim());
+        {editing ? (
+          <input
+            className="session-edit"
+            value={editValue}
+            autoFocus
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") commitRename();
+              else if (e.key === "Escape") setEditingId(null);
             }}
-          >
-            <Icon name="pencil" size={12} />
-          </button>
-          <button
-            title="Delete"
-            onClick={() => {
-              if (window.confirm(`Delete "${title}"?`)) props.onDeleteSession(s.session_id);
-            }}
-          >
-            ×
-          </button>
-        </span>
+          />
+        ) : (
+          <>
+            <span className="session-title">
+              {s.pinned && <Icon name="pin" size={11} className="session-pin" />}
+              {title}
+            </span>
+            <span className="session-actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                title="Rename"
+                onClick={() => {
+                  setEditingId(s.session_id);
+                  setEditValue(title);
+                }}
+              >
+                <Icon name="pencil" size={12} />
+              </button>
+              <button
+                title="Delete"
+                onClick={() => {
+                  if (window.confirm(`Delete "${title}"?`)) props.onDeleteSession(s.session_id);
+                }}
+              >
+                ×
+              </button>
+            </span>
+          </>
+        )}
       </div>
     );
   };
@@ -232,6 +265,16 @@ export function Sidebar(props: Props) {
             </div>
           </>
         )}
+
+        {archived.length > 0 && (
+          <div className="archived-block">
+            <div className="archived-head" onClick={() => setShowArchived((v) => !v)}>
+              <Icon name={showArchived ? "chevronDown" : "chevronRight"} size={14} />
+              Archived ({archived.length})
+            </div>
+            {showArchived && <div className="sessions">{archived.filter(matches).map(sessionRow)}</div>}
+          </div>
+        )}
       </div>
     );
   };
@@ -291,9 +334,6 @@ export function Sidebar(props: Props) {
             {props.workspace || "—"}
           </div>
         )}
-        <div>
-          {props.model} · {props.mode}
-        </div>
       </div>
     </div>
   );

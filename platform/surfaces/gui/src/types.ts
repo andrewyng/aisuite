@@ -6,6 +6,7 @@ export type EventType =
   | "assistant_message"
   | "tool_proposed"
   | "permission_required"
+  | "directory_requested"
   | "tool_started"
   | "tool_finished"
   | "iteration_end"
@@ -35,6 +36,8 @@ export interface SessionInfo {
   mode: string;
   updated_at: string | null;
   messages: number;
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 // Attachments (images, text files) sent with a user message.
@@ -58,5 +61,12 @@ export type Item =
       reason: string;
       category?: string;
       resolved?: ApprovalDecision;
+    }
+  | {
+      kind: "dirreq";
+      reason: string;
+      path?: string;
+      writable?: boolean;
+      resolved?: "granted" | "denied";
     }
   | { kind: "notice"; tone: "info" | "warn"; text: string };

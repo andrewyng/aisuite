@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "./Icon";
 
 export interface Option {
   value: string;
@@ -17,11 +18,12 @@ interface Props {
 export function Dropdown({ prefix, value, options, onChange, align = "left" }: Props) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
+  const label = (prefix ? `${prefix}: ` : "") + (current?.label || value);
   return (
     <div className="dd">
-      <button className="pill" onClick={() => setOpen((v) => !v)}>
-        {prefix ? `${prefix}: ` : ""}
-        {current?.label || value} <span className="caret">▾</span>
+      <button className="pill" onClick={() => setOpen((v) => !v)} title={label}>
+        <span className="pill-label">{label}</span>
+        <Icon name="chevronDown" size={13} className="caret" />
       </button>
       {open && (
         <>

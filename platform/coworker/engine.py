@@ -58,6 +58,8 @@ class TurnEngine:
         model_settings: Optional[dict[str, Any]] = None,
         messages: Optional[list[dict[str, Any]]] = None,
         audit_sink: Optional[Callable[[dict[str, Any]], None]] = None,
+        context_provider: Optional[Callable[[], str]] = None,
+        directory_requester: Optional[Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]] = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -68,6 +70,15 @@ class TurnEngine:
         self.model_settings = dict(model_settings or {})
         self.messages: list[dict[str, Any]] = list(messages or [])
         self.audit_sink = audit_sink
+        # Returns an ephemeral `<system-context>` block appended to the LAST user message at
+        # send-time only (never persisted). We can't reliably inject system messages mid-thread
+        # across providers, so dynamic per-turn context (e.g. the live directory list) rides on
+        # the latest user turn. Returns "" when there's nothing to add.
+        self.context_provider = context_provider
+        # Handles the `request_directory` tool: emits a DIRECTORY_REQUESTED prompt, waits for the
+        # user to grant/decline a folder out-of-band, applies the grant to this live session, and
+        # returns the outcome. None on surfaces that can't prompt (the tool then no-ops).
+        self.directory_requester = directory_requester
         self.audit_context: dict[str, Any] = {}
         if instructions and not (
             self.messages and self.messages[0].get("role") == "system"
@@ -150,7 +161,7 @@ class TurnEngine:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         tools = self.registry.schemas() or None
-        model, messages, settings = self.model, self.messages, self.model_settings
+        model, messages, settings = self.model, self._outbound_messages(), self.model_settings
         provider = self.provider
 
         def produce():
@@ -183,6 +194,13 @@ class TurnEngine:
             {"name": tool_call.name, "arguments": tool_call.arguments},
         )
         self._audit(tool_call, stage="proposed")
+
+        # `request_directory` is interactive: the user grants a folder out-of-band and the live
+        # session gains it. The grant IS the consent, so it skips the permission/registry path.
+        if tool_call.name == "request_directory":
+            async for event in self._handle_directory_request(tool_call):
+                yield event
+            return
 
         decision = self.permissions.evaluate(
             tool_call.name, tool_call.arguments, metadata
@@ -279,10 +297,62 @@ class TurnEngine:
         except Exception:
             pass
 
+    async def _handle_directory_request(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+        """Emit the grant prompt, await the user's out-of-band decision (which the requester also
+        applies to this session's roots), and return the outcome as the tool result."""
+        args = tool_call.arguments or {}
+        if self.directory_requester is None:
+            result: dict[str, Any] = {"granted": False, "error": "directory requests aren't available here"}
+        else:
+            yield Event(
+                EventType.DIRECTORY_REQUESTED,
+                {
+                    "reason": str(args.get("reason", "")),
+                    "path": str(args.get("path", "")),
+                    "writable": bool(args.get("writable", False)),
+                },
+            )
+            self._audit(tool_call, stage="directory_requested", reason=str(args.get("reason", "")))
+            result = await self.directory_requester(dict(args)) or {"granted": False, "error": "no response"}
+
+        status = "ok" if result.get("granted") else "denied"
+        self.messages.append(_tool_result_message(tool_call, result))
+        self._audit(tool_call, stage="finished", status=status, result=result, result_preview=_preview(result))
+        yield Event(
+            EventType.TOOL_FINISHED,
+            {"name": tool_call.name, "status": status, "result_preview": _preview(result)},
+        )
+
     def _inject_steering(self) -> None:
         for text in self._steering:
             self.messages.append({"role": "user", "content": text})
         self._steering = []
+
+    def _outbound_messages(self) -> list[dict[str, Any]]:
+        """`self.messages` with an ephemeral `<system-context>` block appended to the last user
+        message. Returns the list unchanged when there's no context provider or it yields "".
+        Never mutates `self.messages`, so the block is sent but never persisted/replayed."""
+        if self.context_provider is None:
+            return self.messages
+        context = self.context_provider() or ""
+        if not context:
+            return self.messages
+        block = f"\n\n<system-context>\n{context}\n</system-context>"
+        out = list(self.messages)
+        for i in range(len(out) - 1, -1, -1):
+            if out[i].get("role") != "user":
+                continue
+            msg = dict(out[i])
+            content = msg.get("content")
+            if isinstance(content, str):
+                msg["content"] = content + block
+            elif isinstance(content, list):  # content-parts (text + images)
+                msg["content"] = [*content, {"type": "text", "text": block}]
+            else:
+                msg["content"] = block
+            out[i] = msg
+            break
+        return out
 
 
 def _assistant_message(turn: AssistantTurn) -> dict[str, Any]:

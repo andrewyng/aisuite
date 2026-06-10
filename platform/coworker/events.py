@@ -17,6 +17,7 @@ class EventType(str, Enum):
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_PROPOSED = "tool_proposed"
     PERMISSION_REQUIRED = "permission_required"
+    DIRECTORY_REQUESTED = "directory_requested"  # agent asks the user to grant a folder
     TOOL_STARTED = "tool_started"
     TOOL_FINISHED = "tool_finished"
     ITERATION_END = "iteration_end"

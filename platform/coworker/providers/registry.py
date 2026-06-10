@@ -6,12 +6,16 @@ GUI, same `to_dict()` shape connectors use) and a `build(profile, secrets)` fact
 a `ProviderClient`. The `ProviderRouter` selects a descriptor by the `provider:` prefix of a
 model string and builds (and caches) its client from the matching SecretStore profile.
 
-Today: `openai` (the default) and `ollama` (OpenAI-compatible `/v1`). Azure (an `AzureOpenAI`
-client) and Bedrock/Anthropic/Gemini (new wire formats) slot in as additional descriptors.
+Today: `openai` (the default, with an optional custom endpoint that covers Azure OpenAI's
+`/openai/v1` and any OpenAI-compliant gateway), `anthropic` and `gemini` (INTERIM: served via
+each vendor's OpenAI-compatible endpoint — to be replaced by native ProviderClients before
+launch; the descriptors and stored profiles stay the same when that swap happens), and
+`ollama` (local, OpenAI-compatible `/v1`). Bedrock/Vertex auth for Claude is future work.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -19,6 +23,9 @@ from .base import ProviderClient
 from .openai_provider import OpenAIProvider
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+# Vendor OpenAI-compatibility endpoints (interim wire format for anthropic/gemini).
+ANTHROPIC_COMPAT_URL = "https://api.anthropic.com/v1"
+GEMINI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 
 
 @dataclass(frozen=True)
@@ -53,6 +60,7 @@ class ProviderDescriptor:
     fields: list[ProviderField]
     build: Callable[[dict[str, Any], Any], ProviderClient] = field(repr=False)
     recommended_model: Optional[str] = None  # pre-filled in the UI; auto-added on configure
+    env_key: Optional[str] = None  # env var that can supply the API key (e.g. ANTHROPIC_API_KEY)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,8 +88,27 @@ def _normalize_ollama_url(url: Optional[str]) -> str:
 
 def _build_openai(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     # Key resolution stays in OpenAIProvider/resolve_api_key (explicit → env → SecretStore),
-    # so we just hand it the SecretStore. `profile` is unused but kept for a uniform signature.
-    return OpenAIProvider(secrets=secrets)
+    # so we just hand it the SecretStore. An optional custom endpoint (Azure OpenAI /openai/v1,
+    # OpenRouter, vLLM, …) comes from the stored profile.
+    base_url = ((profile or {}).get("base_url") or "").strip() or None
+    return OpenAIProvider(secrets=secrets, base_url=base_url)
+
+
+def _compat_builder(provider: str, env_key: str, compat_url: str):
+    """INTERIM builder for anthropic/gemini: their official OpenAI-compatibility endpoints,
+    driven by our existing OpenAIProvider. Replace with native ProviderClients before launch —
+    only this factory changes; the descriptor, stored profile, and router stay as-is."""
+
+    def build(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+        key = ((profile or {}).get("api_key") or "").strip() or os.environ.get(env_key)
+        if not key:
+            raise RuntimeError(
+                f"No {provider} API key configured. Add it in Manage → Configure Models, "
+                f"or set {env_key} in the environment."
+            )
+        return OpenAIProvider(api_key=key, base_url=compat_url)
+
+    return build
 
 
 def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
@@ -104,8 +131,52 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 placeholder="sk-…",
                 help="Stored locally (0600). Never sent to the model.",
             ),
+            ProviderField(
+                "base_url",
+                "Custom endpoint (optional)",
+                secret=False,
+                required=False,
+                placeholder="https://…/openai/v1",
+                help="For Azure OpenAI, OpenRouter, vLLM, or any OpenAI-compliant server. Leave blank for api.openai.com.",
+            ),
         ],
         build=_build_openai,
+        recommended_model="gpt-5.5",
+        env_key="OPENAI_API_KEY",
+    ),
+    ProviderDescriptor(
+        name="anthropic",
+        title="Claude (Anthropic)",
+        needs_key=True,
+        fields=[
+            ProviderField(
+                "api_key",
+                "Anthropic API key",
+                secret=True,
+                placeholder="sk-ant-…",
+                help="Stored locally (0600). Never sent to the model.",
+            ),
+        ],
+        build=_compat_builder("Anthropic", "ANTHROPIC_API_KEY", ANTHROPIC_COMPAT_URL),
+        recommended_model="claude-sonnet-4-6",
+        env_key="ANTHROPIC_API_KEY",
+    ),
+    ProviderDescriptor(
+        name="gemini",
+        title="Gemini (Google)",
+        needs_key=True,
+        fields=[
+            ProviderField(
+                "api_key",
+                "Gemini API key",
+                secret=True,
+                placeholder="AIza…",
+                help="Stored locally (0600). Never sent to the model.",
+            ),
+        ],
+        build=_compat_builder("Gemini", "GEMINI_API_KEY", GEMINI_COMPAT_URL),
+        recommended_model="gemini-2.5-flash",
+        env_key="GEMINI_API_KEY",
     ),
     ProviderDescriptor(
         name="ollama",

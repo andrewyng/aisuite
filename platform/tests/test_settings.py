@@ -7,6 +7,8 @@ and the REST round-trip. No network, no model calls.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from coworker.providers import resolve_api_key
 from coworker.secrets import SecretStore
 
@@ -73,3 +75,29 @@ def test_default_model_and_onboarding_persist(tmp_path, monkeypatch):
     assert reborn.model == "gpt-4o"
     s = reborn.get_settings()
     assert s["onboarded"] is True and s["model"] == "gpt-4o"
+
+
+def test_scratch_base_setting_persists_and_drives_provisioning(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from coworker.server.app import create_app
+    from coworker.server.manager import SessionManager
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    data_dir = tmp_path / "data"
+    client = TestClient(create_app(SessionManager(data_dir=data_dir)))
+
+    # defaults to ~/OpenCoworker
+    assert client.get("/v1/settings").json()["scratch_base"] == "~/OpenCoworker"
+
+    base = tmp_path / "my coworker files"
+    resp = client.post("/v1/settings/scratch-base", json={"path": str(base)}).json()
+    assert resp["ok"] is True and resp["scratch_base"] == str(base)
+    assert base.is_dir()  # created on set
+    assert client.post("/v1/settings/scratch-base", json={"path": " "}).json()["ok"] is False
+
+    # persists across a restart and actually drives where scratch dirs are provisioned
+    reborn = SessionManager(data_dir=data_dir)
+    assert reborn.get_settings()["scratch_base"] == str(base)
+    scratch = reborn._provision_scratch("sess-xyz")
+    assert Path(scratch) == (base / "sess-xyz").resolve() and Path(scratch).is_dir()

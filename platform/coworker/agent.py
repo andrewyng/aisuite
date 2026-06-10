@@ -17,10 +17,12 @@ from .engine import Approver, TurnEngine
 from .memory import MemoryStore, Scope, format_memories, memory_tools
 from .permissions import Mode, PermissionEngine
 from .project import load_agents_md
+from .roots import RootDir, normalize_roots, render_context
 from .providers import ProviderClient, ProviderRouter
 from .secrets import SecretStore
 from .skills import SkillLoader, skill_catalog_text, skill_tools
 from .tools import ToolRegistry
+from .tools.directories import request_directory_tool
 from .web import make_web_fetch_tool, make_web_search_tool
 from .tools.shell import LocalExecutor
 from .tools.todo import TodoList
@@ -64,15 +66,29 @@ def build_engine(
     task_store: Optional[Any] = None,
     session_id: Optional[str] = None,
     audit_sink: Optional[Any] = None,
+    roots: Optional[list] = None,
+    directory_requester: Optional[Any] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
         raise ValueError(f"agent '{agent.name}' requires a workspace")
 
+    # The session's directories. Explicit `roots` (orphan Cowork: scratch + added folders) wins;
+    # otherwise the single workspace is the sole writable root. One shared, mutable list flows to
+    # the file tools, the permission engine, and the context injector so add/remove is seen by all.
+    if roots:
+        root_list: list[RootDir] = normalize_roots(roots)
+    elif ws is not None:
+        root_list = [RootDir(path=ws, writable=True)]
+    else:
+        root_list = []
+
     config = load_config(ws)
     executor = LocalExecutor(cwd=ws) if (agent.needs_workspace and ws is not None) else None
     todo = TodoList()
-    context = AgentContext(workspace=ws, executor=executor, todo=todo)
+    context = AgentContext(
+        workspace=ws, executor=executor, todo=todo, roots=root_list or None
+    )
 
     registry = ToolRegistry()
     registry.register_all(agent.build_tools(context))
@@ -84,6 +100,9 @@ def build_engine(
     secrets = secrets or SecretStore()
     if agent.name in ("cowork", "myhelper") and any(s.enabled for s in load_settings(secrets).values()):
         registry.register(make_send_message_tool(secrets))
+    # Orphan surfaces can ask the user mid-task for access to another folder (read-only/-write).
+    if agent.name in ("cowork", "myhelper") and root_list:
+        registry.register(request_directory_tool())
     if agent.name == "cowork":
         enabled_connectors, enabled_tools = _enabled_connector_tools(secrets)
         registry.register_all(
@@ -119,10 +138,19 @@ def build_engine(
         instructions = f"{instructions}\n\n{catalog}"
 
     permissions = PermissionEngine(
-        workspace_root=ws or Path.cwd(),
+        workspace_root=ws or (root_list[0].path if root_list else Path.cwd()),
         mode=mode,
         allowed_commands=allowed_commands or config.allowed_commands,
         auto_allow_tools=set(config.auto_allow),
+        roots=root_list or None,
+    )
+    # Tell the agent, each turn, which directories it has and their access (orphan Cowork can gain
+    # folders mid-session) — appended to the latest user message since mid-thread system messages
+    # aren't reliable across providers. Multi-dir surfaces (Cowork/MyHelper) only.
+    context_provider = (
+        (lambda: render_context(root_list))
+        if root_list and agent.name in ("cowork", "myhelper")
+        else None
     )
     # Route by the model's `provider:` prefix (OpenAI default, Ollama, …). The manager normally
     # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
@@ -139,10 +167,13 @@ def build_engine(
         model_settings=model_settings,
         messages=messages,
         audit_sink=audit_sink,
+        context_provider=context_provider,
+        directory_requester=directory_requester,
     )
     engine.executor = executor  # type: ignore[attr-defined]
     engine.todo = todo  # type: ignore[attr-defined]
     engine.agent_name = agent.name  # type: ignore[attr-defined]
+    engine.roots = root_list  # type: ignore[attr-defined]  # shared list; Slice C mutates in place
     engine.audit_context = {
         "session_id": session_id or "",
         "agent": agent.name,

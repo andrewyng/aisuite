@@ -30,7 +30,15 @@ _CREATE_SCHEMA = {
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "Short label, e.g. 'Daily news briefing'."},
-                "instructions": {"type": "string", "description": "The full task to run each time."},
+                "instructions": {
+                    "type": "string",
+                    "description": (
+                        "What to do on each run, written as a direct command to execute "
+                        "immediately (e.g. 'Prepare a market analysis report covering …'). Do "
+                        "NOT restate the schedule or timing here — timing belongs in cron/"
+                        "fire_at; this text is handed verbatim to the agent every run."
+                    ),
+                },
                 "cron": {"type": "string", "description": "5-field cron, e.g. '10 19 * * *'. Omit for one-time."},
                 "fire_at": {"type": "string", "description": "ISO datetime for a one-time run. Omit for recurring."},
                 "timezone": {"type": "string", "description": "IANA tz, e.g. 'America/New_York'. Defaults to the machine's local time — pass it only to override."},

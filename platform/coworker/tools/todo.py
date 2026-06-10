@@ -56,6 +56,8 @@ def todo_tools(todo: TodoList) -> list:
         for entry in items or []:
             if isinstance(entry, dict):
                 status = entry.get("status", "pending")
+                if status == "completed":  # common model alias for our "done"
+                    status = "done"
                 normalized.append(
                     {
                         "content": str(entry.get("content", "")),

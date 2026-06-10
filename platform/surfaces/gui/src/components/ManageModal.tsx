@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   addMcpServer,
-  addModel,
   allowUser,
   connectConnector,
   getAudit,
@@ -16,12 +15,10 @@ import {
   getSuperagent,
   patchMcpServer,
   reloadMcp,
-  removeModel,
-  setDefaultModel,
-  setModelKey,
   setOnboarded,
   setProvider,
   setSurfaces,
+  setScratchBase,
   setSuperagentName,
   setSuperagentWorkspace,
   updateConnectorTools,
@@ -32,9 +29,10 @@ import {
   type ProviderInfo,
   type SuperagentStatus,
 } from "../api";
-import { getAutostart, getKeepAwake, isTauri, setAutostart, setKeepAwake } from "../tauri";
+import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
+import { ModelChecklist } from "./ModelChecklist";
 
-type Tab = "settings" | "superagent" | "mcps" | "skills";
+type Tab = "settings" | "models" | "superagent" | "mcps" | "skills";
 
 const EXAMPLE = `{
   "filesystem": {
@@ -44,11 +42,13 @@ const EXAMPLE = `{
   }
 }`;
 
-const TABS: { key: Tab; label: string }[] = [
+// Super-agent isn't shipping in this release: kept visible (last) but disabled.
+const TABS: { key: Tab; label: string; disabled?: boolean }[] = [
   { key: "settings", label: "Settings" },
-  { key: "superagent", label: "Super-agent" },
+  { key: "models", label: "Configure Models" },
   { key: "mcps", label: "MCPs" },
   { key: "skills", label: "Skills" },
+  { key: "superagent", label: "Super-agent", disabled: true },
 ];
 
 export function ManageModal({
@@ -59,7 +59,8 @@ export function ManageModal({
   initialTab?: Tab;
 }) {
   const tabs = TABS;
-  const initial = initialTab && tabs.some((t) => t.key === initialTab) ? initialTab : "superagent";
+  const initial =
+    initialTab && tabs.some((t) => t.key === initialTab && !t.disabled) ? initialTab : "settings";
   const [tab, setTab] = useState<Tab>(initial);
 
   return (
@@ -70,8 +71,9 @@ export function ManageModal({
             {tabs.map((t) => (
               <div
                 key={t.key}
-                className={"mtab" + (tab === t.key ? " active" : "")}
-                onClick={() => setTab(t.key)}
+                className={"mtab" + (tab === t.key ? " active" : "") + (t.disabled ? " disabled" : "")}
+                title={t.disabled ? "Coming soon" : undefined}
+                onClick={t.disabled ? undefined : () => setTab(t.key)}
               >
                 {t.label}
               </div>
@@ -84,6 +86,8 @@ export function ManageModal({
         <div className="manage-body">
           {tab === "settings" ? (
             <SettingsTab />
+          ) : tab === "models" ? (
+            <ModelsTab />
           ) : tab === "superagent" ? (
             <SuperagentTab />
           ) : tab === "mcps" ? (
@@ -97,20 +101,19 @@ export function ManageModal({
   );
 }
 
-// -- Settings tab (model API key) --------------------------------------------
-function SettingsTab() {
+// -- Configure Models tab (providers, model list, keys) -----------------------
+function ModelsTab() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [autostart, setAuto] = useState(false);
-  const [keepAwake, setKeep] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
-  const [addProvider, setAddProvider] = useState("openai");
-  const [modelDraft, setModelDraft] = useState("");
-  const desktop = isTauri();
+  // Two panes: hosted API models (key-based, per provider) and local Ollama models.
+  const [sub, setSub] = useState<"api" | "local">("api");
+  const [apiProv, setApiProv] = useState("openai");
+  const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
 
   const refresh = () => getSettings().then(setSettings).catch(() => setSettings(null));
   const loadProviders = () =>
@@ -119,15 +122,13 @@ function SettingsTab() {
         setProviders(ps);
         const oll = ps.find((p) => p.name === "ollama");
         if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
+        const oai = ps.find((p) => p.name === "openai");
+        if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
       })
       .catch(() => {});
   useEffect(() => {
     refresh();
     loadProviders();
-    if (isTauri()) {
-      getAutostart().then((v) => setAuto(!!v));
-      getKeepAwake().then((v) => setKeep(!!v));
-    }
   }, []);
 
   const saveOllama = async () => {
@@ -138,7 +139,7 @@ function SettingsTab() {
       setOllamaMsg(
         rec
           ? `Saved. ${rec} is the recommended model — added to your list if it's pulled (else: ollama pull ${rec}).`
-          : "Saved. Add an Ollama model under “Models” to use it.",
+          : "Saved. Tick or add an Ollama model under “Models” below to use it.",
       );
       loadProviders();
       refresh(); // pick up the auto-added recommended model in the curated list
@@ -147,50 +148,239 @@ function SettingsTab() {
     }
   };
 
-  const selProvider = providers.find((p) => p.name === addProvider);
-  const addModelToList = async () => {
-    const typed = modelDraft.trim();
-    if (!typed) return;
-    // Prefix the id with the selected provider (e.g. ollama:qwen2.5-coder:32b) UNLESS the user
-    // already typed a real provider prefix. NB: check known provider names, not just any colon —
-    // model names legitimately contain colons (version tags like `:32b`).
-    const alreadyPrefixed = providers.some((p) => typed.startsWith(`${p.name}:`));
-    const id = alreadyPrefixed || addProvider === "openai" ? typed : `${addProvider}:${typed}`;
-    const res = await addModel(id);
+  // The provider the pane is configuring (the ModelChecklist owns add/remove/default).
+  const knownNames = providers.map((p) => p.name);
+  const provName = sub === "local" ? "ollama" : apiProv;
+  const selProv = providers.find((p) => p.name === provName);
+
+  const save = async () => {
+    if (!draft.trim() && !(apiProv === "openai" && endpoint.trim())) return;
+    setBusy(true);
+    setMsg(null);
+    const fields: Record<string, string> = {};
+    if (draft.trim()) fields.api_key = draft.trim();
+    if (apiProv === "openai") fields.base_url = endpoint.trim();
+    const res = await setProvider(apiProv, fields);
+    setBusy(false);
     if (res.ok) {
-      setModelDraft("");
-      setSettings(res);
+      setDraft("");
+      setMsg("Saved. The key is stored locally and never sent to the model.");
+      refresh();
+      loadProviders();
+    } else {
+      setMsg(res.error || "Failed to save key.");
     }
   };
-  const removeModelFromList = async (m: string) => {
-    const res = await removeModel(m);
-    if (res.ok) setSettings(res);
-  };
+
+  if (!settings) return <div className="manage-empty">Loading…</div>;
+
+  // The checklist shown once the pane's provider is usable (always, for keyless Ollama).
+  const checklist = (selProv?.configured || sub === "local") && (
+    <>
+      <div className="sa-sub" style={{ marginTop: 22 }}>Models</div>
+      <div className="conn-meta dim" style={{ marginBottom: 4 }}>
+        {sub === "local" ? (
+          <>Your pulled Ollama models. Ticked ones show in the composer's picker; the black badge marks the default for new sessions.</>
+        ) : (
+          <>Ticked models show in the composer's picker; the black badge marks the default for new sessions.</>
+        )}
+      </div>
+      <ModelChecklist
+        provider={provName}
+        knownProviders={knownNames}
+        suggested={selProv?.suggested_models || []}
+        curated={settings.models}
+        defaultModel={settings.model}
+        onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
+      />
+    </>
+  );
+
+  return (
+    <div className="conn-tab">
+      <div className="subtabs" style={{ marginTop: 4 }}>
+        <div className="manage-tabs">
+          <div
+            className={"mtab" + (sub === "api" ? " active" : "")}
+            onClick={() => setSub("api")}
+          >
+            API models
+          </div>
+          <div
+            className={"mtab" + (sub === "local" ? " active" : "")}
+            onClick={() => setSub("local")}
+          >
+            Local models
+          </div>
+        </div>
+      </div>
+
+      {sub === "api" ? (
+        <>
+          <label className="conn-field">
+            <span className="conn-field-label">Provider</span>
+            <select
+              value={apiProv}
+              onChange={(e) => {
+                setApiProv(e.target.value);
+                setDraft("");
+                setMsg(null);
+              }}
+            >
+              {providers
+                .filter((p) => p.name !== "ollama")
+                .map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.title}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="conn-meta" style={{ marginBottom: 12 }}>
+            {selProv?.configured ? (
+              <span className="ok">key configured{provName === "openai" && settings.source === "env" ? " (from environment)" : ""}</span>
+            ) : (
+              <span className="danger">no API key — calls to this provider will fail</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="conn-meta dim" style={{ marginBottom: 12 }}>
+          Run models locally with <code>ollama serve</code>. Coworker uses Ollama's
+          OpenAI-compatible API, so tools work. No API key needed.
+        </div>
+      )}
+
+      {sub === "api" ? (
+        <>
+          {provName === "openai" && settings.source === "env" ? (
+            <div className="conn-meta dim">
+              A key is set via <code>OPENAI_API_KEY</code> in this server's environment. You can override
+              it below; the stored key is used only when the environment variable is absent.
+            </div>
+          ) : null}
+          {provName === "openai" && (
+            <label className="conn-field">
+              <span className="conn-field-label">Custom endpoint (optional)</span>
+              <input
+                type="text"
+                placeholder="https://…/openai/v1"
+                value={endpoint}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e) => setEndpoint(e.target.value)}
+              />
+              <span className="conn-field-help">
+                For Azure OpenAI, OpenRouter, vLLM, or any OpenAI-compliant server. Leave blank for
+                api.openai.com.
+              </span>
+            </label>
+          )}
+          <label className="conn-field">
+            <span className="conn-field-label">
+              {selProv?.fields.find((f) => f.key === "api_key")?.label || "API key"}
+            </span>
+            <input
+              type="password"
+              placeholder={selProv?.fields.find((f) => f.key === "api_key")?.placeholder || "sk-…"}
+              value={draft}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && save()}
+            />
+            <span className="conn-field-help">
+              Stored locally at <code>~/.config/coworker/secrets.json</code> (0600). Required for the
+              desktop app, where the server can't read your shell environment.
+            </span>
+          </label>
+          <div className="conn-setup-actions">
+            <button
+              className="btn-primary sm"
+              onClick={save}
+              disabled={busy || (!draft.trim() && !(apiProv === "openai" && endpoint.trim()))}
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+          {msg && <div className="conn-meta" style={{ marginTop: 10 }}>{msg}</div>}
+          {checklist}
+        </>
+      ) : (
+        <>
+          <label className="conn-field">
+            <span className="conn-field-label">Ollama server URL</span>
+            <input
+              type="text"
+              placeholder="http://localhost:11434"
+              value={ollamaUrl}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => setOllamaUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveOllama()}
+            />
+            <span className="conn-field-help">
+              The OpenAI-compatible <code>/v1</code> path is added automatically. Leave blank for the
+              default. Your pulled models appear under <strong>Models</strong> below.
+            </span>
+          </label>
+          <div className="conn-setup-actions">
+            <button className="btn-primary sm" onClick={saveOllama}>
+              Save Ollama URL
+            </button>
+          </div>
+          {ollamaMsg && <div className="conn-meta" style={{ marginTop: 10 }}>{ollamaMsg}</div>}
+          {checklist}
+        </>
+      )}
+    </div>
+  );
+}
+
+// -- Settings tab (files, surfaces, app behavior) ------------------------------
+function SettingsTab() {
+  const [settings, setSettings] = useState<ModelSettings | null>(null);
+  const [autostart, setAuto] = useState(false);
+  const [keepAwake, setKeep] = useState(false);
+  const [scratchDraft, setScratchDraft] = useState("");
+  const [scratchMsg, setScratchMsg] = useState<string | null>(null);
+  const desktop = isTauri();
+
+  const refresh = () =>
+    getSettings()
+      .then((s) => {
+        setSettings(s);
+        setScratchDraft((d) => d || s.scratch_base || "");
+      })
+      .catch(() => setSettings(null));
+  useEffect(() => {
+    refresh();
+    if (isTauri()) {
+      getAutostart().then((v) => setAuto(!!v));
+      getKeepAwake().then((v) => setKeep(!!v));
+    }
+  }, []);
 
   const toggleSurface = async (key: "chat" | "code", value: boolean) => {
     const res = await setSurfaces({ [key]: value });
     if (res.surfaces) setSettings((s) => (s ? { ...s, surfaces: res.surfaces } : s));
   };
 
-  const save = async () => {
-    if (!draft.trim()) return;
-    setBusy(true);
-    setMsg(null);
-    const res = await setModelKey(draft.trim());
-    setBusy(false);
+  const saveScratch = async () => {
+    setScratchMsg(null);
+    const res = await setScratchBase(scratchDraft.trim());
     if (res.ok) {
-      setDraft("");
-      setMsg("Saved. The key is stored locally and never sent to the model.");
+      setScratchMsg("Saved. New conversations will use this location.");
       refresh();
     } else {
-      setMsg(res.error || "Failed to save key.");
+      setScratchMsg(res.error || "Could not use that location.");
     }
   };
-
-  const chooseModel = async (m: string) => {
-    await setDefaultModel(m);
-    refresh();
+  const browseScratch = async () => {
+    const picked = await pickFolder();
+    if (picked) setScratchDraft(picked);
   };
+
   const toggleAuto = async (v: boolean) => setAuto(!!(await setAutostart(v)));
   const toggleKeep = async (v: boolean) => setKeep(!!(await setKeepAwake(v)));
   const runSetupAgain = async () => {
@@ -202,148 +392,38 @@ function SettingsTab() {
 
   return (
     <div className="conn-tab">
-      <div className="sa-sub">Model access</div>
-      <div className="conn-meta" style={{ marginBottom: 12 }}>
-        Provider <strong>{settings.provider}</strong> ·{" "}
-        {settings.has_key ? (
-          <span className="ok">key configured{settings.source === "env" ? " (from environment)" : ""}</span>
-        ) : (
-          <span className="danger">no API key — model calls will fail</span>
-        )}
-      </div>
-
-      <label className="conn-field">
-        <span className="conn-field-label">Default model</span>
-        <select value={settings.model} onChange={(e) => chooseModel(e.target.value)}>
-          {settings.models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <span className="conn-field-help">Used for new sessions; you can still switch per chat.</span>
-      </label>
-
-      <div className="sa-sub" style={{ marginTop: 22 }}>Models</div>
+      <div className="sa-sub">Cowork files</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        The models shown in the composer's selector. Add one by picking a provider and typing a
-        model name (e.g. <code>qwen2.5-coder:32b</code> under Ollama).
+        Each Cowork conversation gets its own scratch folder under this location, where the agent
+        saves files by default. You can grant access to more folders inside any conversation.
       </div>
-      <div className="model-list">
-        {settings.models.map((m) => (
-          <span key={m} className="model-chip">
-            {m}
-            {m === settings.model ? (
-              <span className="model-chip-default" title="Default model">
-                default
-              </span>
-            ) : (
-              <button
-                className="model-chip-x"
-                title="Remove from list"
-                onClick={() => removeModelFromList(m)}
-              >
-                ✕
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
-      <div className="model-add">
-        <select
-          value={addProvider}
-          onChange={(e) => {
-            setAddProvider(e.target.value);
-            // Pre-fill the recommended model for the chosen provider (e.g. qwen3-coder:30b).
-            const p = providers.find((x) => x.name === e.target.value);
-            setModelDraft(p?.recommended_model || "");
-          }}
-        >
-          {providers.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.title}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          list="model-suggestions"
-          placeholder={addProvider === "ollama" ? "qwen2.5-coder:32b" : "gpt-4o"}
-          value={modelDraft}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setModelDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addModelToList()}
-        />
-        <datalist id="model-suggestions">
-          {(selProvider?.suggested_models || []).map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <button className="btn-primary sm" onClick={addModelToList} disabled={!modelDraft.trim()}>
-          Add
-        </button>
-      </div>
-
-      {settings.source === "env" ? (
-        <div className="conn-meta dim">
-          A key is set via <code>OPENAI_API_KEY</code> in this server's environment. You can override
-          it below; the stored key is used only when the environment variable is absent.
+      <label className="conn-field">
+        <span className="conn-field-label">Scratch location</span>
+        <div className="dirreq-pathrow">
+          <input
+            className="dirreq-path"
+            type="text"
+            placeholder="~/OpenCoworker"
+            value={scratchDraft}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => setScratchDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && saveScratch()}
+          />
+          {desktop && (
+            <button className="btn" onClick={browseScratch} title="Pick a folder">
+              Browse
+            </button>
+          )}
+          <button className="btn-primary sm" onClick={saveScratch} disabled={!scratchDraft.trim()}>
+            Save
+          </button>
         </div>
-      ) : null}
-
-      <label className="conn-field">
-        <span className="conn-field-label">OpenAI API key</span>
-        <input
-          type="password"
-          placeholder="sk-…"
-          value={draft}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && save()}
-        />
         <span className="conn-field-help">
-          Stored locally at <code>~/.config/coworker/secrets.json</code> (0600). Required for the
-          desktop app, where the server can't read your shell environment.
+          New conversations use this; existing ones keep their current folder.
         </span>
       </label>
-      <div className="conn-setup-actions">
-        <button className="btn-primary sm" onClick={save} disabled={busy || !draft.trim()}>
-          {busy ? "Saving…" : "Save key"}
-        </button>
-      </div>
-      {msg && <div className="conn-meta" style={{ marginTop: 10 }}>{msg}</div>}
-
-      <div className="sa-sub" style={{ marginTop: 22 }}>
-        Ollama (local models)
-      </div>
-      <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        Run models locally with <code>ollama serve</code>. Coworker uses Ollama's
-        OpenAI-compatible API, so tools work. No API key needed.
-      </div>
-      <label className="conn-field">
-        <span className="conn-field-label">Ollama server URL</span>
-        <input
-          type="text"
-          placeholder="http://localhost:11434"
-          value={ollamaUrl}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setOllamaUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && saveOllama()}
-        />
-        <span className="conn-field-help">
-          The OpenAI-compatible <code>/v1</code> path is added automatically. Leave blank for the
-          default. Then add your pulled models under <strong>Models</strong> above.
-        </span>
-      </label>
-      <div className="conn-setup-actions">
-        <button className="btn-primary sm" onClick={saveOllama}>
-          Save Ollama URL
-        </button>
-      </div>
-      {ollamaMsg && <div className="conn-meta" style={{ marginTop: 10 }}>{ollamaMsg}</div>}
+      {scratchMsg && <div className="conn-meta" style={{ marginTop: 8 }}>{scratchMsg}</div>}
 
       <div className="sa-sub" style={{ marginTop: 22 }}>Surfaces</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>

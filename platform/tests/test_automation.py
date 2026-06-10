@@ -211,6 +211,34 @@ async def test_scheduled_run_persists_continuable_session(tmp_path, monkeypatch)
     assert _last_assistant_text(engine.messages) == "Sure — here is more detail."
 
 
+def test_task_engine_has_no_scheduling_tools(tmp_path, monkeypatch):
+    """A scheduled run executes its instructions — it must not be able to (re)schedule. With
+    instructions like 'every day at 5:32pm, prepare…', an agent holding create_scheduled_task
+    creates another automation instead of doing the task."""
+    from coworker.providers import AssistantTurn as _AT, ModelCapabilities, ProviderClient
+    from coworker.server import SessionManager
+
+    class _Provider(ProviderClient):
+        def complete(self, *, model, messages, tools=None, **settings):
+            return _AT(text="ok", finish_reason="stop")
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    manager = SessionManager(data_dir=tmp_path / "data", provider=_Provider())
+    task = _task(workspace=str(ws), agent="cowork")
+    manager.task_store.save(task)
+
+    engine = manager._build_task_engine(task, session_id="__run__test")
+    names = set(engine.registry.names())
+    assert "create_scheduled_task" not in names
+    assert "update_scheduled_task" not in names
+    assert "write_file" in names  # the deliverable tools are still there
+
+
 async def test_manual_run_prepare_and_finalize(tmp_path, monkeypatch):
     from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
     from coworker.server.manager import SessionManager
@@ -238,7 +266,11 @@ async def test_manual_run_prepare_and_finalize(tmp_path, monkeypatch):
     # prepare: a "running" run + a session to open live (NOT executed yet)
     prep = manager.prepare_manual_run(task.id)
     assert prep["ok"] and prep["session_id"] == f"__run__{prep['run_id']}"
-    assert prep["agent"] == "cowork" and prep["prompt"] == task.instructions
+    # The prompt wraps the instructions in execute-now framing (so the live agent runs the task
+    # instead of re-scheduling it) and carries them verbatim.
+    assert prep["agent"] == "cowork"
+    assert task.instructions in prep["prompt"]
+    assert "do not create or modify any scheduled tasks" in prep["prompt"]
     assert manager.task_store.runs(task.id)[0].status == "running"
 
     # the GUI drives the run live over the session, then finalize records the outcome

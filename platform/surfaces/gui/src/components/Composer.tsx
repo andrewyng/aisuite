@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Attachment } from "../types";
+import { readFile } from "../attach";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
 
@@ -14,26 +15,14 @@ const PERMISSION_OPTIONS: Option[] = [
 // models) arrives via the `models` prop.
 const MODEL_VALUES = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "deepseek-chat"];
 
-const MAX_BYTES = 10 * 1024 * 1024; // skip files larger than ~10MB
-const TEXT_RE = /\.(txt|md|markdown|csv|tsv|json|ya?ml|log|ini|toml|py|js|ts|tsx|jsx|rs|go|java|c|h|cpp|sh|html?|css|sql|xml)$/i;
-
-function readFile(file: File): Promise<Attachment | null> {
-  const isImage = file.type.startsWith("image/");
-  const isText = file.type.startsWith("text/") || TEXT_RE.test(file.name);
-  if ((!isImage && !isText) || file.size > MAX_BYTES) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onerror = () => resolve(null);
-    reader.onload = () =>
-      resolve(
-        isImage
-          ? { kind: "image", name: file.name || "image", mime: file.type, data_url: String(reader.result) }
-          : { kind: "text", name: file.name || "file.txt", mime: file.type, text: String(reader.result) },
-      );
-    if (isImage) reader.readAsDataURL(file);
-    else reader.readAsText(file);
-  });
-}
+// Identify an attachment by name + payload size so duplicates (e.g. the same file picked twice,
+// or a prefill applied twice) collapse to one chip.
+const attKey = (a: Attachment) =>
+  a.kind === "image" ? `i:${a.name}:${a.data_url?.length ?? 0}` : `t:${a.name}:${a.text?.length ?? 0}`;
+const mergeAttachments = (cur: Attachment[], add: Attachment[]): Attachment[] => {
+  const seen = new Set(cur.map(attKey));
+  return [...cur, ...add.filter((a) => !seen.has(attKey(a)))].slice(0, 8);
+};
 
 interface Props {
   mode: string;
@@ -49,7 +38,14 @@ interface Props {
   workspace?: string;
   branch?: string | null;
   onPickWorkspace?: () => void;
+  // When set (orphan Cowork), replaces the single workspace chip with a directory manager.
+  rootsSlot?: ReactNode;
   approvalSlot?: ReactNode;
+  // Push text + attachments into the composer (e.g. a start-panel task card). The `nonce` makes
+  // repeated identical prefills re-apply; the user can still edit before sending.
+  prefill?: { text: string; attachments?: Attachment[]; nonce: number };
+  // Changes when the active conversation changes; clears any unsent draft.
+  resetKey?: string;
 }
 
 export function Composer(props: Props) {
@@ -69,9 +65,31 @@ export function Composer(props: Props) {
     el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
   }, [text]);
 
+  // Apply a prefill (text + attachments) pushed from outside, then focus the composer. Applied at
+  // most once per nonce (a ref guards against StrictMode/re-render double-fires), and attachments
+  // are de-duplicated so the same file never lands twice.
+  const appliedNonce = useRef<number>(-1);
+  useEffect(() => {
+    const p = props.prefill;
+    if (!p || p.nonce === appliedNonce.current) return;
+    appliedNonce.current = p.nonce;
+    setText(p.text);
+    if (p.attachments?.length) setAttachments((cur) => mergeAttachments(cur, p.attachments!));
+    textareaRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.prefill?.nonce]);
+
+  // Clear the draft when the conversation changes, so a half-typed message / picked file doesn't
+  // bleed from one session into another.
+  useEffect(() => {
+    setText("");
+    setAttachments([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.resetKey]);
+
   const addFiles = async (files: FileList | File[]) => {
     const next = (await Promise.all(Array.from(files).map(readFile))).filter(Boolean) as Attachment[];
-    if (next.length) setAttachments((a) => [...a, ...next].slice(0, 8));
+    if (next.length) setAttachments((a) => mergeAttachments(a, next));
   };
 
   const submit = () => {
@@ -124,13 +142,15 @@ export function Composer(props: Props) {
           if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
         }}
       >
-        {props.workspace !== undefined && (
+        {(props.rootsSlot || props.workspace !== undefined) && (
           <div className="composer-head">
-            <button className="wschip" onClick={props.onPickWorkspace} title={props.workspace}>
-              <Icon name="folder" size={14} />
-              <span className="wsname">{wsName || "Choose folder"}</span>
-              <Icon name="pencil" size={12} className="edit" />
-            </button>
+            {props.rootsSlot ?? (
+              <button className="wschip" onClick={props.onPickWorkspace} title={props.workspace}>
+                <Icon name="folder" size={14} />
+                <span className="wsname">{wsName || "Choose folder"}</span>
+                <Icon name="pencil" size={12} className="edit" />
+              </button>
+            )}
             {props.branch && (
               <span className="wsbranch">
                 <Icon name="branch" size={13} /> {props.branch}

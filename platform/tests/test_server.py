@@ -181,6 +181,35 @@ def test_sessions_can_be_renamed_and_deleted(tmp_path):
     assert client.get("/v1/sessions/rename-me/messages").json()["messages"] == []
 
 
+def test_sessions_can_be_pinned_and_archived(tmp_path):
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    for sid in ("older", "newer"):
+        manager.session_store.save(
+            SessionRecord(
+                session_id=sid,
+                workspace=str(tmp_path),
+                model="gpt-5.5",
+                mode="interactive",
+                messages=[{"role": "user", "content": sid}],
+                agent="cowork",
+            )
+        )
+    client = TestClient(create_app(manager))
+
+    assert client.patch("/v1/sessions/older", json={"pinned": True}).json()["ok"] is True
+    sessions = client.get("/v1/sessions").json()["sessions"]
+    assert sessions[0]["session_id"] == "older" and sessions[0]["pinned"] is True
+
+    assert client.patch("/v1/sessions/newer", json={"archived": True}).json()["ok"] is True
+    by_id = {s["session_id"]: s for s in client.get("/v1/sessions").json()["sessions"]}
+    assert by_id["newer"]["archived"] is True
+
+    assert client.patch("/v1/sessions/older", json={"pinned": False}).json()["ok"] is True
+    assert client.patch("/v1/sessions/newer", json={"archived": False}).json()["ok"] is True
+    by_id = {s["session_id"]: s for s in client.get("/v1/sessions").json()["sessions"]}
+    assert by_id["older"]["pinned"] is False and by_id["newer"]["archived"] is False
+
+
 # -- WebSocket ------------------------------------------------------------------
 
 

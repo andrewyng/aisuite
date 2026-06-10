@@ -19,6 +19,7 @@ from ..agents import get_agent
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
 from ..engine import Approver, TurnEngine
+from ..roots import RootDir
 from ..agents import myhelper_agent
 from ..automation import Scheduler, TaskRun, TaskStore
 from ..connectors import (
@@ -132,6 +133,19 @@ class SessionManager:
             out.append({"path": path, "name": p.name, "exists": p.is_dir()})
         return out
 
+    DEFAULT_SCRATCH_BASE = "~/OpenCoworker"
+
+    def scratch_base(self) -> Path:
+        """Common area for per-conversation scratch directories. Configurable via prefs."""
+        base = self._prefs.get("scratch_base") or self.DEFAULT_SCRATCH_BASE
+        return Path(base).expanduser()
+
+    def _provision_scratch(self, session_id: str) -> str:
+        """Create (idempotently) and return this conversation's scratch directory."""
+        d = self.scratch_base() / session_id
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d.resolve())
+
     def resolve_workspace(self, requested: Optional[str]) -> Optional[str]:
         if requested:
             p = Path(requested).expanduser()
@@ -159,11 +173,14 @@ class SessionManager:
         agent: str = "code",
         approver: Optional[Approver] = None,
         extra_tools: Optional[list[Any]] = None,
+        directory_requester: Optional[Any] = None,
     ) -> Optional[TurnEngine]:
         engine = self._engines.get(session_id)
         if engine is not None:
             if approver is not None:
                 engine.approver = approver
+            if directory_requester is not None:
+                engine.directory_requester = directory_requester
             return engine
 
         record = self.session_store.load(session_id)
@@ -178,10 +195,22 @@ class SessionManager:
             model, mode, messages = self.model, self.mode, None
 
         if ag.needs_workspace and (not ws or not Path(ws).is_dir()):
-            return None  # Code requires a valid folder; Chat does not
+            # Cowork starts "orphan": no folder picked → auto-provision a per-conversation
+            # scratch directory (generalizes MyHelper's auto-workspace). Code still requires a
+            # real repo; Chat needs no workspace.
+            if agent_name == "cowork":
+                ws = self._provision_scratch(session_id)
+            else:
+                return None
 
         if ws:
             self.session_store.touch_workspace(ws)
+        # Orphan surfaces are multi-root: the scratch (ws) is the primary writable root, plus any
+        # folders the user added (persisted per session). Code/Chat stay single-root (roots=None).
+        roots = None
+        if agent_name in ("cowork", "myhelper") and ws:
+            extra = [r for r in ((record.extra_roots if record else []) or []) if Path(str(r.get("path", ""))).is_dir()]
+            roots = [{"path": ws, "writable": True, "label": "scratch"}, *extra]
         engine = build_engine(
             agent=ag,
             workspace=ws,
@@ -196,6 +225,8 @@ class SessionManager:
             task_store=self.task_store,
             session_id=session_id,
             audit_sink=self.audit_store.append,
+            roots=roots,
+            directory_requester=directory_requester,
         )
         self._engines[session_id] = engine
         return engine
@@ -323,7 +354,7 @@ class SessionManager:
         if not root.is_dir():
             return []
         out: list[dict[str, Any]] = []
-        suffixes = {".md", ".markdown", ".html", ".htm", ".txt", ".json", ".csv", ".py", ".js", ".ts", ".tsx", ".css", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
+        suffixes = {".md", ".markdown", ".html", ".htm", ".txt", ".json", ".csv", ".tsv", ".py", ".js", ".ts", ".tsx", ".css", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".xlsx", ".xls"}
         for path in root.rglob("*"):
             try:
                 rel = path.relative_to(root)
@@ -346,29 +377,43 @@ class SessionManager:
         out.sort(key=lambda a: a["modified_at"], reverse=True)
         return out[:80]
 
-    def read_artifact(self, session_id: str, path: str) -> dict[str, Any]:
+    MAX_BINARY_PREVIEW = 25 * 1024 * 1024  # base64-over-JSON gets heavy past this
+
+    def _artifact_target(self, session_id: str, path: str) -> tuple[Optional[Path], Optional[str]]:
+        """Resolve an artifact path under the session's workspace, or (None, error)."""
         record = self.session_store.load(session_id)
         workspace = record.workspace if record else self.default_workspace
         if not workspace:
-            return {"ok": False, "error": "no workspace"}
+            return None, "no workspace"
         root = Path(workspace).expanduser().resolve()
         target = (root / path).expanduser().resolve()
         try:
             target.relative_to(root)
         except ValueError:
-            return {"ok": False, "error": "path escapes workspace"}
+            return None, "path escapes workspace"
         if not target.is_file():
-            return {"ok": False, "error": "not found"}
+            return None, "not found"
+        return target, None
+
+    def read_artifact(self, session_id: str, path: str) -> dict[str, Any]:
+        target, err = self._artifact_target(session_id, path)
+        if target is None:
+            return {"ok": False, "error": err}
         kind = _artifact_kind(target)
-        if kind == "image":
+        if kind in ("image", "pdf", "sheet"):
             import base64
 
+            if target.stat().st_size > self.MAX_BINARY_PREVIEW:
+                return {"ok": False, "error": "file too large to preview — use Reveal in Finder"}
             mime = {
                 ".png": "image/png",
                 ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg",
                 ".webp": "image/webp",
                 ".gif": "image/gif",
+                ".pdf": "application/pdf",
+                ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ".xls": "application/vnd.ms-excel",
             }.get(target.suffix.lower(), "application/octet-stream")
             data = base64.b64encode(target.read_bytes()).decode("ascii")
             return {"ok": True, "path": path, "kind": kind, "data_url": f"data:{mime};base64,{data}"}
@@ -377,6 +422,24 @@ class SessionManager:
         except UnicodeDecodeError:
             return {"ok": False, "error": "binary file cannot be previewed"}
         return {"ok": True, "path": path, "kind": kind, "content": text[:500000], "truncated": len(text) > 500000}
+
+    def reveal_artifact(self, session_id: str, path: str, mode: str = "reveal") -> dict[str, Any]:
+        """Show the file in Finder (`reveal`) or open it with its default app (`open`). The
+        server runs on the user's machine in both desktop and browser builds, so this is local."""
+        import subprocess
+        import sys
+
+        target, err = self._artifact_target(session_id, path)
+        if target is None:
+            return {"ok": False, "error": err}
+        if sys.platform != "darwin":
+            return {"ok": False, "error": "only supported on macOS for now"}
+        args = ["open", "-R", str(target)] if mode == "reveal" else ["open", str(target)]
+        try:
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True}
 
     # -- web search -------------------------------------------------------------
     def get_web_search(self) -> dict[str, Any]:
@@ -411,10 +474,10 @@ class SessionManager:
         out: list[dict[str, Any]] = []
         for d in provider_descriptors():
             profile = self.secrets.get(f"provider:{d.name}") or {}
-            if d.name == "openai":
-                configured = bool(os.environ.get("OPENAI_API_KEY")) or bool(profile.get("api_key"))
-            elif d.needs_key:
-                configured = bool(profile.get("api_key"))
+            if d.needs_key:
+                configured = bool(profile.get("api_key")) or bool(
+                    d.env_key and os.environ.get(d.env_key)
+                )
             else:
                 configured = True  # keyless (Ollama) — usable out of the box
             values = {
@@ -435,6 +498,10 @@ class SessionManager:
         OpenAI → the built-in list; Ollama → live `/api/tags` (best-effort)."""
         if name == "openai":
             return list(self.KNOWN_MODELS)
+        if name == "anthropic":
+            return ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"]
+        if name == "gemini":
+            return ["gemini-2.5-flash", "gemini-2.5-pro"]
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
         return []
@@ -465,9 +532,34 @@ class SessionManager:
         # Convenience: if the provider recommends a model and it's actually available, add it to
         # the curated list so it shows up in the composer right after configuring the provider.
         rec = d.recommended_model
+        added: Optional[str] = None
         if rec and rec in self._suggested_models(name):
-            self.add_model(f"{name}:{rec}")
+            # OpenAI models stay bare (the router's default); others carry their prefix.
+            added = rec if name == "openai" else f"{name}:{rec}"
+            self.add_model(added)
+        # First working provider wins the default: if the current default model belongs to a
+        # provider with no usable config (the fresh-install gpt-5.5 case), switch the default to
+        # this provider's model. A default that already works is never stolen.
+        if added and not self._provider_configured(self._model_provider(self.model)):
+            self.set_default_model(added)
         return {"ok": True, "provider": name, "recommended_model": rec}
+
+    def _model_provider(self, model: str) -> str:
+        """The provider a model string routes to (known `prefix:` or the OpenAI default)."""
+        if ":" in (model or ""):
+            prefix = model.split(":", 1)[0]
+            if get_descriptor(prefix) is not None:
+                return prefix
+        return "openai"
+
+    def _provider_configured(self, name: str) -> bool:
+        d = get_descriptor(name)
+        if d is None:
+            return False
+        if not d.needs_key:
+            return True  # keyless (Ollama)
+        profile = self.secrets.get(f"provider:{name}") or {}
+        return bool(profile.get("api_key")) or bool(d.env_key and os.environ.get(d.env_key))
 
     # -- settings / prefs (model API key, default model, onboarding) -------------
     KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
@@ -548,6 +640,7 @@ class SessionManager:
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
             "surfaces": self._surfaces(),
+            "scratch_base": self._prefs.get("scratch_base") or self.DEFAULT_SCRATCH_BASE,
         }
 
     def _surfaces(self) -> dict[str, bool]:
@@ -574,7 +667,10 @@ class SessionManager:
         api_key = (api_key or "").strip()
         if not api_key:
             return {"ok": False, "error": "empty api key"}
-        self.secrets.put("provider:openai", {"type": "api_key", "api_key": api_key})
+        # Merge, don't replace: the profile may also hold a custom endpoint (base_url).
+        profile = dict(self.secrets.get("provider:openai") or {})
+        profile.update({"type": "api_key", "api_key": api_key})
+        self.secrets.put("provider:openai", profile)
         self._refresh_provider("openai")  # rebuild the OpenAI client with the new key
         return {"ok": True, **self.get_settings()}
 
@@ -593,6 +689,21 @@ class SessionManager:
         self._prefs["onboarded"] = bool(value)
         self._save_prefs()
         return {"ok": True, "onboarded": bool(value)}
+
+    def set_scratch_base(self, path: str) -> dict[str, Any]:
+        """Set + persist the common area where each Cowork conversation's scratch directory is
+        created (default ~/OpenCoworker). The raw value is stored so the UI shows it as entered;
+        new conversations use it immediately (existing ones keep their provisioned dir)."""
+        path = (path or "").strip()
+        if not path:
+            return {"ok": False, "error": "empty path"}
+        try:
+            Path(path).expanduser().mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        self._prefs["scratch_base"] = path
+        self._save_prefs()
+        return {"ok": True, **self.get_settings()}
 
     # -- gateway / super-agent (inbound messaging) ------------------------------
     SUPERAGENT_SESSION_ID = "__superagent__"
@@ -832,7 +943,10 @@ class SessionManager:
             provider=self.provider,
             memory_store=self.memory_store,
             secrets=self.secrets,
-            task_store=self.task_store,
+            # No scheduling tools inside a scheduled run: the executing agent's job is to DO the
+            # task, and instructions that mention timing ("every day at 5:32pm…") otherwise tempt
+            # it to create another automation instead of running this one.
+            task_store=None,
             session_id=session_id,
             audit_sink=self.audit_store.append,
         )
@@ -847,9 +961,15 @@ class SessionManager:
         # own session id, then saves the transcript. The user can reopen that session and ask a
         # follow-up — the scheduled agent is no longer fire-and-forget.
         engine = self._build_task_engine(task, session_id=run.session_id)
-        # The first turn is the task itself; a marker prefix makes the transcript read as a
-        # scheduled run rather than a raw prompt.
-        opening = f"⏰ Scheduled run — {task.title}\n\n{task.instructions}"
+        # The first turn is the task itself. The framing matters: instructions often restate the
+        # schedule ("every day at 5:32pm…"), so make explicit that the schedule already fired and
+        # the job now is to execute, not to (re)schedule.
+        opening = (
+            f"⏰ Scheduled run — {task.title}\n\n"
+            "This automation is due now: carry out the task below immediately and produce the "
+            "result. The schedule already exists — do not create or modify any scheduled tasks.\n\n"
+            f"{task.instructions}"
+        )
         try:
             async for _event in engine.run(opening):
                 pass
@@ -940,7 +1060,13 @@ class SessionManager:
             "session_id": run.session_id,
             "workspace": task.workspace,
             "agent": task.agent,
-            "prompt": task.instructions,
+            # Same execute-now framing as the headless path — manual runs ride a normal live
+            # session whose engine DOES have scheduling tools, so be explicit.
+            "prompt": (
+                f"⏰ Running automation '{task.title}' now. Carry out these instructions "
+                "immediately and produce the result. The schedule already exists — do not create "
+                f"or modify any scheduled tasks.\n\n{task.instructions}"
+            ),
         }
 
     def finalize_manual_run(self, task_id: str, run_id: str) -> dict[str, Any]:
@@ -974,8 +1100,90 @@ class SessionManager:
                 messages=engine.messages,
                 title=title_from(engine.messages),
                 agent=getattr(engine, "agent_name", "code"),
+                extra_roots=self._extra_roots_of(engine),
             )
         )
+
+    @staticmethod
+    def _extra_roots_of(engine: TurnEngine) -> list[dict[str, Any]]:
+        """Added folders = the engine's roots minus the primary scratch (index 0)."""
+        roots = getattr(engine, "roots", None) or []
+        return [{"path": str(r.path), "writable": bool(r.writable), "label": r.label} for r in roots[1:]]
+
+    # -- session roots (orphan Cowork: scratch + added folders) ------------------
+    def get_roots(self, session_id: str) -> list[dict[str, Any]]:
+        """The directories this session can touch: primary scratch first, then added folders.
+        Reads the live engine when one is running; otherwise reconstructs from persisted state."""
+        engine = self._engines.get(session_id)
+        if engine is not None and getattr(engine, "roots", None):
+            return [
+                {"path": str(r.path), "writable": bool(r.writable), "label": r.label, "primary": i == 0, "exists": r.path.is_dir()}
+                for i, r in enumerate(engine.roots)
+            ]
+        record = self.session_store.load(session_id)
+        primary = (record.workspace if record and record.workspace else self._provision_scratch(session_id))
+        extra = (record.extra_roots if record else []) or []
+        out = [{"path": primary, "writable": True, "label": "scratch", "primary": True, "exists": Path(primary).is_dir()}]
+        for r in extra:
+            p = str(r.get("path", ""))
+            out.append({"path": p, "writable": bool(r.get("writable", False)), "label": r.get("label") or Path(p).name, "primary": False, "exists": Path(p).is_dir()})
+        return out
+
+    def add_root(self, session_id: str, path: str, writable: bool = False) -> dict[str, Any]:
+        """Grant the session access to another folder (read-only or read-write). Mutates the live
+        engine in place when running (file tools + permissions + context see it immediately) and
+        persists it so a later resume still has it."""
+        p = Path(path).expanduser()
+        if not p.is_dir():
+            return {"ok": False, "error": f"not a directory: {path}"}
+        resolved = p.resolve()
+        engine = self._engines.get(session_id)
+        if engine is not None and getattr(engine, "roots", None) is not None:
+            if any(r.path == resolved for r in engine.roots):
+                # already present: just update its access level
+                for r in engine.roots:
+                    if r.path == resolved:
+                        r.writable = bool(writable)
+            else:
+                engine.roots.append(RootDir(path=resolved, writable=bool(writable)))
+            self.session_store.set_extra_roots(session_id, self._extra_roots_of(engine))
+        else:
+            # A brand-new conversation has no record yet (it's only saved after the first turn) —
+            # create one now so set_extra_roots has a row to update and the folder survives.
+            if self.session_store.load(session_id) is None:
+                self.session_store.save(
+                    SessionRecord(
+                        session_id=session_id,
+                        workspace=self._provision_scratch(session_id),
+                        model=self.model,
+                        mode=self.mode.value,
+                        messages=[],
+                        agent="cowork",  # folder access is a Cowork affordance
+                    )
+                )
+            extra = [r for r in self.get_roots(session_id) if not r["primary"]]
+            extra = [r for r in extra if Path(r["path"]).resolve() != resolved]
+            extra.append({"path": str(resolved), "writable": bool(writable), "label": resolved.name})
+            self.session_store.set_extra_roots(session_id, [{"path": r["path"], "writable": r["writable"], "label": r.get("label", "")} for r in extra])
+        self.session_store.touch_workspace(str(resolved))
+        return {"ok": True, "roots": self.get_roots(session_id)}
+
+    def remove_root(self, session_id: str, path: str) -> dict[str, Any]:
+        """Revoke a previously-added folder. The primary scratch cannot be removed."""
+        resolved = Path(path).expanduser().resolve()
+        engine = self._engines.get(session_id)
+        if engine is not None and getattr(engine, "roots", None):
+            if engine.roots and engine.roots[0].path == resolved:
+                return {"ok": False, "error": "cannot remove the primary scratch directory"}
+            engine.roots[:] = [r for r in engine.roots if r.path != resolved]
+            self.session_store.set_extra_roots(session_id, self._extra_roots_of(engine))
+        else:
+            current = self.get_roots(session_id)
+            if current and current[0]["primary"] and Path(current[0]["path"]).resolve() == resolved:
+                return {"ok": False, "error": "cannot remove the primary scratch directory"}
+            extra = [r for r in current if not r["primary"] and Path(r["path"]).resolve() != resolved]
+            self.session_store.set_extra_roots(session_id, [{"path": r["path"], "writable": r["writable"], "label": r.get("label", "")} for r in extra])
+        return {"ok": True, "roots": self.get_roots(session_id)}
 
     def session_messages(self, session_id: str) -> list[dict[str, Any]]:
         record = self.session_store.load(session_id)
@@ -986,6 +1194,18 @@ class SessionManager:
             return {"ok": False, "error": "internal sessions cannot be renamed"}
         ok = self.session_store.rename(session_id, title)
         return {"ok": ok, "session_id": session_id, "title": " ".join((title or "").split())[:120]}
+
+    def set_session_flags(
+        self,
+        session_id: str,
+        *,
+        pinned: Optional[bool] = None,
+        archived: Optional[bool] = None,
+    ) -> dict[str, Any]:
+        if session_id.startswith("__"):
+            return {"ok": False, "error": "internal sessions cannot be modified here"}
+        ok = self.session_store.set_flags(session_id, pinned=pinned, archived=archived)
+        return {"ok": ok, "session_id": session_id}
 
     def delete_session(self, session_id: str) -> dict[str, Any]:
         if session_id.startswith("__"):
@@ -1023,6 +1243,8 @@ class SessionManager:
                 "mode": r.mode,
                 "updated_at": r.updated_at,
                 "messages": r.message_count,
+                "pinned": r.pinned,
+                "archived": r.archived,
             }
             for r in self.session_store.list(workspace=ws)
             if not r.session_id.startswith("__")  # hide superagent/task-run internal threads
@@ -1088,6 +1310,12 @@ def _artifact_kind(path: Path) -> str:
         return "html"
     if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         return "image"
+    if suffix == ".pdf":
+        return "pdf"
+    if suffix in {".xlsx", ".xls"}:
+        return "sheet"
+    if suffix in {".csv", ".tsv"}:
+        return "csv"
     if suffix in {".py", ".js", ".ts", ".tsx", ".css", ".json"}:
         return "code"
     return "text"

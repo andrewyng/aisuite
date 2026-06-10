@@ -10,6 +10,7 @@ import {
   deleteSession,
   renameSession,
   runAutomation,
+  setSessionFlags,
   Session,
   type RecentWorkspace,
   type SurfaceVisibility,
@@ -20,6 +21,9 @@ import { Icon } from "./components/Icon";
 import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
+import { Markdown } from "./components/Markdown";
+import { RootsBar } from "./components/RootsBar";
+import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { ManageModal } from "./components/ManageModal";
 import { Onboarding } from "./components/Onboarding";
@@ -29,6 +33,7 @@ import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { AuditView } from "./components/AuditView";
 import { ApprovalCard } from "./components/ApprovalCard";
+import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -39,13 +44,31 @@ const SUGGESTIONS = [
   { ico: "↻", text: "Find and fix the failing build." },
 ];
 
-const COWORK_SUGGESTIONS = [
-  { ico: "✦", text: "Research a topic and write me a one-page brief." },
-  { ico: "▦", text: "Analyze this CSV and summarize the key trends." },
-  { ico: "✎", text: "Draft a project plan with milestones for…" },
-];
+// Tools whose success means a new/changed file should show up under Artifacts right away.
+const FILE_WRITE_TOOLS = new Set(["write_file", "apply_patch", "apply_unified_diff", "replace_in_file"]);
 
+// Models sometimes pass todo items as bare strings instead of {content, status} objects (the
+// backend tool normalizes them the same way; the GUI reads the raw proposal args, so mirror it).
+function normalizeTodos(raw: unknown): TodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  const statuses = new Set(["pending", "in_progress", "done"]);
+  return raw.map((entry: any) => {
+    if (entry && typeof entry === "object") {
+      const status = entry.status === "completed" ? "done" : entry.status; // common model alias
+      return {
+        content: String(entry.content ?? ""),
+        status: statuses.has(status) ? status : "pending",
+      };
+    }
+    return { content: String(entry ?? ""), status: "pending" as const };
+  });
+}
+
+// Has a workspace (project-grouped, shows a working-area chip): Code + Cowork.
 const needsWorkspace = (a: string) => a === "code" || a === "cowork";
+// MUST pick a folder before starting: Code only. Cowork starts orphan — the server
+// auto-provisions a per-conversation scratch directory and reports it in the `ready` event.
+const gatesWorkspace = (a: string) => a === "code";
 const LAST_SESSION_KEY = "coworker:last-session-by-agent:v1";
 
 type LastSession = { sessionId: string; workspace: string; updatedAt: number };
@@ -123,6 +146,11 @@ export function App() {
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
   const [topbarMenuOpen, setTopbarMenuOpen] = useState(false);
+  // Inline rename in the topbar (window.prompt is a no-op in the desktop webview).
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  // A pending composer prefill (text + attachments) pushed from the session start panel.
+  const [composerPrefill, setComposerPrefill] = useState<{ text: string; attachments?: Attachment[]; nonce: number }>();
 
   // The desktop tray's "Settings" item dispatches this on the window.
   useEffect(() => {
@@ -162,6 +190,11 @@ export function App() {
   // server may not answer for a second or two. Only fall back to the gate once it's truly up.
   const [booting, setBooting] = useState(true);
   const [onboarding, setOnboarding] = useState(false);
+  // True once we've resumed a prior conversation on boot (drives the splash wording).
+  const [resumedExisting, setResumedExisting] = useState(false);
+  // Latched: keep the boot splash up until the restored session is actually CONNECTED (not just
+  // until `booting` clears), so an early click can't land on a session that's still settling.
+  const [uiReady, setUiReady] = useState(false);
 
   // On boot with no seeded workspace, reopen the last thing the user had — most recent
   // conversation (restores its folder + agent + transcript), else the most recent project
@@ -175,6 +208,7 @@ export function App() {
       const ts = (s: SessionInfo) => Date.parse(s.updated_at || "") || Number(s.updated_at) || 0;
       const last = [...sess].sort((a, b) => ts(b) - ts(a))[0];
       if (last) {
+        setResumedExisting(true);
         if (last.agent) setAgent(last.agent);
         if (last.workspace) {
           setWorkspace(last.workspace);
@@ -195,25 +229,27 @@ export function App() {
     try {
       const recents = await getRecentWorkspaces();
       setProjects(recents);
-      const ws = recents.find((w) => w.exists) || recents[0];
-      if (ws) {
-        setWorkspace(ws.path);
-        setShowGate(false);
-        return;
+      // Only auto-adopt a recent folder for gated surfaces (Code). Cowork starts orphan.
+      if (gatesWorkspace(agent)) {
+        const ws = recents.find((w) => w.exists) || recents[0];
+        if (ws) {
+          setWorkspace(ws.path);
+          setShowGate(false);
+          return;
+        }
       }
     } catch {
       /* fall through */
     }
-    setShowGate(true); // nothing to resume → first-run folder gate
+    setShowGate(gatesWorkspace(agent)); // only Code forces a first-run folder gate
   };
 
   useEffect(() => {
     let cancelled = false;
     const attempt = (tries: number) => {
       getHealth()
-        .then((h) => {
+        .then(async (h) => {
           if (cancelled) return;
-          setBooting(false);
           setModel(h.model);
           // First-run setup wizard (desktop): show until the user completes/dismisses it.
           if (isTauri()) {
@@ -221,8 +257,14 @@ export function App() {
               .then((s) => !cancelled && !s.onboarded && setOnboarding(true))
               .catch(() => {});
           }
-          if (h.default_workspace) setWorkspace(h.default_workspace);
-          else resumeLastOrGate();
+          // Settle the active session BEFORE clearing `booting` (which unblocks the connection
+          // effect). resumeLastOrGate is async — if we cleared `booting` first, the throwaway
+          // initial sessionId would connect against an empty/stale workspace and the server
+          // would provision a junk per-conversation scratch dir for it before resume could
+          // flip to the real session. Cowork ignores default_workspace (a Code concept).
+          if (h.default_workspace && gatesWorkspace(agent)) setWorkspace(h.default_workspace);
+          else await resumeLastOrGate();
+          if (!cancelled) setBooting(false);
         })
         .catch(() => {
           if (cancelled) return;
@@ -239,6 +281,21 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  // Reveal the UI once boot has settled AND the restored session is connected (or we're showing
+  // the folder gate). Latched, so later reconnects never flash the splash again.
+  useEffect(() => {
+    if (uiReady || booting) return;
+    if (connected || showGate) setUiReady(true);
+  }, [uiReady, booting, connected, showGate]);
+  // Safety net: if the restored session never reports connected (backend slow/unreachable), reveal
+  // the UI anyway. Boot already passed the health check, so a live connect is sub-second; this only
+  // bites in the failure case, so keep it short.
+  useEffect(() => {
+    if (uiReady || booting) return;
+    const t = setTimeout(() => setUiReady(true), 1500);
+    return () => clearTimeout(t);
+  }, [uiReady, booting]);
 
   const loadSettings = () =>
     getSettings()
@@ -270,7 +327,8 @@ export function App() {
 
   // (re)connect when workspace, session, or agent changes
   useEffect(() => {
-    if (needsWorkspace(agent) && !workspace) return; // Code/Cowork need a folder (gate handles it)
+    if (booting) return; // wait until boot/resume settles the session before connecting
+    if (gatesWorkspace(agent) && !workspace) return; // Code needs a folder (gate handles it)
     const handleEvent = (ev: WsEvent) => {
       const d = ev.data || {};
       switch (ev.type) {
@@ -278,6 +336,8 @@ export function App() {
           setConnected(true);
           if (d.model) setModel(d.model);
           if (d.mode) setMode(d.mode);
+          // Cowork: adopt the server-provisioned scratch dir (only when we don't already have one).
+          if (d.workspace) setWorkspace((cur) => cur || d.workspace);
           break;
         case "turn_start":
           setRunning(true);
@@ -291,7 +351,7 @@ export function App() {
           setStreaming(""); // finalized into items (or empty tool-only turn)
           break;
         case "tool_proposed":
-          if (d.name === "todo_write" && d.arguments?.items) setTodo(d.arguments.items);
+          if (d.name === "todo_write" && d.arguments?.items) setTodo(normalizeTodos(d.arguments.items));
           setItems((p) => [
             ...p,
             { kind: "tool", id: newId(), name: d.name, args: d.arguments, status: "…" },
@@ -303,9 +363,19 @@ export function App() {
             { kind: "approval", name: d.name, args: d.arguments, reason: d.reason, category: d.category },
           ]);
           break;
+        case "directory_requested":
+          setItems((p) => [
+            ...p,
+            { kind: "dirreq", reason: d.reason || "", path: d.path || "", writable: !!d.writable },
+          ]);
+          break;
         case "tool_finished":
           setItems((p) => updateLastTool(p, d.name, d.status, d.result_preview || d.reason));
-          if (String(d.name || "").startsWith("browser_")) setBrowserRefreshKey((k) => k + 1);
+          // Refresh the right rail when something it shows may have changed: browser state, or a
+          // file write that should appear under Artifacts immediately (not only after the turn).
+          if (String(d.name || "").startsWith("browser_") || FILE_WRITE_TOOLS.has(d.name)) {
+            setBrowserRefreshKey((k) => k + 1);
+          }
           break;
         case "turn_end":
           if (d.status === "max_iterations_exceeded")
@@ -320,6 +390,9 @@ export function App() {
         case "turn_done":
           setRunning(false);
           refreshSessions();
+          // Catch-all artifact refresh: files created via shell or on a brand-new session (whose
+          // record only exists after the first save) appear once the turn completes.
+          setBrowserRefreshKey((k) => k + 1);
           // Finalize a manual run after its first turn completes (mark it ok in history).
           {
             const ar = activeRunRef.current;
@@ -348,7 +421,7 @@ export function App() {
     });
     sessionRef.current = session;
     return () => session.close();
-  }, [sessionId, workspace, agent, refreshSessions]);
+  }, [booting, sessionId, workspace, agent, refreshSessions]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -362,6 +435,12 @@ export function App() {
     setItems((p) => resolveLastApproval(p, decision));
     sessionRef.current?.approve(decision);
   };
+  const respondDirectory = (granted: boolean, path?: string, writable?: boolean) => {
+    setItems((p) => resolveLastDirReq(p, granted ? "granted" : "denied"));
+    sessionRef.current?.respondDirectory(granted, path, writable);
+  };
+  const prefillComposer = (text: string, attachments?: Attachment[]) =>
+    setComposerPrefill((p) => ({ text, attachments, nonce: (p?.nonce ?? 0) + 1 }));
   const interrupt = () => sessionRef.current?.interrupt();
   const changeMode = (m: string) => {
     setMode(m);
@@ -373,17 +452,22 @@ export function App() {
   };
 
   const startNewSession = () => {
+    setSurface("session"); // return to the conversation view if we were on a sub-view
     setItems([]);
     setStreaming("");
     setTodo([]);
+    // Cowork: a new conversation starts fresh (orphan) — clear the workspace so the server
+    // provisions a NEW scratch dir for the new session id. Code keeps its repo.
+    if (!gatesWorkspace(agent)) setWorkspace(null);
     setSessionId(newId());
   };
   const selectSession = async (id: string, ws: string, ag: string) => {
+    setSurface("session"); // selecting a conversation always returns to the conversation view
     setTodo([]);
     setStreaming("");
     setRunning(false);
     if (ag) setAgent(ag);
-    if (!needsWorkspace(ag)) setShowGate(false);
+    if (!gatesWorkspace(ag)) setShowGate(false);
     if (ws && ws !== workspace) {
       setWorkspace(ws); // switch project to the session's folder
       setBranch(null);
@@ -411,12 +495,20 @@ export function App() {
     setRunning(false);
 
     if (target) {
-      const targetWorkspace = needsWorkspace(name) ? target.workspace || fallbackWorkspace(workspace, knownProjects) : "";
+      // Code falls back to a recent folder; Cowork resumes its scratch (target.workspace) or
+      // starts orphan ("" → server provisions). Chat has no workspace.
+      const targetWorkspace = gatesWorkspace(name)
+        ? target.workspace || fallbackWorkspace(workspace, knownProjects)
+        : needsWorkspace(name)
+          ? target.workspace || ""
+          : "";
       if (targetWorkspace && targetWorkspace !== workspace) {
         setWorkspace(targetWorkspace);
         setBranch(null);
+      } else if (!targetWorkspace) {
+        setWorkspace(null); // orphan cowork: clear so the next `ready` adopts a fresh scratch
       }
-      if (!needsWorkspace(name)) setShowGate(false);
+      if (!gatesWorkspace(name)) setShowGate(false);
       else if (targetWorkspace) setShowGate(false);
       else setShowGate(true);
       setSessionId(target.sessionId);
@@ -429,14 +521,16 @@ export function App() {
     }
 
     const id = newId();
-    const fallback = needsWorkspace(name) ? fallbackWorkspace(workspace, knownProjects) : "";
+    const fallback = gatesWorkspace(name) ? fallbackWorkspace(workspace, knownProjects) : "";
     if (fallback && fallback !== workspace) {
       setWorkspace(fallback);
       setBranch(null);
+    } else if (!fallback && needsWorkspace(name)) {
+      setWorkspace(null); // orphan cowork: server provisions a fresh scratch on connect
     }
     setSessionId(id);
     rememberLastSession(name, id, fallback);
-    if (!needsWorkspace(name)) setShowGate(false);
+    if (!gatesWorkspace(name)) setShowGate(false);
     else setShowGate(!fallback);
   };
   const chooseWorkspace = (path: string, b?: string | null) => {
@@ -457,6 +551,22 @@ export function App() {
   const renameConversation = async (id: string, title: string) => {
     const res = await renameSession(id, title);
     if (res.ok) refreshSessions();
+  };
+  const togglePinned = async (id: string, pinned: boolean) => {
+    await setSessionFlags(id, { pinned });
+    refreshSessions();
+  };
+  const toggleArchived = async (id: string, archived: boolean) => {
+    await setSessionFlags(id, { archived });
+    refreshSessions();
+    // Archiving the open chat: leave it and start fresh (it moves to the Archived section).
+    if (archived && id === sessionId) {
+      setItems([]);
+      setStreaming("");
+      setTodo([]);
+      setRunning(false);
+      setSessionId(newId());
+    }
   };
   const deleteConversation = async (id: string) => {
     const res = await deleteSession(id);
@@ -488,7 +598,14 @@ export function App() {
 
   const idle = items.length === 0 && !streaming;
   const pendingApproval = [...items].reverse().find((i) => i.kind === "approval" && !i.resolved);
-  const activeTitle = sessions.find((s) => s.session_id === sessionId)?.title || "New chat";
+  const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
+  const activeInfo = sessions.find((s) => s.session_id === sessionId);
+  const activeTitle = activeInfo?.title || "New chat";
+  const commitTitleRename = () => {
+    const next = renameDraft.trim();
+    if (next && next !== activeTitle) renameConversation(sessionId, next);
+    setRenamingTitle(false);
+  };
 
   const desktop = isTauri();
   const beginWindowDrag = (event: PointerEvent) => {
@@ -496,7 +613,7 @@ export function App() {
     startWindowDrag();
   };
 
-  if (booting) {
+  if (booting || !uiReady) {
     return (
       <div className={"app boot-splash" + (desktop ? " tauri-overlay" : "")}>
         {desktop && (
@@ -507,7 +624,7 @@ export function App() {
           </div>
         )}
         <div className="boot-mark">✳</div>
-        <div className="boot-text">Starting coworker…</div>
+        <div className="boot-text">{resumedExisting ? "Restoring your session…" : "Starting coworker…"}</div>
       </div>
     );
   }
@@ -526,8 +643,6 @@ export function App() {
       <Sidebar
         agent={agent}
         workspace={workspace || ""}
-        model={model}
-        mode={mode}
         surfaces={surfaces}
         sessions={sessions}
         projects={projects}
@@ -561,7 +676,23 @@ export function App() {
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
           <div className="main-title" onPointerDown={beginWindowDrag}>
-            <span>{activeTitle}</span>
+            {renamingTitle ? (
+              <input
+                className="title-rename"
+                value={renameDraft}
+                autoFocus
+                spellCheck={false}
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onBlur={commitTitleRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitTitleRename();
+                  else if (e.key === "Escape") setRenamingTitle(false);
+                }}
+              />
+            ) : (
+              <span>{activeTitle}</span>
+            )}
             <button
               className="title-menu-btn"
               onMouseDown={(e) => e.stopPropagation()}
@@ -573,23 +704,39 @@ export function App() {
             </button>
             {topbarMenuOpen && (
               <div className="title-menu" onMouseDown={(e) => e.stopPropagation()}>
-                <button disabled>
-                  <Icon name="pin" size={15} />
-                  <span>Pin chat</span>
-                </button>
                 <button
+                  disabled={!activeInfo}
+                  title={activeInfo ? undefined : "Send a message first"}
                   onClick={() => {
                     setTopbarMenuOpen(false);
-                    const next = window.prompt("Rename conversation", activeTitle);
-                    if (next && next.trim() && next.trim() !== activeTitle) renameConversation(sessionId, next.trim());
+                    togglePinned(sessionId, !activeInfo?.pinned);
+                  }}
+                >
+                  <Icon name="pin" size={15} />
+                  <span>{activeInfo?.pinned ? "Unpin chat" : "Pin chat"}</span>
+                </button>
+                <button
+                  disabled={!activeInfo}
+                  title={activeInfo ? undefined : "Send a message first"}
+                  onClick={() => {
+                    setTopbarMenuOpen(false);
+                    setRenameDraft(activeTitle);
+                    setRenamingTitle(true);
                   }}
                 >
                   <Icon name="pencil" size={15} />
                   <span>Rename chat</span>
                 </button>
-                <button disabled>
+                <button
+                  disabled={!activeInfo}
+                  title={activeInfo ? undefined : "Send a message first"}
+                  onClick={() => {
+                    setTopbarMenuOpen(false);
+                    toggleArchived(sessionId, !activeInfo?.archived);
+                  }}
+                >
                   <Icon name="archive" size={15} />
-                  <span>Archive chat</span>
+                  <span>{activeInfo?.archived ? "Unarchive chat" : "Archive chat"}</span>
                 </button>
               </div>
             )}
@@ -613,27 +760,31 @@ export function App() {
           <div className="main-chat">
             <div className="main-scroll" ref={scrollRef}>
               {idle ? (
-                <div className="hero">
-                  <h1 className="greeting">
-                    <span className="mark">✳</span>
-                    {agent === "chat"
-                      ? "How can I help?"
-                      : agent === "cowork"
-                        ? "What should we produce?"
-                        : "Let's build something."}
-                  </h1>
-                  {needsWorkspace(agent) && (
-                    <div className="suggestions">
-                      <div className="suggest-head">Try a task</div>
-                      {(agent === "cowork" ? COWORK_SUGGESTIONS : SUGGESTIONS).map((s, i) => (
-                        <div className="suggest" key={i} onClick={() => workspace && send(s.text)}>
-                          <span className="ico">{s.ico}</span>
-                          {s.text}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                agent === "cowork" ? (
+                  <SessionIntro
+                    sessionId={sessionId}
+                    onOpenIntegrations={() => setSurface("integrations")}
+                    onPrefill={prefillComposer}
+                  />
+                ) : (
+                  <div className="hero">
+                    <h1 className="greeting">
+                      <span className="mark">✳</span>
+                      {agent === "chat" ? "How can I help?" : "Let's build something."}
+                    </h1>
+                    {needsWorkspace(agent) && (
+                      <div className="suggestions">
+                        <div className="suggest-head">Try a task</div>
+                        {SUGGESTIONS.map((s, i) => (
+                          <div className="suggest" key={i} onClick={() => workspace && send(s.text)}>
+                            <span className="ico">{s.ico}</span>
+                            {s.text}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 <>
                   <Transcript items={items} onApprove={approve} />
@@ -642,7 +793,7 @@ export function App() {
                     <div className="transcript">
                       <div className="bubble-assistant">
                         <div className="who">assistant</div>
-                        {streaming}
+                        <Markdown text={streaming} />
                         <span className="stream-cursor">▍</span>
                       </div>
                     </div>
@@ -664,8 +815,13 @@ export function App() {
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
+              rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
+              prefill={composerPrefill}
+              resetKey={sessionId}
               approvalSlot={
-                pendingApproval?.kind === "approval" ? (
+                pendingDirReq?.kind === "dirreq" ? (
+                  <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
+                ) : pendingApproval?.kind === "approval" ? (
                   <ApprovalCard item={pendingApproval} onApprove={approve} compact />
                 ) : undefined
               }
@@ -678,13 +834,12 @@ export function App() {
             toolNames={items.filter((i) => i.kind === "tool").map((i: any) => i.name)}
             todo={todo}
             running={running}
-            onHide={() => setRailHidden(true)}
           />
         </div>
       </div>
       )}
 
-      {showGate && surface === "session" && needsWorkspace(agent) && (
+      {showGate && surface === "session" && gatesWorkspace(agent) && (
         <FolderGate
           create={gateCreate}
           onChoose={chooseWorkspace}
@@ -805,6 +960,18 @@ function resolveLastApproval(items: Item[], decision: ApprovalDecision): Item[] 
     const it = copy[i];
     if (it.kind === "approval" && !it.resolved) {
       copy[i] = { ...it, resolved: decision };
+      break;
+    }
+  }
+  return copy;
+}
+
+function resolveLastDirReq(items: Item[], resolved: "granted" | "denied"): Item[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i >= 0; i--) {
+    const it = copy[i];
+    if (it.kind === "dirreq" && !it.resolved) {
+      copy[i] = { ...it, resolved };
       break;
     }
   }

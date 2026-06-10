@@ -41,10 +41,28 @@ class PermissionEngine:
     auto_allow_tools: set[str] = field(default_factory=set)
     session_allow_tools: set[str] = field(default_factory=set)
     session_allow_commands: set[str] = field(default_factory=set)
+    # Shared, possibly-mutable list of roots (RootDir-like / dicts). When omitted, the single
+    # `workspace_root` is the sole writable root (back-compat). Kept by reference and re-read on
+    # every check, so runtime add/remove of folders takes effect without rebuilding the engine.
+    roots: Optional[list] = None
 
     def __post_init__(self) -> None:
         self.workspace_root = Path(self.workspace_root).expanduser().resolve()
         self.auto_allow_tools = set(self.auto_allow_tools)
+        if self.roots is None:
+            self.roots = [{"path": self.workspace_root, "writable": True}]
+
+    def _resolved_roots(self) -> list[tuple[Path, bool]]:
+        out: list[tuple[Path, bool]] = []
+        for r in self.roots or []:
+            if isinstance(r, dict):
+                p, w = r["path"], bool(r.get("writable", False))
+            elif isinstance(r, (str, Path)):
+                p, w = r, True
+            else:  # duck-typed RootDir-like
+                p, w = getattr(r, "path"), bool(getattr(r, "writable", False))
+            out.append((Path(p).expanduser().resolve(), w))
+        return out
 
     def evaluate(
         self, tool_name: str, arguments: dict[str, Any], metadata: Any = None
@@ -60,11 +78,11 @@ class PermissionEngine:
         if self.mode is Mode.PLAN and consequential:
             return Decision(False, "plan mode is read-only", needs_user=False)
 
-        # Path scoping for writes that name a path (all modes).
+        # Path scoping for writes that name a path (all modes): must land in a writable root.
         if is_write:
             path = arguments.get("path")
-            if path is not None and not self._under_root(path):
-                return Decision(False, f"path escapes workspace: {path}")
+            if path is not None and not self._under_writable_root(path):
+                return Decision(False, f"path is not in a writable directory: {path}")
 
         # Non-consequential tools always run.
         if not consequential:
@@ -100,14 +118,32 @@ class PermissionEngine:
             self.session_allow_commands.add(command)
 
     # -- helpers ----------------------------------------------------------------
+    def _candidate(self, path: str) -> Path:
+        # Relative paths resolve against the primary (workspace_root); absolute/`~` taken as-is.
+        p = Path(path).expanduser()
+        return p.resolve() if p.is_absolute() else (self.workspace_root / p).resolve()
+
     def _under_root(self, path: str) -> bool:
-        try:
-            (self.workspace_root / path).expanduser().resolve().relative_to(
-                self.workspace_root
-            )
-            return True
-        except ValueError:
-            return False
+        candidate = self._candidate(path)
+        for rp, _ in self._resolved_roots():
+            try:
+                candidate.relative_to(rp)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    def _under_writable_root(self, path: str) -> bool:
+        candidate = self._candidate(path)
+        for rp, writable in self._resolved_roots():
+            if not writable:
+                continue
+            try:
+                candidate.relative_to(rp)
+                return True
+            except ValueError:
+                continue
+        return False
 
     def _command_allowed(self, command: str) -> bool:
         for allowed in self.allowed_commands:

@@ -324,6 +324,85 @@ def test_set_provider_skips_recommended_when_not_pulled(tmp_path, monkeypatch):
     assert "ollama:qwen3-coder:30b" not in mgr.get_settings()["models"]
 
 
+def test_compat_builders_use_vendor_endpoints(monkeypatch):
+    import pytest
+
+    from coworker.providers.registry import (
+        ANTHROPIC_COMPAT_URL,
+        GEMINI_COMPAT_URL,
+        build_provider_client,
+    )
+
+    p = build_provider_client("anthropic", {"api_key": "sk-ant-x"}, None)
+    assert p._base_url == ANTHROPIC_COMPAT_URL and p._api_key == "sk-ant-x"
+    g = build_provider_client("gemini", {"api_key": "AIza-x"}, None)
+    assert g._base_url == GEMINI_COMPAT_URL
+
+    # env var fallback works; no key anywhere → a clear error naming the provider
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza-env")
+    assert build_provider_client("gemini", {}, None)._api_key == "AIza-env"
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Anthropic"):
+        build_provider_client("anthropic", {}, None)
+
+    # OpenAI custom endpoint (Azure /openai/v1, OpenRouter, vLLM, …) passes through
+    o = build_provider_client("openai", {"base_url": "https://my.azure.example/openai/v1"}, None)
+    assert o._base_url == "https://my.azure.example/openai/v1"
+    assert build_provider_client("openai", {}, None)._base_url is None
+
+
+def test_anthropic_gemini_capabilities():
+    for m in ("anthropic:claude-sonnet-4-6", "gemini:gemini-2.5-flash"):
+        caps = capabilities_for(m)
+        assert caps.tools is True and caps.vision is True and caps.streaming is True
+        assert caps.parallel_tool_calls is False  # conservative on the compat endpoints
+
+
+def test_anthropic_gemini_provider_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["anthropic"]["configured"] is False
+    assert provs["gemini"]["needs_key"] is True
+    assert "claude-sonnet-4-6" in provs["anthropic"]["suggested_models"]
+    assert "gemini-2.5-flash" in provs["gemini"]["suggested_models"]
+
+    res = mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})
+    assert res["ok"] is True and res["recommended_model"] == "claude-sonnet-4-6"
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["anthropic"]["configured"] is True
+    assert "api_key" not in provs["anthropic"].get("values", {})  # secrets never leak
+    # the recommended model is auto-added to the curated list with its provider prefix
+    assert "anthropic:claude-sonnet-4-6" in mgr.get_settings()["models"]
+
+    # env var alone marks a provider configured
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza-env")
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["gemini"]["configured"] is True
+
+
+def test_first_configured_provider_wins_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    assert mgr.model == "gpt-5.5"  # fresh install: built-in default, openai unconfigured
+
+    # the first provider that gets a key takes over the default
+    mgr.set_provider("anthropic", {"api_key": "sk-ant-x"})
+    assert mgr.model == "anthropic:claude-sonnet-4-6"
+
+    # but a default that already works is never stolen by the next provider
+    mgr.set_provider("gemini", {"api_key": "AIza-x"})
+    assert mgr.model == "anthropic:claude-sonnet-4-6"
+
+
 def test_surface_visibility(tmp_path, monkeypatch):
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
     from coworker.server.manager import SessionManager

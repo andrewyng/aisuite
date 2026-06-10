@@ -66,6 +66,18 @@ export async function renameSession(sessionId: string, title: string): Promise<{
   return res.json();
 }
 
+export async function setSessionFlags(
+  sessionId: string,
+  flags: { pinned?: boolean; archived?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(flags),
+  });
+  return res.json();
+}
+
 export async function deleteSession(sessionId: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
   return res.json();
@@ -97,6 +109,59 @@ export async function getArtifacts(sessionId: string): Promise<ArtifactInfo[]> {
 export async function readArtifact(sessionId: string, path: string): Promise<ArtifactContent> {
   const q = new URLSearchParams({ path });
   const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/read?${q.toString()}`);
+  return res.json();
+}
+
+/** Show the artifact in Finder ("reveal") or open it with its default app ("open"). */
+export async function revealArtifact(
+  sessionId: string,
+  path: string,
+  mode: "reveal" | "open" = "reveal",
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/reveal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, mode }),
+  });
+  return res.json();
+}
+
+// -- session roots (orphan Cowork: scratch + added folders) -------------------
+export interface RootInfo {
+  path: string;
+  writable: boolean;
+  label: string;
+  primary: boolean;
+  exists: boolean;
+}
+
+export async function getRoots(sessionId: string): Promise<RootInfo[]> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/roots`);
+  return (await res.json()).roots ?? [];
+}
+
+export async function addRoot(
+  sessionId: string,
+  path: string,
+  writable: boolean,
+): Promise<{ ok: boolean; error?: string; roots?: RootInfo[] }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/roots`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, writable }),
+  });
+  return res.json();
+}
+
+export async function removeRoot(
+  sessionId: string,
+  path: string,
+): Promise<{ ok: boolean; error?: string; roots?: RootInfo[] }> {
+  const q = new URLSearchParams({ path });
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/roots?${q.toString()}`,
+    { method: "DELETE" },
+  );
   return res.json();
 }
 
@@ -298,6 +363,18 @@ export interface ModelSettings {
   source: "env" | "store" | null;
   onboarded: boolean;
   surfaces: SurfaceVisibility;
+  scratch_base: string;
+}
+
+export async function setScratchBase(
+  path: string,
+): Promise<{ ok: boolean; error?: string; scratch_base?: string }> {
+  const res = await fetch(`${httpBase()}/v1/settings/scratch-base`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  return res.json();
 }
 
 export async function setSurfaces(
@@ -575,6 +652,11 @@ export class Session {
 
   approve(decision: string) {
     this.send({ type: "approval", decision });
+  }
+
+  // Reply to a `request_directory` prompt: grant a folder (with access level) or decline.
+  respondDirectory(granted: boolean, path?: string, writable?: boolean) {
+    this.send({ type: "directory_response", granted, ...(path ? { path } : {}), writable: !!writable });
   }
 
   interrupt() {

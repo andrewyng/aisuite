@@ -19,6 +19,10 @@ class AgentContext:
     workspace: Optional[Path] = None
     executor: Optional[Any] = None
     todo: Optional[TodoList] = None
+    # Shared, mutable list of RootDir the session may touch (primary scratch + added folders).
+    # When None, tools fall back to the single `workspace` root. Held by reference so runtime
+    # add/remove of folders is seen by the file tools built from it.
+    roots: Optional[list] = None
 
 
 @dataclass

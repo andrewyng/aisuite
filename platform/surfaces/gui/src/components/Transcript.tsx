@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ApprovalDecision, Item } from "../types";
 import { shortArgs } from "./ApprovalCard";
+import { Markdown } from "./Markdown";
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
 type ApprovalItem = Extract<Item, { kind: "approval" }>;
@@ -111,12 +112,23 @@ export function Transcript({ items }: Props) {
             return (
               <div className="bubble-assistant" key={bi}>
                 <div className="who">assistant</div>
-                {item.text}
+                <Markdown text={item.text} />
               </div>
             );
           case "approval":
             if (!item.resolved) return null;
             return <ApprovalOneLine item={item} key={bi} />;
+          case "dirreq":
+            if (!item.resolved) return null;
+            return (
+              <div className="approval-inline" key={bi}>
+                <span className={"status " + (item.resolved === "granted" ? "ok" : "denied")}>
+                  {item.resolved === "granted" ? "✓" : "✕"}
+                </span>
+                <span>{item.resolved === "granted" ? "Granted folder access" : "Declined folder access"}</span>
+                {item.path && <span className="dim">{item.path}</span>}
+              </div>
+            );
           case "notice":
             return (
               <div className={"notice " + (item.tone === "warn" ? "warn" : "")} key={bi}>

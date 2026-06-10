@@ -20,6 +20,16 @@ from typing import Optional
 from .sessions import SessionRecord
 
 
+def _load_roots(raw: Optional[str]) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return value if isinstance(value, list) else []
+
+
 def title_from(messages: list[dict]) -> str:
     from .attachments import content_to_text
 
@@ -47,6 +57,7 @@ class ConversationStore:
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY, workspace TEXT, model TEXT, mode TEXT,
                 title TEXT, agent TEXT DEFAULT 'code', n_msgs INTEGER DEFAULT 0, messages TEXT,
+                extra_roots TEXT, pinned INTEGER DEFAULT 0, archived INTEGER DEFAULT 0,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -58,6 +69,9 @@ class ConversationStore:
             "ALTER TABLE sessions ADD COLUMN title TEXT",
             "ALTER TABLE sessions ADD COLUMN n_msgs INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT 'code'",
+            "ALTER TABLE sessions ADD COLUMN extra_roots TEXT",
+            "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
+            "ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0",
         ):
             try:
                 self._conn.execute(ddl)
@@ -147,14 +161,16 @@ class ConversationStore:
             title = record.title or title_from(record.messages)
             self._conn.execute(
                 """
-                INSERT INTO sessions (session_id, workspace, model, mode, title, agent, n_msgs, messages, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+                INSERT INTO sessions (session_id, workspace, model, mode, title, agent, n_msgs, messages, extra_roots, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(session_id) DO UPDATE SET
                     workspace = excluded.workspace, model = excluded.model, mode = excluded.mode,
                     title = COALESCE(sessions.title, excluded.title), agent = excluded.agent,
-                    n_msgs = excluded.n_msgs, messages = NULL, updated_at = CURRENT_TIMESTAMP
+                    n_msgs = excluded.n_msgs, messages = NULL, extra_roots = excluded.extra_roots,
+                    updated_at = CURRENT_TIMESTAMP
                 """,
-                (sid, record.workspace, record.model, record.mode, title, record.agent, len(record.messages)),
+                (sid, record.workspace, record.model, record.mode, title, record.agent,
+                 len(record.messages), json.dumps(record.extra_roots or [])),
             )
             self._conn.commit()
         self.touch_workspace(record.workspace)
@@ -182,17 +198,30 @@ class ConversationStore:
             agent=row["agent"] or "code",
             message_count=len(messages),
             updated_at=row["updated_at"],
+            extra_roots=_load_roots(row["extra_roots"] if "extra_roots" in row.keys() else None),
+            pinned=bool(row["pinned"]),
+            archived=bool(row["archived"]),
         )
+
+    def set_extra_roots(self, session_id: str, extra_roots: list[dict]) -> None:
+        """Persist just the session's added folders, independent of its message log — used when
+        the user adds/removes a folder (which may happen with no active engine)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET extra_roots = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (json.dumps(extra_roots or []), session_id),
+            )
+            self._conn.commit()
 
     def list(self, *, workspace: Optional[str] = None) -> list[SessionRecord]:
         with self._lock:
             if workspace is None:
                 rows = self._conn.execute(
-                    "SELECT * FROM sessions ORDER BY updated_at DESC"
+                    "SELECT * FROM sessions ORDER BY pinned DESC, updated_at DESC"
                 ).fetchall()
             else:
                 rows = self._conn.execute(
-                    "SELECT * FROM sessions WHERE workspace = ? ORDER BY updated_at DESC",
+                    "SELECT * FROM sessions WHERE workspace = ? ORDER BY pinned DESC, updated_at DESC",
                     (workspace,),
                 ).fetchall()
         return [
@@ -206,6 +235,8 @@ class ConversationStore:
                 agent=r["agent"] or "code",
                 message_count=r["n_msgs"] or 0,
                 updated_at=r["updated_at"],
+                pinned=bool(r["pinned"]),
+                archived=bool(r["archived"]),
             )
             for r in rows
         ]
@@ -265,6 +296,27 @@ class ConversationStore:
             cur = self._conn.execute(
                 "UPDATE sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
                 (clean, session_id),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def set_flags(
+        self, session_id: str, *, pinned: Optional[bool] = None, archived: Optional[bool] = None
+    ) -> bool:
+        """Update pin/archive flags without touching updated_at (so pinning doesn't reorder)."""
+        sets, params = [], []
+        if pinned is not None:
+            sets.append("pinned = ?")
+            params.append(1 if pinned else 0)
+        if archived is not None:
+            sets.append("archived = ?")
+            params.append(1 if archived else 0)
+        if not sets:
+            return False
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE sessions SET {', '.join(sets)} WHERE session_id = ?",
+                (*params, session_id),
             )
             self._conn.commit()
         return cur.rowcount > 0

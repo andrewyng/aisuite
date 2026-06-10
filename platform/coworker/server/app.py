@@ -11,6 +11,7 @@ import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -80,11 +81,31 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.patch("/v1/sessions/{session_id}")
     def session_patch(session_id: str, body: dict) -> dict[str, Any]:
-        return manager.rename_session(session_id, str((body or {}).get("title", "")))
+        body = body or {}
+        if "pinned" in body or "archived" in body:
+            return manager.set_session_flags(
+                session_id,
+                pinned=bool(body["pinned"]) if "pinned" in body else None,
+                archived=bool(body["archived"]) if "archived" in body else None,
+            )
+        return manager.rename_session(session_id, str(body.get("title", "")))
 
     @app.delete("/v1/sessions/{session_id}")
     def session_delete(session_id: str) -> dict[str, Any]:
         return manager.delete_session(session_id)
+
+    @app.get("/v1/sessions/{session_id}/roots")
+    def session_roots(session_id: str) -> dict[str, Any]:
+        return {"roots": manager.get_roots(session_id)}
+
+    @app.post("/v1/sessions/{session_id}/roots")
+    def session_add_root(session_id: str, body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.add_root(session_id, str(body.get("path", "")), bool(body.get("writable", False)))
+
+    @app.delete("/v1/sessions/{session_id}/roots")
+    def session_remove_root(session_id: str, path: str) -> dict[str, Any]:
+        return manager.remove_root(session_id, path)
 
     @app.get("/v1/sessions/{session_id}/artifacts")
     def session_artifacts(session_id: str) -> dict[str, Any]:
@@ -93,6 +114,11 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.get("/v1/sessions/{session_id}/artifacts/read")
     def session_artifact_read(session_id: str, path: str) -> dict[str, Any]:
         return manager.read_artifact(session_id, path)
+
+    @app.post("/v1/sessions/{session_id}/artifacts/reveal")
+    def session_artifact_reveal(session_id: str, body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.reveal_artifact(session_id, str(body.get("path", "")), str(body.get("mode", "reveal")))
 
     @app.get("/v1/memory")
     def memory() -> dict[str, Any]:
@@ -245,6 +271,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         b = body or {}
         return manager.set_surfaces(chat=b.get("chat"), code=b.get("code"))
 
+    @app.post("/v1/settings/scratch-base")
+    def settings_set_scratch_base(body: dict) -> dict[str, Any]:
+        return manager.set_scratch_base(str((body or {}).get("path", "")))
+
     # -- super-agent (always-on inbound assistant) ------------------------------
     @app.get("/v1/superagent")
     def superagent_status() -> dict[str, Any]:
@@ -325,6 +355,7 @@ def create_app(manager: SessionManager) -> FastAPI:
     async def ws_session(ws: WebSocket, session_id: str) -> None:
         await ws.accept()
         approval_queue: asyncio.Queue[str] = asyncio.Queue()
+        directory_queue: asyncio.Queue[dict] = asyncio.Queue()
 
         async def approver(_request) -> ApprovalOutcome:
             decision = await approval_queue.get()
@@ -332,6 +363,22 @@ def create_app(manager: SessionManager) -> FastAPI:
                 return ApprovalOutcome(decision)
             except ValueError:
                 return ApprovalOutcome.DENY
+
+        async def directory_requester(args: dict) -> dict:
+            # The engine has already emitted DIRECTORY_REQUESTED; wait for the user's reply, then
+            # apply the grant to this live session so its tools/permissions/context pick it up.
+            resp = await directory_queue.get()
+            if not resp.get("granted"):
+                return {"granted": False, "reason": "the user declined the request"}
+            path = (resp.get("path") or args.get("path") or "").strip()
+            if not path:
+                return {"granted": False, "error": "no directory was provided"}
+            writable = bool(resp.get("writable", args.get("writable", False)))
+            res = manager.add_root(session_id, path, writable)
+            if not res.get("ok"):
+                return {"granted": False, "error": res.get("error", "could not grant access")}
+            primary = next((r for r in res.get("roots", []) if r.get("path") and Path(r["path"]).expanduser().resolve() == Path(path).expanduser().resolve()), None)
+            return {"granted": True, "path": (primary or {}).get("path", path), "writable": writable}
 
         workspace = ws.query_params.get("workspace")
         agent = ws.query_params.get("agent") or "code"
@@ -344,6 +391,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             agent=agent,
             approver=approver,
             extra_tools=mcp_tools,
+            directory_requester=directory_requester,
         )
         if engine is None:
             await ws.send_json(
@@ -383,6 +431,8 @@ def create_app(manager: SessionManager) -> FastAPI:
                 kind = message.get("type")
                 if kind == "approval":
                     approval_queue.put_nowait(message.get("decision", "deny"))
+                elif kind == "directory_response":
+                    directory_queue.put_nowait(message)
                 elif kind == "interrupt":
                     engine.request_interrupt()
                 elif kind == "set_mode":

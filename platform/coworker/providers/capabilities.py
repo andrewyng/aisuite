@@ -20,6 +20,13 @@ def capabilities_for(model: str) -> ModelCapabilities:
             tools=True, vision=False, parallel_tool_calls=False, streaming=True
         )
 
+    # Claude / Gemini: tools + vision + streaming. Parallel tool calls stay off while we ride
+    # the vendors' OpenAI-compatibility endpoints; revisit when the native providers land.
+    if provider in ("anthropic", "gemini"):
+        return ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=False, streaming=True
+        )
+
     # Modern OpenAI GPT models: tools + vision + parallel tool calls + streaming.
     if name.startswith(("gpt-5", "gpt-4")):
         return ModelCapabilities(
