@@ -619,7 +619,7 @@ export function App() {
         {desktop && (
           <div className="titlebar-drag" data-tauri-drag-region>
             <span className="titlebar-brand">
-              <Icon name="sparkle" size={13} className="mark" /> Open Coworker
+              <Icon name="sparkle" size={13} className="mark" /> OpenCoworker
             </span>
           </div>
         )}
