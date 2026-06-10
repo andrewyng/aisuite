@@ -14,7 +14,7 @@ def main():
     client = ai.Client(
         provider_configs={
             "ollama": {
-                "api_url": "http://10.168.0.177:11434",
+                "base_url": "http://10.168.0.177:11434",
                 "timeout": 300,
             }
         }

@@ -1,7 +1,25 @@
 import os
+
 import httpx
+import openai
+
 from aisuite.provider import Provider, LLMError
-from aisuite.framework import ChatCompletionResponse
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
+
+
+def _parse_base_url(config) -> str:
+    base_url = (
+        config.get("base_url")
+        or config.get("api_url")
+        or os.getenv("OLLAMA_API_URL", "http://localhost:11434/v1")
+    )
+
+    # strip last / if any and add v1 if not present
+    if base_url.endswith("/"):
+        base_url = base_url[:-1]
+    if not base_url.endswith("/v1"):
+        base_url += "/v1"
+    return base_url
 
 
 class OllamaProvider(Provider):
@@ -12,54 +30,39 @@ class OllamaProvider(Provider):
     If OLLAMA_API_URL is not set and not passed in config, then it will default to "http://localhost:11434"
     """
 
-    _CHAT_COMPLETION_ENDPOINT = "/api/chat"
     _CONNECT_ERROR_MESSAGE = "Ollama is likely not running. Start Ollama by running `ollama serve` on your host."
 
     def __init__(self, **config):
         """
         Initialize the Ollama provider with the given configuration.
         """
-        self.url = config.get("api_url") or os.getenv(
-            "OLLAMA_API_URL", "http://localhost:11434"
-        )
+        # just for backward compatibility
+        if "api_url" in config:
+            config["base_url"] = config.pop("api_url")
+
+        config["base_url"] = _parse_base_url(config)
+        config["api_key"] = "ollama"  # required but ignored by ollama server
 
         # Optionally set a custom timeout (default to 30s)
-        self.timeout = config.get("timeout", 30)
+        config["timeout"] = config.get("timeout", 30)
+
+        self.client = openai.OpenAI(**config)
+        self.transformer = OpenAICompliantMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
         """
-        Makes a request to the chat completions endpoint using httpx.
+        Makes a request to the chat completions endpoint using openai client.
         """
-        kwargs["stream"] = False
-        data = {
-            "model": model,
-            "messages": messages,
-            **kwargs,  # Pass any additional arguments to the API
-        }
-
         try:
-            response = httpx.post(
-                self.url.rstrip("/") + self._CHAT_COMPLETION_ENDPOINT,
-                json=data,
-                timeout=self.timeout,
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                **kwargs,  # Pass any additional arguments to the OpenAI API
             )
-            response.raise_for_status()
+            return self.transformer.convert_response(response.model_dump())
         except httpx.ConnectError:  # Handle connection errors
             raise LLMError(f"Connection failed: {self._CONNECT_ERROR_MESSAGE}")
         except httpx.HTTPStatusError as http_err:
             raise LLMError(f"Ollama request failed: {http_err}")
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
-
-        # Return the normalized response
-        return self._normalize_response(response.json())
-
-    def _normalize_response(self, response_data):
-        """
-        Normalize the API response to a common format (ChatCompletionResponse).
-        """
-        normalized_response = ChatCompletionResponse()
-        normalized_response.choices[0].message.content = response_data["message"][
-            "content"
-        ]
-        return normalized_response
