@@ -559,8 +559,8 @@ class Tools:
                         "status": "success",
                         "result_preview": _preview_tool_result(result),
                     }
-                    artifactized_result, result_artifacts = self._artifactized_trace_value(
-                        result
+                    artifactized_result, result_artifacts = (
+                        self._artifactized_trace_value(result)
                     )
                     if result_artifacts:
                         result_event["result_artifacts"] = result_artifacts

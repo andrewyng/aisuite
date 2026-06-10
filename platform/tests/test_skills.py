@@ -27,7 +27,13 @@ def test_code_agent_tools(tmp_path):
     try:
         ctx = AgentContext(workspace=tmp_path, executor=ex, todo=TodoList())
         names = {getattr(t, "__name__", "?") for t in code_agent().build_tools(ctx)}
-        assert {"read_file", "write_file", "git_status", "run_shell", "todo_write"} <= names
+        assert {
+            "read_file",
+            "write_file",
+            "git_status",
+            "run_shell",
+            "todo_write",
+        } <= names
     finally:
         ex.close()
 
@@ -49,15 +55,21 @@ def test_get_agent_fallback():
 def _make_skill(skills_dir, name, desc, body):
     d = skills_dir / name
     d.mkdir(parents=True)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\n{body}", encoding="utf-8")
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {desc}\n---\n{body}", encoding="utf-8"
+    )
 
 
 def test_skill_loader_catalog_and_load(tmp_path):
     skills_dir = tmp_path / "skills"
-    _make_skill(skills_dir, "pdf", "extract text from PDFs", "Use pdfplumber to extract text.")
+    _make_skill(
+        skills_dir, "pdf", "extract text from PDFs", "Use pdfplumber to extract text."
+    )
     loader = SkillLoader([skills_dir])
 
-    assert loader.catalog() == [{"name": "pdf", "description": "extract text from PDFs"}]
+    assert loader.catalog() == [
+        {"name": "pdf", "description": "extract text from PDFs"}
+    ]
     assert "pdf: extract text from PDFs" in skill_catalog_text(loader)
 
     reg = ToolRegistry()

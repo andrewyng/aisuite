@@ -32,17 +32,29 @@ class RootDir:
 
 def normalize_roots(roots: Iterable[Any] | None) -> list[RootDir]:
     """Coerce a mixed list (RootDir | dict{path,writable,label} | str/Path) into RootDirs.
-    Bare str/Path entries are treated as read-only; pass dicts/RootDirs to grant write."""
+    Bare str/Path entries are treated as read-only; pass dicts/RootDirs to grant write.
+    """
     out: list[RootDir] = []
     for r in roots or []:
         if isinstance(r, RootDir):
             out.append(r)
         elif isinstance(r, dict):
-            out.append(RootDir(path=r["path"], writable=bool(r.get("writable", False)), label=r.get("label", "")))
+            out.append(
+                RootDir(
+                    path=r["path"],
+                    writable=bool(r.get("writable", False)),
+                    label=r.get("label", ""),
+                )
+            )
         elif isinstance(r, (str, Path)):
             out.append(RootDir(path=r, writable=False))
         else:  # duck-typed object with .path/.writable
-            out.append(RootDir(path=getattr(r, "path"), writable=bool(getattr(r, "writable", False))))
+            out.append(
+                RootDir(
+                    path=getattr(r, "path"),
+                    writable=bool(getattr(r, "writable", False)),
+                )
+            )
     return out
 
 

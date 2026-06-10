@@ -20,7 +20,9 @@ def test_global_and_workspace_override(tmp_path):
     g.write_text('model = "gpt-4o"\nmax_iterations = 20\nport = 9000\n')
     ws = tmp_path / "ws"
     (ws / ".coworker").mkdir(parents=True)
-    (ws / ".coworker" / "config.toml").write_text('max_iterations = 30\nmode = "plan"\n')
+    (ws / ".coworker" / "config.toml").write_text(
+        'max_iterations = 30\nmode = "plan"\n'
+    )
 
     cfg = load_config(ws, global_path=g)
     assert cfg.model == "gpt-4o"  # from global

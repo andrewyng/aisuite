@@ -75,7 +75,9 @@ def _html_to_text(html: str) -> str:
 
 def make_web_fetch_tool() -> Callable[..., Any]:
     def web_fetch(url: str, max_chars: int = _MAX) -> dict[str, Any]:
-        if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+        if not isinstance(url, str) or not url.lower().startswith(
+            ("http://", "https://")
+        ):
             return {"error": "url must start with http:// or https://"}
         cap = max_chars if isinstance(max_chars, int) and max_chars > 0 else _MAX
         cap = min(cap, 100000)
@@ -83,7 +85,9 @@ def make_web_fetch_tool() -> Callable[..., Any]:
             import httpx
 
             with httpx.Client(
-                follow_redirects=True, timeout=20.0, headers={"User-Agent": "coworker/0.1 (+desktop)"}
+                follow_redirects=True,
+                timeout=20.0,
+                headers={"User-Agent": "coworker/0.1 (+desktop)"},
             ) as client:
                 resp = client.get(url)
                 resp.raise_for_status()

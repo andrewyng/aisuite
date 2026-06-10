@@ -17,10 +17,14 @@ def request_directory_tool() -> object:
         ones (e.g. to read a project the user mentioned, or to save a deliverable somewhere
         specific). Explain why in `reason`; optionally suggest a `path` and whether you need
         `writable` access. The user picks/approves the folder; the result says whether it was
-        granted. Do not use this to escape sandboxing — only to serve the user's request."""
+        granted. Do not use this to escape sandboxing — only to serve the user's request.
+        """
         # Real handling lives in the engine (it needs the out-of-band GUI round-trip). This body
         # only runs if no requester is wired (e.g. a headless surface).
-        return {"granted": False, "error": "directory requests aren't available in this surface"}
+        return {
+            "granted": False,
+            "error": "directory requests aren't available in this surface",
+        }
 
     return tool(
         request_directory,

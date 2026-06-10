@@ -28,7 +28,9 @@ def create_app(manager: SessionManager) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
-            live = await manager.start_gateway()  # start messaging listeners (if configured)
+            live = (
+                await manager.start_gateway()
+            )  # start messaging listeners (if configured)
             if live:
                 print(f"[coworker] messaging gateway live: {', '.join(live)}")
         except Exception:  # never let a bad connector stop the server
@@ -69,7 +71,9 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/workspaces/open")
     def open_workspace(body: dict) -> dict[str, Any]:
-        return manager.open_workspace(body.get("path", ""), create=bool(body.get("create")))
+        return manager.open_workspace(
+            body.get("path", ""), create=bool(body.get("create"))
+        )
 
     @app.get("/v1/sessions")
     def sessions(workspace: str | None = None) -> dict[str, Any]:
@@ -101,7 +105,9 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/sessions/{session_id}/roots")
     def session_add_root(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}
-        return manager.add_root(session_id, str(body.get("path", "")), bool(body.get("writable", False)))
+        return manager.add_root(
+            session_id, str(body.get("path", "")), bool(body.get("writable", False))
+        )
 
     @app.delete("/v1/sessions/{session_id}/roots")
     def session_remove_root(session_id: str, path: str) -> dict[str, Any]:
@@ -118,7 +124,9 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/sessions/{session_id}/artifacts/reveal")
     def session_artifact_reveal(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}
-        return manager.reveal_artifact(session_id, str(body.get("path", "")), str(body.get("mode", "reveal")))
+        return manager.reveal_artifact(
+            session_id, str(body.get("path", "")), str(body.get("mode", "reveal"))
+        )
 
     @app.get("/v1/memory")
     def memory() -> dict[str, Any]:
@@ -126,12 +134,16 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/memory")
     def add_memory(body: dict) -> dict[str, Any]:
-        return manager.add_memory(body.get("content", ""), body.get("scope", "workspace"))
+        return manager.add_memory(
+            body.get("content", ""), body.get("scope", "workspace")
+        )
 
     @app.post("/v1/chat/completions")
     def chat_completions(body: dict) -> dict[str, Any]:
         model = body.get("model", manager.model)
-        turn = manager.provider_complete(model, body.get("messages", []), body.get("tools"))
+        turn = manager.provider_complete(
+            model, body.get("messages", []), body.get("tools")
+        )
         return _openai_response(model, turn)
 
     # -- MCP servers ------------------------------------------------------------
@@ -202,7 +214,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         tool: str | None = None,
     ) -> dict[str, Any]:
         return {
-            "events": manager.list_audit(limit=limit, session_id=session_id, connector=connector, tool=tool)
+            "events": manager.list_audit(
+                limit=limit, session_id=session_id, connector=connector, tool=tool
+            )
         }
 
     @app.get("/v1/browser/state")
@@ -376,9 +390,25 @@ def create_app(manager: SessionManager) -> FastAPI:
             writable = bool(resp.get("writable", args.get("writable", False)))
             res = manager.add_root(session_id, path, writable)
             if not res.get("ok"):
-                return {"granted": False, "error": res.get("error", "could not grant access")}
-            primary = next((r for r in res.get("roots", []) if r.get("path") and Path(r["path"]).expanduser().resolve() == Path(path).expanduser().resolve()), None)
-            return {"granted": True, "path": (primary or {}).get("path", path), "writable": writable}
+                return {
+                    "granted": False,
+                    "error": res.get("error", "could not grant access"),
+                }
+            primary = next(
+                (
+                    r
+                    for r in res.get("roots", [])
+                    if r.get("path")
+                    and Path(r["path"]).expanduser().resolve()
+                    == Path(path).expanduser().resolve()
+                ),
+                None,
+            )
+            return {
+                "granted": True,
+                "path": (primary or {}).get("path", path),
+                "writable": writable,
+            }
 
         workspace = ws.query_params.get("workspace")
         agent = ws.query_params.get("agent") or "code"
@@ -397,7 +427,9 @@ def create_app(manager: SessionManager) -> FastAPI:
             await ws.send_json(
                 {
                     "type": "error",
-                    "data": {"error": "no valid workspace — choose a project folder first"},
+                    "data": {
+                        "error": "no valid workspace — choose a project folder first"
+                    },
                 }
             )
             await ws.close()
@@ -410,9 +442,11 @@ def create_app(manager: SessionManager) -> FastAPI:
                     "agent": getattr(engine, "agent_name", "code"),
                     "model": engine.model,
                     "mode": engine.permissions.mode.value,
-                    "workspace": str(getattr(engine, "executor").cwd)
-                    if getattr(engine, "executor", None)
-                    else None,
+                    "workspace": (
+                        str(getattr(engine, "executor").cwd)
+                        if getattr(engine, "executor", None)
+                        else None
+                    ),
                 },
             }
         )

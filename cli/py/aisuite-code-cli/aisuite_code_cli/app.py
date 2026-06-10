@@ -184,7 +184,9 @@ class CodeCli:
 
     def _print_help(self) -> None:
         print("\nCommands", file=self.output_stream)
-        print("  /viewer        show viewer status and command", file=self.output_stream)
+        print(
+            "  /viewer        show viewer status and command", file=self.output_stream
+        )
         print("  /viewer start  start local viewer server", file=self.output_stream)
         print("  /status        show current configuration", file=self.output_stream)
         print("  /examples      show good starter prompts", file=self.output_stream)
@@ -230,7 +232,9 @@ class CodeCli:
         print("\nLast turn", file=self.output_stream)
         print(f"  trace: {self.result.trace_id}", file=self.output_stream)
         print(f"  status: {self.result.status}", file=self.output_stream)
-        print(f"  input: {self._compact(self.result.input, 260)}", file=self.output_stream)
+        print(
+            f"  input: {self._compact(self.result.input, 260)}", file=self.output_stream
+        )
         print("  output:", file=self.output_stream)
         output = str(self.result.final_output or "").strip() or "(no final output)"
         for line in output.splitlines():

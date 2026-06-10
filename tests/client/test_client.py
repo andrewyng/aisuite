@@ -65,9 +65,7 @@ def provider_configs():
         ("inception", "mercury"),
     ],
 )
-def test_client_chat_completions(
-    provider_configs: dict, provider: str, model: str
-):
+def test_client_chat_completions(provider_configs: dict, provider: str, model: str):
     expected_response = f"{provider}_{model}"
     mock_provider = Mock()
     mock_provider.chat_completions_create.return_value = expected_response

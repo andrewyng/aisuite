@@ -50,15 +50,24 @@ class SuperAgent:
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
-    def set_event_sink(self, on_event: Optional[Callable[[Any], Awaitable[None]]]) -> None:
+    def set_event_sink(
+        self, on_event: Optional[Callable[[Any], Awaitable[None]]]
+    ) -> None:
         self._on_event = on_event
 
     async def on_message(self, event: MessageEvent) -> None:
         """Gateway/GUI handler: steer into the active turn if busy, else enqueue a new turn."""
         if self._running:
             self.engine.queue_steering(event.tagged_text())
-            logger.info("steered message from %s into the active turn", event.source.label())
-            await self._emit({"type": "inbound", "data": {"text": event.text, "source": event.source.label()}})
+            logger.info(
+                "steered message from %s into the active turn", event.source.label()
+            )
+            await self._emit(
+                {
+                    "type": "inbound",
+                    "data": {"text": event.text, "source": event.source.label()},
+                }
+            )
         else:
             await self._queue.put(event)
 
@@ -92,7 +101,9 @@ class SuperAgent:
             self._running = True
             try:
                 async for engine_event in self.engine.run(text):
-                    await self._emit({"type": engine_event.type.value, "data": engine_event.data})
+                    await self._emit(
+                        {"type": engine_event.type.value, "data": engine_event.data}
+                    )
             except Exception:
                 logger.exception("super-agent turn failed")
             finally:

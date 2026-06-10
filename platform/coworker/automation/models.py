@@ -28,7 +28,9 @@ class Schedule:
     kind: str  # "cron" | "once"
     cron: Optional[str] = None
     fire_at: Optional[str] = None  # ISO datetime for one-time
-    timezone: str = "local"  # 'local' = the machine's clock (a local-first tool default)
+    timezone: str = (
+        "local"  # 'local' = the machine's clock (a local-first tool default)
+    )
 
     def human(self) -> str:
         """Best-effort human label ('Every day at ~7:10 PM'); falls back to the raw cron."""
@@ -51,11 +53,21 @@ class Schedule:
         return self.cron
 
     def to_dict(self) -> dict:
-        return {"kind": self.kind, "cron": self.cron, "fire_at": self.fire_at, "timezone": self.timezone}
+        return {
+            "kind": self.kind,
+            "cron": self.cron,
+            "fire_at": self.fire_at,
+            "timezone": self.timezone,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Schedule":
-        return cls(kind=d.get("kind", "cron"), cron=d.get("cron"), fire_at=d.get("fire_at"), timezone=d.get("timezone", "local"))
+        return cls(
+            kind=d.get("kind", "cron"),
+            cron=d.get("cron"),
+            fire_at=d.get("fire_at"),
+            timezone=d.get("timezone", "local"),
+        )
 
 
 @dataclass
@@ -64,20 +76,20 @@ class ScheduledTask:
     instructions: str
     schedule: Schedule
     workspace: str
-    origin_surface: str = "cowork"          # where it was launched from (a reference)
+    origin_surface: str = "cowork"  # where it was launched from (a reference)
     origin_session_id: str = ""
     agent: str = "cowork"
     id: str = field(default_factory=lambda: "task-" + uuid.uuid4().hex[:10])
-    task_session_id: str = ""               # the task's OWN thread (set to f"__task__{id}")
+    task_session_id: str = ""  # the task's OWN thread (set to f"__task__{id}")
     model: Optional[str] = None
     notify_on_completion: bool = True
-    notify_target: Optional[str] = None     # extra messaging target ("telegram:123")
+    notify_target: Optional[str] = None  # extra messaging target ("telegram:123")
     always_allowed_tools: list[str] = field(default_factory=list)
     always_allowed_commands: list[str] = field(default_factory=list)
     enabled: bool = True
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
-    next_run: Optional[float] = None        # epoch seconds; computed by the store
+    next_run: Optional[float] = None  # epoch seconds; computed by the store
     last_run: Optional[float] = None
     last_status: Optional[str] = None
     run_count: int = 0

@@ -5,8 +5,12 @@ from typing import TextIO
 
 import aisuite as ai
 
-
-WRITE_TOOL_NAMES = {"write_file", "replace_in_file", "apply_patch", "apply_unified_diff"}
+WRITE_TOOL_NAMES = {
+    "write_file",
+    "replace_in_file",
+    "apply_patch",
+    "apply_unified_diff",
+}
 
 
 def print_steps(result: ai.RunResult, output_stream: TextIO) -> None:
@@ -28,7 +32,9 @@ def print_steps(result: ai.RunResult, output_stream: TextIO) -> None:
             if data.get("reason"):
                 print(f"    reason: {data['reason']}", file=output_stream)
         elif step.type == "tool_result":
-            result_summary = summarize_result_preview(step.name, data.get("result_preview"))
+            result_summary = summarize_result_preview(
+                step.name, data.get("result_preview")
+            )
             status = data.get("status") or "completed"
             print(
                 f"  tool result: {step.name} · {status}{result_summary}",

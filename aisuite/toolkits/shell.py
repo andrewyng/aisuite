@@ -62,7 +62,9 @@ class ShellToolkit:
         max_output_chars: int,
     ):
         if not allow_all and not allowed_commands:
-            raise ValueError("Shell toolkit requires allowed_commands or allow_all=True.")
+            raise ValueError(
+                "Shell toolkit requires allowed_commands or allow_all=True."
+            )
 
         self.cwd = Path(cwd).expanduser().resolve()
         if not self.cwd.exists():

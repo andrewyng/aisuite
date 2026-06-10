@@ -18,7 +18,9 @@ from typing import Any, Callable, Optional
 import aisuite as ai
 
 
-def _meta(name: str, *, approval: bool = False, capabilities: Optional[list[str]] = None):
+def _meta(
+    name: str, *, approval: bool = False, capabilities: Optional[list[str]] = None
+):
     return ai.ToolMetadata(
         name=name,
         category="connector",
@@ -28,13 +30,19 @@ def _meta(name: str, *, approval: bool = False, capabilities: Optional[list[str]
     )
 
 
-def _schema(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+def _schema(
+    name: str, description: str, properties: dict[str, Any], required: list[str]
+) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
             "name": name,
             "description": description,
-            "parameters": {"type": "object", "properties": properties, "required": required},
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
         },
     }
 
@@ -54,7 +62,9 @@ class _BrowserController:
         self._context = None
         self._page = None
         self._error: Optional[str] = None
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="coworker-browser")
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="coworker-browser"
+        )
         self._state: dict[str, Any] = {
             "open": False,
             "url": "",
@@ -108,9 +118,13 @@ class _BrowserController:
 
                 self._playwright = sync_playwright().start()
                 self._browser = self._playwright.chromium.launch(headless=False)
-                self._context = self._browser.new_context(viewport={"width": 1280, "height": 900})
+                self._context = self._browser.new_context(
+                    viewport={"width": 1280, "height": 900}
+                )
                 self._page = self._context.new_page()
-                self._touch(open=True, status="open", last_action="open browser", last_error="")
+                self._touch(
+                    open=True, status="open", last_action="open browser", last_error=""
+                )
                 return self._page, None
             except Exception as exc:
                 self._touch(open=False, status="error", last_error=str(exc))
@@ -159,12 +173,21 @@ class _BrowserController:
                 return err
             try:
                 png = page.screenshot(full_page=False)
-                data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
-                self._touch(screenshot_data_url=data_url, last_action="screenshot", last_result="ok", last_error="")
+                data_url = "data:image/png;base64," + base64.b64encode(png).decode(
+                    "ascii"
+                )
+                self._touch(
+                    screenshot_data_url=data_url,
+                    last_action="screenshot",
+                    last_result="ok",
+                    last_error="",
+                )
                 self._refresh_page_state()
                 return {"ok": True, **dict(self._state)}
             except Exception as exc:
-                self._touch(last_action="screenshot", last_result="error", last_error=str(exc))
+                self._touch(
+                    last_action="screenshot", last_result="error", last_error=str(exc)
+                )
                 return {"error": str(exc)}
 
     def call(self, action: str, fn: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
@@ -179,7 +202,11 @@ class _BrowserController:
                 except Exception as exc:
                     out = {"error": str(exc)}
                 if "error" in out:
-                    self._touch(last_action=action, last_result="error", last_error=str(out["error"]))
+                    self._touch(
+                        last_action=action,
+                        last_result="error",
+                        last_error=str(out["error"]),
+                    )
                 else:
                     self._refresh_page_state()
                     self._touch(last_action=action, last_result="ok", last_error="")
@@ -295,56 +322,101 @@ def _snapshot(page, max_chars: int) -> dict[str, Any]:
 def make_browser_automation_tools() -> list[Callable[..., Any]]:
     tools: list[Callable[..., Any]] = []
 
-    def browser_open_url(url: str, wait_until: str = "domcontentloaded") -> dict[str, Any]:
+    def browser_open_url(
+        url: str, wait_until: str = "domcontentloaded"
+    ) -> dict[str, Any]:
         if not url.lower().startswith(("http://", "https://")):
             return {"error": "url must start with http:// or https://"}
-        return _BROWSER.call("open_url", lambda page: (page.goto(url, wait_until=wait_until, timeout=30000), {"ok": True, "url": page.url})[1])
+        return _BROWSER.call(
+            "open_url",
+            lambda page: (
+                page.goto(url, wait_until=wait_until, timeout=30000),
+                {"ok": True, "url": page.url},
+            )[1],
+        )
 
     browser_open_url.__name__ = "browser_open_url"
-    tools.append(_attach(browser_open_url, _schema(
-        "browser_open_url",
-        "Open a URL in the local Playwright browser session.",
-        {"url": {"type": "string"}, "wait_until": {"type": "string"}},
-        ["url"],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_open_url,
+            _schema(
+                "browser_open_url",
+                "Open a URL in the local Playwright browser session.",
+                {"url": {"type": "string"}, "wait_until": {"type": "string"}},
+                ["url"],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_snapshot(max_chars: int = 20000) -> dict[str, Any]:
         return _BROWSER.call("snapshot", lambda page: _snapshot(page, max_chars))
 
     browser_snapshot.__name__ = "browser_snapshot"
-    tools.append(_attach(browser_snapshot, _schema(
-        "browser_snapshot",
-        "Return the current page text plus visible controls and selector hints.",
-        {"max_chars": {"type": "integer"}},
-        [],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_snapshot,
+            _schema(
+                "browser_snapshot",
+                "Return the current page text plus visible controls and selector hints.",
+                {"max_chars": {"type": "integer"}},
+                [],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_get_text(max_chars: int = 20000) -> dict[str, Any]:
         def run(page):
-            text = re.sub(r"\n{3,}", "\n\n", page.locator("body").inner_text(timeout=5000))
+            text = re.sub(
+                r"\n{3,}", "\n\n", page.locator("body").inner_text(timeout=5000)
+            )
             cap = _cap(max_chars)
-            return {"url": page.url, "title": page.title(), "text": text[:cap], "truncated": len(text) > cap}
+            return {
+                "url": page.url,
+                "title": page.title(),
+                "text": text[:cap],
+                "truncated": len(text) > cap,
+            }
 
         return _BROWSER.call("get_text", run)
 
     browser_get_text.__name__ = "browser_get_text"
-    tools.append(_attach(browser_get_text, _schema(
-        "browser_get_text",
-        "Read visible text from the current browser page.",
-        {"max_chars": {"type": "integer"}},
-        [],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_get_text,
+            _schema(
+                "browser_get_text",
+                "Read visible text from the current browser page.",
+                {"max_chars": {"type": "integer"}},
+                [],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_click(target: str) -> dict[str, Any]:
-        return _BROWSER.call("click", lambda page: (_target_locator(page, target).click(timeout=10000), {"ok": True, "url": page.url})[1])
+        return _BROWSER.call(
+            "click",
+            lambda page: (
+                _target_locator(page, target).click(timeout=10000),
+                {"ok": True, "url": page.url},
+            )[1],
+        )
 
     browser_click.__name__ = "browser_click"
-    tools.append(_attach(browser_click, _schema(
-        "browser_click",
-        "Click a visible page element by CSS selector, text=label, role=button:Name, or text fallback. Requires approval.",
-        {"target": {"type": "string"}},
-        ["target"],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_click,
+            _schema(
+                "browser_click",
+                "Click a visible page element by CSS selector, text=label, role=button:Name, or text fallback. Requires approval.",
+                {"target": {"type": "string"}},
+                ["target"],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_type(target: str, text: str, clear: bool = True) -> dict[str, Any]:
         def run(page):
@@ -358,42 +430,80 @@ def make_browser_automation_tools() -> list[Callable[..., Any]]:
         return _BROWSER.call("type", run)
 
     browser_type.__name__ = "browser_type"
-    tools.append(_attach(browser_type, _schema(
-        "browser_type",
-        "Fill or type into an input, textarea, or editable element. Requires approval.",
-        {"target": {"type": "string"}, "text": {"type": "string"}, "clear": {"type": "boolean"}},
-        ["target", "text"],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_type,
+            _schema(
+                "browser_type",
+                "Fill or type into an input, textarea, or editable element. Requires approval.",
+                {
+                    "target": {"type": "string"},
+                    "text": {"type": "string"},
+                    "clear": {"type": "boolean"},
+                },
+                ["target", "text"],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_select(target: str, value: str) -> dict[str, Any]:
-        return _BROWSER.call("select", lambda page: (_target_locator(page, target).select_option(value, timeout=10000), {"ok": True, "url": page.url})[1])
+        return _BROWSER.call(
+            "select",
+            lambda page: (
+                _target_locator(page, target).select_option(value, timeout=10000),
+                {"ok": True, "url": page.url},
+            )[1],
+        )
 
     browser_select.__name__ = "browser_select"
-    tools.append(_attach(browser_select, _schema(
-        "browser_select",
-        "Select an option in a dropdown by selector and option value/label. Requires approval.",
-        {"target": {"type": "string"}, "value": {"type": "string"}},
-        ["target", "value"],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_select,
+            _schema(
+                "browser_select",
+                "Select an option in a dropdown by selector and option value/label. Requires approval.",
+                {"target": {"type": "string"}, "value": {"type": "string"}},
+                ["target", "value"],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_upload_file(target: str, path: str) -> dict[str, Any]:
         file_path = Path(path).expanduser().resolve()
         if not file_path.exists():
             return {"error": f"file not found: {file_path}"}
-        return _BROWSER.call("upload_file", lambda page: (_target_locator(page, target).set_input_files(str(file_path), timeout=10000), {"ok": True, "path": str(file_path)})[1])
+        return _BROWSER.call(
+            "upload_file",
+            lambda page: (
+                _target_locator(page, target).set_input_files(
+                    str(file_path), timeout=10000
+                ),
+                {"ok": True, "path": str(file_path)},
+            )[1],
+        )
 
     browser_upload_file.__name__ = "browser_upload_file"
-    tools.append(_attach(browser_upload_file, _schema(
-        "browser_upload_file",
-        "Upload a local file through a file input. Requires approval.",
-        {"target": {"type": "string"}, "path": {"type": "string"}},
-        ["target", "path"],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_upload_file,
+            _schema(
+                "browser_upload_file",
+                "Upload a local file through a file input. Requires approval.",
+                {"target": {"type": "string"}, "path": {"type": "string"}},
+                ["target", "path"],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_wait(milliseconds: int = 1000, target: str = "") -> dict[str, Any]:
         def run(page):
             if target:
-                _target_locator(page, target).wait_for(timeout=max(1, int(milliseconds or 1000)))
+                _target_locator(page, target).wait_for(
+                    timeout=max(1, int(milliseconds or 1000))
+                )
             else:
                 page.wait_for_timeout(max(1, min(int(milliseconds or 1000), 30000)))
             return {"ok": True, "url": page.url}
@@ -401,16 +511,26 @@ def make_browser_automation_tools() -> list[Callable[..., Any]]:
         return _BROWSER.call("wait", run)
 
     browser_wait.__name__ = "browser_wait"
-    tools.append(_attach(browser_wait, _schema(
-        "browser_wait",
-        "Wait for a duration or for a target element to appear.",
-        {"milliseconds": {"type": "integer"}, "target": {"type": "string"}},
-        [],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_wait,
+            _schema(
+                "browser_wait",
+                "Wait for a duration or for a target element to appear.",
+                {"milliseconds": {"type": "integer"}, "target": {"type": "string"}},
+                [],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_screenshot(path: str = "") -> dict[str, Any]:
         def run(page):
-            out = Path(path).expanduser() if path else Path(tempfile.gettempdir()) / "coworker-browser-screenshot.png"
+            out = (
+                Path(path).expanduser()
+                if path
+                else Path(tempfile.gettempdir()) / "coworker-browser-screenshot.png"
+            )
             out = out.resolve()
             out.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(out), full_page=True)
@@ -419,22 +539,34 @@ def make_browser_automation_tools() -> list[Callable[..., Any]]:
         return _BROWSER.call("screenshot", run)
 
     browser_screenshot.__name__ = "browser_screenshot"
-    tools.append(_attach(browser_screenshot, _schema(
-        "browser_screenshot",
-        "Save a full-page screenshot of the current browser page and return the local path.",
-        {"path": {"type": "string"}},
-        [],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_screenshot,
+            _schema(
+                "browser_screenshot",
+                "Save a full-page screenshot of the current browser page and return the local path.",
+                {"path": {"type": "string"}},
+                [],
+            ),
+            approval=True,
+        )
+    )
 
     def browser_close() -> dict[str, Any]:
         return browser_close_session()
 
     browser_close.__name__ = "browser_close"
-    tools.append(_attach(browser_close, _schema(
-        "browser_close",
-        "Close the local Playwright browser session.",
-        {},
-        [],
-    ), approval=True))
+    tools.append(
+        _attach(
+            browser_close,
+            _schema(
+                "browser_close",
+                "Close the local Playwright browser session.",
+                {},
+                [],
+            ),
+            approval=True,
+        )
+    )
 
     return tools

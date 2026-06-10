@@ -40,7 +40,9 @@ _SCHEMA = {
 }
 
 
-def resolve_provider(secrets: Optional[SecretStore] = None, *, default: str = "duckduckgo") -> WebSearchProvider:
+def resolve_provider(
+    secrets: Optional[SecretStore] = None, *, default: str = "duckduckgo"
+) -> WebSearchProvider:
     secrets = secrets or SecretStore()
     profile = secrets.get("web_search:default") or {}
     name = profile.get("provider") or _config_provider() or default
@@ -73,7 +75,10 @@ def make_web_search_tool(
         try:
             results = p.search(query, max_results=max(1, min(n, 10)))
         except Exception as exc:  # network / library / quota
-            return {"error": f"web search failed: {exc}", "provider": getattr(p, "name", "?")}
+            return {
+                "error": f"web search failed: {exc}",
+                "provider": getattr(p, "name", "?"),
+            }
         return {"provider": p.name, "results": [r.to_dict() for r in results]}
 
     web_search.__name__ = "web_search"

@@ -153,9 +153,7 @@ def test_shell_tool_stores_large_output_artifact_without_hiding_model_context(tm
         tool_calls=[
             tool_call(
                 "run_shell",
-                json.dumps(
-                    {"command": "python3 -c 'print(\"x\" * 21001)'"}
-                ),
+                json.dumps({"command": "python3 -c 'print(\"x\" * 21001)'"}),
             )
         ],
     )
@@ -181,7 +179,9 @@ def test_shell_tool_stores_large_output_artifact_without_hiding_model_context(tm
     assert "x" * 21001 in tool_message["content"]
     tool_result_steps = [step for step in result.steps if step.type == "tool_result"]
     assert (
-        tool_result_steps[0].data["result_artifacts"][0]["artifact_ref"]["metadata"]["field"]
+        tool_result_steps[0].data["result_artifacts"][0]["artifact_ref"]["metadata"][
+            "field"
+        ]
         == "stdout"
     )
     ref = ai.ArtifactRef.from_dict(

@@ -33,7 +33,11 @@ from ..connectors import (
     make_adapter,
     update_connector_tools,
 )
-from ..connectors.browser_automation import browser_close_session, browser_state, browser_take_screenshot
+from ..connectors.browser_automation import (
+    browser_close_session,
+    browser_state,
+    browser_take_screenshot,
+)
 from ..mcp import (
     MCPManager,
     build_callables,
@@ -69,7 +73,9 @@ class SessionManager:
         mode: Mode = Mode.INTERACTIVE,
         provider: Optional[ProviderClient] = None,
     ) -> None:
-        self.default_workspace = str(Path(workspace).expanduser().resolve()) if workspace else None
+        self.default_workspace = (
+            str(Path(workspace).expanduser().resolve()) if workspace else None
+        )
         self.model = model
         self.mode = mode
         self.provider = provider
@@ -117,7 +123,11 @@ class SessionManager:
             return {"path": str(resolved), "ok": False, "error": "not a directory"}
         if not resolved.exists():
             if not create:
-                return {"path": str(resolved), "ok": False, "error": "folder does not exist"}
+                return {
+                    "path": str(resolved),
+                    "ok": False,
+                    "error": "folder does not exist",
+                }
             try:
                 resolved.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
@@ -209,7 +219,11 @@ class SessionManager:
         # folders the user added (persisted per session). Code/Chat stay single-root (roots=None).
         roots = None
         if agent_name in ("cowork", "myhelper") and ws:
-            extra = [r for r in ((record.extra_roots if record else []) or []) if Path(str(r.get("path", ""))).is_dir()]
+            extra = [
+                r
+                for r in ((record.extra_roots if record else []) or [])
+                if Path(str(r.get("path", ""))).is_dir()
+            ]
             roots = [{"path": ws, "writable": True, "label": "scratch"}, *extra]
         engine = build_engine(
             agent=ag,
@@ -250,13 +264,17 @@ class SessionManager:
                 continue
             try:
                 conn = await self.mcp.ensure(server)
-            except Exception:  # bad command / unreachable url — skip, don't break the session
+            except (
+                Exception
+            ):  # bad command / unreachable url — skip, don't break the session
                 continue
             out.extend(
                 build_callables(
                     server,
                     conn.tools,
-                    lambda tool, args, name=server.name: self.mcp.call(name, tool, args),
+                    lambda tool, args, name=server.name: self.mcp.call(
+                        name, tool, args
+                    ),
                     loop,
                 )
             )
@@ -271,10 +289,26 @@ class SessionManager:
                 {
                     "name": name,
                     "enabled": bool(raw.get("enabled", True)),
-                    "transport": "http" if (raw.get("url") or str(raw.get("type", "")).lower() in {"http", "sse", "streamable-http"}) else "stdio",
+                    "transport": (
+                        "http"
+                        if (
+                            raw.get("url")
+                            or str(raw.get("type", "")).lower()
+                            in {"http", "sse", "streamable-http"}
+                        )
+                        else "stdio"
+                    ),
                     "requires_approval": bool(raw.get("requires_approval", True)),
-                    "status": "connected" if connected else ("disabled" if not raw.get("enabled", True) else "configured"),
-                    "tool_count": len(self.mcp._conns[name].tools) if connected else None,
+                    "status": (
+                        "connected"
+                        if connected
+                        else (
+                            "disabled" if not raw.get("enabled", True) else "configured"
+                        )
+                    ),
+                    "tool_count": (
+                        len(self.mcp._conns[name].tools) if connected else None
+                    ),
                     "config": _redact(raw),
                 }
             )
@@ -303,7 +337,10 @@ class SessionManager:
                 return {
                     "name": name,
                     "ok": True,
-                    "tools": [{"name": t.name, "description": getattr(t, "description", "")} for t in conn.tools],
+                    "tools": [
+                        {"name": t.name, "description": getattr(t, "description", "")}
+                        for t in conn.tools
+                    ],
                 }
         return {"name": name, "ok": False, "error": "unknown server", "tools": []}
 
@@ -323,7 +360,9 @@ class SessionManager:
     def disconnect_connector(self, name: str) -> dict[str, Any]:
         return disconnect_connector(self.secrets, name)
 
-    def update_connector_tools(self, name: str, enabled: dict[str, Any]) -> dict[str, Any]:
+    def update_connector_tools(
+        self, name: str, enabled: dict[str, Any]
+    ) -> dict[str, Any]:
         return update_connector_tools(self.secrets, name, enabled)
 
     def list_audit(
@@ -334,7 +373,9 @@ class SessionManager:
         connector: Optional[str] = None,
         tool: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        return self.audit_store.list(limit=limit, session_id=session_id, connector=connector, tool=tool)
+        return self.audit_store.list(
+            limit=limit, session_id=session_id, connector=connector, tool=tool
+        )
 
     def browser_state(self) -> dict[str, Any]:
         return browser_state()
@@ -354,11 +395,43 @@ class SessionManager:
         if not root.is_dir():
             return []
         out: list[dict[str, Any]] = []
-        suffixes = {".md", ".markdown", ".html", ".htm", ".txt", ".json", ".csv", ".tsv", ".py", ".js", ".ts", ".tsx", ".css", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".xlsx", ".xls", ".pptx", ".ppt", ".pptm", ".docx", ".doc", ".docm"}
+        suffixes = {
+            ".md",
+            ".markdown",
+            ".html",
+            ".htm",
+            ".txt",
+            ".json",
+            ".csv",
+            ".tsv",
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".css",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".gif",
+            ".pdf",
+            ".xlsx",
+            ".xls",
+            ".pptx",
+            ".ppt",
+            ".pptm",
+            ".docx",
+            ".doc",
+            ".docm",
+        }
         for path in root.rglob("*"):
             try:
                 rel = path.relative_to(root)
-                if any(part.startswith(".") or part in {"node_modules", "target", "dist", "__pycache__"} for part in rel.parts):
+                if any(
+                    part.startswith(".")
+                    or part in {"node_modules", "target", "dist", "__pycache__"}
+                    for part in rel.parts
+                ):
                     continue
                 if not path.is_file() or path.suffix.lower() not in suffixes:
                     continue
@@ -379,7 +452,9 @@ class SessionManager:
 
     MAX_BINARY_PREVIEW = 25 * 1024 * 1024  # base64-over-JSON gets heavy past this
 
-    def _artifact_target(self, session_id: str, path: str) -> tuple[Optional[Path], Optional[str]]:
+    def _artifact_target(
+        self, session_id: str, path: str
+    ) -> tuple[Optional[Path], Optional[str]]:
         """Resolve an artifact path under the session's workspace, or (None, error)."""
         record = self.session_store.load(session_id)
         workspace = record.workspace if record else self.default_workspace
@@ -408,7 +483,10 @@ class SessionManager:
             import base64
 
             if target.stat().st_size > self.MAX_BINARY_PREVIEW:
-                return {"ok": False, "error": "file too large to preview — use Reveal to open it"}
+                return {
+                    "ok": False,
+                    "error": "file too large to preview — use Reveal to open it",
+                }
             mime = {
                 ".png": "image/png",
                 ".jpg": "image/jpeg",
@@ -420,14 +498,27 @@ class SessionManager:
                 ".xls": "application/vnd.ms-excel",
             }.get(target.suffix.lower(), "application/octet-stream")
             data = base64.b64encode(target.read_bytes()).decode("ascii")
-            return {"ok": True, "path": path, "kind": kind, "data_url": f"data:{mime};base64,{data}"}
+            return {
+                "ok": True,
+                "path": path,
+                "kind": kind,
+                "data_url": f"data:{mime};base64,{data}",
+            }
         try:
             text = target.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             return {"ok": False, "error": "binary file cannot be previewed"}
-        return {"ok": True, "path": path, "kind": kind, "content": text[:500000], "truncated": len(text) > 500000}
+        return {
+            "ok": True,
+            "path": path,
+            "kind": kind,
+            "content": text[:500000],
+            "truncated": len(text) > 500000,
+        }
 
-    def reveal_artifact(self, session_id: str, path: str, mode: str = "reveal") -> dict[str, Any]:
+    def reveal_artifact(
+        self, session_id: str, path: str, mode: str = "reveal"
+    ) -> dict[str, Any]:
         """Show the file in the OS file manager (`reveal`) or open it with its default app
         (`open`). The server runs on the user's machine in both desktop and browser builds, so
         this is local. Cross-platform: macOS `open`, Windows Explorer/ShellExecute, Linux
@@ -441,8 +532,14 @@ class SessionManager:
             return {"ok": False, "error": err}
         try:
             if sys.platform == "darwin":
-                args = ["open", "-R", str(target)] if mode == "reveal" else ["open", str(target)]
-                subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                args = (
+                    ["open", "-R", str(target)]
+                    if mode == "reveal"
+                    else ["open", str(target)]
+                )
+                subprocess.Popen(
+                    args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
             elif sys.platform == "win32":
                 if mode == "reveal":
                     # Explorer wants the path glued to the switch: /select,<path>
@@ -451,7 +548,11 @@ class SessionManager:
                     os.startfile(str(target))  # type: ignore[attr-defined]  # open in default app
             else:  # Linux/BSD
                 tgt = str(target.parent) if mode == "reveal" else str(target)
-                subprocess.Popen(["xdg-open", tgt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["xdg-open", tgt],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True}
@@ -462,14 +563,18 @@ class SessionManager:
         from ..web import provider_names
 
         profile = self.secrets.get("web_search:default") or {}
-        provider = profile.get("provider") or load_config().web_search_provider or "duckduckgo"
+        provider = (
+            profile.get("provider") or load_config().web_search_provider or "duckduckgo"
+        )
         return {
             "provider": provider,
             "has_key": bool(profile.get("api_key")),
             "providers": provider_names(),
         }
 
-    def set_web_search(self, provider: str, api_key: Optional[str] = None) -> dict[str, Any]:
+    def set_web_search(
+        self, provider: str, api_key: Optional[str] = None
+    ) -> dict[str, Any]:
         from ..web import provider_names
 
         if provider not in provider_names():
@@ -483,7 +588,8 @@ class SessionManager:
     # -- model providers (OpenAI, Ollama, …) ------------------------------------
     def get_providers(self) -> list[dict[str, Any]]:
         """Descriptor + per-provider status for the Settings UI. Never returns secret values;
-        non-secret field values (e.g. the Ollama base URL) ARE returned so the form can prefill."""
+        non-secret field values (e.g. the Ollama base URL) ARE returned so the form can prefill.
+        """
         import os
 
         out: list[dict[str, Any]] = []
@@ -500,12 +606,14 @@ class SessionManager:
                 for f in d.fields
                 if not f.secret and profile.get(f.key)
             }
-            out.append({
-                **d.to_dict(),
-                "configured": configured,
-                "values": values,
-                "suggested_models": self._suggested_models(d.name),
-            })
+            out.append(
+                {
+                    **d.to_dict(),
+                    "configured": configured,
+                    "values": values,
+                    "suggested_models": self._suggested_models(d.name),
+                }
+            )
         return out
 
     def _suggested_models(self, name: str) -> list[str]:
@@ -521,7 +629,9 @@ class SessionManager:
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
         return []
 
-    def set_provider(self, name: str, fields: Optional[dict[str, Any]]) -> dict[str, Any]:
+    def set_provider(
+        self, name: str, fields: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Store a provider's config in its `provider:<name>` SecretStore profile and rebuild
         its cached client. Merges provided fields into any existing profile."""
         d = get_descriptor(name)
@@ -574,7 +684,9 @@ class SessionManager:
         if not d.needs_key:
             return True  # keyless (Ollama)
         profile = self.secrets.get(f"provider:{name}") or {}
-        return bool(profile.get("api_key")) or bool(d.env_key and os.environ.get(d.env_key))
+        return bool(profile.get("api_key")) or bool(
+            d.env_key and os.environ.get(d.env_key)
+        )
 
     # -- settings / prefs (model API key, default model, onboarding) -------------
     KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
@@ -589,7 +701,9 @@ class SessionManager:
             return {}
 
     def _save_prefs(self) -> None:
-        self._prefs_path().write_text(json.dumps(self._prefs, indent=2), encoding="utf-8")
+        self._prefs_path().write_text(
+            json.dumps(self._prefs, indent=2), encoding="utf-8"
+        )
 
     def _ollama_models(self) -> list[str]:
         """Live list of models pulled into the configured Ollama server (via its native
@@ -605,7 +719,9 @@ class SessionManager:
             import httpx
 
             data = httpx.get(base + "/api/tags", timeout=2.0).json()
-            return [f"ollama:{m['name']}" for m in data.get("models", []) if m.get("name")]
+            return [
+                f"ollama:{m['name']}" for m in data.get("models", []) if m.get("name")
+            ]
         except Exception:
             return []
 
@@ -655,7 +771,8 @@ class SessionManager:
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
             "surfaces": self._surfaces(),
-            "scratch_base": self._prefs.get("scratch_base") or self.DEFAULT_SCRATCH_BASE,
+            "scratch_base": self._prefs.get("scratch_base")
+            or self.DEFAULT_SCRATCH_BASE,
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
             # hardcoded POSIX one (Windows -> %APPDATA%\coworker, macOS/Linux -> ~/.config).
             "secrets_path": str(self.secrets.path),
@@ -670,7 +787,9 @@ class SessionManager:
             "code": bool(self._prefs.get("show_code", False)),
         }
 
-    def set_surfaces(self, chat: Optional[bool] = None, code: Optional[bool] = None) -> dict[str, Any]:
+    def set_surfaces(
+        self, chat: Optional[bool] = None, code: Optional[bool] = None
+    ) -> dict[str, Any]:
         """Toggle Chat/Code visibility (Cowork is always shown). Persisted in prefs."""
         if chat is not None:
             self._prefs["show_chat"] = bool(chat)
@@ -711,7 +830,8 @@ class SessionManager:
     def set_scratch_base(self, path: str) -> dict[str, Any]:
         """Set + persist the common area where each Cowork conversation's scratch directory is
         created (default ~/OpenCoworker). The raw value is stored so the UI shows it as entered;
-        new conversations use it immediately (existing ones keep their provisioned dir)."""
+        new conversations use it immediately (existing ones keep their provisioned dir).
+        """
         path = (path or "").strip()
         if not path:
             return {"ok": False, "error": "empty path"}
@@ -731,7 +851,9 @@ class SessionManager:
 
     def get_superagent_config(self) -> dict[str, Any]:
         try:
-            return json.loads(self._superagent_config_path().read_text(encoding="utf-8"))
+            return json.loads(
+                self._superagent_config_path().read_text(encoding="utf-8")
+            )
         except (OSError, json.JSONDecodeError):
             return {}
 
@@ -761,7 +883,9 @@ class SessionManager:
     def _update_superagent_config(self, **changes: Any) -> dict[str, Any]:
         cfg = self.get_superagent_config()
         cfg.update(changes)
-        self._superagent_config_path().write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        self._superagent_config_path().write_text(
+            json.dumps(cfg, indent=2), encoding="utf-8"
+        )
         return {"ok": True, **changes, "restart_required": self.gateway is not None}
 
     def superagent_status(self) -> dict[str, Any]:
@@ -834,7 +958,9 @@ class SessionManager:
             session_id=self.SUPERAGENT_SESSION_ID,
             audit_sink=self.audit_store.append,
         )
-        engine.permissions.allow_tool_for_session("send_message")  # replies always go through
+        engine.permissions.allow_tool_for_session(
+            "send_message"
+        )  # replies always go through
         engine.messages[0]["content"] += SUPERAGENT_MESSAGING_NOTE
         return engine
 
@@ -922,7 +1048,9 @@ class SessionManager:
 
         event = MessageEvent(
             text=text,
-            source=SessionSource(platform="gui", chat_id="gui", user_id="owner", user_name="you"),
+            source=SessionSource(
+                platform="gui", chat_id="gui", user_id="owner", user_name="you"
+            ),
         )
         await self.superagent.on_message(event)
         return True
@@ -973,7 +1101,9 @@ class SessionManager:
         return engine
 
     async def _run_scheduled_task(self, task, trigger: str) -> TaskRun:
-        run = TaskRun(task_id=task.id, trigger=trigger)  # __post_init__ sets run.session_id
+        run = TaskRun(
+            task_id=task.id, trigger=trigger
+        )  # __post_init__ sets run.session_id
         self.task_store.add_run(run)  # mark "running"
         # Each run is a real, persisted conversation thread: it runs the instructions under its
         # own session id, then saves the transcript. The user can reopen that session and ask a
@@ -1013,7 +1143,15 @@ class SessionManager:
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
         await self._sa_broadcast(
-            {"type": "task_done", "data": {"task": task.title, "id": task.id, "text": summary, "run_id": run.run_id}}
+            {
+                "type": "task_done",
+                "data": {
+                    "task": task.title,
+                    "id": task.id,
+                    "text": summary,
+                    "run_id": run.run_id,
+                },
+            }
         )
         if task.notify_target:
             from ..connectors.base import parse_target
@@ -1025,7 +1163,11 @@ class SessionManager:
                 creds = self.secrets.get(f"{platform}:default") or {}
                 if sender and creds.get("bot_token"):
                     await asyncio.to_thread(
-                        sender, creds["bot_token"], chat_id, f"✓ {task.title}\n\n{summary}", thread
+                        sender,
+                        creds["bot_token"],
+                        chat_id,
+                        f"✓ {task.title}\n\n{summary}",
+                        thread,
                     )
             except Exception:
                 pass
@@ -1038,9 +1180,14 @@ class SessionManager:
         task = self.task_store.get(task_id)
         if task is None:
             return {"error": "not found"}
-        return {"task": task.public(), "runs": [r.to_dict() for r in self.task_store.runs(task_id)]}
+        return {
+            "task": task.public(),
+            "runs": [r.to_dict() for r in self.task_store.runs(task_id)],
+        }
 
-    def update_automation(self, task_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+    def update_automation(
+        self, task_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any]:
         task = self.task_store.get(task_id)
         if task is None:
             return {"ok": False, "error": "not found"}
@@ -1070,7 +1217,9 @@ class SessionManager:
         if task is None:
             return {"ok": False, "error": "not found"}
         Path(task.workspace).mkdir(parents=True, exist_ok=True)
-        run = TaskRun(task_id=task.id, trigger="manual")  # status "running", session_id auto
+        run = TaskRun(
+            task_id=task.id, trigger="manual"
+        )  # status "running", session_id auto
         self.task_store.add_run(run)
         return {
             "ok": True,
@@ -1089,8 +1238,11 @@ class SessionManager:
 
     def finalize_manual_run(self, task_id: str, run_id: str) -> dict[str, Any]:
         """Mark a manual run complete once its first turn finished (the WS already saved the
-        session). Pulls result text + artifacts from the persisted transcript/workspace."""
-        run = next((r for r in self.task_store.runs(task_id) if r.run_id == run_id), None)
+        session). Pulls result text + artifacts from the persisted transcript/workspace.
+        """
+        run = next(
+            (r for r in self.task_store.runs(task_id) if r.run_id == run_id), None
+        )
         task = self.task_store.get(task_id)
         if run is None or task is None:
             return {"ok": False, "error": "not found"}
@@ -1126,28 +1278,60 @@ class SessionManager:
     def _extra_roots_of(engine: TurnEngine) -> list[dict[str, Any]]:
         """Added folders = the engine's roots minus the primary scratch (index 0)."""
         roots = getattr(engine, "roots", None) or []
-        return [{"path": str(r.path), "writable": bool(r.writable), "label": r.label} for r in roots[1:]]
+        return [
+            {"path": str(r.path), "writable": bool(r.writable), "label": r.label}
+            for r in roots[1:]
+        ]
 
     # -- session roots (orphan Cowork: scratch + added folders) ------------------
     def get_roots(self, session_id: str) -> list[dict[str, Any]]:
         """The directories this session can touch: primary scratch first, then added folders.
-        Reads the live engine when one is running; otherwise reconstructs from persisted state."""
+        Reads the live engine when one is running; otherwise reconstructs from persisted state.
+        """
         engine = self._engines.get(session_id)
         if engine is not None and getattr(engine, "roots", None):
             return [
-                {"path": str(r.path), "writable": bool(r.writable), "label": r.label, "primary": i == 0, "exists": r.path.is_dir()}
+                {
+                    "path": str(r.path),
+                    "writable": bool(r.writable),
+                    "label": r.label,
+                    "primary": i == 0,
+                    "exists": r.path.is_dir(),
+                }
                 for i, r in enumerate(engine.roots)
             ]
         record = self.session_store.load(session_id)
-        primary = (record.workspace if record and record.workspace else self._provision_scratch(session_id))
+        primary = (
+            record.workspace
+            if record and record.workspace
+            else self._provision_scratch(session_id)
+        )
         extra = (record.extra_roots if record else []) or []
-        out = [{"path": primary, "writable": True, "label": "scratch", "primary": True, "exists": Path(primary).is_dir()}]
+        out = [
+            {
+                "path": primary,
+                "writable": True,
+                "label": "scratch",
+                "primary": True,
+                "exists": Path(primary).is_dir(),
+            }
+        ]
         for r in extra:
             p = str(r.get("path", ""))
-            out.append({"path": p, "writable": bool(r.get("writable", False)), "label": r.get("label") or Path(p).name, "primary": False, "exists": Path(p).is_dir()})
+            out.append(
+                {
+                    "path": p,
+                    "writable": bool(r.get("writable", False)),
+                    "label": r.get("label") or Path(p).name,
+                    "primary": False,
+                    "exists": Path(p).is_dir(),
+                }
+            )
         return out
 
-    def add_root(self, session_id: str, path: str, writable: bool = False) -> dict[str, Any]:
+    def add_root(
+        self, session_id: str, path: str, writable: bool = False
+    ) -> dict[str, Any]:
         """Grant the session access to another folder (read-only or read-write). Mutates the live
         engine in place when running (file tools + permissions + context see it immediately) and
         persists it so a later resume still has it."""
@@ -1181,8 +1365,24 @@ class SessionManager:
                 )
             extra = [r for r in self.get_roots(session_id) if not r["primary"]]
             extra = [r for r in extra if Path(r["path"]).resolve() != resolved]
-            extra.append({"path": str(resolved), "writable": bool(writable), "label": resolved.name})
-            self.session_store.set_extra_roots(session_id, [{"path": r["path"], "writable": r["writable"], "label": r.get("label", "")} for r in extra])
+            extra.append(
+                {
+                    "path": str(resolved),
+                    "writable": bool(writable),
+                    "label": resolved.name,
+                }
+            )
+            self.session_store.set_extra_roots(
+                session_id,
+                [
+                    {
+                        "path": r["path"],
+                        "writable": r["writable"],
+                        "label": r.get("label", ""),
+                    }
+                    for r in extra
+                ],
+            )
         self.session_store.touch_workspace(str(resolved))
         return {"ok": True, "roots": self.get_roots(session_id)}
 
@@ -1192,15 +1392,39 @@ class SessionManager:
         engine = self._engines.get(session_id)
         if engine is not None and getattr(engine, "roots", None):
             if engine.roots and engine.roots[0].path == resolved:
-                return {"ok": False, "error": "cannot remove the primary scratch directory"}
+                return {
+                    "ok": False,
+                    "error": "cannot remove the primary scratch directory",
+                }
             engine.roots[:] = [r for r in engine.roots if r.path != resolved]
             self.session_store.set_extra_roots(session_id, self._extra_roots_of(engine))
         else:
             current = self.get_roots(session_id)
-            if current and current[0]["primary"] and Path(current[0]["path"]).resolve() == resolved:
-                return {"ok": False, "error": "cannot remove the primary scratch directory"}
-            extra = [r for r in current if not r["primary"] and Path(r["path"]).resolve() != resolved]
-            self.session_store.set_extra_roots(session_id, [{"path": r["path"], "writable": r["writable"], "label": r.get("label", "")} for r in extra])
+            if (
+                current
+                and current[0]["primary"]
+                and Path(current[0]["path"]).resolve() == resolved
+            ):
+                return {
+                    "ok": False,
+                    "error": "cannot remove the primary scratch directory",
+                }
+            extra = [
+                r
+                for r in current
+                if not r["primary"] and Path(r["path"]).resolve() != resolved
+            ]
+            self.session_store.set_extra_roots(
+                session_id,
+                [
+                    {
+                        "path": r["path"],
+                        "writable": r["writable"],
+                        "label": r.get("label", ""),
+                    }
+                    for r in extra
+                ],
+            )
         return {"ok": True, "roots": self.get_roots(session_id)}
 
     def session_messages(self, session_id: str) -> list[dict[str, Any]]:
@@ -1211,7 +1435,11 @@ class SessionManager:
         if session_id.startswith("__"):
             return {"ok": False, "error": "internal sessions cannot be renamed"}
         ok = self.session_store.rename(session_id, title)
-        return {"ok": ok, "session_id": session_id, "title": " ".join((title or "").split())[:120]}
+        return {
+            "ok": ok,
+            "session_id": session_id,
+            "title": " ".join((title or "").split())[:120],
+        }
 
     def set_session_flags(
         self,
@@ -1265,7 +1493,9 @@ class SessionManager:
                 "archived": r.archived,
             }
             for r in self.session_store.list(workspace=ws)
-            if not r.session_id.startswith("__")  # hide superagent/task-run internal threads
+            if not r.session_id.startswith(
+                "__"
+            )  # hide superagent/task-run internal threads
         ]
 
     def list_agents(self) -> list[dict[str, Any]]:
@@ -1281,7 +1511,9 @@ class SessionManager:
             for m in self.memory_store.list()
         ]
 
-    def add_memory(self, content: str, scope: str = "workspace", workspace: Optional[str] = None) -> dict[str, Any]:
+    def add_memory(
+        self, content: str, scope: str = "workspace", workspace: Optional[str] = None
+    ) -> dict[str, Any]:
         chosen = Scope(scope) if scope in _SCOPES else Scope.WORKSPACE
         ws = self.resolve_workspace(workspace) if chosen is Scope.WORKSPACE else None
         item = self.memory_store.add(content, scope=chosen, workspace=ws)

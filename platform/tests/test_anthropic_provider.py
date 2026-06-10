@@ -15,7 +15,6 @@ from coworker.providers.anthropic_provider import (
     convert_tools,
 )
 
-
 # -- fakes ------------------------------------------------------------------------
 
 
@@ -65,7 +64,11 @@ def test_convert_assistant_tool_turn_skips_empty_text():
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [
-                    {"id": "c1", "type": "function", "function": {"name": "f", "arguments": '{"x": 1}'}}
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "f", "arguments": '{"x": 1}'},
+                    }
                 ],
             },
         ]
@@ -83,8 +86,16 @@ def test_convert_merges_tool_result_run_into_one_user_message():
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [
-                    {"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{}"}},
-                    {"id": "c2", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "a", "arguments": "{}"},
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {"name": "b", "arguments": "{}"},
+                    },
                 ],
             },
             {"role": "tool", "tool_call_id": "c1", "content": "r1"},
@@ -107,7 +118,13 @@ def test_convert_steering_user_message_merges_after_tool_results():
             {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{}"}}],
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "a", "arguments": "{}"},
+                    }
+                ],
             },
             {"role": "tool", "tool_call_id": "c1", "content": "r1"},
             {"role": "user", "content": "actually, stop"},
@@ -125,7 +142,10 @@ def test_convert_image_data_url_to_base64_source():
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "what is this"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="},
+                    },
                 ],
             }
         ]
@@ -162,7 +182,10 @@ def test_convert_drops_empty_assistant_and_guards_first_user():
         ]
     )
     # the surviving assistant message can't be first → "(continued)" user is prepended
-    assert msgs[0] == {"role": "user", "content": [{"type": "text", "text": "(continued)"}]}
+    assert msgs[0] == {
+        "role": "user",
+        "content": [{"type": "text", "text": "(continued)"}],
+    }
     assert msgs[1]["role"] == "assistant"
 
 
@@ -178,7 +201,13 @@ def test_convert_malformed_tool_arguments_fall_back_to_raw():
             {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{bad"}}],
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "a", "arguments": "{bad"},
+                    }
+                ],
             },
         ]
     )
@@ -197,12 +226,18 @@ def test_convert_tools_handles_missing_description_and_parameters():
                 "function": {
                     "name": "full",
                     "description": "does things",
-                    "parameters": {"type": "object", "properties": {"x": {"type": "integer"}}},
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"x": {"type": "integer"}},
+                    },
                 },
             },
         ]
     )
-    assert tools[0] == {"name": "bare", "input_schema": {"type": "object", "properties": {}}}
+    assert tools[0] == {
+        "name": "bare",
+        "input_schema": {"type": "object", "properties": {}},
+    }
     assert tools[1]["description"] == "does things"
     assert tools[1]["input_schema"]["properties"] == {"x": {"type": "integer"}}
 
@@ -215,9 +250,16 @@ def test_complete_text_turn_with_defaults():
     provider = AnthropicProvider(client=fake)
     turn = provider.complete(
         model="claude-sonnet-4-6",
-        messages=[{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}],
+        messages=[
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hi"},
+        ],
     )
-    assert turn.text == "hello" and turn.finish_reason == "stop" and not turn.has_tool_calls
+    assert (
+        turn.text == "hello"
+        and turn.finish_reason == "stop"
+        and not turn.has_tool_calls
+    )
     assert fake.kwargs["model"] == "claude-sonnet-4-6"
     assert fake.kwargs["system"] == "sys"
     assert fake.kwargs["max_tokens"] == DEFAULT_MAX_TOKENS  # required param, injected
@@ -228,7 +270,9 @@ def test_complete_parses_tool_use_blocks():
     response = SimpleNamespace(
         content=[
             SimpleNamespace(type="text", text="on it"),
-            SimpleNamespace(type="tool_use", id="c1", name="write_file", input={"path": "a.txt"}),
+            SimpleNamespace(
+                type="tool_use", id="c1", name="write_file", input={"path": "a.txt"}
+            ),
         ],
         stop_reason="tool_use",
     )
@@ -253,7 +297,9 @@ def test_complete_parses_tool_use_blocks():
     ],
 )
 def test_complete_maps_stop_reasons(stop_reason, expected):
-    provider = AnthropicProvider(client=_FakeClient(response=_text_response(stop_reason=stop_reason)))
+    provider = AnthropicProvider(
+        client=_FakeClient(response=_text_response(stop_reason=stop_reason))
+    )
     turn = provider.complete(model="m", messages=[{"role": "user", "content": "x"}])
     assert turn.finish_reason == expected
 
@@ -281,9 +327,20 @@ def test_complete_converts_tools():
     provider.complete(
         model="m",
         messages=[{"role": "user", "content": "x"}],
-        tools=[{"type": "function", "function": {"name": "f", "description": "d", "parameters": {"type": "object"}}}],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "f",
+                    "description": "d",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ],
     )
-    assert fake.kwargs["tools"] == [{"name": "f", "description": "d", "input_schema": {"type": "object"}}]
+    assert fake.kwargs["tools"] == [
+        {"name": "f", "description": "d", "input_schema": {"type": "object"}}
+    ]
 
 
 def test_ensure_client_without_key_raises(monkeypatch):
@@ -296,24 +353,38 @@ def test_ensure_client_without_key_raises(monkeypatch):
 
 
 def _delta(index, **delta_attrs):
-    return SimpleNamespace(type="content_block_delta", index=index, delta=SimpleNamespace(**delta_attrs))
+    return SimpleNamespace(
+        type="content_block_delta", index=index, delta=SimpleNamespace(**delta_attrs)
+    )
 
 
 def test_stream_yields_text_deltas_then_final_turn():
     events = [
         SimpleNamespace(type="message_start"),
-        SimpleNamespace(type="content_block_start", index=0, content_block=SimpleNamespace(type="text")),
+        SimpleNamespace(
+            type="content_block_start",
+            index=0,
+            content_block=SimpleNamespace(type="text"),
+        ),
         _delta(0, type="text_delta", text="hel"),
         _delta(0, type="text_delta", text="lo"),
         SimpleNamespace(type="content_block_stop", index=0),
-        SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="end_turn")),
+        SimpleNamespace(
+            type="message_delta", delta=SimpleNamespace(stop_reason="end_turn")
+        ),
         SimpleNamespace(type="message_stop"),
     ]
     provider = AnthropicProvider(client=_FakeClient(events=events))
-    chunks = list(provider.stream(model="m", messages=[{"role": "user", "content": "x"}]))
+    chunks = list(
+        provider.stream(model="m", messages=[{"role": "user", "content": "x"}])
+    )
     assert [c.text_delta for c in chunks[:-1]] == ["hel", "lo"]
     final = chunks[-1].turn
-    assert final.text == "hello" and final.finish_reason == "stop" and not final.has_tool_calls
+    assert (
+        final.text == "hello"
+        and final.finish_reason == "stop"
+        and not final.has_tool_calls
+    )
 
 
 def test_stream_accumulates_split_tool_json():
@@ -326,10 +397,14 @@ def test_stream_accumulates_split_tool_json():
         _delta(0, type="input_json_delta", partial_json='{"path": "a'),
         _delta(0, type="input_json_delta", partial_json='.txt", "content": "hi"}'),
         SimpleNamespace(type="content_block_stop", index=0),
-        SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="tool_use")),
+        SimpleNamespace(
+            type="message_delta", delta=SimpleNamespace(stop_reason="tool_use")
+        ),
     ]
     provider = AnthropicProvider(client=_FakeClient(events=events))
-    chunks = list(provider.stream(model="m", messages=[{"role": "user", "content": "x"}]))
+    chunks = list(
+        provider.stream(model="m", messages=[{"role": "user", "content": "x"}])
+    )
     final = chunks[-1].turn
     assert final.finish_reason == "tool_calls"
     assert final.tool_calls[0].id == "c1"
@@ -338,7 +413,11 @@ def test_stream_accumulates_split_tool_json():
 
 def test_stream_mixed_text_and_tool_blocks():
     events = [
-        SimpleNamespace(type="content_block_start", index=0, content_block=SimpleNamespace(type="text")),
+        SimpleNamespace(
+            type="content_block_start",
+            index=0,
+            content_block=SimpleNamespace(type="text"),
+        ),
         _delta(0, type="text_delta", text="working"),
         SimpleNamespace(
             type="content_block_start",
@@ -346,10 +425,14 @@ def test_stream_mixed_text_and_tool_blocks():
             content_block=SimpleNamespace(type="tool_use", id="c1", name="f"),
         ),
         _delta(1, type="input_json_delta", partial_json=""),  # no-args tool call
-        SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="tool_use")),
+        SimpleNamespace(
+            type="message_delta", delta=SimpleNamespace(stop_reason="tool_use")
+        ),
     ]
     provider = AnthropicProvider(client=_FakeClient(events=events))
-    chunks = list(provider.stream(model="m", messages=[{"role": "user", "content": "x"}]))
+    chunks = list(
+        provider.stream(model="m", messages=[{"role": "user", "content": "x"}])
+    )
     assert chunks[0].text_delta == "working"
     final = chunks[-1].turn
     assert final.text == "working"
@@ -386,7 +469,9 @@ def test_resolve_api_key_env_then_secrets(monkeypatch):
 
     class _Secrets:
         def get(self, name):
-            return {"api_key": "sk-ant-stored"} if name == "provider:anthropic" else None
+            return (
+                {"api_key": "sk-ant-stored"} if name == "provider:anthropic" else None
+            )
 
     assert resolve_api_key(_Secrets()) == "sk-ant-stored"
     assert resolve_api_key(None) is None

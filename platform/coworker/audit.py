@@ -10,7 +10,16 @@ from typing import Any, Optional
 
 from .connectors import connector_for_tool
 
-_SECRET_KEYS = ("token", "secret", "password", "api_key", "access_token", "bot_token", "app_token", "raw")
+_SECRET_KEYS = (
+    "token",
+    "secret",
+    "password",
+    "api_key",
+    "access_token",
+    "bot_token",
+    "app_token",
+    "raw",
+)
 _BODY_KEYS = ("body", "content", "html")
 
 
@@ -20,8 +29,7 @@ class AuditStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -38,15 +46,16 @@ class AuditStore:
                 reason TEXT,
                 resource TEXT
             )
-            """
-        )
+            """)
         self._conn.commit()
 
     def append(self, event: dict[str, Any]) -> None:
         tool = str(event.get("tool") or event.get("tool_name") or "")
         connector = str(event.get("connector") or connector_for_tool(tool) or "")
         args = _sanitize_args(tool, event.get("arguments") or {})
-        resource = _resource(tool, event.get("arguments") or {}, event.get("result") or {})
+        resource = _resource(
+            tool, event.get("arguments") or {}, event.get("result") or {}
+        )
         with self._lock:
             self._conn.execute(
                 """
@@ -141,7 +150,16 @@ def _summarize(value: Any) -> Any:
 
 
 def _resource(tool: str, args: dict[str, Any], result: Any) -> str:
-    for key in ("url", "owner", "repo", "issue_key", "page_id", "ticket_id", "calendar_id", "message_id"):
+    for key in (
+        "url",
+        "owner",
+        "repo",
+        "issue_key",
+        "page_id",
+        "ticket_id",
+        "calendar_id",
+        "message_id",
+    ):
         if isinstance(args, dict) and args.get(key):
             return str(args[key])
     if isinstance(args, dict) and args.get("subdomain"):

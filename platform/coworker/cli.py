@@ -17,12 +17,16 @@ from .secrets import state_dir
 
 def main(argv: Optional[list[str]] = None) -> None:
     cfg = load_config()
-    parser = argparse.ArgumentParser(prog="coworker", description="Agent coworker (TUI).")
+    parser = argparse.ArgumentParser(
+        prog="coworker", description="Agent coworker (TUI)."
+    )
     parser.add_argument(
         "skill", nargs="?", default="code", help="skill to launch (default: code)"
     )
     parser.add_argument("--cwd", default=".", help="workspace directory")
-    parser.add_argument("--model", default=cfg.model, help="model id, e.g. openai gpt-5.5")
+    parser.add_argument(
+        "--model", default=cfg.model, help="model id, e.g. openai gpt-5.5"
+    )
     parser.add_argument(
         "--mode",
         default=cfg.mode,

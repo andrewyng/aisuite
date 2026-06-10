@@ -14,7 +14,6 @@ from urllib.parse import urlparse
 from .sinks import TraceStoreSink
 from .store import InMemoryTraceStore, JsonlTraceStore, TraceStore
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_UI_DIST = Path(__file__).resolve().parent / "static" / "viewer"
 REPO_UI_DIST = REPO_ROOT / "viewer-ui" / "dist"
@@ -516,7 +515,9 @@ def prepare_viewer_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     child_counts: dict[str, int] = {}
     children_by_parent_tool: dict[tuple[str, str], dict[str, Any]] = {}
     titles = {
-        run.get("trace_id"): run.get("run_name") or run.get("agent_name") or run.get("trace_id")
+        run.get("trace_id"): run.get("run_name")
+        or run.get("agent_name")
+        or run.get("trace_id")
         for run in runs
         if run.get("trace_id")
     }
@@ -614,7 +615,10 @@ def _sanitize_for_viewer(value: Any, *, max_string_chars: int = 4000) -> Any:
             "truncated": True,
         }
     if isinstance(value, list):
-        return [_sanitize_for_viewer(item, max_string_chars=max_string_chars) for item in value]
+        return [
+            _sanitize_for_viewer(item, max_string_chars=max_string_chars)
+            for item in value
+        ]
     if isinstance(value, dict):
         return {
             key: _sanitize_for_viewer(item, max_string_chars=max_string_chars)
@@ -861,8 +865,12 @@ def _event_summary(event: dict[str, Any], run: dict[str, Any]) -> str:
     if event_type == "tool.started":
         return f"{data.get('tool_name')} started"
     if event_type == "tool.completed":
-        preview = _tool_result_summary(data.get("tool_name"), data.get("result_preview"))
-        return f"{data.get('tool_name')} · {data.get('status', 'completed')} · {preview}"
+        preview = _tool_result_summary(
+            data.get("tool_name"), data.get("result_preview")
+        )
+        return (
+            f"{data.get('tool_name')} · {data.get('status', 'completed')} · {preview}"
+        )
     if event_type == "tool.failed":
         return f"{data.get('tool_name')} · failed · {_compact_value(data.get('error'))}"
     if event_type == "model.send":
@@ -876,7 +884,11 @@ def _event_summary(event: dict[str, Any], run: dict[str, Any]) -> str:
         tool_count = response.get("tool_call_count", 0)
         tool_part = _tool_call_summary(response.get("tool_calls") or [], tool_count)
         usage_part = _usage_summary(data.get("usage"))
-        text = _compact_value(preview) + tool_part if preview else f"{response.get('kind', 'response')}{tool_part}"
+        text = (
+            _compact_value(preview) + tool_part
+            if preview
+            else f"{response.get('kind', 'response')}{tool_part}"
+        )
         return f"{text}{usage_part}"
     if event_type == "model.error":
         return _compact_value(data.get("error")) or "Model request failed"
@@ -935,10 +947,7 @@ def _run_activities(
     *,
     child_tools: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    timeline = [
-        _timeline_item(event, run, child_tools=child_tools)
-        for event in events
-    ]
+    timeline = [_timeline_item(event, run, child_tools=child_tools) for event in events]
     groups: list[dict[str, Any]] = []
     tool_groups: dict[str, dict[str, Any]] = {}
     tool_order: list[str] = []
@@ -1109,11 +1118,7 @@ def _tool_activity(group: dict[str, Any]) -> dict[str, Any]:
     status = (
         "failed"
         if failed
-        else "denied"
-        if denied
-        else "completed"
-        if completed
-        else "running"
+        else "denied" if denied else "completed" if completed else "running"
     )
     tool_name = first.get("tool_name") or terminal.get("tool_name")
     raw = terminal.get("raw") or {}
@@ -1134,7 +1139,9 @@ def _tool_activity(group: dict[str, Any]) -> dict[str, Any]:
         completed.get("summary") if completed else None,
         failed.get("summary") if failed else None,
     ]
-    summary = " · ".join(part for part in summary_parts if part) or terminal.get("summary")
+    summary = " · ".join(part for part in summary_parts if part) or terminal.get(
+        "summary"
+    )
     child_run = terminal.get("child_run") or _first_value(events, "child_run")
     activity = _activity_base(
         group,
@@ -1146,7 +1153,11 @@ def _tool_activity(group: dict[str, Any]) -> dict[str, Any]:
             "tool_call_id": raw.get("tool_call_id"),
             "status": status,
             "tone": "red" if failed or denied else "green" if completed else "amber",
-            "title": f"Subagent: {tool_name}" if child_run else f"Tool: {tool_name or 'tool'}",
+            "title": (
+                f"Subagent: {tool_name}"
+                if child_run
+                else f"Tool: {tool_name or 'tool'}"
+            ),
             "summary": summary,
             "started_at": started_at,
             "ended_at": ended_at,
@@ -1215,8 +1226,12 @@ def _event_activity(group: dict[str, Any]) -> dict[str, Any]:
     return activity
 
 
-def _find_event(events: list[dict[str, Any]], event_type: str) -> Optional[dict[str, Any]]:
-    return next((event for event in events if event.get("event_type") == event_type), None)
+def _find_event(
+    events: list[dict[str, Any]], event_type: str
+) -> Optional[dict[str, Any]]:
+    return next(
+        (event for event in events if event.get("event_type") == event_type), None
+    )
 
 
 def _first_value(events: list[dict[str, Any]], key: str) -> Any:

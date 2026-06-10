@@ -29,21 +29,39 @@ def _fake_tool(name, schema=None, description="desc"):
     return SimpleNamespace(
         name=name,
         description=description,
-        inputSchema=schema or {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+        inputSchema=schema
+        or {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
     )
 
 
 # -- config --------------------------------------------------------------------
 def test_load_merges_global_and_workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
-    _write_json(tmp_path / "state" / "mcp.json", {"mcpServers": {
-        "fs": {"command": "echo", "args": ["global"], "enabled": True},
-        "docs": {"type": "http", "url": "https://x/mcp", "enabled": False},
-    }})
+    _write_json(
+        tmp_path / "state" / "mcp.json",
+        {
+            "mcpServers": {
+                "fs": {"command": "echo", "args": ["global"], "enabled": True},
+                "docs": {"type": "http", "url": "https://x/mcp", "enabled": False},
+            }
+        },
+    )
     ws = tmp_path / "ws"
-    _write_json(ws / ".coworker" / "mcp.json", {"mcpServers": {
-        "fs": {"command": "echo", "args": ["workspace-wins"]},  # overrides global
-    }})
+    _write_json(
+        ws / ".coworker" / "mcp.json",
+        {
+            "mcpServers": {
+                "fs": {
+                    "command": "echo",
+                    "args": ["workspace-wins"],
+                },  # overrides global
+            }
+        },
+    )
 
     servers = {s.name: s for s in load_mcp_servers(ws, secrets=SecretStore())}
     assert servers["fs"].args == ["workspace-wins"]
@@ -55,9 +73,18 @@ def test_load_merges_global_and_workspace(tmp_path, monkeypatch):
 def test_var_resolution(tmp_path, monkeypatch):
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("DOCS_TOKEN", "sekret")
-    _write_json(tmp_path / "state" / "mcp.json", {"mcpServers": {
-        "docs": {"type": "http", "url": "https://x/mcp", "headers": {"Authorization": "Bearer ${DOCS_TOKEN}"}},
-    }})
+    _write_json(
+        tmp_path / "state" / "mcp.json",
+        {
+            "mcpServers": {
+                "docs": {
+                    "type": "http",
+                    "url": "https://x/mcp",
+                    "headers": {"Authorization": "Bearer ${DOCS_TOKEN}"},
+                },
+            }
+        },
+    )
     docs = load_mcp_servers(None, secrets=SecretStore())[0]
     assert docs.headers["Authorization"] == "Bearer sekret"
 
@@ -70,7 +97,9 @@ def test_tool_name_sanitizes():
 
 def test_schema_and_metadata():
     server = MCPServerDef(name="fs", transport="stdio", requires_approval=True)
-    fns = build_callables(server, [_fake_tool("read_file")], lambda t, a: None, asyncio.new_event_loop())
+    fns = build_callables(
+        server, [_fake_tool("read_file")], lambda t, a: None, asyncio.new_event_loop()
+    )
     fn = fns[0]
     assert fn.__name__ == "mcp__fs__read_file"
     meta = fn.__aisuite_tool_metadata__
@@ -82,7 +111,12 @@ def test_schema_and_metadata():
 
 def test_include_exclude_filter():
     server = MCPServerDef(name="fs", transport="stdio", include_tools=["read_file"])
-    fns = build_callables(server, [_fake_tool("read_file"), _fake_tool("delete_file")], lambda t, a: None, asyncio.new_event_loop())
+    fns = build_callables(
+        server,
+        [_fake_tool("read_file"), _fake_tool("delete_file")],
+        lambda t, a: None,
+        asyncio.new_event_loop(),
+    )
     assert [f.__name__ for f in fns] == ["mcp__fs__read_file"]
 
 
@@ -110,7 +144,13 @@ def test_rest_crud(tmp_path, monkeypatch):
 
     assert client.get("/v1/mcp").json()["servers"] == []
 
-    r = client.post("/v1/mcp", json={"name": "fs", "config": {"command": "echo", "args": ["x"], "env": {"SECRET": "shh"}}})
+    r = client.post(
+        "/v1/mcp",
+        json={
+            "name": "fs",
+            "config": {"command": "echo", "args": ["x"], "env": {"SECRET": "shh"}},
+        },
+    )
     assert r.json()["ok"] is True
 
     servers = client.get("/v1/mcp").json()["servers"]

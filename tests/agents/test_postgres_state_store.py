@@ -149,16 +149,16 @@ def test_postgres_state_store_round_trip_and_compaction():
     compacted_head = store.get_thread_head(thread_id)
     assert len(compacted_head["model_context_message_ids"]) == 2
     assert len(compacted_head["full_history_message_ids"]) == 3
-    assert compacted_head["compacted_from_message_ids"] == head[
-        "model_context_message_ids"
-    ][:2]
+    assert (
+        compacted_head["compacted_from_message_ids"]
+        == head["model_context_message_ids"][:2]
+    )
 
     compactions = store.list_compactions(thread_id)
     assert len(compactions) == 1
     assert compactions[0].source_message_ids == head["model_context_message_ids"][:2]
     assert (
-        compactions[0].summary_text
-        == "Summary: user said hello and assistant replied."
+        compactions[0].summary_text == "Summary: user said hello and assistant replied."
     )
 
     continued_state = compacted.state

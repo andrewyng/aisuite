@@ -333,9 +333,7 @@ class Completions:
                 tool_policy=tool_policy,
                 tool_policy_context=tool_policy_context,
             )
-            tool_policy_events.extend(
-                getattr(tools_instance, "last_policy_events", [])
-            )
+            tool_policy_events.extend(getattr(tools_instance, "last_policy_events", []))
             tool_events.extend(getattr(tools_instance, "last_tool_events", []))
 
             # Add tool messages to intermediate messages

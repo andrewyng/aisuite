@@ -20,7 +20,9 @@ Sender = Callable[[str, str, str, Optional[str]], SendResult]
 _TIMEOUT = 30.0
 
 
-def _send_telegram(token: str, chat_id: str, text: str, thread_id: Optional[str] = None) -> SendResult:
+def _send_telegram(
+    token: str, chat_id: str, text: str, thread_id: Optional[str] = None
+) -> SendResult:
     import httpx
 
     payload: dict = {"chat_id": chat_id, "text": text}
@@ -32,17 +34,23 @@ def _send_telegram(token: str, chat_id: str, text: str, thread_id: Optional[str]
             pass
     try:
         resp = httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage", json=payload, timeout=_TIMEOUT
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload,
+            timeout=_TIMEOUT,
         )
         data = resp.json()
     except Exception as exc:  # network / decode
         return SendResult(False, error=str(exc))
     if data.get("ok"):
-        return SendResult(True, message_id=str(data.get("result", {}).get("message_id")))
+        return SendResult(
+            True, message_id=str(data.get("result", {}).get("message_id"))
+        )
     return SendResult(False, error=data.get("description") or "telegram send failed")
 
 
-def _send_slack(token: str, chat_id: str, text: str, thread_id: Optional[str] = None) -> SendResult:
+def _send_slack(
+    token: str, chat_id: str, text: str, thread_id: Optional[str] = None
+) -> SendResult:
     import httpx
 
     payload: dict = {"channel": chat_id, "text": text}

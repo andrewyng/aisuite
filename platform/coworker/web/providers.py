@@ -29,8 +29,7 @@ class WebSearchProvider(ABC):
     requires_key: bool = False
 
     @abstractmethod
-    def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
-        ...
+    def search(self, query: str, max_results: int = 5) -> list[SearchResult]: ...
 
 
 class DuckDuckGoProvider(WebSearchProvider):
@@ -70,7 +69,11 @@ class TavilyProvider(WebSearchProvider):
         )
         data = resp.json()
         return [
-            SearchResult(title=r.get("title", ""), url=r.get("url", ""), snippet=r.get("content", ""))
+            SearchResult(
+                title=r.get("title", ""),
+                url=r.get("url", ""),
+                snippet=r.get("content", ""),
+            )
             for r in data.get("results", [])
         ]
 
@@ -87,18 +90,29 @@ class BraveProvider(WebSearchProvider):
 
         resp = httpx.get(
             "https://api.search.brave.com/res/v1/web/search",
-            headers={"X-Subscription-Token": self.api_key, "Accept": "application/json"},
+            headers={
+                "X-Subscription-Token": self.api_key,
+                "Accept": "application/json",
+            },
             params={"q": query, "count": max_results},
             timeout=_TIMEOUT,
         )
         data = resp.json()
         return [
-            SearchResult(title=r.get("title", ""), url=r.get("url", ""), snippet=r.get("description", ""))
+            SearchResult(
+                title=r.get("title", ""),
+                url=r.get("url", ""),
+                snippet=r.get("description", ""),
+            )
             for r in (data.get("web", {}) or {}).get("results", [])
         ]
 
 
-_PROVIDERS = {"duckduckgo": DuckDuckGoProvider, "tavily": TavilyProvider, "brave": BraveProvider}
+_PROVIDERS = {
+    "duckduckgo": DuckDuckGoProvider,
+    "tavily": TavilyProvider,
+    "brave": BraveProvider,
+}
 
 
 def build_provider(name: str, api_key: Optional[str] = None) -> WebSearchProvider:

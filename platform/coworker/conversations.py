@@ -52,8 +52,7 @@ class ConversationStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(
-            """
+        self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY, workspace TEXT, model TEXT, mode TEXT,
                 title TEXT, agent TEXT DEFAULT 'code', n_msgs INTEGER DEFAULT 0, messages TEXT,
@@ -63,8 +62,7 @@ class ConversationStore:
             CREATE TABLE IF NOT EXISTS workspaces (
                 path TEXT PRIMARY KEY, last_used TEXT DEFAULT CURRENT_TIMESTAMP
             );
-            """
-        )
+            """)
         for ddl in (
             "ALTER TABLE sessions ADD COLUMN title TEXT",
             "ALTER TABLE sessions ADD COLUMN n_msgs INTEGER DEFAULT 0",
@@ -88,13 +86,19 @@ class ConversationStore:
         path = self._file(sid)
         if not path.exists():
             return None
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
 
     def _count(self, sid: str) -> int:
         path = self._file(sid)
         if not path.exists():
             return 0
-        return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+        return sum(
+            1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+        )
 
     def _append(self, sid: str, messages: list[dict]) -> None:
         with open(self._file(sid), "a", encoding="utf-8") as f:
@@ -123,7 +127,8 @@ class ConversationStore:
                     if messages:
                         self._append(sid, messages)
                     self._conn.execute(
-                        "UPDATE sessions SET messages = NULL WHERE session_id = ?", (sid,)
+                        "UPDATE sessions SET messages = NULL WHERE session_id = ?",
+                        (sid,),
                     )
                 else:
                     messages = []
@@ -169,8 +174,16 @@ class ConversationStore:
                     n_msgs = excluded.n_msgs, messages = NULL, extra_roots = excluded.extra_roots,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (sid, record.workspace, record.model, record.mode, title, record.agent,
-                 len(record.messages), json.dumps(record.extra_roots or [])),
+                (
+                    sid,
+                    record.workspace,
+                    record.model,
+                    record.mode,
+                    title,
+                    record.agent,
+                    len(record.messages),
+                    json.dumps(record.extra_roots or []),
+                ),
             )
             self._conn.commit()
         self.touch_workspace(record.workspace)
@@ -198,7 +211,9 @@ class ConversationStore:
             agent=row["agent"] or "code",
             message_count=len(messages),
             updated_at=row["updated_at"],
-            extra_roots=_load_roots(row["extra_roots"] if "extra_roots" in row.keys() else None),
+            extra_roots=_load_roots(
+                row["extra_roots"] if "extra_roots" in row.keys() else None
+            ),
             pinned=bool(row["pinned"]),
             archived=bool(row["archived"]),
         )
@@ -265,23 +280,29 @@ class ConversationStore:
                 real = os.path.realpath(ws)
                 if real != ws:
                     self._conn.execute(
-                        "UPDATE sessions SET workspace = ? WHERE workspace = ?", (real, ws)
+                        "UPDATE sessions SET workspace = ? WHERE workspace = ?",
+                        (real, ws),
                     )
             latest: dict[str, str] = {}
-            for path, last in self._conn.execute("SELECT path, last_used FROM workspaces").fetchall():
+            for path, last in self._conn.execute(
+                "SELECT path, last_used FROM workspaces"
+            ).fetchall():
                 real = os.path.realpath(path)
                 if real not in latest or (last or "") > latest[real]:
                     latest[real] = last
             self._conn.execute("DELETE FROM workspaces")
             for path, last in latest.items():
                 self._conn.execute(
-                    "INSERT OR REPLACE INTO workspaces (path, last_used) VALUES (?, ?)", (path, last)
+                    "INSERT OR REPLACE INTO workspaces (path, last_used) VALUES (?, ?)",
+                    (path, last),
                 )
             self._conn.commit()
 
     def delete(self, session_id: str) -> bool:
         with self._lock:
-            cur = self._conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+            cur = self._conn.execute(
+                "DELETE FROM sessions WHERE session_id = ?", (session_id,)
+            )
             self._conn.commit()
         path = self._file(session_id)
         if path.exists():
@@ -301,7 +322,11 @@ class ConversationStore:
         return cur.rowcount > 0
 
     def set_flags(
-        self, session_id: str, *, pinned: Optional[bool] = None, archived: Optional[bool] = None
+        self,
+        session_id: str,
+        *,
+        pinned: Optional[bool] = None,
+        archived: Optional[bool] = None,
     ) -> bool:
         """Update pin/archive flags without touching updated_at (so pinning doesn't reorder)."""
         sets, params = [], []

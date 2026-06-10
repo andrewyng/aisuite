@@ -12,7 +12,6 @@ from urllib.request import Request, urlopen
 
 from .store import JsonlTraceStore, TraceStore
 
-
 TRACE_SCHEMA_VERSION = "2026-05-15"
 
 
@@ -76,8 +75,7 @@ class TraceEvent:
 
 
 class TraceSink(Protocol):
-    def emit(self, event: TraceEvent) -> None:
-        ...
+    def emit(self, event: TraceEvent) -> None: ...
 
 
 class LocalTraceSink:

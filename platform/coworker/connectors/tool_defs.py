@@ -19,41 +19,219 @@ class ConnectorToolDef:
 
 
 TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
-    ConnectorToolDef("browser", "browser_read_url", "Read public URL", "read", "Fetch readable text from a public URL."),
-    ConnectorToolDef("browser", "browser_open_url", "Open URL", "read", "Open a URL in the Playwright browser."),
-    ConnectorToolDef("browser", "browser_snapshot", "Snapshot page", "read", "Read page text and visible controls."),
-    ConnectorToolDef("browser", "browser_get_text", "Read page text", "read", "Read visible text from the current browser page."),
-    ConnectorToolDef("browser", "browser_click", "Click page", "write", "Click a visible browser element."),
-    ConnectorToolDef("browser", "browser_type", "Fill field", "write", "Type into or fill a browser field."),
-    ConnectorToolDef("browser", "browser_select", "Select option", "write", "Select a dropdown option."),
-    ConnectorToolDef("browser", "browser_upload_file", "Upload file", "write", "Upload a local file through a file input."),
-    ConnectorToolDef("browser", "browser_wait", "Wait", "read", "Wait for time or an element."),
-    ConnectorToolDef("browser", "browser_screenshot", "Screenshot", "read", "Capture a browser screenshot."),
-    ConnectorToolDef("browser", "browser_close", "Close browser", "write", "Close the browser session."),
-    ConnectorToolDef("github", "github_search", "Search GitHub", "read", "Search issues, pull requests, or repositories."),
-    ConnectorToolDef("github", "github_get_issue", "Read issue", "read", "Read a GitHub issue or pull request."),
-    ConnectorToolDef("github", "github_create_issue", "Create issue", "write", "Create a GitHub issue."),
-    ConnectorToolDef("notion", "notion_search", "Search Notion", "read", "Search Notion pages and databases."),
-    ConnectorToolDef("notion", "notion_get_page", "Read page", "read", "Read a Notion page."),
-    ConnectorToolDef("notion", "notion_create_page", "Create page", "write", "Create a Notion child page."),
-    ConnectorToolDef("gmail", "gmail_search_messages", "Search Gmail", "read", "Search Gmail messages."),
-    ConnectorToolDef("gmail", "gmail_get_message", "Read message", "read", "Read a Gmail message."),
-    ConnectorToolDef("gmail", "gmail_send_email", "Send email", "write", "Send an email through Gmail."),
-    ConnectorToolDef("google_calendar", "gcal_list_events", "List events", "read", "List Google Calendar events."),
-    ConnectorToolDef("google_calendar", "gcal_create_event", "Create event", "write", "Create a Google Calendar event."),
-    ConnectorToolDef("outlook", "outlook_search_messages", "Search Outlook", "read", "Search Outlook messages."),
-    ConnectorToolDef("outlook", "outlook_send_mail", "Send mail", "write", "Send mail through Outlook."),
-    ConnectorToolDef("outlook", "outlook_list_events", "List events", "read", "List Outlook calendar events."),
-    ConnectorToolDef("outlook", "outlook_create_event", "Create event", "write", "Create an Outlook calendar event."),
-    ConnectorToolDef("jira", "jira_search_issues", "Search issues", "read", "Search Jira issues."),
-    ConnectorToolDef("jira", "jira_get_issue", "Read issue", "read", "Read a Jira issue."),
-    ConnectorToolDef("jira", "jira_create_issue", "Create issue", "write", "Create a Jira issue."),
-    ConnectorToolDef("confluence", "confluence_search", "Search pages", "read", "Search Confluence pages."),
-    ConnectorToolDef("confluence", "confluence_get_page", "Read page", "read", "Read a Confluence page."),
-    ConnectorToolDef("confluence", "confluence_create_page", "Create page", "write", "Create a Confluence page."),
-    ConnectorToolDef("zendesk", "zendesk_search", "Search Zendesk", "read", "Search Zendesk."),
-    ConnectorToolDef("zendesk", "zendesk_get_ticket", "Read ticket", "read", "Read a Zendesk ticket."),
-    ConnectorToolDef("zendesk", "zendesk_create_ticket", "Create ticket", "write", "Create a Zendesk ticket."),
+    ConnectorToolDef(
+        "browser",
+        "browser_read_url",
+        "Read public URL",
+        "read",
+        "Fetch readable text from a public URL.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_open_url",
+        "Open URL",
+        "read",
+        "Open a URL in the Playwright browser.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_snapshot",
+        "Snapshot page",
+        "read",
+        "Read page text and visible controls.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_get_text",
+        "Read page text",
+        "read",
+        "Read visible text from the current browser page.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_click",
+        "Click page",
+        "write",
+        "Click a visible browser element.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_type",
+        "Fill field",
+        "write",
+        "Type into or fill a browser field.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_select",
+        "Select option",
+        "write",
+        "Select a dropdown option.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_upload_file",
+        "Upload file",
+        "write",
+        "Upload a local file through a file input.",
+    ),
+    ConnectorToolDef(
+        "browser", "browser_wait", "Wait", "read", "Wait for time or an element."
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_screenshot",
+        "Screenshot",
+        "read",
+        "Capture a browser screenshot.",
+    ),
+    ConnectorToolDef(
+        "browser",
+        "browser_close",
+        "Close browser",
+        "write",
+        "Close the browser session.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_search",
+        "Search GitHub",
+        "read",
+        "Search issues, pull requests, or repositories.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_get_issue",
+        "Read issue",
+        "read",
+        "Read a GitHub issue or pull request.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_create_issue",
+        "Create issue",
+        "write",
+        "Create a GitHub issue.",
+    ),
+    ConnectorToolDef(
+        "notion",
+        "notion_search",
+        "Search Notion",
+        "read",
+        "Search Notion pages and databases.",
+    ),
+    ConnectorToolDef(
+        "notion", "notion_get_page", "Read page", "read", "Read a Notion page."
+    ),
+    ConnectorToolDef(
+        "notion",
+        "notion_create_page",
+        "Create page",
+        "write",
+        "Create a Notion child page.",
+    ),
+    ConnectorToolDef(
+        "gmail",
+        "gmail_search_messages",
+        "Search Gmail",
+        "read",
+        "Search Gmail messages.",
+    ),
+    ConnectorToolDef(
+        "gmail", "gmail_get_message", "Read message", "read", "Read a Gmail message."
+    ),
+    ConnectorToolDef(
+        "gmail",
+        "gmail_send_email",
+        "Send email",
+        "write",
+        "Send an email through Gmail.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
+        "gcal_list_events",
+        "List events",
+        "read",
+        "List Google Calendar events.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
+        "gcal_create_event",
+        "Create event",
+        "write",
+        "Create a Google Calendar event.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_search_messages",
+        "Search Outlook",
+        "read",
+        "Search Outlook messages.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_send_mail",
+        "Send mail",
+        "write",
+        "Send mail through Outlook.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_list_events",
+        "List events",
+        "read",
+        "List Outlook calendar events.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_create_event",
+        "Create event",
+        "write",
+        "Create an Outlook calendar event.",
+    ),
+    ConnectorToolDef(
+        "jira", "jira_search_issues", "Search issues", "read", "Search Jira issues."
+    ),
+    ConnectorToolDef(
+        "jira", "jira_get_issue", "Read issue", "read", "Read a Jira issue."
+    ),
+    ConnectorToolDef(
+        "jira", "jira_create_issue", "Create issue", "write", "Create a Jira issue."
+    ),
+    ConnectorToolDef(
+        "confluence",
+        "confluence_search",
+        "Search pages",
+        "read",
+        "Search Confluence pages.",
+    ),
+    ConnectorToolDef(
+        "confluence",
+        "confluence_get_page",
+        "Read page",
+        "read",
+        "Read a Confluence page.",
+    ),
+    ConnectorToolDef(
+        "confluence",
+        "confluence_create_page",
+        "Create page",
+        "write",
+        "Create a Confluence page.",
+    ),
+    ConnectorToolDef(
+        "zendesk", "zendesk_search", "Search Zendesk", "read", "Search Zendesk."
+    ),
+    ConnectorToolDef(
+        "zendesk", "zendesk_get_ticket", "Read ticket", "read", "Read a Zendesk ticket."
+    ),
+    ConnectorToolDef(
+        "zendesk",
+        "zendesk_create_ticket",
+        "Create ticket",
+        "write",
+        "Create a Zendesk ticket.",
+    ),
 )
 
 TOOL_TO_CONNECTOR = {d.name: d.connector for d in TOOL_DEFS}
@@ -82,7 +260,9 @@ def tool_enabled(secrets: SecretStore, connector: str, tool_name: str) -> bool:
     return False
 
 
-def patch_tool_settings(secrets: SecretStore, connector: str, enabled: dict[str, Any]) -> dict[str, Any]:
+def patch_tool_settings(
+    secrets: SecretStore, connector: str, enabled: dict[str, Any]
+) -> dict[str, Any]:
     known = {t.name for t in TOOLS_BY_CONNECTOR.get(connector, [])}
     if not known:
         return {"ok": False, "error": "unknown connector or no tools"}

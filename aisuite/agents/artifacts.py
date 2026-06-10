@@ -127,7 +127,8 @@ def _dehydrate_message(
 
 
 def _hydrate_message(
-    message: dict[str, Any], artifact_store: ArtifactStore) -> dict[str, Any]:
+    message: dict[str, Any], artifact_store: ArtifactStore
+) -> dict[str, Any]:
     hydrated = copy.deepcopy(message)
     hydrated["content"] = hydrate_value(hydrated.get("content"), artifact_store)
     return hydrated

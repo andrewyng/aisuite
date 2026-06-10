@@ -1,15 +1,15 @@
 """Small CLI to exercise connectors independently.
 
-  python -m coworker.connectors.cli status
-      Show which platforms are configured (token present) + allowlist size.
+python -m coworker.connectors.cli status
+    Show which platforms are configured (token present) + allowlist size.
 
-  python -m coworker.connectors.cli fake [--user U1] [--allow U1]
-      Offline REPL: type messages as if they arrived from a platform; a built-in echo
-      handler replies through the gateway. Exercises auth + inbound dispatch + outbound
-      with no network. Try --user with someone NOT in --allow to see it dropped.
+python -m coworker.connectors.cli fake [--user U1] [--allow U1]
+    Offline REPL: type messages as if they arrived from a platform; a built-in echo
+    handler replies through the gateway. Exercises auth + inbound dispatch + outbound
+    with no network. Try --user with someone NOT in --allow to see it dropped.
 
-  python -m coworker.connectors.cli send --target telegram:12345 --text "hi"
-      Live outbound via the send_message tool (needs a bot token in the SecretStore).
+python -m coworker.connectors.cli send --target telegram:12345 --text "hi"
+    Live outbound via the send_message tool (needs a bot token in the SecretStore).
 """
 
 from __future__ import annotations
@@ -88,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_fake = sub.add_parser("fake")
     p_fake.add_argument("--user", default="u1")
-    p_fake.add_argument("--allow", action="append", default=[], help="authorized user id (repeatable)")
+    p_fake.add_argument(
+        "--allow", action="append", default=[], help="authorized user id (repeatable)"
+    )
 
     p_send = sub.add_parser("send")
     p_send.add_argument("--target", required=True)

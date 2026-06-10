@@ -22,7 +22,9 @@ def _is_data_image(url: Any) -> bool:
     return isinstance(url, str) and url.startswith("data:image/") and ";base64," in url
 
 
-def build_user_content(text: Optional[str], attachments: Optional[list[dict]] = None) -> Any:
+def build_user_content(
+    text: Optional[str], attachments: Optional[list[dict]] = None
+) -> Any:
     """Return `str` (no attachments) or a list of OpenAI content-parts (with attachments).
 
     Each attachment is `{"kind": "image"|"text", "name"?, "data_url"? (image), "text"? (text)}`.
@@ -51,7 +53,9 @@ def build_user_content(text: Optional[str], attachments: Optional[list[dict]] = 
             body = str(a.get("text") or "")[:MAX_TEXT_CHARS]
             name = str(a.get("name") or "attachment")
             if body:
-                parts.append({"type": "text", "text": f"[Attached file: {name}]\n{body}"})
+                parts.append(
+                    {"type": "text", "text": f"[Attached file: {name}]\n{body}"}
+                )
                 added += 1
 
     if added == 0:
@@ -61,7 +65,8 @@ def build_user_content(text: Optional[str], attachments: Optional[list[dict]] = 
 
 def content_to_text(content: Any, *, image_placeholder: str = "[image]") -> str:
     """Flatten message content (string or parts) to text — for titles, previews, search.
-    Images render as `image_placeholder` (pass "" to drop them, e.g. for clean titles)."""
+    Images render as `image_placeholder` (pass "" to drop them, e.g. for clean titles).
+    """
     if isinstance(content, str):
         return content
     if isinstance(content, list):

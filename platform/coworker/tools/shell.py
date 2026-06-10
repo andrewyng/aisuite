@@ -44,8 +44,7 @@ _NONINTERACTIVE_ENV = {
 
 class Executor(ABC):
     @abstractmethod
-    def run(self, command: str, timeout: Optional[float] = None) -> dict[str, Any]:
-        ...
+    def run(self, command: str, timeout: Optional[float] = None) -> dict[str, Any]: ...
 
     def interrupt(self) -> None:  # pragma: no cover - default no-op
         pass
@@ -82,13 +81,23 @@ class LocalExecutor(Executor):
     def _spawn(self) -> None:
         """Start (or restart) the shell process and its reader. Reused for self-healing:
         if a command times out and the shell is hard-closed, the next `run` respawns here
-        in the last known `cwd` (in-shell env/vars are lost, but the session continues)."""
+        in the last known `cwd` (in-shell env/vars are lost, but the session continues).
+        """
         if self._is_windows:
-            argv = [self._shell_path, "-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass",
-                    "-Command", "-"]
+            argv = [
+                self._shell_path,
+                "-NoProfile",
+                "-NoLogo",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "-",
+            ]
             # New process group so a timeout can deliver Ctrl-Break to the child (and only
             # the child), without signaling our own process.
-            spawn_kwargs: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            spawn_kwargs: dict[str, Any] = {
+                "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
+            }
         else:
             argv = [self._shell_path]
             spawn_kwargs = {"start_new_session": True}
@@ -127,7 +136,9 @@ class LocalExecutor(Executor):
             # the session self-heals rather than wedging every future command.
             self._spawn()
         if self._proc.stdin is None:
-            return self._result(command, None, "", timed_out=False, error="shell not running")
+            return self._result(
+                command, None, "", timed_out=False, error="shell not running"
+            )
 
         timeout = timeout or self.default_timeout
         # Run the command, then emit a marker line with exit code + cwd.
@@ -251,7 +262,9 @@ class LocalExecutor(Executor):
         except (ProcessLookupError, OSError):
             pass
 
-    def _result(self, command, exit_code, output, *, timed_out, truncated=False, error=None):
+    def _result(
+        self, command, exit_code, output, *, timed_out, truncated=False, error=None
+    ):
         result = {
             "command": command,
             "cwd": self.cwd,

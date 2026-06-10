@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient, ToolCall
+from coworker.providers import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    ToolCall,
+)
 from coworker.server import SessionManager, create_app
 from coworker.sessions import SessionRecord
 
@@ -60,22 +65,35 @@ def test_agents_and_memory_rest(tmp_path):
 
     added = client.post("/v1/memory", json={"content": "prefer pathlib"}).json()
     assert added["content"] == "prefer pathlib"
-    assert any(m["content"] == "prefer pathlib" for m in client.get("/v1/memory").json()["memory"])
+    assert any(
+        m["content"] == "prefer pathlib"
+        for m in client.get("/v1/memory").json()["memory"]
+    )
 
 
 def test_connector_tool_settings_and_audit_rest(tmp_path):
     client = _client(tmp_path, [])
-    connectors = {c["name"]: c for c in client.get("/v1/connectors").json()["connectors"]}
+    connectors = {
+        c["name"]: c for c in client.get("/v1/connectors").json()["connectors"]
+    }
     assert any(t["name"] == "browser_open_url" for t in connectors["browser"]["tools"])
 
-    res = client.patch("/v1/connectors/browser/tools", json={"enabled": {"browser_open_url": False}}).json()
+    res = client.patch(
+        "/v1/connectors/browser/tools", json={"enabled": {"browser_open_url": False}}
+    ).json()
     assert res["ok"] is True
-    connectors = {c["name"]: c for c in client.get("/v1/connectors").json()["connectors"]}
+    connectors = {
+        c["name"]: c for c in client.get("/v1/connectors").json()["connectors"]
+    }
     browser_tools = {t["name"]: t for t in connectors["browser"]["tools"]}
     assert browser_tools["browser_open_url"]["enabled"] is False
 
     assert client.get("/v1/audit", params={"session_id": "none"}).json()["events"] == []
-    assert client.get("/v1/browser/state").json()["status"] in {"closed", "open", "error"}
+    assert client.get("/v1/browser/state").json()["status"] in {
+        "closed",
+        "open",
+        "error",
+    }
 
 
 def test_artifacts_list_and_read_previewable_files(tmp_path):
@@ -94,12 +112,16 @@ def test_artifacts_list_and_read_previewable_files(tmp_path):
     assert ".secret.md" not in by_path
     assert "node_modules/noise.md" not in by_path
 
-    md = client.get("/v1/sessions/unknown/artifacts/read", params={"path": "brief.md"}).json()
+    md = client.get(
+        "/v1/sessions/unknown/artifacts/read", params={"path": "brief.md"}
+    ).json()
     assert md["ok"] is True
     assert md["kind"] == "markdown"
     assert md["content"].startswith("# Brief")
 
-    html = client.get("/v1/sessions/unknown/artifacts/read", params={"path": "page.html"}).json()
+    html = client.get(
+        "/v1/sessions/unknown/artifacts/read", params={"path": "page.html"}
+    ).json()
     assert html["ok"] is True
     assert html["kind"] == "html"
     assert "<h1>Preview</h1>" in html["content"]
@@ -107,7 +129,9 @@ def test_artifacts_list_and_read_previewable_files(tmp_path):
 
 def test_artifact_read_rejects_path_escape(tmp_path):
     client = _client(tmp_path, [])
-    escaped = client.get("/v1/sessions/unknown/artifacts/read", params={"path": "../outside.md"}).json()
+    escaped = client.get(
+        "/v1/sessions/unknown/artifacts/read", params={"path": "../outside.md"}
+    ).json()
     assert escaped["ok"] is False
     assert "escapes" in escaped["error"]
 
@@ -148,7 +172,9 @@ def test_sessions_hide_scheduled_internal_runs(tmp_path):
         )
     )
     client = TestClient(create_app(manager))
-    session_ids = {s["session_id"] for s in client.get("/v1/sessions").json()["sessions"]}
+    session_ids = {
+        s["session_id"] for s in client.get("/v1/sessions").json()["sessions"]
+    }
     assert "normal" in session_ids
     assert "__run__daily-news-1" not in session_ids
     assert "__task__daily-news" not in session_ids
@@ -169,10 +195,15 @@ def test_sessions_can_be_renamed_and_deleted(tmp_path):
     )
     client = TestClient(create_app(manager))
 
-    renamed = client.patch("/v1/sessions/rename-me", json={"title": "  Better title  "}).json()
+    renamed = client.patch(
+        "/v1/sessions/rename-me", json={"title": "  Better title  "}
+    ).json()
     assert renamed["ok"] is True
     sessions = client.get("/v1/sessions").json()["sessions"]
-    assert any(s["session_id"] == "rename-me" and s["title"] == "Better title" for s in sessions)
+    assert any(
+        s["session_id"] == "rename-me" and s["title"] == "Better title"
+        for s in sessions
+    )
 
     deleted = client.delete("/v1/sessions/rename-me").json()
     assert deleted["ok"] is True
@@ -196,16 +227,25 @@ def test_sessions_can_be_pinned_and_archived(tmp_path):
         )
     client = TestClient(create_app(manager))
 
-    assert client.patch("/v1/sessions/older", json={"pinned": True}).json()["ok"] is True
+    assert (
+        client.patch("/v1/sessions/older", json={"pinned": True}).json()["ok"] is True
+    )
     sessions = client.get("/v1/sessions").json()["sessions"]
     assert sessions[0]["session_id"] == "older" and sessions[0]["pinned"] is True
 
-    assert client.patch("/v1/sessions/newer", json={"archived": True}).json()["ok"] is True
+    assert (
+        client.patch("/v1/sessions/newer", json={"archived": True}).json()["ok"] is True
+    )
     by_id = {s["session_id"]: s for s in client.get("/v1/sessions").json()["sessions"]}
     assert by_id["newer"]["archived"] is True
 
-    assert client.patch("/v1/sessions/older", json={"pinned": False}).json()["ok"] is True
-    assert client.patch("/v1/sessions/newer", json={"archived": False}).json()["ok"] is True
+    assert (
+        client.patch("/v1/sessions/older", json={"pinned": False}).json()["ok"] is True
+    )
+    assert (
+        client.patch("/v1/sessions/newer", json={"archived": False}).json()["ok"]
+        is True
+    )
     by_id = {s["session_id"]: s for s in client.get("/v1/sessions").json()["sessions"]}
     assert by_id["older"]["pinned"] is False and by_id["newer"]["archived"] is False
 
@@ -238,7 +278,10 @@ def test_ws_simple_turn(tmp_path):
 def test_ws_approval_round_trip(tmp_path):
     client = _client(
         tmp_path,
-        [_tool("write_file", {"path": "made.py", "content": "print(1)\n"}), _text("wrote it")],
+        [
+            _tool("write_file", {"path": "made.py", "content": "print(1)\n"}),
+            _text("wrote it"),
+        ],
     )
     with client.websocket_connect("/ws/session/s2") as ws:
         assert ws.receive_json()["type"] == "ready"
@@ -258,8 +301,12 @@ def test_ws_browser_tool_audit_round_trip(tmp_path):
         assert "permission_required" in types
         assert "tool_finished" in types
 
-    rows = client.get("/v1/audit", params={"session_id": "browser-audit", "connector": "browser"}).json()["events"]
-    assert any(r["tool"] == "browser_close" and r["stage"] == "approval_resolved" for r in rows)
+    rows = client.get(
+        "/v1/audit", params={"session_id": "browser-audit", "connector": "browser"}
+    ).json()["events"]
+    assert any(
+        r["tool"] == "browser_close" and r["stage"] == "approval_resolved" for r in rows
+    )
     assert any(r["tool"] == "browser_close" and r["stage"] == "finished" for r in rows)
 
 
@@ -275,7 +322,9 @@ def test_open_and_recent_workspaces(tmp_path):
 
 def test_open_invalid_workspace(tmp_path):
     client = _client(tmp_path, [])
-    bad = client.post("/v1/workspaces/open", json={"path": str(tmp_path / "nope")}).json()
+    bad = client.post(
+        "/v1/workspaces/open", json={"path": str(tmp_path / "nope")}
+    ).json()
     assert bad["ok"] is False
 
 
@@ -283,14 +332,18 @@ def test_open_workspace_create(tmp_path):
     client = _client(tmp_path, [])
     fresh = tmp_path / "fresh-project"
     assert not fresh.exists()
-    res = client.post("/v1/workspaces/open", json={"path": str(fresh), "create": True}).json()
+    res = client.post(
+        "/v1/workspaces/open", json={"path": str(fresh), "create": True}
+    ).json()
     assert res["ok"] is True
     assert fresh.is_dir()
 
 
 def test_ws_requires_workspace_when_no_default(tmp_path):
     # Manager with no default workspace: a session with no folder is rejected.
-    manager = SessionManager(workspace=None, data_dir=tmp_path, provider=ScriptedProvider([]))
+    manager = SessionManager(
+        workspace=None, data_dir=tmp_path, provider=ScriptedProvider([])
+    )
     client = TestClient(create_app(manager))
     with client.websocket_connect("/ws/session/nofolder") as ws:
         first = ws.receive_json()
@@ -304,7 +357,9 @@ def test_ws_with_workspace_query(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
     manager = SessionManager(
-        workspace=None, data_dir=tmp_path, provider=ScriptedProvider([_text("hi from proj")])
+        workspace=None,
+        data_dir=tmp_path,
+        provider=ScriptedProvider([_text("hi from proj")]),
     )
     client = TestClient(create_app(manager))
     with client.websocket_connect(f"/ws/session/s?workspace={quote(str(proj))}") as ws:
@@ -317,7 +372,9 @@ def test_ws_with_workspace_query(tmp_path):
 
 def test_ws_chat_agent_needs_no_workspace(tmp_path):
     manager = SessionManager(
-        workspace=None, data_dir=tmp_path, provider=ScriptedProvider([_text("hi from chat")])
+        workspace=None,
+        data_dir=tmp_path,
+        provider=ScriptedProvider([_text("hi from chat")]),
     )
     client = TestClient(create_app(manager))
     with client.websocket_connect("/ws/session/chat1?agent=chat") as ws:
@@ -337,7 +394,9 @@ def test_ws_set_mode_auto_skips_approval(tmp_path):
     manager = SessionManager(
         workspace=None,
         data_dir=tmp_path,
-        provider=ScriptedProvider([_tool("write_file", {"path": "a.py", "content": "x"}), _text("done")]),
+        provider=ScriptedProvider(
+            [_tool("write_file", {"path": "a.py", "content": "x"}), _text("done")]
+        ),
     )
     client = TestClient(create_app(manager))
     with client.websocket_connect(f"/ws/session/sm?workspace={quote(str(proj))}") as ws:

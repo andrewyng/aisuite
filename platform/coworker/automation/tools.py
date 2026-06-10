@@ -29,7 +29,10 @@ _CREATE_SCHEMA = {
         "parameters": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "Short label, e.g. 'Daily news briefing'."},
+                "title": {
+                    "type": "string",
+                    "description": "Short label, e.g. 'Daily news briefing'.",
+                },
                 "instructions": {
                     "type": "string",
                     "description": (
@@ -39,9 +42,18 @@ _CREATE_SCHEMA = {
                         "fire_at; this text is handed verbatim to the agent every run."
                     ),
                 },
-                "cron": {"type": "string", "description": "5-field cron, e.g. '10 19 * * *'. Omit for one-time."},
-                "fire_at": {"type": "string", "description": "ISO datetime for a one-time run. Omit for recurring."},
-                "timezone": {"type": "string", "description": "IANA tz, e.g. 'America/New_York'. Defaults to the machine's local time — pass it only to override."},
+                "cron": {
+                    "type": "string",
+                    "description": "5-field cron, e.g. '10 19 * * *'. Omit for one-time.",
+                },
+                "fire_at": {
+                    "type": "string",
+                    "description": "ISO datetime for a one-time run. Omit for recurring.",
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA tz, e.g. 'America/New_York'. Defaults to the machine's local time — pass it only to override.",
+                },
             },
             "required": ["title", "instructions"],
         },
@@ -72,7 +84,11 @@ _ID_SCHEMA = {
     "function": {
         "name": "delete_scheduled_task",
         "description": "Delete a scheduled task and its run history.",
-        "parameters": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        "parameters": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
     },
 }
 
@@ -106,11 +122,15 @@ def scheduling_tools(
     origin: dict[str, Any],
     default_workspace: str,
 ) -> list[Callable[..., Any]]:
-    def create_scheduled_task(title, instructions, cron=None, fire_at=None, timezone="local"):
+    def create_scheduled_task(
+        title, instructions, cron=None, fire_at=None, timezone="local"
+    ):
         from croniter import croniter
 
         if not cron and not fire_at:
-            return {"error": "provide a cron (recurring) or a fire_at ISO datetime (one-time)"}
+            return {
+                "error": "provide a cron (recurring) or a fire_at ISO datetime (one-time)"
+            }
         if cron and not croniter.is_valid(cron):
             return {"error": f"invalid cron expression: {cron}"}
         schedule = Schedule(
@@ -142,7 +162,9 @@ def scheduling_tools(
     def list_scheduled_tasks():
         return {"tasks": [t.public() for t in store.list()]}
 
-    def update_scheduled_task(id, enabled=None, instructions=None, cron=None, title=None):
+    def update_scheduled_task(
+        id, enabled=None, instructions=None, cron=None, title=None
+    ):
         from croniter import croniter
 
         task = store.get(id)

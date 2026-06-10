@@ -9,7 +9,6 @@ from .state_store import StateConflictError, StoredRunState, _assert_revision
 from .types import RunState, ensure_json_serializable
 from .utils import new_id
 
-
 SCHEMA_STATEMENTS = [
     """
     create table if not exists agent_thread_heads (
@@ -151,7 +150,9 @@ class PostgresStateStore:
                 old_context_messages = self._load_messages(
                     cursor, thread_id, old_context_ids
                 )
-                shared_count = _shared_message_prefix_length(old_context_messages, messages)
+                shared_count = _shared_message_prefix_length(
+                    old_context_messages, messages
+                )
                 suffix_messages = messages[shared_count:]
                 suffix_ids = self._insert_messages(cursor, thread_id, suffix_messages)
                 message_ids = [*old_context_ids[:shared_count], *suffix_ids]
@@ -253,7 +254,9 @@ class PostgresStateStore:
             cursor.execute(
                 "delete from agent_compactions where thread_id = %s", (thread_id,)
             )
-            cursor.execute("delete from agent_messages where thread_id = %s", (thread_id,))
+            cursor.execute(
+                "delete from agent_messages where thread_id = %s", (thread_id,)
+            )
             cursor.execute(
                 "delete from agent_thread_heads where thread_id = %s", (thread_id,)
             )
@@ -434,7 +437,9 @@ class PostgresStateStore:
         finally:
             cursor.close()
 
-    def _load_head_for_update(self, cursor: Any, thread_id: str) -> Optional[tuple[Any, ...]]:
+    def _load_head_for_update(
+        self, cursor: Any, thread_id: str
+    ) -> Optional[tuple[Any, ...]]:
         cursor.execute(
             """
             select revision,
@@ -524,7 +529,9 @@ def _message_artifact_refs(message: dict[str, Any]) -> list[dict[str, Any]]:
     seen = set()
     for ref in refs:
         artifact_ref = ref.get("artifact_ref") if isinstance(ref, dict) else None
-        artifact_id = artifact_ref.get("artifact_id") if isinstance(artifact_ref, dict) else None
+        artifact_id = (
+            artifact_ref.get("artifact_id") if isinstance(artifact_ref, dict) else None
+        )
         key = artifact_id or json.dumps(ref, sort_keys=True)
         if key in seen:
             continue
@@ -539,7 +546,9 @@ def _state_payload_without_messages(state: RunState) -> dict[str, Any]:
     return payload
 
 
-def _state_from_payload(payload: str | dict[str, Any], messages: list[dict[str, Any]]) -> RunState:
+def _state_from_payload(
+    payload: str | dict[str, Any], messages: list[dict[str, Any]]
+) -> RunState:
     data = _decode_json(payload)
     data["messages"] = copy.deepcopy(messages)
     return RunState.from_dict(data)

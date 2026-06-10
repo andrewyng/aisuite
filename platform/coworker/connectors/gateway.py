@@ -13,7 +13,13 @@ from collections import OrderedDict
 from typing import Optional
 
 from ..secrets import SecretStore
-from .base import BasePlatformAdapter, MessageEvent, MessageHandler, SendResult, parse_target
+from .base import (
+    BasePlatformAdapter,
+    MessageEvent,
+    MessageHandler,
+    SendResult,
+    parse_target,
+)
 from .config import ConnectorSettings, is_authorized, load_settings
 
 logger = logging.getLogger("coworker.connectors")
@@ -30,7 +36,9 @@ class Gateway:
         handler: Optional[MessageHandler] = None,
     ) -> None:
         self.secrets = secrets or SecretStore()
-        self.settings = settings if settings is not None else load_settings(self.secrets)
+        self.settings = (
+            settings if settings is not None else load_settings(self.secrets)
+        )
         self._handler = handler
         self._adapters: dict[str, BasePlatformAdapter] = {}
         # In-memory recent senders for chat-ID auto-capture (identity only, never persisted).

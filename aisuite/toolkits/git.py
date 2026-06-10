@@ -51,7 +51,9 @@ class GitToolkit:
     def status(self) -> dict[str, object]:
         return self._run(["git", "status", "--short", "--branch"])
 
-    def diff(self, path: Optional[str] = None, staged: bool = False) -> dict[str, object]:
+    def diff(
+        self, path: Optional[str] = None, staged: bool = False
+    ) -> dict[str, object]:
         args = ["git", "diff"]
         if staged:
             args.append("--staged")
@@ -76,7 +78,8 @@ class GitToolkit:
             "exit_code": completed.returncode,
             "stdout": stdout,
             "stderr": stderr,
-            "truncated": len(completed.stdout) > len(stdout) or len(completed.stderr) > len(stderr),
+            "truncated": len(completed.stdout) > len(stdout)
+            or len(completed.stderr) > len(stderr),
         }
 
     def _resolve_path(self, path: str) -> Path:

@@ -8,7 +8,13 @@ import aisuite as ai
 from coworker.engine import ApprovalOutcome, PermissionRequest, TurnEngine
 from coworker.events import EventType
 from coworker.permissions import PermissionEngine
-from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient, StreamChunk, ToolCall
+from coworker.providers import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    StreamChunk,
+    ToolCall,
+)
 from coworker.tools import ToolRegistry
 
 
@@ -18,7 +24,8 @@ def _text_turn(text):
 
 def _tool_turn(name, args, call_id="call_1"):
     return AssistantTurn(
-        tool_calls=[ToolCall(id=call_id, name=name, arguments=args)], finish_reason="tool_calls"
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=args)],
+        finish_reason="tool_calls",
     )
 
 
@@ -83,7 +90,8 @@ def test_no_tool_turn(tmp_path):
 def test_tool_turn_order_and_execution(tmp_path):
     (tmp_path / "a.txt").write_text("hello", encoding="utf-8")
     engine, _ = _engine(
-        tmp_path, [_tool_turn("read_file", {"path": "a.txt"}), _text_turn("it says hello")]
+        tmp_path,
+        [_tool_turn("read_file", {"path": "a.txt"}), _text_turn("it says hello")],
     )
     events = _collect(engine, "read a.txt")
     assert EventType.PERMISSION_REQUIRED not in _types(events)
@@ -99,7 +107,9 @@ def test_tool_turn_order_and_execution(tmp_path):
     ]
     finished = next(e for e in events if e.type == EventType.TOOL_FINISHED)
     assert finished.data["status"] == "ok"
-    assert any(m.get("role") == "tool" and "hello" in m["content"] for m in engine.messages)
+    assert any(
+        m.get("role") == "tool" and "hello" in m["content"] for m in engine.messages
+    )
 
 
 def test_write_requires_approval_then_approved(tmp_path):
@@ -108,7 +118,10 @@ def test_write_requires_approval_then_approved(tmp_path):
 
     engine, _ = _engine(
         tmp_path,
-        [_tool_turn("write_file", {"path": "new.py", "content": "print(1)\n"}), _text_turn("wrote new.py")],
+        [
+            _tool_turn("write_file", {"path": "new.py", "content": "print(1)\n"}),
+            _text_turn("wrote new.py"),
+        ],
         approver=approve_once,
     )
     events = _collect(engine, "create new.py")
@@ -122,7 +135,10 @@ def test_denied_tool_yields_error_and_continues(tmp_path):
 
     engine, _ = _engine(
         tmp_path,
-        [_tool_turn("write_file", {"path": "new.py", "content": "x"}), _text_turn("ok, skipped it")],
+        [
+            _tool_turn("write_file", {"path": "new.py", "content": "x"}),
+            _text_turn("ok, skipped it"),
+        ],
         approver=deny,
     )
     events = _collect(engine, "create new.py")
@@ -130,11 +146,16 @@ def test_denied_tool_yields_error_and_continues(tmp_path):
     finished = next(e for e in events if e.type == EventType.TOOL_FINISHED)
     assert finished.data["status"] == "denied"
     assert _types(events)[-1] == EventType.TURN_END
-    assert any(m.get("role") == "tool" and "not executed" in m["content"] for m in engine.messages)
+    assert any(
+        m.get("role") == "tool" and "not executed" in m["content"]
+        for m in engine.messages
+    )
 
 
 def test_max_iterations_rail(tmp_path):
-    engine, provider = _engine(tmp_path, [_tool_turn("list_files", {})], loop=True, max_iterations=3)
+    engine, provider = _engine(
+        tmp_path, [_tool_turn("list_files", {})], loop=True, max_iterations=3
+    )
     events = _collect(engine, "loop forever")
     end = events[-1]
     assert end.type == EventType.TURN_END
@@ -151,7 +172,10 @@ def test_interrupt_between_iterations(tmp_path):
 
     engine, provider = _engine(
         tmp_path,
-        [_tool_turn("write_file", {"path": "x.py", "content": "x"}), _text_turn("should not be reached")],
+        [
+            _tool_turn("write_file", {"path": "x.py", "content": "x"}),
+            _text_turn("should not be reached"),
+        ],
         approver=approve_and_interrupt,
     )
     engine_holder["engine"] = engine
@@ -166,7 +190,8 @@ def test_steering_injects_next_turn(tmp_path):
     events = _collect(engine, "do the first thing")
     assert provider.calls == 2
     assert any(
-        m.get("role") == "user" and m["content"] == "actually, also do this" for m in engine.messages
+        m.get("role") == "user" and m["content"] == "actually, also do this"
+        for m in engine.messages
     )
     assert events[-1].data["status"] == "completed"
 
@@ -188,7 +213,10 @@ def test_streaming_emits_deltas(tmp_path):
     registry = ToolRegistry()
     permissions = PermissionEngine(workspace_root=tmp_path)
     engine = TurnEngine(
-        provider=StreamingProvider(), registry=registry, permissions=permissions, model="gpt-5.5"
+        provider=StreamingProvider(),
+        registry=registry,
+        permissions=permissions,
+        model="gpt-5.5",
     )
     events = _collect(engine, "say hi")
     deltas = [e.data["text"] for e in events if e.type == EventType.ASSISTANT_DELTA]

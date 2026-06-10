@@ -411,11 +411,13 @@ class Runner:
             message = extract_final_message(response)
             data = {
                 "has_message": message is not None,
-                "finish_reason": getattr(
-                    getattr(response, "choices", [None])[0], "finish_reason", None
-                )
-                if getattr(response, "choices", None)
-                else None,
+                "finish_reason": (
+                    getattr(
+                        getattr(response, "choices", [None])[0], "finish_reason", None
+                    )
+                    if getattr(response, "choices", None)
+                    else None
+                ),
             }
             ended_at = now()
             steps.append(

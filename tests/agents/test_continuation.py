@@ -122,7 +122,9 @@ def test_run_sync_with_existing_thread_raises():
     client.chat.completions.create = Mock(return_value=chat_response("first"))
     agent = Agent(name="assistant", model="openai:gpt-4o")
     store = ai.InMemoryStateStore()
-    Runner.run_sync(agent, "Hello", client=client, state_store=store, thread_id="thread_1")
+    Runner.run_sync(
+        agent, "Hello", client=client, state_store=store, thread_id="thread_1"
+    )
 
     with pytest.raises(ai.ThreadAlreadyExistsError):
         Runner.run_sync(

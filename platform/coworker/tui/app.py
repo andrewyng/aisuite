@@ -118,11 +118,15 @@ class CoworkerApp(App):
             memory_store=self._memory_store,
             messages=self._resume_messages,
         )
-        self._write(f"[b]coworker · code[/b]  ·  model {self.model}  ·  mode {self.mode.value}")
+        self._write(
+            f"[b]coworker · code[/b]  ·  model {self.model}  ·  mode {self.mode.value}"
+        )
         self._write(f"workspace: {self.workspace}")
         if self._resume_messages:
-            self._write(f"[dim]resumed session {self._session_id} · "
-                        f"{len(self._resume_messages)} messages[/dim]")
+            self._write(
+                f"[dim]resumed session {self._session_id} · "
+                f"{len(self._resume_messages)} messages[/dim]"
+            )
         self._write("Type a request, or /help for commands.\n")
         self.query_one("#prompt", Input).focus()
 
@@ -172,12 +176,16 @@ class CoworkerApp(App):
             if data.get("text"):
                 self._write(f"[b green]assistant[/b green]\n{data['text']}")
         elif event.type is EventType.TOOL_PROPOSED:
-            self._write(f"[yellow]→ {data['name']}[/yellow] {_short(data.get('arguments'), 100)}")
+            self._write(
+                f"[yellow]→ {data['name']}[/yellow] {_short(data.get('arguments'), 100)}"
+            )
         elif event.type is EventType.TOOL_FINISHED:
             status = data.get("status")
             tag = "green" if status == "ok" else "red"
             extra = data.get("result_preview") or data.get("reason") or ""
-            self._write(f"  [{tag}]✓ {data['name']} · {status}[/{tag}] {_short(extra, 100)}")
+            self._write(
+                f"  [{tag}]✓ {data['name']} · {status}[/{tag}] {_short(extra, 100)}"
+            )
         elif event.type is EventType.INTERRUPTED:
             self._write("[red]⏹ interrupted[/red]")
         elif event.type is EventType.ERROR:
@@ -216,8 +224,11 @@ class CoworkerApp(App):
             if self.engine:
                 self.engine.messages = []
                 self.engine = build_code_engine(
-                    workspace=self.workspace, model=self.model, mode=self.mode,
-                    approver=self._approve, provider=self._provider,
+                    workspace=self.workspace,
+                    model=self.model,
+                    mode=self.mode,
+                    approver=self._approve,
+                    provider=self._provider,
                 )
             self.query_one("#log", RichLog).clear()
             self.rendered.clear()
