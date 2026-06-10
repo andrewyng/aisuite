@@ -1,68 +1,42 @@
 import os
 
-import httpx
-import openai
-
-from aisuite.provider import Provider, LLMError
-from aisuite.providers.message_converter import OpenAICompliantMessageConverter
+from aisuite.providers.openai_provider import OpenaiProvider
 
 
 def _parse_base_url(config) -> str:
+    """Resolve the Ollama host — config ``base_url``/``api_url``, then the
+    ``OLLAMA_API_URL`` env var — and normalize it to the OpenAI-compatible
+    ``/v1`` endpoint (idempotently, so a host already ending in /v1 is fine)."""
     base_url = (
-        config.get("base_url")
-        or config.get("api_url")
-        or os.getenv("OLLAMA_API_URL", "http://localhost:11434/v1")
+        config.pop("base_url", None)
+        or config.pop("api_url", None)
+        or os.getenv("OLLAMA_API_URL", "http://localhost:11434")
     )
-
-    # strip last / if any and add v1 if not present
-    if base_url.endswith("/"):
-        base_url = base_url[:-1]
+    base_url = base_url.rstrip("/")
     if not base_url.endswith("/v1"):
         base_url += "/v1"
     return base_url
 
 
-class OllamaProvider(Provider):
+class OllamaProvider(OpenaiProvider):
     """
-    Ollama Provider that makes HTTP calls instead of using SDK.
-    It uses the /api/chat endpoint.
-    Read more here - https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
-    If OLLAMA_API_URL is not set and not passed in config, then it will default to "http://localhost:11434"
-    """
+    Ollama provider that talks to Ollama's OpenAI-compatible API under /v1.
 
-    _CONNECT_ERROR_MESSAGE = "Ollama is likely not running. Start Ollama by running `ollama serve` on your host."
+    Using the /v1 endpoint (instead of Ollama's native /api/chat) means tool
+    calls, tool-result messages, and finish_reason flow through the OpenAI SDK
+    unchanged, so tool calling works the same as it does for OpenAI.
+
+    The host defaults to http://localhost:11434 and can be overridden via the
+    ``base_url`` or ``api_url`` config keys or the ``OLLAMA_API_URL``
+    environment variable. Any other config (e.g. ``timeout``) is forwarded to
+    the OpenAI client. See https://github.com/ollama/ollama/blob/main/docs/openai.md
+    """
 
     def __init__(self, **config):
-        """
-        Initialize the Ollama provider with the given configuration.
-        """
-        # just for backward compatibility
-        if "api_url" in config:
-            config["base_url"] = config.pop("api_url")
-
         config["base_url"] = _parse_base_url(config)
-        config["api_key"] = "ollama"  # required but ignored by ollama server
-
-        # Optionally set a custom timeout (default to 30s)
-        config["timeout"] = config.get("timeout", 30)
-
-        self.client = openai.OpenAI(**config)
-        self.transformer = OpenAICompliantMessageConverter()
-
-    def chat_completions_create(self, model, messages, **kwargs):
-        """
-        Makes a request to the chat completions endpoint using openai client.
-        """
-        try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                **kwargs,  # Pass any additional arguments to the OpenAI API
-            )
-            return self.transformer.convert_response(response.model_dump())
-        except httpx.ConnectError:  # Handle connection errors
-            raise LLMError(f"Connection failed: {self._CONNECT_ERROR_MESSAGE}")
-        except httpx.HTTPStatusError as http_err:
-            raise LLMError(f"Ollama request failed: {http_err}")
-        except Exception as e:
-            raise LLMError(f"An error occurred: {e}")
+        # Ollama ignores the API key but the OpenAI SDK requires one; setdefault
+        # keeps authenticated proxies in front of Ollama working.
+        config.setdefault("api_key", "ollama")
+        # Local generation can be slow to first token; keep a sane default.
+        config.setdefault("timeout", 30)
+        super().__init__(**config)

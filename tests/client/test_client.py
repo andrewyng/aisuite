@@ -192,6 +192,43 @@ def test_chat_completions_executes_tools_until_final_response(mock_create_provid
 
 
 @patch("aisuite.provider.ProviderFactory.create_provider")
+def test_ollama_model_runs_full_tool_loop(mock_create_provider):
+    """End-to-end: an ollama:<model> drives a real tool-execution turn.
+
+    Exercises the real OllamaProvider (request conversion + OpenAI passthrough)
+    with only its underlying OpenAI client mocked, proving tool calls survive.
+    """
+    from aisuite.providers.ollama_provider import OllamaProvider
+
+    provider = OllamaProvider()
+    provider.client.chat.completions.create = Mock(
+        side_effect=[
+            _chat_response(
+                tool_calls=[_tool_call("get_weather", '{"location": "San Francisco"}')]
+            ),
+            _chat_response(content="It is sunny in San Francisco."),
+        ]
+    )
+    mock_create_provider.return_value = provider
+
+    def get_weather(location: str):
+        """Get the weather for a location."""
+        return {"location": location, "condition": "sunny"}
+
+    client = Client()
+    response = client.chat.completions.create(
+        model="ollama:llama3.1",
+        messages=[{"role": "user", "content": "What is the weather?"}],
+        tools=[get_weather],
+        max_turns=2,
+    )
+
+    assert response.choices[0].message.content == "It is sunny in San Francisco."
+    # Two model calls: the tool-call turn and the final answer.
+    assert provider.client.chat.completions.create.call_count == 2
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
 def test_chat_completions_returns_last_response_when_max_turns_reached(
     mock_create_provider,
 ):
