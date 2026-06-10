@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import sys
-import tomllib
 from io import StringIO
 from pathlib import Path
 from unittest.mock import Mock
+
+import pytest
+
+try:
+    import tomllib  # stdlib from Python 3.11
+except ModuleNotFoundError:  # Python 3.10
+    tomllib = None
 
 import aisuite as ai
 
@@ -51,6 +57,7 @@ def tool_call(name, arguments, call_id="call_1"):
     )
 
 
+@pytest.mark.skipif(tomllib is None, reason="tomllib requires Python 3.11+")
 def test_cli_package_declares_openai_and_root_shim_exists():
     package_root = CLI_PACKAGE_ROOT
     pyproject = tomllib.loads((package_root / "pyproject.toml").read_text())
