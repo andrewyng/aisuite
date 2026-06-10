@@ -250,7 +250,9 @@ class FileToolkit:
         norm = self._roots()
         if not norm:
             raise ValueError("files() requires at least one root")
-        self.root = norm[0][0]  # primary: stable, used for relative resolution + display
+        self.root = norm[0][
+            0
+        ]  # primary: stable, used for relative resolution + display
         self.has_writable = any(writable for _, writable in norm)
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -688,7 +690,9 @@ class FileToolkit:
                 )
             if not hunks:
                 raise ValueError(f"Unified diff has no hunks for {new_path}.")
-            patches.append(_FilePatch(old_path=old_path, new_path=new_path, hunks=hunks))
+            patches.append(
+                _FilePatch(old_path=old_path, new_path=new_path, hunks=hunks)
+            )
         if not patches:
             raise ValueError("No unified diff file patches found.")
         return patches
@@ -708,7 +712,11 @@ class FileToolkit:
 
     def _parse_hunk_header(self, line: str) -> tuple[int, int, int, int]:
         parts = line.split()
-        if len(parts) < 3 or not parts[1].startswith("-") or not parts[2].startswith("+"):
+        if (
+            len(parts) < 3
+            or not parts[1].startswith("-")
+            or not parts[2].startswith("+")
+        ):
             raise ValueError(f"Invalid unified diff hunk header: {line}")
         old_start, old_count = self._parse_hunk_range(parts[1][1:])
         new_start, new_count = self._parse_hunk_range(parts[2][1:])
@@ -741,18 +749,14 @@ class FileToolkit:
                 content = line[1:]
                 if prefix == " ":
                     if cursor >= len(old_lines) or old_lines[cursor] != content:
-                        raise ValueError(
-                            f"Unified diff context does not match {path}."
-                        )
+                        raise ValueError(f"Unified diff context does not match {path}.")
                     new_lines.append(old_lines[cursor])
                     cursor += 1
                     old_seen += 1
                     new_seen += 1
                 elif prefix == "-":
                     if cursor >= len(old_lines) or old_lines[cursor] != content:
-                        raise ValueError(
-                            f"Unified diff removal does not match {path}."
-                        )
+                        raise ValueError(f"Unified diff removal does not match {path}.")
                     cursor += 1
                     old_seen += 1
                 elif prefix == "+":

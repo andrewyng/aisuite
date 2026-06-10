@@ -40,11 +40,21 @@ def test_settings_rest_roundtrip(tmp_path, monkeypatch):
     client = TestClient(create_app(manager))
 
     before = client.get("/v1/settings").json()
-    assert before["has_key"] is False and before["source"] is None and before["provider"] == "openai"
+    assert (
+        before["has_key"] is False
+        and before["source"] is None
+        and before["provider"] == "openai"
+    )
     assert before["onboarded"] is False and before["model"] in before["models"]
 
-    set_resp = client.post("/v1/settings/model-key", json={"api_key": "sk-secret-xyz"}).json()
-    assert set_resp["ok"] is True and set_resp["has_key"] is True and set_resp["source"] == "store"
+    set_resp = client.post(
+        "/v1/settings/model-key", json={"api_key": "sk-secret-xyz"}
+    ).json()
+    assert (
+        set_resp["ok"] is True
+        and set_resp["has_key"] is True
+        and set_resp["source"] == "store"
+    )
 
     after = client.get("/v1/settings").json()
     assert after["has_key"] is True
@@ -52,7 +62,10 @@ def test_settings_rest_roundtrip(tmp_path, monkeypatch):
     assert "sk-secret-xyz" not in str(set_resp) and "api_key" not in after
 
     # empty key is rejected
-    assert client.post("/v1/settings/model-key", json={"api_key": "  "}).json()["ok"] is False
+    assert (
+        client.post("/v1/settings/model-key", json={"api_key": "  "}).json()["ok"]
+        is False
+    )
 
 
 def test_default_model_and_onboarding_persist(tmp_path, monkeypatch):
@@ -66,9 +79,20 @@ def test_default_model_and_onboarding_persist(tmp_path, monkeypatch):
     client = TestClient(create_app(SessionManager(data_dir=data_dir)))
 
     # set a default model + mark onboarded
-    assert client.post("/v1/settings/default-model", json={"model": "gpt-4o"}).json()["model"] == "gpt-4o"
-    assert client.post("/v1/settings/onboarded", json={"value": True}).json()["onboarded"] is True
-    assert client.post("/v1/settings/default-model", json={"model": " "}).json()["ok"] is False
+    assert (
+        client.post("/v1/settings/default-model", json={"model": "gpt-4o"}).json()[
+            "model"
+        ]
+        == "gpt-4o"
+    )
+    assert (
+        client.post("/v1/settings/onboarded", json={"value": True}).json()["onboarded"]
+        is True
+    )
+    assert (
+        client.post("/v1/settings/default-model", json={"model": " "}).json()["ok"]
+        is False
+    )
 
     # a fresh manager over the same data dir restores both from prefs.json
     reborn = SessionManager(data_dir=data_dir)
@@ -94,7 +118,10 @@ def test_scratch_base_setting_persists_and_drives_provisioning(tmp_path, monkeyp
     resp = client.post("/v1/settings/scratch-base", json={"path": str(base)}).json()
     assert resp["ok"] is True and resp["scratch_base"] == str(base)
     assert base.is_dir()  # created on set
-    assert client.post("/v1/settings/scratch-base", json={"path": " "}).json()["ok"] is False
+    assert (
+        client.post("/v1/settings/scratch-base", json={"path": " "}).json()["ok"]
+        is False
+    )
 
     # persists across a restart and actually drives where scratch dirs are provisioned
     reborn = SessionManager(data_dir=data_dir)

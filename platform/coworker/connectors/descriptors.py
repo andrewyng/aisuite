@@ -36,7 +36,9 @@ class Field:
 @dataclass
 class ValidationResult:
     ok: bool
-    identity: Optional[str] = None  # e.g. "@mybot" — shown back to the user, never a secret
+    identity: Optional[str] = (
+        None  # e.g. "@mybot" — shown back to the user, never a secret
+    )
     error: Optional[str] = None
 
 
@@ -60,11 +62,15 @@ def _validate_telegram(creds: dict) -> ValidationResult:
 
     token = creds.get("bot_token", "")
     try:
-        data = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=15).json()
+        data = httpx.get(
+            f"https://api.telegram.org/bot{token}/getMe", timeout=15
+        ).json()
     except Exception as exc:
         return ValidationResult(False, error=str(exc))
     if data.get("ok"):
-        return ValidationResult(True, identity="@" + str(data["result"].get("username", "bot")))
+        return ValidationResult(
+            True, identity="@" + str(data["result"].get("username", "bot"))
+        )
     return ValidationResult(False, error=data.get("description") or "invalid bot token")
 
 
@@ -81,7 +87,9 @@ def _validate_slack(creds: dict) -> ValidationResult:
     except Exception as exc:
         return ValidationResult(False, error=str(exc))
     if data.get("ok"):
-        return ValidationResult(True, identity=f"{data.get('team', '?')} / {data.get('user', 'bot')}")
+        return ValidationResult(
+            True, identity=f"{data.get('team', '?')} / {data.get('user', 'bot')}"
+        )
     return ValidationResult(False, error=data.get("error") or "invalid bot token")
 
 
@@ -102,7 +110,13 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="bot_token",
         two_way=True,
         fields=[
-            Field("bot_token", "Bot token", secret=True, help="From @BotFather.", placeholder="123456:ABC-DEF…"),
+            Field(
+                "bot_token",
+                "Bot token",
+                secret=True,
+                help="From @BotFather.",
+                placeholder="123456:ABC-DEF…",
+            ),
             _ALLOWED_FIELD,
         ],
         instructions=[
@@ -121,8 +135,20 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="socket_app",
         two_way=True,
         fields=[
-            Field("bot_token", "Bot token", secret=True, help="Bot User OAuth Token.", placeholder="xoxb-…"),
-            Field("app_token", "App token", secret=True, help="App-level token for Socket Mode.", placeholder="xapp-…"),
+            Field(
+                "bot_token",
+                "Bot token",
+                secret=True,
+                help="Bot User OAuth Token.",
+                placeholder="xoxb-…",
+            ),
+            Field(
+                "app_token",
+                "App token",
+                secret=True,
+                help="App-level token for Socket Mode.",
+                placeholder="xapp-…",
+            ),
             _ALLOWED_FIELD,
         ],
         instructions=[
@@ -142,7 +168,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="oauth",
         two_way=False,
         fields=[
-            Field("access_token", "OAuth access token", secret=True, help="Google OAuth token with Gmail scopes."),
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Google OAuth token with Gmail scopes.",
+            ),
         ],
         instructions=[
             "Use a Google OAuth access token with Gmail readonly and send scopes.",
@@ -158,7 +189,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="oauth",
         two_way=False,
         fields=[
-            Field("access_token", "OAuth access token", secret=True, help="Google OAuth token with Calendar scopes."),
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Google OAuth token with Calendar scopes.",
+            ),
         ],
         instructions=[
             "Use a Google OAuth access token with Calendar read/write scopes.",
@@ -174,7 +210,9 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="none",
         two_way=False,
         fields=[],
-        instructions=["No setup required. Browser tools are available to Cowork sessions."],
+        instructions=[
+            "No setup required. Browser tools are available to Cowork sessions."
+        ],
         available=True,
     ),
     ConnectorDescriptor(
@@ -185,7 +223,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="token",
         two_way=False,
         fields=[
-            Field("token", "Personal access token", secret=True, help="Fine-grained or classic GitHub token."),
+            Field(
+                "token",
+                "Personal access token",
+                secret=True,
+                help="Fine-grained or classic GitHub token.",
+            ),
         ],
         instructions=[
             "Create a GitHub personal access token with access to the target repositories.",
@@ -201,7 +244,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="token",
         two_way=False,
         fields=[
-            Field("token", "Integration token", secret=True, help="Internal integration secret from Notion."),
+            Field(
+                "token",
+                "Integration token",
+                secret=True,
+                help="Internal integration secret from Notion.",
+            ),
         ],
         instructions=[
             "Create a Notion internal integration and copy its secret.",
@@ -217,7 +265,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="oauth",
         two_way=False,
         fields=[
-            Field("access_token", "OAuth access token", secret=True, help="Microsoft Graph access token."),
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Microsoft Graph access token.",
+            ),
         ],
         instructions=[
             "Use a Microsoft Graph OAuth access token with Mail and Calendar scopes.",
@@ -233,7 +286,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="api_token",
         two_way=False,
         fields=[
-            Field("base_url", "Atlassian site URL", secret=False, help="Example: https://example.atlassian.net"),
+            Field(
+                "base_url",
+                "Atlassian site URL",
+                secret=False,
+                help="Example: https://example.atlassian.net",
+            ),
             Field("email", "Account email", secret=False),
             Field("api_token", "API token", secret=True, help="Atlassian API token."),
         ],
@@ -251,7 +309,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="api_token",
         two_way=False,
         fields=[
-            Field("base_url", "Atlassian site URL", secret=False, help="Example: https://example.atlassian.net"),
+            Field(
+                "base_url",
+                "Atlassian site URL",
+                secret=False,
+                help="Example: https://example.atlassian.net",
+            ),
             Field("email", "Account email", secret=False),
             Field("api_token", "API token", secret=True, help="Atlassian API token."),
         ],
@@ -269,7 +332,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="api_token",
         two_way=False,
         fields=[
-            Field("subdomain", "Zendesk subdomain", secret=False, help="For example, 'acme' for acme.zendesk.com."),
+            Field(
+                "subdomain",
+                "Zendesk subdomain",
+                secret=False,
+                help="For example, 'acme' for acme.zendesk.com.",
+            ),
             Field("email", "Agent email", secret=False),
             Field("api_token", "API token", secret=True),
         ],

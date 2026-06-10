@@ -36,7 +36,9 @@ def _csv(value: Optional[str]) -> set[str]:
     return {p.strip() for p in (value or "").split(",") if p.strip()}
 
 
-def load_settings(secrets: Optional[SecretStore] = None) -> dict[str, ConnectorSettings]:
+def load_settings(
+    secrets: Optional[SecretStore] = None,
+) -> dict[str, ConnectorSettings]:
     """Per-platform settings from the SecretStore profile + env overrides.
 
     A platform is enabled when its token profile exists (and isn't explicitly disabled).

@@ -26,7 +26,9 @@ class FakeAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         self.connected = False
 
-    async def send(self, chat_id: str, text: str, *, thread_id: Optional[str] = None) -> SendResult:
+    async def send(
+        self, chat_id: str, text: str, *, thread_id: Optional[str] = None
+    ) -> SendResult:
         self.outbox.append({"chat_id": chat_id, "text": text, "thread_id": thread_id})
         return SendResult(True, message_id=str(len(self.outbox)))
 
@@ -50,4 +52,6 @@ class FakeAdapter(BasePlatformAdapter):
             chat_type=chat_type,
             thread_id=thread_id,
         )
-        await self.handle_message(MessageEvent(text=text, source=source, message_id=f"m{user_id}"))
+        await self.handle_message(
+            MessageEvent(text=text, source=source, message_id=f"m{user_id}")
+        )

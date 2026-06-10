@@ -27,7 +27,9 @@ def test_base_url_passed_to_sdk(monkeypatch):
             captured.update(kwargs)
 
     monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
-    OpenAIProvider(api_key="ollama", base_url="http://localhost:11434/v1")._ensure_client()
+    OpenAIProvider(
+        api_key="ollama", base_url="http://localhost:11434/v1"
+    )._ensure_client()
     assert captured == {"api_key": "ollama", "base_url": "http://localhost:11434/v1"}
 
 
@@ -46,7 +48,9 @@ def test_base_url_omitted_when_none(monkeypatch):
 # -- ollama URL normalization ---------------------------------------------------
 def test_normalize_ollama_url():
     assert _normalize_ollama_url(None) == "http://localhost:11434/v1"
-    assert _normalize_ollama_url("http://localhost:11434") == "http://localhost:11434/v1"
+    assert (
+        _normalize_ollama_url("http://localhost:11434") == "http://localhost:11434/v1"
+    )
     assert _normalize_ollama_url("http://h:1/v1/") == "http://h:1/v1"
     assert _normalize_ollama_url("  ") == "http://localhost:11434/v1"
 
@@ -59,7 +63,9 @@ def test_build_ollama_client_uses_base_url(monkeypatch):
             captured.update(kwargs)
 
     monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
-    client = build_provider_client("ollama", {"base_url": "http://box:11434"}, secrets=None)
+    client = build_provider_client(
+        "ollama", {"base_url": "http://box:11434"}, secrets=None
+    )
     client._ensure_client()  # type: ignore[attr-defined]
     assert captured["base_url"] == "http://box:11434/v1"
     assert captured["api_key"] == "ollama"  # placeholder, Ollama ignores it
@@ -102,7 +108,9 @@ def test_router_routes_and_strips_prefix(monkeypatch):
 
     turn = router.complete(model="ollama:llama3.3", messages=[])
     assert turn.text == "ollama"
-    assert state["latest"]["ollama"].models == ["llama3.3"]  # prefix stripped before delegating
+    assert state["latest"]["ollama"].models == [
+        "llama3.3"
+    ]  # prefix stripped before delegating
 
     router.complete(model="gpt-5.5", messages=[])  # bare → default openai
     assert state["latest"]["openai"].models == ["gpt-5.5"]
@@ -125,7 +133,9 @@ def test_router_caches_and_invalidates(monkeypatch):
 
 def test_router_bare_only_strips_known_provider():
     r = ProviderRouter(secrets=None)
-    assert r._bare("ollama:qwen2.5-coder:32b") == "qwen2.5-coder:32b"  # strip provider, keep tag
+    assert (
+        r._bare("ollama:qwen2.5-coder:32b") == "qwen2.5-coder:32b"
+    )  # strip provider, keep tag
     assert r._bare("gpt-5.5") == "gpt-5.5"
     # a colon that isn't a provider (version tag) must NOT be split — else OpenAI gets "32b"
     assert r._bare("qwen2.5-coder:32b") == "qwen2.5-coder:32b"
@@ -148,7 +158,9 @@ def test_capabilities_ollama():
 
 # -- tool-call salvage (Ollama emits tool calls as text) ------------------------
 def test_salvage_bare_json_object():
-    calls = _salvage_tool_calls_from_text('{"name": "get_weather", "arguments": {"city": "Paris"}}')
+    calls = _salvage_tool_calls_from_text(
+        '{"name": "get_weather", "arguments": {"city": "Paris"}}'
+    )
     assert len(calls) == 1
     assert calls[0].name == "get_weather"
     assert calls[0].arguments == {"city": "Paris"}
@@ -187,10 +199,23 @@ _TODO_TOOLS = [
         "type": "function",
         "function": {
             "name": "todo_write",
-            "parameters": {"type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]},
+            "parameters": {
+                "type": "object",
+                "properties": {"items": {"type": "array"}},
+                "required": ["items"],
+            },
         },
     },
-    {"type": "function", "function": {"name": "list_files", "parameters": {"type": "object", "properties": {"recursive": {"type": "boolean"}}}}},
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "parameters": {
+                "type": "object",
+                "properties": {"recursive": {"type": "boolean"}},
+            },
+        },
+    },
 ]
 
 
@@ -208,14 +233,18 @@ def test_salvage_toolname_bare_array_shorthand():
     calls = _salvage_tool_calls_from_text(text, _TODO_TOOLS)
     assert len(calls) == 1 and calls[0].name == "todo_write"
     # bare array mapped onto the tool's sole parameter
-    assert calls[0].arguments == {"items": [
-        {"content": "Understand requirements", "status": "in_progress"},
-        {"content": "Plan", "status": "pending"},
-    ]}
+    assert calls[0].arguments == {
+        "items": [
+            {"content": "Understand requirements", "status": "in_progress"},
+            {"content": "Plan", "status": "pending"},
+        ]
+    }
 
 
 def test_salvage_toolname_object_shorthand():
-    calls = _salvage_tool_calls_from_text('list_files {"recursive": false}', _TODO_TOOLS)
+    calls = _salvage_tool_calls_from_text(
+        'list_files {"recursive": false}', _TODO_TOOLS
+    )
     assert calls[0].name == "list_files" and calls[0].arguments == {"recursive": False}
 
 
@@ -235,8 +264,12 @@ def test_salvage_nested_braces_in_tag():
 class _FakeOAClient:
     def __init__(self, *, content=None, tool_calls=None):
         msg = SimpleNamespace(content=content, tool_calls=tool_calls)
-        resp = SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="stop")])
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **k: resp))
+        resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=msg, finish_reason="stop")]
+        )
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **k: resp)
+        )
 
 
 def test_complete_salvages_only_when_tools_requested():
@@ -307,7 +340,9 @@ def test_set_provider_auto_adds_recommended_when_pulled(tmp_path, monkeypatch):
 
     mgr = SessionManager(data_dir=tmp_path)
     monkeypatch.setattr(  # pretend the recommended model is pulled
-        mgr, "_suggested_models", lambda name: ["qwen3-coder:30b"] if name == "ollama" else []
+        mgr,
+        "_suggested_models",
+        lambda name: ["qwen3-coder:30b"] if name == "ollama" else [],
     )
     res = mgr.set_provider("ollama", {"base_url": "http://localhost:11434"})
     assert res["recommended_model"] == "qwen3-coder:30b"
@@ -345,7 +380,9 @@ def test_provider_builders(monkeypatch):
         build_provider_client("gemini", {}, None)._ensure_client()
 
     # OpenAI custom endpoint (Azure /openai/v1, OpenRouter, vLLM, …) passes through
-    o = build_provider_client("openai", {"base_url": "https://my.azure.example/openai/v1"}, None)
+    o = build_provider_client(
+        "openai", {"base_url": "https://my.azure.example/openai/v1"}, None
+    )
     assert o._base_url == "https://my.azure.example/openai/v1"
     assert build_provider_client("openai", {}, None)._base_url is None
 
@@ -391,7 +428,9 @@ def test_first_configured_provider_wins_default(tmp_path, monkeypatch):
     from coworker.server.manager import SessionManager
 
     mgr = SessionManager(data_dir=tmp_path)
-    assert mgr.model == "gpt-5.5"  # fresh install: built-in default, openai unconfigured
+    assert (
+        mgr.model == "gpt-5.5"
+    )  # fresh install: built-in default, openai unconfigured
 
     # the first provider that gets a key takes over the default
     mgr.set_provider("anthropic", {"api_key": "sk-ant-x"})
@@ -416,7 +455,11 @@ def test_surface_visibility(tmp_path, monkeypatch):
     assert mgr.get_settings()["surfaces"]["code"] is False  # untouched
 
     mgr.set_surfaces(code=True)
-    assert mgr.get_settings()["surfaces"] == {"cowork": True, "chat": True, "code": True}
+    assert mgr.get_settings()["surfaces"] == {
+        "cowork": True,
+        "chat": True,
+        "code": True,
+    }
 
     mgr.set_surfaces(chat=False)
     assert mgr.get_settings()["surfaces"]["chat"] is False

@@ -20,7 +20,11 @@ from aisuite_code_cli.rendering import (  # noqa: E402
     summarize_result_preview,
     summarize_tool_arguments,
 )
-from aisuite.framework.message import ChatCompletionMessageToolCall, Function, Message  # noqa: E402
+from aisuite.framework.message import (
+    ChatCompletionMessageToolCall,
+    Function,
+    Message,
+)  # noqa: E402
 from tests.agents.helpers import chat_response  # noqa: E402
 
 
@@ -118,11 +122,15 @@ def test_build_agent_includes_code_metadata(tmp_path):
     assert agent.metadata["app"] == "aisuite_code_cli"
     assert "code" in agent.tags
     assert any(getattr(tool, "__name__", "") == "write_file" for tool in agent.tools)
-    assert any(getattr(tool, "__name__", "") == "replace_in_file" for tool in agent.tools)
+    assert any(
+        getattr(tool, "__name__", "") == "replace_in_file" for tool in agent.tools
+    )
     assert any(getattr(tool, "__name__", "") == "git_status" for tool in agent.tools)
     assert any(getattr(tool, "__name__", "") == "git_diff" for tool in agent.tools)
     assert any(getattr(tool, "__name__", "") == "apply_patch" for tool in agent.tools)
-    assert any(getattr(tool, "__name__", "") == "review_changes" for tool in agent.tools)
+    assert any(
+        getattr(tool, "__name__", "") == "review_changes" for tool in agent.tools
+    )
     assert "replace_in_file for exact" in agent.instructions
     assert "apply_patch accepts only this Codex-style envelope" in agent.instructions
     assert "*** Begin Patch" in agent.instructions
@@ -140,7 +148,9 @@ def test_build_agent_can_disable_reviewer_subagent_tool(tmp_path):
         )
     )
 
-    assert all(getattr(tool, "__name__", "") != "review_changes" for tool in agent.tools)
+    assert all(
+        getattr(tool, "__name__", "") != "review_changes" for tool in agent.tools
+    )
 
 
 def test_build_agent_can_include_reviewer_subagent_tool(tmp_path):
@@ -163,7 +173,9 @@ def test_build_agent_can_include_reviewer_subagent_tool(tmp_path):
         )
     )
 
-    review_tool = next(tool for tool in agent.tools if tool.__name__ == "review_changes")
+    review_tool = next(
+        tool for tool in agent.tools if tool.__name__ == "review_changes"
+    )
 
     assert "call review_changes" in agent.instructions
     assert "Do not edit files" in reviewer.instructions
@@ -299,18 +311,27 @@ def test_approval_controller_can_allow_exact_shell_command_for_session():
 
 
 def test_rendering_summarizes_tool_activity():
-    assert summarize_tool_arguments(
-        "write_file",
-        {"path": "app.py", "content": "one\ntwo\n"},
-    ) == " · app.py · 8 chars, 2 lines"
-    assert summarize_tool_arguments(
-        "run_shell",
-        {"command": "python3 app.py"},
-    ) == " · python3 app.py"
-    assert summarize_result_preview(
-        "run_shell",
-        '{"exit_code": 0, "stdout": "ok\\n", "stderr": "", "timed_out": false}',
-    ) == " · exit 0 · stdout 3 chars, 1 lines"
+    assert (
+        summarize_tool_arguments(
+            "write_file",
+            {"path": "app.py", "content": "one\ntwo\n"},
+        )
+        == " · app.py · 8 chars, 2 lines"
+    )
+    assert (
+        summarize_tool_arguments(
+            "run_shell",
+            {"command": "python3 app.py"},
+        )
+        == " · python3 app.py"
+    )
+    assert (
+        summarize_result_preview(
+            "run_shell",
+            '{"exit_code": 0, "stdout": "ok\\n", "stderr": "", "timed_out": false}',
+        )
+        == " · exit 0 · stdout 3 chars, 1 lines"
+    )
 
 
 def test_approval_controller_summarizes_large_arguments():
@@ -440,7 +461,10 @@ def test_print_steps_renders_shell_result(tmp_path):
 
     rendered = output.getvalue()
     assert "Activity" in rendered
-    assert "tool request: run_shell · allowed · python3 -m pytest tests/toolkits" in rendered
+    assert (
+        "tool request: run_shell · allowed · python3 -m pytest tests/toolkits"
+        in rendered
+    )
     assert "tool result: run_shell · success · exit 0" in rendered
     assert "stdout 9 chars, 1 lines" in rendered
 

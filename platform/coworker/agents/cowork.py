@@ -34,9 +34,13 @@ def cowork_tool_factory(context: AgentContext) -> list:
     # Multi-root when the session carries a roots list (primary scratch + any added folders);
     # otherwise the single workspace, writable. Our `grep` (ripgrep, .gitignore-aware) replaces
     # the toolkit's slower search_files.
-    file_kwargs = {"roots": context.roots} if context.roots else {"root": ws, "allow_write": True}
+    file_kwargs = (
+        {"roots": context.roots} if context.roots else {"root": ws, "allow_write": True}
+    )
     files = [
-        t for t in ai.toolkits.files(**file_kwargs) if getattr(t, "__name__", "") != "search_files"
+        t
+        for t in ai.toolkits.files(**file_kwargs)
+        if getattr(t, "__name__", "") != "search_files"
     ]
     tools = [*files, *search_tools(ws)]
     if context.executor is not None:

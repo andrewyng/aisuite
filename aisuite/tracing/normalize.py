@@ -4,7 +4,6 @@ import copy
 import json
 from typing import Any
 
-
 DEFAULT_PREVIEW_CHARS = 200
 
 

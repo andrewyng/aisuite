@@ -24,7 +24,11 @@ def telegram_message_to_event(msg: Any) -> Optional[MessageEvent]:
         return None
     chat = msg.chat
     user = getattr(msg, "from_user", None)
-    chat_type = "dm" if str(getattr(chat, "type", "private")).lower().endswith("private") else "group"
+    chat_type = (
+        "dm"
+        if str(getattr(chat, "type", "private")).lower().endswith("private")
+        else "group"
+    )
     thread = getattr(msg, "message_thread_id", None)
     source = SessionSource(
         platform="telegram",
@@ -34,10 +38,14 @@ def telegram_message_to_event(msg: Any) -> Optional[MessageEvent]:
         chat_type=chat_type,
         thread_id=str(thread) if thread else None,
     )
-    return MessageEvent(text=text, source=source, message_id=str(getattr(msg, "message_id", "")))
+    return MessageEvent(
+        text=text, source=source, message_id=str(getattr(msg, "message_id", ""))
+    )
 
 
-def slack_event_to_event(event: dict, bot_user_id: Optional[str]) -> Optional[MessageEvent]:
+def slack_event_to_event(
+    event: dict, bot_user_id: Optional[str]
+) -> Optional[MessageEvent]:
     # Skip bot echoes / message edits / joins etc. (reply-loop guard).
     if event.get("bot_id") or event.get("subtype"):
         return None
@@ -70,7 +78,9 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             from telegram.ext import Application, MessageHandler, filters
         except ImportError:
-            logger.warning("python-telegram-bot not installed — `pip install coworker[messaging]`")
+            logger.warning(
+                "python-telegram-bot not installed — `pip install coworker[messaging]`"
+            )
             return False
 
         self._app = Application.builder().token(self.token).build()
@@ -80,7 +90,9 @@ class TelegramAdapter(BasePlatformAdapter):
             if event is not None:
                 await self.handle_message(event)
 
-        self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_update))
+        self._app.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, _on_update)
+        )
         await self._app.initialize()
         await self._app.start()
         await self._app.updater.start_polling(drop_pending_updates=True)
@@ -97,7 +109,9 @@ class TelegramAdapter(BasePlatformAdapter):
         finally:
             self._app = None
 
-    async def send(self, chat_id: str, text: str, *, thread_id: Optional[str] = None) -> SendResult:
+    async def send(
+        self, chat_id: str, text: str, *, thread_id: Optional[str] = None
+    ) -> SendResult:
         return _send_telegram(self.token, chat_id, text, thread_id)
 
 
@@ -115,10 +129,14 @@ class SlackAdapter(BasePlatformAdapter):
 
     async def connect(self) -> bool:
         try:
-            from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
+            from slack_bolt.adapter.socket_mode.async_handler import (
+                AsyncSocketModeHandler,
+            )
             from slack_bolt.async_app import AsyncApp
         except ImportError:
-            logger.warning("slack-bolt not installed — `pip install coworker[messaging]`")
+            logger.warning(
+                "slack-bolt not installed — `pip install coworker[messaging]`"
+            )
             return False
 
         self._app = AsyncApp(token=self.bot_token)
@@ -150,7 +168,9 @@ class SlackAdapter(BasePlatformAdapter):
             self._task.cancel()
             self._task = None
 
-    async def send(self, chat_id: str, text: str, *, thread_id: Optional[str] = None) -> SendResult:
+    async def send(
+        self, chat_id: str, text: str, *, thread_id: Optional[str] = None
+    ) -> SendResult:
         return _send_slack(self.bot_token, chat_id, text, thread_id)
 
 

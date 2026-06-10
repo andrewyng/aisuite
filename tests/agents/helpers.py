@@ -3,7 +3,9 @@ from types import SimpleNamespace
 from aisuite.framework.message import Message
 
 
-def chat_response(content="done", intermediate_messages=None, intermediate_responses=None):
+def chat_response(
+    content="done", intermediate_messages=None, intermediate_responses=None
+):
     message = Message(role="assistant", content=content)
     response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
     if intermediate_messages is not None:

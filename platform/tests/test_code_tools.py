@@ -54,7 +54,9 @@ def test_py_grep_fallback_skips_ignored_dirs(tmp_path):
 def test_git_log_lists_commits(tmp_path):
     ws = tmp_path / "repo"
     ws.mkdir()
-    run = lambda *a: subprocess.run(["git", "-C", str(ws), *a], capture_output=True, check=True)
+    run = lambda *a: subprocess.run(
+        ["git", "-C", str(ws), *a], capture_output=True, check=True
+    )
     run("init", "-q")
     run("config", "user.email", "t@t.io")
     run("config", "user.name", "T")
@@ -107,6 +109,9 @@ def test_cowork_has_grep_not_search_files(tmp_path):
     from coworker.agents.base import AgentContext
     from coworker.agents.cowork import cowork_tool_factory
 
-    names = {getattr(t, "__name__", "") for t in cowork_tool_factory(AgentContext(workspace=tmp_path))}
+    names = {
+        getattr(t, "__name__", "")
+        for t in cowork_tool_factory(AgentContext(workspace=tmp_path))
+    }
     assert "grep" in names and "search_files" not in names
     assert "git_log" not in names  # git history isn't useful for Cowork

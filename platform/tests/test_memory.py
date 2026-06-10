@@ -18,9 +18,13 @@ def _store(tmp_path):
 
 def test_memory_round_trip(tmp_path):
     store = _store(tmp_path)
-    item = store.add("prefers tabs over spaces", scope=Scope.WORKSPACE, workspace="/proj")
+    item = store.add(
+        "prefers tabs over spaces", scope=Scope.WORKSPACE, workspace="/proj"
+    )
     assert store.get(item.id).content == "prefers tabs over spaces"
-    assert [m.content for m in store.list(workspace="/proj")] == ["prefers tabs over spaces"]
+    assert [m.content for m in store.list(workspace="/proj")] == [
+        "prefers tabs over spaces"
+    ]
 
 
 def test_workspace_scope_isolation(tmp_path):
@@ -64,7 +68,8 @@ def test_remember_tool_persists(tmp_path):
     result = reg.execute("remember", {"content": "deploys on Fridays are banned"})
     assert result["saved"] is True
     assert any(
-        m.content == "deploys on Fridays are banned" for m in store.list(workspace="/proj")
+        m.content == "deploys on Fridays are banned"
+        for m in store.list(workspace="/proj")
     )
 
 
@@ -108,7 +113,9 @@ def test_build_code_engine_injects_memory(tmp_path):
 
     workspace = str(tmp_path.resolve())
     store = SQLiteMemoryStore(tmp_path / "mem.db")
-    store.add("always run black before committing", scope=Scope.WORKSPACE, workspace=workspace)
+    store.add(
+        "always run black before committing", scope=Scope.WORKSPACE, workspace=workspace
+    )
 
     engine = build_code_engine(
         workspace=tmp_path, provider=_StubProvider(), memory_store=store
@@ -123,8 +130,20 @@ def test_build_code_engine_injects_memory(tmp_path):
 
 def test_session_append_only_and_list(tmp_path):
     store = ConversationStore(tmp_path)
-    store.save(SessionRecord("s1", "/proj", "gpt-5.5", "interactive", [{"role": "user", "content": "a"}]))
-    store.save(SessionRecord("s1", "/proj", "gpt-5.5", "interactive", [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}]))
+    store.save(
+        SessionRecord(
+            "s1", "/proj", "gpt-5.5", "interactive", [{"role": "user", "content": "a"}]
+        )
+    )
+    store.save(
+        SessionRecord(
+            "s1",
+            "/proj",
+            "gpt-5.5",
+            "interactive",
+            [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}],
+        )
+    )
     loaded = store.load("s1")
     assert len(loaded.messages) == 2  # appended, not duplicated
     listed = store.list(workspace="/proj")

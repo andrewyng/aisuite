@@ -19,7 +19,9 @@ def _profile_connected(descriptor, profile: dict[str, Any]) -> bool:
         return False
     if descriptor.auth == "none":
         return True
-    required = [f.key for f in descriptor.fields if f.required and f.key != "allowed_users"]
+    required = [
+        f.key for f in descriptor.fields if f.required and f.key != "allowed_users"
+    ]
     return bool(profile) and all(bool(profile.get(k)) for k in required)
 
 
@@ -49,7 +51,9 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
     return out
 
 
-def update_connector_tools(secrets: SecretStore, name: str, enabled: dict[str, Any]) -> dict[str, Any]:
+def update_connector_tools(
+    secrets: SecretStore, name: str, enabled: dict[str, Any]
+) -> dict[str, Any]:
     if get_descriptor(name) is None:
         return {"ok": False, "error": "unknown connector"}
     return patch_tool_settings(secrets, name, enabled)
@@ -67,7 +71,9 @@ def connect_connector(
     if missing:
         return {"ok": False, "error": "missing: " + ", ".join(missing)}
 
-    allowed = sorted({u.strip() for u in raw.get("allowed_users", "").split(",") if u.strip()})
+    allowed = sorted(
+        {u.strip() for u in raw.get("allowed_users", "").split(",") if u.strip()}
+    )
     token_creds = {k: v for k, v in raw.items() if k != "allowed_users" and v}
 
     identity = None
@@ -77,7 +83,9 @@ def connect_connector(
             return {"ok": False, "error": result.error or "validation failed"}
         identity = result.identity
 
-    profile_type = "oauth" if d.auth == "oauth" else "none" if d.auth == "none" else "token"
+    profile_type = (
+        "oauth" if d.auth == "oauth" else "none" if d.auth == "none" else "token"
+    )
     profile: dict[str, Any] = {"type": profile_type, "enabled": True, **token_creds}
     if any(f.key == "allowed_users" for f in d.fields):
         profile["allowed_users"] = allowed

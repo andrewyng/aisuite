@@ -264,7 +264,11 @@ def test_create_demo_trace_includes_subagent_and_denied_event(tmp_path):
 
     runs = ai.tracing.read_trace_file(trace_file)
     assert any(run["agent_name"] == "reviewer" for run in runs)
-    parent = next(run for run in runs if run["agent_name"] == "aisuite_demo_dev" and run["display"]["child_count"])
+    parent = next(
+        run
+        for run in runs
+        if run["agent_name"] == "aisuite_demo_dev" and run["display"]["child_count"]
+    )
     reviewer = next(run for run in runs if run["agent_name"] == "reviewer")
     assert reviewer["parent_run_id"] == parent["trace_id"]
     assert any(

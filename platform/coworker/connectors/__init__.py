@@ -23,7 +23,12 @@ from .descriptors import ConnectorDescriptor, get_descriptor, list_descriptors
 from .fake import FakeAdapter
 from .gateway import Gateway
 from .senders import DEFAULT_SENDERS
-from .setup import connect_connector, connector_list, disconnect_connector, update_connector_tools
+from .setup import (
+    connect_connector,
+    connector_list,
+    disconnect_connector,
+    update_connector_tools,
+)
 from .superagent import SUPERAGENT_MESSAGING_NOTE, SuperAgent
 from .integration_tools import make_integration_tools
 from .tools import make_send_message_tool

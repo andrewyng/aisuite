@@ -134,12 +134,16 @@ def build_client() -> ai.Client:
                 [
                     tool_call(
                         "review_changes",
-                        json.dumps({"input": "Review the demo trace changes and risks."}),
+                        json.dumps(
+                            {"input": "Review the demo trace changes and risks."}
+                        ),
                         "call_demo_review",
                     )
                 ],
             ),
-            response("Reviewer found no material issues. Residual risk: this is scripted demo data."),
+            response(
+                "Reviewer found no material issues. Residual risk: this is scripted demo data."
+            ),
             response("Reviewer subagent completed and the demo trace is ready."),
         ]
     )

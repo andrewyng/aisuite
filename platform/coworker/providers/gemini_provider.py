@@ -18,7 +18,13 @@ import json
 import re
 from typing import Any, Optional
 
-from .base import AssistantTurn, ModelCapabilities, ProviderClient, StreamChunk, ToolCall
+from .base import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    StreamChunk,
+    ToolCall,
+)
 from .capabilities import capabilities_for
 
 # Gemini finishReason → the engine's OpenAI-shaped finish_reason vocabulary. STOP maps to
@@ -32,16 +38,40 @@ _FINISH_REASON_MAP = {
 }
 
 # GenerateContentConfig keys we pass through; everything else (frequency_penalty, …) is dropped.
-_SETTINGS_WHITELIST = {"temperature", "top_p", "top_k", "max_output_tokens", "stop_sequences"}
+_SETTINGS_WHITELIST = {
+    "temperature",
+    "top_p",
+    "top_k",
+    "max_output_tokens",
+    "stop_sequences",
+}
 
 # The OpenAPI-subset schema keys Gemini function declarations accept.
 _SCHEMA_KEYS = {
-    "type", "format", "description", "nullable", "enum", "items", "properties",
-    "required", "anyOf", "minimum", "maximum", "minItems", "maxItems", "minLength",
-    "maxLength", "pattern", "example", "default", "title",
+    "type",
+    "format",
+    "description",
+    "nullable",
+    "enum",
+    "items",
+    "properties",
+    "required",
+    "anyOf",
+    "minimum",
+    "maximum",
+    "minItems",
+    "maxItems",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "example",
+    "default",
+    "title",
 }
 
-_DATA_URL_RE = re.compile(r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL)
+_DATA_URL_RE = re.compile(
+    r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL
+)
 
 
 def resolve_api_key(secrets: Any = None) -> Optional[str]:
@@ -63,7 +93,9 @@ def _image_part(url: str) -> Optional[dict[str, Any]]:
     URLs (attachments.py). Plain http(s) URLs are not fetchable by the API → None."""
     match = _DATA_URL_RE.match(url or "")
     if match:
-        return {"inline_data": {"mime_type": match.group(1).lower(), "data": match.group(2)}}
+        return {
+            "inline_data": {"mime_type": match.group(1).lower(), "data": match.group(2)}
+        }
     return None
 
 
@@ -109,7 +141,9 @@ def _result_payload(content: Any) -> dict[str, Any]:
         return {"result": str(content or "")}
 
 
-def convert_messages(messages: list[dict[str, Any]]) -> tuple[Optional[str], list[dict[str, Any]]]:
+def convert_messages(
+    messages: list[dict[str, Any]],
+) -> tuple[Optional[str], list[dict[str, Any]]]:
     """OpenAI-shaped history → (`system_instruction`, Gemini `contents`).
 
     Function calls have no ids on the wire, so tool results are matched back to their function
@@ -133,7 +167,12 @@ def convert_messages(messages: list[dict[str, Any]]) -> tuple[Optional[str], lis
             # Defensive: a stray mid-thread system message rides as marked user text.
             text = message.get("content") or ""
             if text:
-                converted.append({"role": "user", "parts": [{"text": f"<system>\n{text}\n</system>"}]})
+                converted.append(
+                    {
+                        "role": "user",
+                        "parts": [{"text": f"<system>\n{text}\n</system>"}],
+                    }
+                )
         elif role == "user":
             parts = _user_parts(message.get("content"))
             if parts:
@@ -147,7 +186,14 @@ def convert_messages(messages: list[dict[str, Any]]) -> tuple[Optional[str], lis
                 function = call.get("function") or {}
                 name = function.get("name") or ""
                 call_names[call.get("id") or ""] = name
-                parts.append({"function_call": {"name": name, "args": _parse_args(function.get("arguments"))}})
+                parts.append(
+                    {
+                        "function_call": {
+                            "name": name,
+                            "args": _parse_args(function.get("arguments")),
+                        }
+                    }
+                )
             if parts:
                 converted.append({"role": "model", "parts": parts})
         elif role == "tool":
@@ -299,7 +345,9 @@ class GeminiProvider(ProviderClient):
         if "stop" in settings and "stop_sequences" not in settings:
             stop = settings["stop"]
             settings["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
-        config: dict[str, Any] = {k: v for k, v in settings.items() if k in _SETTINGS_WHITELIST}
+        config: dict[str, Any] = {
+            k: v for k, v in settings.items() if k in _SETTINGS_WHITELIST
+        }
         if system:
             config["system_instruction"] = system
         if tools:
@@ -316,11 +364,14 @@ class GeminiProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ) -> AssistantTurn:
-        kwargs = self._request_kwargs(model=model, messages=messages, tools=tools, settings=settings)
+        kwargs = self._request_kwargs(
+            model=model, messages=messages, tools=tools, settings=settings
+        )
         response = self._ensure_client().models.generate_content(**kwargs)
         texts, calls, finish = _parse_candidate(response)
         tool_calls = [
-            ToolCall(id=f"call_{i}", name=c.name, arguments=c.arguments) for i, c in enumerate(calls)
+            ToolCall(id=f"call_{i}", name=c.name, arguments=c.arguments)
+            for i, c in enumerate(calls)
         ]
         return AssistantTurn(
             text="".join(texts) or None,
@@ -340,7 +391,9 @@ class GeminiProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
-        kwargs = self._request_kwargs(model=model, messages=messages, tools=tools, settings=settings)
+        kwargs = self._request_kwargs(
+            model=model, messages=messages, tools=tools, settings=settings
+        )
         client = self._ensure_client()
 
         text_parts: list[str] = []
@@ -359,7 +412,8 @@ class GeminiProvider(ProviderClient):
                 finish = chunk_finish
 
         tool_calls = [
-            ToolCall(id=f"call_{i}", name=c.name, arguments=c.arguments) for i, c in enumerate(calls)
+            ToolCall(id=f"call_{i}", name=c.name, arguments=c.arguments)
+            for i, c in enumerate(calls)
         ]
         yield StreamChunk(
             turn=AssistantTurn(

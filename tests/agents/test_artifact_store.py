@@ -114,7 +114,10 @@ def test_runner_persists_artifactized_state_but_hydrates_before_model_call():
     stored = state_store.load_state("thread_1")
     assert stored.revision == 2
     assert stored.state.messages[1]["content"]["type"] == "artifact_ref"
-    assert hydrate_messages(stored.state.messages, artifact_store)[1]["content"] == large_assistant_message
+    assert (
+        hydrate_messages(stored.state.messages, artifact_store)[1]["content"]
+        == large_assistant_message
+    )
 
 
 def test_structured_message_fields_can_be_artifactized_and_hydrated():

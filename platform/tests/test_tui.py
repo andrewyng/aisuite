@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient, ToolCall
+from coworker.providers import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    ToolCall,
+)
 from coworker.tui.app import CoworkerApp
 
 
@@ -14,7 +19,8 @@ def _text_turn(text):
 
 def _tool_turn(name, args, call_id="call_1"):
     return AssistantTurn(
-        tool_calls=[ToolCall(id=call_id, name=name, arguments=args)], finish_reason="tool_calls"
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=args)],
+        finish_reason="tool_calls",
     )
 
 
@@ -39,7 +45,10 @@ async def _submit(pilot, text):
 
 @pytest.mark.asyncio
 async def test_tui_boots_and_renders_turn(tmp_path):
-    app = CoworkerApp(workspace=tmp_path, provider=_ScriptedProvider([_text_turn("hi, I am the agent")]))
+    app = CoworkerApp(
+        workspace=tmp_path,
+        provider=_ScriptedProvider([_text_turn("hi, I am the agent")]),
+    )
     async with app.run_test() as pilot:
         await _submit(pilot, "hello")
         assert any("hi, I am the agent" in line for line in app.rendered)
@@ -50,7 +59,10 @@ async def test_tui_approval_then_write(tmp_path):
     app = CoworkerApp(
         workspace=tmp_path,
         provider=_ScriptedProvider(
-            [_tool_turn("write_file", {"path": "made.py", "content": "print(1)\n"}), _text_turn("done, wrote made.py")]
+            [
+                _tool_turn("write_file", {"path": "made.py", "content": "print(1)\n"}),
+                _text_turn("done, wrote made.py"),
+            ]
         ),
     )
     async with app.run_test() as pilot:

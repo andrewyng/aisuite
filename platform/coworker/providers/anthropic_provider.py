@@ -18,7 +18,13 @@ import json
 import re
 from typing import Any, Optional
 
-from .base import AssistantTurn, ModelCapabilities, ProviderClient, StreamChunk, ToolCall
+from .base import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    StreamChunk,
+    ToolCall,
+)
 from .capabilities import capabilities_for
 
 # Required by the Messages API; a ceiling, not a spend target.
@@ -35,9 +41,18 @@ _STOP_REASON_MAP = {
 }
 
 # Settings the Messages API accepts; everything else (frequency_penalty, …) is dropped.
-_SETTINGS_WHITELIST = {"max_tokens", "temperature", "top_p", "top_k", "stop_sequences", "metadata"}
+_SETTINGS_WHITELIST = {
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k",
+    "stop_sequences",
+    "metadata",
+}
 
-_DATA_URL_RE = re.compile(r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL)
+_DATA_URL_RE = re.compile(
+    r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL
+)
 
 
 def resolve_api_key(secrets: Any = None) -> Optional[str]:
@@ -76,7 +91,11 @@ def _image_block(url: str) -> Optional[dict[str, Any]]:
     if match:
         return {
             "type": "image",
-            "source": {"type": "base64", "media_type": match.group(1).lower(), "data": match.group(2)},
+            "source": {
+                "type": "base64",
+                "media_type": match.group(1).lower(),
+                "data": match.group(2),
+            },
         }
     if (url or "").startswith(("http://", "https://")):
         return {"type": "image", "source": {"type": "url", "url": url}}
@@ -97,11 +116,17 @@ def _user_blocks(content: Any) -> list[dict[str, Any]]:
         elif kind == "image_url":
             url = (part.get("image_url") or {}).get("url") or ""
             block = _image_block(url)
-            blocks.append(block if block else {"type": "text", "text": "[unsupported image attachment]"})
+            blocks.append(
+                block
+                if block
+                else {"type": "text", "text": "[unsupported image attachment]"}
+            )
     return blocks
 
 
-def convert_messages(messages: list[dict[str, Any]]) -> tuple[Optional[str], list[dict[str, Any]]]:
+def convert_messages(
+    messages: list[dict[str, Any]],
+) -> tuple[Optional[str], list[dict[str, Any]]]:
     """OpenAI-shaped history → (`system`, Anthropic `messages`).
 
     Leading system messages become the `system` param. Consecutive same-role outputs are folded
@@ -124,7 +149,12 @@ def convert_messages(messages: list[dict[str, Any]]) -> tuple[Optional[str], lis
             text = message.get("content") or ""
             if text:
                 converted.append(
-                    {"role": "user", "content": [{"type": "text", "text": f"<system>\n{text}\n</system>"}]}
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": f"<system>\n{text}\n</system>"}
+                        ],
+                    }
                 )
         elif role == "user":
             blocks = _user_blocks(message.get("content"))
@@ -171,14 +201,17 @@ def convert_messages(messages: list[dict[str, Any]]) -> tuple[Optional[str], lis
     if not folded:
         raise ValueError("no convertible messages for the Anthropic Messages API")
     if folded[0]["role"] != "user":
-        folded.insert(0, {"role": "user", "content": [{"type": "text", "text": "(continued)"}]})
+        folded.insert(
+            0, {"role": "user", "content": [{"type": "text", "text": "(continued)"}]}
+        )
 
     return ("\n\n".join(system_parts) or None), folded
 
 
 def convert_tools(tools: Optional[list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """OpenAI function schemas → Anthropic tool definitions. Missing description is omitted;
-    missing/typeless parameters become an empty object schema (Anthropic requires one)."""
+    missing/typeless parameters become an empty object schema (Anthropic requires one).
+    """
     converted = []
     for tool in tools or []:
         function = tool.get("function") or {}
@@ -253,7 +286,9 @@ class AnthropicProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ) -> AssistantTurn:
-        kwargs = self._request_kwargs(model=model, messages=messages, tools=tools, settings=settings)
+        kwargs = self._request_kwargs(
+            model=model, messages=messages, tools=tools, settings=settings
+        )
         response = self._ensure_client().messages.create(**kwargs)
 
         text_parts: list[str] = []
@@ -289,7 +324,9 @@ class AnthropicProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
-        kwargs = self._request_kwargs(model=model, messages=messages, tools=tools, settings=settings)
+        kwargs = self._request_kwargs(
+            model=model, messages=messages, tools=tools, settings=settings
+        )
         kwargs["stream"] = True
         client = self._ensure_client()
 
@@ -328,7 +365,11 @@ class AnthropicProvider(ProviderClient):
         tool_calls = []
         for index in sorted(tool_accum):
             acc = tool_accum[index]
-            tool_calls.append(ToolCall(id=acc["id"], name=acc["name"], arguments=_parse_args(acc["json"])))
+            tool_calls.append(
+                ToolCall(
+                    id=acc["id"], name=acc["name"], arguments=_parse_args(acc["json"])
+                )
+            )
 
         yield StreamChunk(
             turn=AssistantTurn(

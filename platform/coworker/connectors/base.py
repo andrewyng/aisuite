@@ -30,7 +30,9 @@ def parse_target(target: str) -> tuple[str, str, Optional[str]]:
     """`'platform:chat_id[:thread]'` -> (platform, chat_id, thread_id)."""
     parts = (target or "").split(":")
     if len(parts) < 2 or not parts[0] or not parts[1]:
-        raise ValueError(f"invalid target {target!r} (expected 'platform:chat_id[:thread]')")
+        raise ValueError(
+            f"invalid target {target!r} (expected 'platform:chat_id[:thread]')"
+        )
     thread = ":".join(parts[2:]) if len(parts) > 2 else None
     return parts[0], parts[1], (thread or None)
 
@@ -51,7 +53,9 @@ class SessionSource:
 
     def label(self) -> str:
         who = self.user_name or self.user_id or "?"
-        where = {"dm": "DM", "group": "group", "channel": "channel"}.get(self.chat_type, self.chat_type)
+        where = {"dm": "DM", "group": "group", "channel": "channel"}.get(
+            self.chat_type, self.chat_type
+        )
         return f"{self.platform} {where} · {who}"
 
 
@@ -106,7 +110,9 @@ class BasePlatformAdapter(ABC):
         """Stop the listener and close connections."""
 
     @abstractmethod
-    async def send(self, chat_id: str, text: str, *, thread_id: Optional[str] = None) -> SendResult:
+    async def send(
+        self, chat_id: str, text: str, *, thread_id: Optional[str] = None
+    ) -> SendResult:
         """Send an outbound message."""
 
     async def handle_message(self, event: MessageEvent) -> None:

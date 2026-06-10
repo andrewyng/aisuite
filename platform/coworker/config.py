@@ -14,9 +14,25 @@ from typing import Any, Optional
 from .secrets import state_dir
 
 DEFAULT_ALLOWED_COMMANDS = [
-    "ls", "cat", "pwd", "echo", "head", "tail", "grep", "find", "wc",
-    "git status", "git diff", "git log", "git show",
-    "python3", "python", "pytest", "node", "npm", "npx",
+    "ls",
+    "cat",
+    "pwd",
+    "echo",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "wc",
+    "git status",
+    "git diff",
+    "git log",
+    "git show",
+    "python3",
+    "python",
+    "pytest",
+    "node",
+    "npm",
+    "npx",
 ]
 
 
@@ -25,7 +41,9 @@ class Config:
     model: str = "gpt-5.5"
     mode: str = "interactive"
     max_iterations: int = 150
-    allowed_commands: list[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED_COMMANDS))
+    allowed_commands: list[str] = field(
+        default_factory=lambda: list(DEFAULT_ALLOWED_COMMANDS)
+    )
     # In "custom" permission mode, these tools are auto-approved (e.g. file edits)
     # while everything else still asks.
     auto_allow: list[str] = field(default_factory=list)
@@ -38,8 +56,15 @@ class Config:
 
 
 _FIELDS = {
-    "model", "mode", "max_iterations", "allowed_commands", "auto_allow", "host", "port",
-    "superagent_workspace", "web_search_provider",
+    "model",
+    "mode",
+    "max_iterations",
+    "allowed_commands",
+    "auto_allow",
+    "host",
+    "port",
+    "superagent_workspace",
+    "web_search_provider",
 }
 
 

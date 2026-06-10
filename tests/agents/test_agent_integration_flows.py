@@ -61,7 +61,9 @@ def test_parent_agent_subagent_flow_is_reconstructable_from_jsonl_store(tmp_path
     assert child_run["final_output"] == "research notes"
     assert child_run["parent_run_id"] == parent.trace_id
     assert {run["group_id"] for run in runs} == {"workflow_1"}
-    assert [call.args[0] for call in provider.chat_completions_create.call_args_list] == [
+    assert [
+        call.args[0] for call in provider.chat_completions_create.call_args_list
+    ] == [
         "gpt-4o",
         "gpt-4o-mini",
         "gpt-4o",

@@ -9,7 +9,6 @@ from typing import Any, Callable, Literal, Optional, Protocol, TextIO
 
 from ..client import Client
 
-
 RunStatus = Literal["completed", "requires_input", "max_turns_exceeded", "failed"]
 ToolRiskLevel = Literal["low", "medium", "high"]
 RunStepType = Literal[
@@ -141,8 +140,7 @@ class ToolPolicyContext:
 
 
 class ToolPolicy(Protocol):
-    def evaluate(self, context: ToolPolicyContext) -> bool | ToolPolicyDecision:
-        ...
+    def evaluate(self, context: ToolPolicyContext) -> bool | ToolPolicyDecision: ...
 
 
 @dataclass

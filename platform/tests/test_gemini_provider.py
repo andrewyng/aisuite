@@ -15,7 +15,6 @@ from coworker.providers.gemini_provider import (
     convert_tools,
 )
 
-
 # -- fakes ------------------------------------------------------------------------
 
 
@@ -56,7 +55,9 @@ def _text_part(text):
 
 
 def _call_part(name, args):
-    return SimpleNamespace(text=None, function_call=SimpleNamespace(name=name, args=args))
+    return SimpleNamespace(
+        text=None, function_call=SimpleNamespace(name=name, args=args)
+    )
 
 
 # -- message conversion -------------------------------------------------------------
@@ -82,7 +83,11 @@ def test_convert_assistant_tool_turn_maps_role_model():
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [
-                    {"id": "call_0", "type": "function", "function": {"name": "f", "arguments": '{"x": 1}'}}
+                    {
+                        "id": "call_0",
+                        "type": "function",
+                        "function": {"name": "f", "arguments": '{"x": 1}'},
+                    }
                 ],
             },
         ]
@@ -101,8 +106,16 @@ def test_convert_tool_results_map_id_to_name_and_merge():
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [
-                    {"id": "call_0", "type": "function", "function": {"name": "a", "arguments": "{}"}},
-                    {"id": "call_1", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+                    {
+                        "id": "call_0",
+                        "type": "function",
+                        "function": {"name": "a", "arguments": "{}"},
+                    },
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "b", "arguments": "{}"},
+                    },
                 ],
             },
             {"role": "tool", "tool_call_id": "call_0", "content": '{"ok": true}'},
@@ -111,8 +124,14 @@ def test_convert_tool_results_map_id_to_name_and_merge():
     )
     assert [c["role"] for c in contents] == ["user", "model", "user"]
     responses = [p["function_response"] for p in contents[2]["parts"]]
-    assert responses[0] == {"name": "a", "response": {"ok": True}}  # JSON result passes through
-    assert responses[1] == {"name": "b", "response": {"result": "plain text"}}  # string wrapped
+    assert responses[0] == {
+        "name": "a",
+        "response": {"ok": True},
+    }  # JSON result passes through
+    assert responses[1] == {
+        "name": "b",
+        "response": {"result": "plain text"},
+    }  # string wrapped
 
 
 def test_convert_repeated_ids_resolve_to_latest_turn():
@@ -121,9 +140,21 @@ def test_convert_repeated_ids_resolve_to_latest_turn():
     _, contents = convert_messages(
         [
             {"role": "user", "content": "go"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "call_0", "function": {"name": "first", "arguments": "{}"}}]},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_0", "function": {"name": "first", "arguments": "{}"}}
+                ],
+            },
             {"role": "tool", "tool_call_id": "call_0", "content": "r1"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "call_0", "function": {"name": "second", "arguments": "{}"}}]},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_0", "function": {"name": "second", "arguments": "{}"}}
+                ],
+            },
             {"role": "tool", "tool_call_id": "call_0", "content": "r2"},
         ]
     )
@@ -140,7 +171,13 @@ def test_convert_steering_user_message_merges_after_tool_results():
     _, contents = convert_messages(
         [
             {"role": "user", "content": "go"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "function": {"name": "a", "arguments": "{}"}}]},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "c1", "function": {"name": "a", "arguments": "{}"}}
+                ],
+            },
             {"role": "tool", "tool_call_id": "c1", "content": "r1"},
             {"role": "user", "content": "actually, stop"},
         ]
@@ -157,7 +194,10 @@ def test_convert_image_data_url_to_inline_data():
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "what is this"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="},
+                    },
                 ],
             }
         ]
@@ -169,7 +209,14 @@ def test_convert_image_data_url_to_inline_data():
 
 def test_convert_non_data_image_url_becomes_placeholder():
     _, contents = convert_messages(
-        [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://x/y.png"}}]}]
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": "https://x/y.png"}}
+                ],
+            }
+        ]
     )
     assert contents[0]["parts"] == [{"text": "[unsupported image attachment]"}]
 
@@ -193,14 +240,19 @@ def test_convert_tools_wraps_function_declarations():
                 "function": {
                     "name": "full",
                     "description": "does things",
-                    "parameters": {"type": "object", "properties": {"x": {"type": "integer"}}},
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"x": {"type": "integer"}},
+                    },
                 },
             },
         ]
     )
     assert len(tools) == 1
     declarations = tools[0]["function_declarations"]
-    assert declarations[0] == {"name": "bare"}  # parameter-less: no `parameters` key at all
+    assert declarations[0] == {
+        "name": "bare"
+    }  # parameter-less: no `parameters` key at all
     assert declarations[1]["description"] == "does things"
     assert declarations[1]["parameters"]["properties"] == {"x": {"type": "integer"}}
     assert convert_tools(None) == []
@@ -214,7 +266,11 @@ def test_sanitize_schema_strips_unsupported_keys():
         "properties": {
             "items": {
                 "type": "array",
-                "items": {"type": "object", "additionalProperties": True, "properties": {"x": {"type": "string", "examples": ["a"]}}},
+                "items": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "properties": {"x": {"type": "string", "examples": ["a"]}},
+                },
             }
         },
         "required": ["items"],
@@ -235,9 +291,16 @@ def test_complete_text_turn():
     provider = GeminiProvider(client=fake)
     turn = provider.complete(
         model="gemini-2.5-flash",
-        messages=[{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}],
+        messages=[
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hi"},
+        ],
     )
-    assert turn.text == "hello" and turn.finish_reason == "stop" and not turn.has_tool_calls
+    assert (
+        turn.text == "hello"
+        and turn.finish_reason == "stop"
+        and not turn.has_tool_calls
+    )
     assert fake.kwargs["model"] == "gemini-2.5-flash"
     assert fake.kwargs["config"]["system_instruction"] == "sys"
     assert "tools" not in fake.kwargs["config"]
@@ -246,23 +309,37 @@ def test_complete_text_turn():
 def test_complete_parses_function_calls_with_synthesized_ids():
     fake = _FakeClient(
         response=_response(
-            [_text_part("on it"), _call_part("write_file", {"path": "a.txt"}), _call_part("read_file", {"path": "b"})]
+            [
+                _text_part("on it"),
+                _call_part("write_file", {"path": "a.txt"}),
+                _call_part("read_file", {"path": "b"}),
+            ]
         )
     )
     provider = GeminiProvider(client=fake)
     turn = provider.complete(model="m", messages=[{"role": "user", "content": "go"}])
     assert turn.text == "on it"
     assert turn.finish_reason == "tool_calls"  # STOP + function calls → tool_calls
-    assert [(c.id, c.name) for c in turn.tool_calls] == [("call_0", "write_file"), ("call_1", "read_file")]
+    assert [(c.id, c.name) for c in turn.tool_calls] == [
+        ("call_0", "write_file"),
+        ("call_1", "read_file"),
+    ]
     assert turn.tool_calls[0].arguments == {"path": "a.txt"}
 
 
 @pytest.mark.parametrize(
     "finish,expected",
-    [("STOP", "stop"), ("MAX_TOKENS", "length"), ("SAFETY", "stop"), ("WEIRD_NEW", "weird_new")],
+    [
+        ("STOP", "stop"),
+        ("MAX_TOKENS", "length"),
+        ("SAFETY", "stop"),
+        ("WEIRD_NEW", "weird_new"),
+    ],
 )
 def test_complete_maps_finish_reasons(finish, expected):
-    provider = GeminiProvider(client=_FakeClient(response=_response([_text_part("x")], finish_reason=finish)))
+    provider = GeminiProvider(
+        client=_FakeClient(response=_response([_text_part("x")], finish_reason=finish))
+    )
     turn = provider.complete(model="m", messages=[{"role": "user", "content": "x"}])
     assert turn.finish_reason == expected
 
@@ -282,7 +359,11 @@ def test_complete_filters_and_aliases_settings():
     assert config["temperature"] == 0.2
     assert config["max_output_tokens"] == 512
     assert config["stop_sequences"] == ["END"]
-    assert "frequency_penalty" not in config and "stop" not in config and "max_tokens" not in config
+    assert (
+        "frequency_penalty" not in config
+        and "stop" not in config
+        and "max_tokens" not in config
+    )
 
 
 def test_complete_passes_converted_tools_in_config():
@@ -291,7 +372,18 @@ def test_complete_passes_converted_tools_in_config():
     provider.complete(
         model="m",
         messages=[{"role": "user", "content": "x"}],
-        tools=[{"type": "function", "function": {"name": "f", "parameters": {"type": "object", "properties": {"a": {"type": "string"}}}}}],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "f",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"a": {"type": "string"}},
+                    },
+                },
+            }
+        ],
     )
     declarations = fake.kwargs["config"]["tools"][0]["function_declarations"]
     assert declarations[0]["name"] == "f"
@@ -316,7 +408,11 @@ def test_stream_yields_text_deltas_then_final_turn():
     out = list(provider.stream(model="m", messages=[{"role": "user", "content": "x"}]))
     assert [c.text_delta for c in out[:-1]] == ["hel", "lo"]
     final = out[-1].turn
-    assert final.text == "hello" and final.finish_reason == "stop" and not final.has_tool_calls
+    assert (
+        final.text == "hello"
+        and final.finish_reason == "stop"
+        and not final.has_tool_calls
+    )
 
 
 def test_stream_collects_function_calls_across_chunks():
@@ -329,15 +425,22 @@ def test_stream_collects_function_calls_across_chunks():
     out = list(provider.stream(model="m", messages=[{"role": "user", "content": "x"}]))
     final = out[-1].turn
     assert final.finish_reason == "tool_calls"
-    assert [(c.id, c.name) for c in final.tool_calls] == [("call_0", "f"), ("call_1", "g")]
+    assert [(c.id, c.name) for c in final.tool_calls] == [
+        ("call_0", "f"),
+        ("call_1", "g"),
+    ]
     assert final.tool_calls[0].arguments == {"x": 1}
 
 
 def test_stream_handles_enum_like_finish_reason():
     # the SDK's finish_reason is an enum with a .name; fakes may pass a plain string
-    chunks = [_response([_text_part("x")], finish_reason=SimpleNamespace(name="MAX_TOKENS"))]
+    chunks = [
+        _response([_text_part("x")], finish_reason=SimpleNamespace(name="MAX_TOKENS"))
+    ]
     provider = GeminiProvider(client=_FakeClient(chunks=chunks))
-    final = list(provider.stream(model="m", messages=[{"role": "user", "content": "x"}]))[-1].turn
+    final = list(
+        provider.stream(model="m", messages=[{"role": "user", "content": "x"}])
+    )[-1].turn
     assert final.finish_reason == "length"
 
 

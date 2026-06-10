@@ -56,8 +56,12 @@ class ProviderDescriptor:
     needs_key: bool
     fields: list[ProviderField]
     build: Callable[[dict[str, Any], Any], ProviderClient] = field(repr=False)
-    recommended_model: Optional[str] = None  # pre-filled in the UI; auto-added on configure
-    env_key: Optional[str] = None  # env var that can supply the API key (e.g. ANTHROPIC_API_KEY)
+    recommended_model: Optional[str] = (
+        None  # pre-filled in the UI; auto-added on configure
+    )
+    env_key: Optional[str] = (
+        None  # env var that can supply the API key (e.g. ANTHROPIC_API_KEY)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -207,7 +211,9 @@ def get_descriptor(name: str) -> Optional[ProviderDescriptor]:
     return _BY_NAME.get(name)
 
 
-def build_provider_client(name: str, profile: dict[str, Any], secrets: Any) -> ProviderClient:
+def build_provider_client(
+    name: str, profile: dict[str, Any], secrets: Any
+) -> ProviderClient:
     """Build a `ProviderClient` for `name` from its stored profile. Unknown → OpenAI default."""
     descriptor = _BY_NAME.get(name) or _BY_NAME["openai"]
     return descriptor.build(profile or {}, secrets)

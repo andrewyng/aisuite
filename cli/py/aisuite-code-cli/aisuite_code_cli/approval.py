@@ -158,7 +158,11 @@ def _summarize_argument(value: Any, max_chars: int = 700) -> str:
         preview = value.get("preview")
         pieces = [
             f"artifact {ref.get('artifact_id')}",
-            f"{ref.get('size_bytes')} bytes" if ref.get("size_bytes") is not None else None,
+            (
+                f"{ref.get('size_bytes')} bytes"
+                if ref.get("size_bytes") is not None
+                else None
+            ),
         ]
         if preview:
             pieces.append(f"preview={_single_line(str(preview), 180)}")

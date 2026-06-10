@@ -10,7 +10,13 @@ import json
 import re
 from typing import Any, Optional
 
-from .base import AssistantTurn, ModelCapabilities, ProviderClient, StreamChunk, ToolCall
+from .base import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    StreamChunk,
+    ToolCall,
+)
 from .capabilities import capabilities_for
 
 
@@ -109,7 +115,12 @@ class OpenAIProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
-        kwargs: dict[str, Any] = {"model": model, "messages": messages, "stream": True, **settings}
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            **settings,
+        }
         if tools:
             kwargs["tools"] = tools
         client = self._ensure_client()
@@ -151,7 +162,9 @@ class OpenAIProvider(ProviderClient):
                 arguments = json.loads(acc["args"]) if acc["args"] else {}
             except (TypeError, json.JSONDecodeError):
                 arguments = {"_raw": acc["args"]}
-            tool_calls.append(ToolCall(id=acc["id"], name=acc["name"], arguments=arguments))
+            tool_calls.append(
+                ToolCall(id=acc["id"], name=acc["name"], arguments=arguments)
+            )
 
         text, tool_calls = _maybe_salvage_tool_calls(
             "".join(text_parts) or None, tool_calls, tools=tools
@@ -197,16 +210,19 @@ _TOOLCALL_OPEN = re.compile(r"<tool_call>\s*", re.IGNORECASE)
 # function/parameter tags directly. Values are taken verbatim (stripped); only no-whitespace JSON
 # tokens (numbers, bools, objects/arrays) are coerced, so free-text content stays a string.
 _FUNCTION_BLOCK = re.compile(
-    r"<function\s*=\s*(?P<name>[^>\s]+)\s*>(?P<body>.*?)</function\s*>", re.IGNORECASE | re.DOTALL
+    r"<function\s*=\s*(?P<name>[^>\s]+)\s*>(?P<body>.*?)</function\s*>",
+    re.IGNORECASE | re.DOTALL,
 )
 _PARAM_BLOCK = re.compile(
-    r"<parameter\s*=\s*(?P<key>[^>\s]+)\s*>(?P<val>.*?)</parameter\s*>", re.IGNORECASE | re.DOTALL
+    r"<parameter\s*=\s*(?P<key>[^>\s]+)\s*>(?P<val>.*?)</parameter\s*>",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
 def _coerce_param(raw: str) -> Any:
     """Keep free-text verbatim (the common case: file content), but recover real JSON values when
-    the whole token is unambiguous JSON (no embedded whitespace) — e.g. `3`, `true`, `{"a":1}`."""
+    the whole token is unambiguous JSON (no embedded whitespace) — e.g. `3`, `true`, `{"a":1}`.
+    """
     s = raw.strip()
     if s and not any(c.isspace() for c in s):
         v = _loads(s)
@@ -216,7 +232,10 @@ def _coerce_param(raw: str) -> Any:
 
 
 def _maybe_salvage_tool_calls(
-    text: Optional[str], tool_calls: list[ToolCall], *, tools: Optional[list[dict[str, Any]]]
+    text: Optional[str],
+    tool_calls: list[ToolCall],
+    *,
+    tools: Optional[list[dict[str, Any]]],
 ) -> tuple[Optional[str], list[ToolCall]]:
     """If the model returned tool calls as text, convert them. Returns (text, tool_calls):
     on success the salvaged calls replace `tool_calls` and `text` is cleared."""
@@ -232,7 +251,8 @@ def _tool_index(
     tools: Optional[list[dict[str, Any]]],
 ) -> tuple[Optional[set[str]], dict[str, Optional[str]]]:
     """(known tool names, {name: sole-parameter-name}) from OpenAI tool schemas. The sole-param
-    map lets us map a bare `toolname [args]` to `{param: args}` when a tool has one parameter."""
+    map lets us map a bare `toolname [args]` to `{param: args}` when a tool has one parameter.
+    """
     if not tools:
         return None, {}
     names: set[str] = set()
@@ -362,7 +382,10 @@ def _salvage_tool_calls_from_text(
         name = fm.group("name").strip()
         if names is not None and name not in names:
             continue
-        args = {pm.group("key").strip(): _coerce_param(pm.group("val")) for pm in _PARAM_BLOCK.finditer(fm.group("body"))}
+        args = {
+            pm.group("key").strip(): _coerce_param(pm.group("val"))
+            for pm in _PARAM_BLOCK.finditer(fm.group("body"))
+        }
         calls.append(ToolCall(id="", name=name, arguments=args))
     if calls:
         return _renumber(calls)

@@ -12,7 +12,12 @@ from typing import Any, Optional
 from .agents import Agent, AgentContext, code_agent
 from .automation import scheduling_tools
 from .config import load_config
-from .connectors import connector_list, load_settings, make_integration_tools, make_send_message_tool
+from .connectors import (
+    connector_list,
+    load_settings,
+    make_integration_tools,
+    make_send_message_tool,
+)
 from .engine import Approver, TurnEngine
 from .memory import MemoryStore, Scope, format_memories, memory_tools
 from .permissions import Mode, PermissionEngine
@@ -30,7 +35,11 @@ from .tools.todo import TodoList
 
 def _enabled_connector_tools(secrets: SecretStore) -> tuple[set[str], set[str]]:
     connectors = {c["name"]: c for c in connector_list(secrets)}
-    enabled_connectors = {name for name, c in connectors.items() if c.get("connected") and c.get("enabled")}
+    enabled_connectors = {
+        name
+        for name, c in connectors.items()
+        if c.get("connected") and c.get("enabled")
+    }
     enabled_tools = {
         tool["name"]
         for c in connectors.values()
@@ -84,7 +93,9 @@ def build_engine(
         root_list = []
 
     config = load_config(ws)
-    executor = LocalExecutor(cwd=ws) if (agent.needs_workspace and ws is not None) else None
+    executor = (
+        LocalExecutor(cwd=ws) if (agent.needs_workspace and ws is not None) else None
+    )
     todo = TodoList()
     context = AgentContext(
         workspace=ws, executor=executor, todo=todo, roots=root_list or None
@@ -98,7 +109,9 @@ def build_engine(
     # Connectors are Cowork-facing tools. MyHelper keeps the messaging reply path used by
     # inbound Telegram/Slack super-agent sessions.
     secrets = secrets or SecretStore()
-    if agent.name in ("cowork", "myhelper") and any(s.enabled for s in load_settings(secrets).values()):
+    if agent.name in ("cowork", "myhelper") and any(
+        s.enabled for s in load_settings(secrets).values()
+    ):
         registry.register(make_send_message_tool(secrets))
     # Orphan surfaces can ask the user mid-task for access to another folder (read-only/-write).
     if agent.name in ("cowork", "myhelper") and root_list:
@@ -106,15 +119,30 @@ def build_engine(
     if agent.name == "cowork":
         enabled_connectors, enabled_tools = _enabled_connector_tools(secrets)
         registry.register_all(
-            make_integration_tools(secrets, enabled_connectors=enabled_connectors, enabled_tools=enabled_tools)
+            make_integration_tools(
+                secrets,
+                enabled_connectors=enabled_connectors,
+                enabled_tools=enabled_tools,
+            )
         )
     # Web search + fetch: research tools for every agent (keyless DuckDuckGo default).
     registry.register(make_web_search_tool(secrets))
     registry.register(make_web_fetch_tool())
     # Scheduling: Cowork + MyHelper can set up scheduled tasks (origin = this session).
-    if task_store is not None and ws is not None and agent.name in ("cowork", "myhelper"):
-        origin = {"surface": agent.name, "session_id": session_id or "", "workspace": str(ws), "agent": agent.name}
-        registry.register_all(scheduling_tools(task_store, origin=origin, default_workspace=str(ws)))
+    if (
+        task_store is not None
+        and ws is not None
+        and agent.name in ("cowork", "myhelper")
+    ):
+        origin = {
+            "surface": agent.name,
+            "session_id": session_id or "",
+            "workspace": str(ws),
+            "agent": agent.name,
+        }
+        registry.register_all(
+            scheduling_tools(task_store, origin=origin, default_workspace=str(ws))
+        )
 
     instructions = agent.system_prompt
     if ws is not None:
@@ -123,7 +151,9 @@ def build_engine(
             instructions = f"{instructions}\n\n{conventions}"
 
     if memory_store is not None:
-        registry.register_all(memory_tools(memory_store, workspace=str(ws) if ws else None))
+        registry.register_all(
+            memory_tools(memory_store, workspace=str(ws) if ws else None)
+        )
         remembered = memory_store.list(scope=Scope.GLOBAL)
         if ws is not None:
             remembered += memory_store.list(scope=Scope.WORKSPACE, workspace=str(ws))
@@ -163,7 +193,9 @@ def build_engine(
         model=model,
         instructions=instructions,
         approver=approver,
-        max_iterations=max_iterations if max_iterations is not None else config.max_iterations,
+        max_iterations=(
+            max_iterations if max_iterations is not None else config.max_iterations
+        ),
         model_settings=model_settings,
         messages=messages,
         audit_sink=audit_sink,

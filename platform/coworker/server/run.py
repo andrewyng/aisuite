@@ -95,7 +95,9 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="coworker-server")
     parser.add_argument("--cwd", default=None, help="optional seed/default workspace")
     parser.add_argument("--model", default=cfg.model)
-    parser.add_argument("--mode", default=cfg.mode, choices=["plan", "interactive", "auto"])
+    parser.add_argument(
+        "--mode", default=cfg.mode, choices=["plan", "interactive", "auto"]
+    )
     parser.add_argument("--host", default=cfg.host)
     parser.add_argument("--port", type=int, default=cfg.port)
     args = parser.parse_args(argv)

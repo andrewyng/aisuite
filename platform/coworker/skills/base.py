@@ -47,7 +47,10 @@ class SkillLoader:
         return self._skills.get(name)
 
     def catalog(self) -> list[dict]:
-        return [{"name": s.name, "description": s.description} for s in self._skills.values()]
+        return [
+            {"name": s.name, "description": s.description}
+            for s in self._skills.values()
+        ]
 
 
 def _parse_skill(md: Path) -> Skill:
@@ -69,7 +72,13 @@ def _parse_skill(md: Path) -> Skill:
                     description = value
                 elif key in ("allowed-tools", "allowed_tools"):
                     allowed = [t.strip() for t in value.split(",") if t.strip()]
-    return Skill(name=name, description=description, instructions=body.strip(), path=str(md.parent), allowed_tools=allowed)
+    return Skill(
+        name=name,
+        description=description,
+        instructions=body.strip(),
+        path=str(md.parent),
+        allowed_tools=allowed,
+    )
 
 
 def skill_catalog_text(loader: SkillLoader) -> str:
@@ -99,6 +108,8 @@ def skill_tools(loader: SkillLoader) -> list:
     return [
         ai.tool(
             load_skill,
-            metadata=ai.ToolMetadata(category="skills", risk_level="low", capabilities=["load_skill"]),
+            metadata=ai.ToolMetadata(
+                category="skills", risk_level="low", capabilities=["load_skill"]
+            ),
         )
     ]

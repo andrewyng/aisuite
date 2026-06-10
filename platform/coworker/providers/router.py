@@ -21,7 +21,9 @@ from .registry import build_provider_client, get_descriptor
 
 
 class ProviderRouter(ProviderClient):
-    def __init__(self, secrets: Any = None, *, default_provider: str = "openai") -> None:
+    def __init__(
+        self, secrets: Any = None, *, default_provider: str = "openai"
+    ) -> None:
         self._secrets = secrets
         self._default = default_provider
         self._clients: dict[str, ProviderClient] = {}
@@ -30,7 +32,8 @@ class ProviderRouter(ProviderClient):
     # -- routing ----------------------------------------------------------------
     def _provider_name(self, model: str) -> str:
         """The provider for a model: the `prefix` of `prefix:rest` if it's a known provider,
-        else the default. (A colon that isn't a known provider — unlikely — falls through.)"""
+        else the default. (A colon that isn't a known provider — unlikely — falls through.)
+        """
         if ":" in model:
             prefix = model.split(":", 1)[0]
             if get_descriptor(prefix) is not None:
@@ -53,7 +56,8 @@ class ProviderRouter(ProviderClient):
     def _bare(model: str) -> str:
         """Strip a KNOWN provider prefix; the underlying SDK wants the bare model name. A model
         whose first segment isn't a provider (e.g. `qwen2.5-coder:32b` — a version tag, not a
-        prefix) is returned unchanged, so the colon isn't mistaken for a provider separator."""
+        prefix) is returned unchanged, so the colon isn't mistaken for a provider separator.
+        """
         if ":" in model:
             prefix, rest = model.split(":", 1)
             if get_descriptor(prefix) is not None:

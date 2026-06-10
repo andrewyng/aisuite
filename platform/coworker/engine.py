@@ -59,7 +59,9 @@ class TurnEngine:
         messages: Optional[list[dict[str, Any]]] = None,
         audit_sink: Optional[Callable[[dict[str, Any]], None]] = None,
         context_provider: Optional[Callable[[], str]] = None,
-        directory_requester: Optional[Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]] = None,
+        directory_requester: Optional[
+            Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
+        ] = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -115,7 +117,9 @@ class TurnEngine:
             try:
                 async for chunk in self._astream():
                     if chunk.text_delta:
-                        yield Event(EventType.ASSISTANT_DELTA, {"text": chunk.text_delta})
+                        yield Event(
+                            EventType.ASSISTANT_DELTA, {"text": chunk.text_delta}
+                        )
                     if chunk.turn is not None:
                         turn = chunk.turn
             except Exception as exc:  # provider failure
@@ -138,7 +142,8 @@ class TurnEngine:
                     self._inject_steering()
                     continue
                 yield Event(
-                    EventType.TURN_END, {"status": "completed", "iterations": iterations}
+                    EventType.TURN_END,
+                    {"status": "completed", "iterations": iterations},
                 )
                 return
 
@@ -161,7 +166,11 @@ class TurnEngine:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         tools = self.registry.schemas() or None
-        model, messages, settings = self.model, self._outbound_messages(), self.model_settings
+        model, messages, settings = (
+            self.model,
+            self._outbound_messages(),
+            self.model_settings,
+        )
         provider = self.provider
 
         def produce():
@@ -229,7 +238,13 @@ class TurnEngine:
             )
             if outcome is ApprovalOutcome.DENY:
                 allowed, reason = False, "denied by user"
-                self._audit(tool_call, stage="approval_resolved", status="denied", approval=outcome.value, reason=reason)
+                self._audit(
+                    tool_call,
+                    stage="approval_resolved",
+                    status="denied",
+                    approval=outcome.value,
+                    reason=reason,
+                )
             else:
                 if outcome is ApprovalOutcome.ALWAYS_TOOL:
                     self.permissions.allow_tool_for_session(tool_call.name)
@@ -238,7 +253,13 @@ class TurnEngine:
                         str(tool_call.arguments.get("command", ""))
                     )
                 allowed, reason = True, "approved by user"
-                self._audit(tool_call, stage="approval_resolved", status="approved", approval=outcome.value, reason=reason)
+                self._audit(
+                    tool_call,
+                    stage="approval_resolved",
+                    status="approved",
+                    approval=outcome.value,
+                    reason=reason,
+                )
 
         if not allowed:
             if spec is None:
@@ -273,7 +294,13 @@ class TurnEngine:
             status = "error"
 
         self.messages.append(_tool_result_message(tool_call, result))
-        self._audit(tool_call, stage="finished", status=status, result=result, result_preview=_preview(result))
+        self._audit(
+            tool_call,
+            stage="finished",
+            status=status,
+            result=result,
+            result_preview=_preview(result),
+        )
         yield Event(
             EventType.TOOL_FINISHED,
             {
@@ -297,12 +324,17 @@ class TurnEngine:
         except Exception:
             pass
 
-    async def _handle_directory_request(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+    async def _handle_directory_request(
+        self, tool_call: ToolCall
+    ) -> AsyncIterator[Event]:
         """Emit the grant prompt, await the user's out-of-band decision (which the requester also
         applies to this session's roots), and return the outcome as the tool result."""
         args = tool_call.arguments or {}
         if self.directory_requester is None:
-            result: dict[str, Any] = {"granted": False, "error": "directory requests aren't available here"}
+            result: dict[str, Any] = {
+                "granted": False,
+                "error": "directory requests aren't available here",
+            }
         else:
             yield Event(
                 EventType.DIRECTORY_REQUESTED,
@@ -312,15 +344,32 @@ class TurnEngine:
                     "writable": bool(args.get("writable", False)),
                 },
             )
-            self._audit(tool_call, stage="directory_requested", reason=str(args.get("reason", "")))
-            result = await self.directory_requester(dict(args)) or {"granted": False, "error": "no response"}
+            self._audit(
+                tool_call,
+                stage="directory_requested",
+                reason=str(args.get("reason", "")),
+            )
+            result = await self.directory_requester(dict(args)) or {
+                "granted": False,
+                "error": "no response",
+            }
 
         status = "ok" if result.get("granted") else "denied"
         self.messages.append(_tool_result_message(tool_call, result))
-        self._audit(tool_call, stage="finished", status=status, result=result, result_preview=_preview(result))
+        self._audit(
+            tool_call,
+            stage="finished",
+            status=status,
+            result=result,
+            result_preview=_preview(result),
+        )
         yield Event(
             EventType.TOOL_FINISHED,
-            {"name": tool_call.name, "status": status, "result_preview": _preview(result)},
+            {
+                "name": tool_call.name,
+                "status": status,
+                "result_preview": _preview(result),
+            },
         )
 
     def _inject_steering(self) -> None:
@@ -331,7 +380,8 @@ class TurnEngine:
     def _outbound_messages(self) -> list[dict[str, Any]]:
         """`self.messages` with an ephemeral `<system-context>` block appended to the last user
         message. Returns the list unchanged when there's no context provider or it yields "".
-        Never mutates `self.messages`, so the block is sent but never persisted/replayed."""
+        Never mutates `self.messages`, so the block is sent but never persisted/replayed.
+        """
         if self.context_provider is None:
             return self.messages
         context = self.context_provider() or ""

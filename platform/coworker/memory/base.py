@@ -40,12 +40,10 @@ class MemoryStore(ABC):
         key: Optional[str] = None,
         workspace: Optional[str] = None,
         session_id: Optional[str] = None,
-    ) -> MemoryItem:
-        ...
+    ) -> MemoryItem: ...
 
     @abstractmethod
-    def get(self, item_id: int) -> Optional[MemoryItem]:
-        ...
+    def get(self, item_id: int) -> Optional[MemoryItem]: ...
 
     @abstractmethod
     def list(
@@ -54,16 +52,13 @@ class MemoryStore(ABC):
         scope: Optional[Scope] = None,
         workspace: Optional[str] = None,
         session_id: Optional[str] = None,
-    ) -> list[MemoryItem]:
-        ...
+    ) -> list[MemoryItem]: ...
 
     @abstractmethod
-    def update(self, item_id: int, content: str) -> Optional[MemoryItem]:
-        ...
+    def update(self, item_id: int, content: str) -> Optional[MemoryItem]: ...
 
     @abstractmethod
-    def delete(self, item_id: int) -> bool:
-        ...
+    def delete(self, item_id: int) -> bool: ...
 
 
 def format_memories(items: list[MemoryItem]) -> str:

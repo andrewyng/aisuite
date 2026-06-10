@@ -106,7 +106,9 @@ def test_start_viewer_serves_artifact_api(tmp_path):
     except PermissionError:
         pytest.skip("Local socket binding is not permitted in this environment")
     try:
-        with urlopen(f"{viewer.url}/api/artifacts/{ref.artifact_id}", timeout=5) as response:
+        with urlopen(
+            f"{viewer.url}/api/artifacts/{ref.artifact_id}", timeout=5
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     finally:
         viewer.stop()
@@ -383,10 +385,7 @@ def test_viewer_html_renders_run_transcript_sections():
 
 def test_viewer_ui_source_exposes_operational_scan_controls():
     source = (
-        Path(__file__).resolve().parents[2]
-        / "viewer-ui"
-        / "src"
-        / "App.jsx"
+        Path(__file__).resolve().parents[2] / "viewer-ui" / "src" / "App.jsx"
     ).read_text(encoding="utf-8")
 
     assert "Copy focused link" in source
@@ -486,7 +485,9 @@ def test_prepare_viewer_runs_adds_display_model():
                                     {
                                         "id": "call_1",
                                         "name": "read_file_lines",
-                                        "arguments": {"path": "tests/toolkits/test_shell.py"},
+                                        "arguments": {
+                                            "path": "tests/toolkits/test_shell.py"
+                                        },
                                     }
                                 ],
                                 "finish_reason": "tool_calls",

@@ -40,7 +40,15 @@ def test_unresolved_ref_left_intact(tmp_path):
 
 def test_status_hides_values(tmp_path):
     store = SecretStore(tmp_path / "secrets.json")
-    store.put("gmail:default", {"type": "oauth", "access": "secret", "account_id": "me@x.com", "expires": time.time() - 10})
+    store.put(
+        "gmail:default",
+        {
+            "type": "oauth",
+            "access": "secret",
+            "account_id": "me@x.com",
+            "expires": time.time() - 10,
+        },
+    )
     store.put("slack:default", {"type": "token", "bot_token": "xoxb"})
     status = {row["profile"]: row for row in store.status()}
     assert status["gmail:default"]["type"] == "oauth"
@@ -59,7 +67,9 @@ def test_secrets_file_is_restricted(tmp_path):
     path = tmp_path / "secrets.json"
     SecretStore(path).put("x", {"a": 1})
     if sys.platform == "win32":
-        out = subprocess.run(["icacls", str(path)], capture_output=True, text=True).stdout
+        out = subprocess.run(
+            ["icacls", str(path)], capture_output=True, text=True
+        ).stdout
         user = os.environ.get("USERNAME", "")
         assert user and user in out  # current user is granted
         # Inherited broad principals must be gone after /inheritance:r.

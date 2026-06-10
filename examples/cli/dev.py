@@ -25,7 +25,6 @@ from typing import Optional, TextIO
 
 import aisuite as ai
 
-
 DEFAULT_ALLOWED_COMMANDS = [
     "python",
     "python3",
@@ -262,7 +261,9 @@ class DevCli:
             print(f"\nmodel: {self.config.model}", file=self.output_stream)
             print(f"cwd: {self.config.cwd}", file=self.output_stream)
             print(f"trace_file: {self.config.trace_file}", file=self.output_stream)
-            print(f"trace_http: {self.config.trace_http or '-'}", file=self.output_stream)
+            print(
+                f"trace_http: {self.config.trace_http or '-'}", file=self.output_stream
+            )
             print(
                 f"allowed_commands: {', '.join(self.config.allowed_commands) or 'all'}",
                 file=self.output_stream,
@@ -282,7 +283,9 @@ class DevCli:
         print(f"  {label}:", file=self.output_stream)
         if isinstance(value, dict):
             for key, item in value.items():
-                print(f"    {key}: {self._compact_value(item)}", file=self.output_stream)
+                print(
+                    f"    {key}: {self._compact_value(item)}", file=self.output_stream
+                )
             return
         print(f"    {self._compact_value(value)}", file=self.output_stream)
 

@@ -32,7 +32,10 @@ def tool_name(server: str, tool: str) -> str:
 
 
 def _openai_schema(name: str, mcp_tool: Any) -> dict[str, Any]:
-    params = getattr(mcp_tool, "inputSchema", None) or {"type": "object", "properties": {}}
+    params = getattr(mcp_tool, "inputSchema", None) or {
+        "type": "object",
+        "properties": {},
+    }
     description = (getattr(mcp_tool, "description", None) or "")[:1024]
     return {
         "type": "function",
@@ -72,7 +75,10 @@ def build_callables(
         # We attach the schema + metadata explicitly (rather than via `ai.tool`, which would
         # try to derive a schema from this `**kwargs` wrapper): the registry reads both attrs.
         _invoke.__name__ = name
-        _invoke.__doc__ = getattr(mcp_tool, "description", None) or f"MCP tool {remote} from {server.name}"
+        _invoke.__doc__ = (
+            getattr(mcp_tool, "description", None)
+            or f"MCP tool {remote} from {server.name}"
+        )
         _invoke.__aisuite_tool_metadata__ = ai.ToolMetadata(
             name=name,
             category="mcp",

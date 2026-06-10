@@ -19,7 +19,9 @@ from zoneinfo import ZoneInfo
 from .models import ScheduledTask, TaskRun
 
 
-def compute_next_run(task: ScheduledTask, *, after: Optional[float] = None) -> Optional[float]:
+def compute_next_run(
+    task: ScheduledTask, *, after: Optional[float] = None
+) -> Optional[float]:
     """Next fire time (epoch seconds), or None if the task is exhausted/one-shot-past."""
     sched = task.schedule
     now = after if after is not None else _epoch_now()
@@ -70,8 +72,7 @@ class TaskStore:
 
     def _init(self) -> None:
         with self._lock:
-            self._conn.executescript(
-                """
+            self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS scheduled_tasks (
                     id TEXT PRIMARY KEY,
                     enabled INTEGER NOT NULL DEFAULT 1,
@@ -85,8 +86,7 @@ class TaskStore:
                     data TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_runs_task ON task_runs(task_id, started_at DESC);
-                """
-            )
+                """)
             self._conn.commit()
 
     # -- tasks ------------------------------------------------------------------
@@ -96,24 +96,35 @@ class TaskStore:
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO scheduled_tasks (id, enabled, next_run, data) VALUES (?, ?, ?, ?)",
-                (task.id, 1 if task.enabled else 0, task.next_run, json.dumps(task.to_dict())),
+                (
+                    task.id,
+                    1 if task.enabled else 0,
+                    task.next_run,
+                    json.dumps(task.to_dict()),
+                ),
             )
             self._conn.commit()
         return task
 
     def get(self, task_id: str) -> Optional[ScheduledTask]:
         with self._lock:
-            row = self._conn.execute("SELECT data FROM scheduled_tasks WHERE id=?", (task_id,)).fetchone()
+            row = self._conn.execute(
+                "SELECT data FROM scheduled_tasks WHERE id=?", (task_id,)
+            ).fetchone()
         return ScheduledTask.from_dict(json.loads(row["data"])) if row else None
 
     def list(self) -> list[ScheduledTask]:
         with self._lock:
-            rows = self._conn.execute("SELECT data FROM scheduled_tasks ORDER BY next_run IS NULL, next_run").fetchall()
+            rows = self._conn.execute(
+                "SELECT data FROM scheduled_tasks ORDER BY next_run IS NULL, next_run"
+            ).fetchall()
         return [ScheduledTask.from_dict(json.loads(r["data"])) for r in rows]
 
     def delete(self, task_id: str) -> bool:
         with self._lock:
-            cur = self._conn.execute("DELETE FROM scheduled_tasks WHERE id=?", (task_id,))
+            cur = self._conn.execute(
+                "DELETE FROM scheduled_tasks WHERE id=?", (task_id,)
+            )
             self._conn.execute("DELETE FROM task_runs WHERE task_id=?", (task_id,))
             self._conn.commit()
             return cur.rowcount > 0
@@ -140,7 +151,8 @@ class TaskStore:
     def runs(self, task_id: str, *, limit: int = 50) -> list[TaskRun]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT data FROM task_runs WHERE task_id=? ORDER BY started_at DESC LIMIT ?", (task_id, limit)
+                "SELECT data FROM task_runs WHERE task_id=? ORDER BY started_at DESC LIMIT ?",
+                (task_id, limit),
             ).fetchall()
         return [TaskRun.from_dict(json.loads(r["data"])) for r in rows]
 

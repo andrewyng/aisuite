@@ -24,8 +24,11 @@ ECHO_ENV = "echo $env:GREETING" if _WIN else "echo $GREETING"
 EXIT_OK = "cmd /c exit 0" if _WIN else "true"
 EXIT_FAIL = "cmd /c exit 1" if _WIN else "false"
 SLEEP_5 = "Start-Sleep -Seconds 5" if _WIN else "sleep 5"
-PRINT_1000 = "foreach ($i in 1..1000) { \"line$i\" }" if _WIN else \
-    "for i in $(seq 1 1000); do echo line$i; done"
+PRINT_1000 = (
+    'foreach ($i in 1..1000) { "line$i" }'
+    if _WIN
+    else "for i in $(seq 1 1000); do echo line$i; done"
+)
 
 
 @pytest.fixture
