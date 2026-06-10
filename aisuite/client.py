@@ -421,7 +421,20 @@ class Completions:
                     **kwargs,
                 )
 
-            # Default behavior without tool execution
+            # Manual tool calling (no max_turns): the provider must still see the tool
+            # schemas, so re-add the processed tools to kwargs — schema dicts pass
+            # through as-is, callables (including MCP-derived ones) become OpenAI-format
+            # specs. Regression guard: a plain `kwargs.pop("tools")` here used to drop
+            # them entirely (#266).
+            if tools is not None:
+                converted = []
+                for tool in tools:
+                    if callable(tool):
+                        converted.extend(Tools(tools=[tool]).tools())
+                    else:
+                        converted.append(tool)
+                kwargs["tools"] = converted
+
             # Delegate the chat completion to the correct provider's implementation
             response = provider.chat_completions_create(model_name, messages, **kwargs)
             return self._extract_thinking_content(response)
