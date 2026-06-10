@@ -30,6 +30,7 @@ import {
   type SuperagentStatus,
 } from "../api";
 import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
+import { useThemePref } from "../theme";
 import { ModelChecklist } from "./ModelChecklist";
 
 type Tab = "settings" | "models" | "superagent" | "mcps" | "skills";
@@ -340,6 +341,7 @@ function ModelsTab() {
 // -- Settings tab (files, surfaces, app behavior) ------------------------------
 function SettingsTab() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
+  const [theme, setTheme] = useThemePref();
   const [autostart, setAuto] = useState(false);
   const [keepAwake, setKeep] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
@@ -392,7 +394,19 @@ function SettingsTab() {
 
   return (
     <div className="conn-tab">
-      <div className="sa-sub">Cowork files</div>
+      <div className="sa-sub">Appearance</div>
+      <div className="seg" role="radiogroup" aria-label="Appearance" style={{ marginTop: 8 }}>
+        {(["light", "dark", "auto"] as const).map((p) => (
+          <button key={p} className={p === theme ? "active" : ""} onClick={() => setTheme(p)}>
+            {p === "light" ? "Light" : p === "dark" ? "Dark" : "Auto"}
+          </button>
+        ))}
+      </div>
+      <div className="conn-meta dim" style={{ marginTop: 8 }}>
+        Auto follows your Mac&rsquo;s appearance.
+      </div>
+
+      <div className="sa-sub" style={{ marginTop: 22 }}>Cowork files</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>
         Each Cowork conversation gets its own scratch folder under this location, where the agent
         saves files by default. You can grant access to more folders inside any conversation.
