@@ -52,7 +52,7 @@ from ..providers import (
     get_descriptor,
     provider_descriptors,
 )
-from ..secrets import SecretStore
+from ..secrets import SecretStore, state_dir
 from ..sessions import SessionRecord
 from ..skills import SkillLoader
 
@@ -79,7 +79,7 @@ class SessionManager:
         elif self.default_workspace is not None:
             base = Path(self.default_workspace) / ".coworker"
         else:
-            base = Path.home() / ".config" / "coworker"
+            base = state_dir()
         base.mkdir(parents=True, exist_ok=True)
 
         self.memory_store: MemoryStore = SQLiteMemoryStore(base / "coworker.db")
@@ -641,6 +641,9 @@ class SessionManager:
             "onboarded": bool(self._prefs.get("onboarded")),
             "surfaces": self._surfaces(),
             "scratch_base": self._prefs.get("scratch_base") or self.DEFAULT_SCRATCH_BASE,
+            # Real on-disk secrets location, so the UI shows the OS-native path instead of a
+            # hardcoded POSIX one (Windows -> %APPDATA%\coworker, macOS/Linux -> ~/.config).
+            "secrets_path": str(self.secrets.path),
         }
 
     def _surfaces(self) -> dict[str, bool]:
@@ -1254,7 +1257,7 @@ class SessionManager:
         return _list_agents()
 
     def list_skills(self) -> list[dict[str, Any]]:
-        loader = SkillLoader([Path.home() / ".config" / "coworker" / "skills"])
+        loader = SkillLoader([state_dir() / "skills"])
         return loader.catalog()
 
     def list_memory(self) -> list[dict[str, Any]]:

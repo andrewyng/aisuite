@@ -17,6 +17,11 @@
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -27,8 +32,9 @@ use tauri_plugin_autostart::ManagerExt;
 
 /// The sidecar server child — killed on exit (orphaned servers have bitten us before).
 struct ServerProcess(Mutex<Option<Child>>);
-/// The `caffeinate` child while keep-awake is on (None when off).
-struct KeepAwake(Mutex<Option<Child>>);
+/// The active keep-awake guard while keep-awake is on (None when off). Dropping the guard
+/// releases the hold (kills `caffeinate` on macOS, clears the execution state on Windows).
+struct KeepAwake(Mutex<Option<KeepAwakeGuard>>);
 
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
@@ -40,29 +46,47 @@ fn free_port() -> u16 {
 /// Path to the server entrypoint. Resolution order:
 ///   1. `COWORKER_SERVER_BIN` env override.
 ///   2. The bundled sidecar next to the app executable (production — Tauri externalBin drops
-///      `coworker-server` into Contents/MacOS).
-///   3. Dev fallback: the repo venv, relative to this crate (`src-tauri` → `platform/.venv`).
+///      `coworker-server[.exe]` next to the app binary: Contents/MacOS on macOS, the install
+///      dir on Windows).
+///   3. Dev fallback: the repo venv, relative to this crate (`src-tauri` → `platform/.venv`;
+///      `bin/` on POSIX, `Scripts\` on Windows).
 fn server_bin() -> PathBuf {
     if let Ok(p) = std::env::var("COWORKER_SERVER_BIN") {
         return PathBuf::from(p);
     }
+    let exe_name = if cfg!(windows) {
+        "coworker-server.exe"
+    } else {
+        "coworker-server"
+    };
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let bundled = dir.join("coworker-server");
+            let bundled = dir.join(exe_name);
             if bundled.exists() {
                 return bundled;
             }
         }
     }
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../../.venv/bin/coworker-server");
+    if cfg!(windows) {
+        p.push("../../../.venv/Scripts/coworker-server.exe");
+    } else {
+        p.push("../../../.venv/bin/coworker-server");
+    }
     p
 }
 
 /// Mirror of `coworker.secrets.state_dir()` so the shell and server agree on `desktop.json`.
+/// Windows: `%APPDATA%\coworker`; POSIX: `~/.config/coworker`. `COWORKER_STATE_DIR` overrides.
 fn state_dir() -> PathBuf {
     if let Ok(d) = std::env::var("COWORKER_STATE_DIR") {
         return PathBuf::from(d);
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("coworker");
+        }
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     PathBuf::from(home).join(".config").join("coworker")
@@ -88,9 +112,86 @@ fn write_keep_awake_pref(enabled: bool) {
     let _ = std::fs::write(&path, serde_json::json!({ "keep_awake": enabled }).to_string());
 }
 
-/// Hold off idle + system sleep so the scheduler keeps firing. macOS `caffeinate` is built-in.
-fn start_caffeinate() -> Option<Child> {
-    Command::new("caffeinate").args(["-i", "-s"]).spawn().ok()
+// -- keep-awake: hold off idle + system sleep so the scheduler keeps firing -------------------
+// Cross-platform behind a uniform `start_keep_awake() -> Option<KeepAwakeGuard>`; dropping the
+// guard releases the hold. macOS uses the built-in `caffeinate`; Windows uses the
+// SetThreadExecutionState API (a dedicated thread holds ES_CONTINUOUS so the state survives
+// regardless of which Tauri worker thread toggled it); other platforms are a no-op.
+
+#[cfg(target_os = "macos")]
+struct KeepAwakeGuard(Child);
+
+#[cfg(target_os = "macos")]
+impl Drop for KeepAwakeGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn start_keep_awake() -> Option<KeepAwakeGuard> {
+    Command::new("caffeinate")
+        .args(["-i", "-s"])
+        .spawn()
+        .ok()
+        .map(KeepAwakeGuard)
+}
+
+#[cfg(target_os = "windows")]
+extern "system" {
+    fn SetThreadExecutionState(es_flags: u32) -> u32;
+}
+
+#[cfg(target_os = "windows")]
+const ES_CONTINUOUS: u32 = 0x8000_0000;
+#[cfg(target_os = "windows")]
+const ES_SYSTEM_REQUIRED: u32 = 0x0000_0001;
+
+#[cfg(target_os = "windows")]
+struct KeepAwakeGuard {
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for KeepAwakeGuard {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn start_keep_awake() -> Option<KeepAwakeGuard> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
+    let handle = std::thread::spawn(move || {
+        // SetThreadExecutionState is thread-affine and the ES_CONTINUOUS hold is dropped when
+        // the setting thread exits — so keep this thread alive, re-asserting periodically,
+        // until asked to stop, then clear the hold from this same thread.
+        unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
+        while !stop_thread.load(Ordering::SeqCst) {
+            unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
+        unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+    });
+    Some(KeepAwakeGuard {
+        stop,
+        handle: Some(handle),
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+struct KeepAwakeGuard;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn start_keep_awake() -> Option<KeepAwakeGuard> {
+    // No portable built-in inhibitor on Linux; keep-awake is a no-op (the toggle still reflects
+    // state so the UI behaves, but the OS sleep policy is left to the user).
+    Some(KeepAwakeGuard)
 }
 
 // -- native commands (invoked from the SPA via window.__TAURI__.core.invoke) -----------------
@@ -128,10 +229,12 @@ fn set_keep_awake(state: tauri::State<KeepAwake>, enabled: bool) -> bool {
     let mut guard = state.0.lock().unwrap();
     if enabled {
         if guard.is_none() {
-            *guard = start_caffeinate();
+            *guard = start_keep_awake();
         }
-    } else if let Some(mut child) = guard.take() {
-        let _ = child.kill();
+    } else {
+        // Dropping the taken guard releases the hold (kills caffeinate / clears the
+        // Windows execution state).
+        drop(guard.take());
     }
     let on = guard.is_some();
     write_keep_awake_pref(on);
@@ -173,13 +276,20 @@ pub fn run() {
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).
-            let child = match Command::new(server_bin())
+            let mut server_cmd = Command::new(server_bin());
+            server_cmd
                 .args(["--host", "127.0.0.1", "--port", &port.to_string()])
                 // The sidecar self-exits if we die abruptly (dev-watcher restart, crash) —
                 // belt-and-suspenders alongside the RunEvent::ExitRequested kill below.
-                .env("COWORKER_EXIT_WITH_PARENT", "1")
-                .spawn()
+                .env("COWORKER_EXIT_WITH_PARENT", "1");
+            // CREATE_NO_WINDOW: the bundled server is built windowed, but guard against a
+            // stray console flashing if a console-subsystem binary is ever used on Windows.
+            #[cfg(windows)]
             {
+                use std::os::windows::process::CommandExt;
+                server_cmd.creation_flags(0x0800_0000);
+            }
+            let child = match server_cmd.spawn() {
                 Ok(child) => Some(child),
                 Err(e) => {
                     eprintln!("[coworker] failed to start server sidecar: {e}");
@@ -190,7 +300,7 @@ pub fn run() {
 
             // Restore keep-awake from the last session.
             let ka = if read_keep_awake_pref() {
-                start_caffeinate()
+                start_keep_awake()
             } else {
                 None
             };
@@ -262,9 +372,8 @@ pub fn run() {
                     }
                 }
                 if let Some(state) = app.try_state::<KeepAwake>() {
-                    if let Some(mut child) = state.0.lock().unwrap().take() {
-                        let _ = child.kill();
-                    }
+                    // Dropping the guard releases the hold (caffeinate kill / execution-state clear).
+                    drop(state.0.lock().unwrap().take());
                 }
             }
         });

@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from .secrets import state_dir
+
 
 def default_global_agents_path() -> Path:
-    return Path.home() / ".config" / "coworker" / "AGENTS.md"
+    return state_dir() / "AGENTS.md"
 
 
 def load_agents_md(
@@ -15,7 +17,7 @@ def load_agents_md(
 ) -> str:
     """Return a system-prompt block from the global and project AGENTS.md files.
 
-    v1 loads global (`~/.config/coworker/AGENTS.md`) + project-root `AGENTS.md` only;
+    v1 loads global (`<state-dir>/AGENTS.md`) + project-root `AGENTS.md` only;
     nested discovery is a fast-follow.
     """
     parts: list[tuple[str, str]] = []

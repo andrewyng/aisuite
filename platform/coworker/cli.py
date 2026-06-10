@@ -12,6 +12,7 @@ from .config import load_config
 from .conversations import ConversationStore
 from .memory import SQLiteMemoryStore
 from .permissions import Mode
+from .secrets import state_dir
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -33,7 +34,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     workspace = Path(args.cwd).expanduser().resolve()
     # Unified global store shared with the GUI/server (one place for all conversations).
-    data_dir = Path.home() / ".config" / "coworker"
+    data_dir = state_dir()
     memory_store = SQLiteMemoryStore(data_dir / "coworker.db")
     session_store = ConversationStore(data_dir)
     session_store.touch_workspace(os.path.realpath(str(workspace)))

@@ -1,7 +1,13 @@
-"""P3 gate tests — persistent shell executor."""
+"""P3 gate tests — persistent shell executor.
+
+The executor drives the OS-native shell (bash on POSIX, PowerShell on Windows), so the
+command strings here are parameterized per-OS. The behavior under test (cwd/env persistence,
+exit codes, timeout-and-recover, truncation) is identical across both.
+"""
 
 from __future__ import annotations
 
+import sys
 import time
 
 import pytest
@@ -9,6 +15,17 @@ import pytest
 from coworker.permissions import PermissionEngine
 from coworker.tools import ToolRegistry
 from coworker.tools.shell import LocalExecutor, shell_tools
+
+_WIN = sys.platform == "win32"
+
+# Per-OS command snippets exercising the same behavior in the native shell.
+SET_ENV = "$env:GREETING='hello_world'" if _WIN else "export GREETING=hello_world"
+ECHO_ENV = "echo $env:GREETING" if _WIN else "echo $GREETING"
+EXIT_OK = "cmd /c exit 0" if _WIN else "true"
+EXIT_FAIL = "cmd /c exit 1" if _WIN else "false"
+SLEEP_5 = "Start-Sleep -Seconds 5" if _WIN else "sleep 5"
+PRINT_1000 = "foreach ($i in 1..1000) { \"line$i\" }" if _WIN else \
+    "for i in $(seq 1 1000); do echo line$i; done"
 
 
 @pytest.fixture
@@ -28,30 +45,30 @@ def test_cwd_persists_across_calls(executor, tmp_path):
 
 
 def test_env_persists_across_calls(executor):
-    executor.run("export GREETING=hello_world")
-    result = executor.run("echo $GREETING")
+    executor.run(SET_ENV)
+    result = executor.run(ECHO_ENV)
     assert "hello_world" in result["output"]
 
 
 def test_exit_code_captured(executor):
-    assert executor.run("true")["exit_code"] == 0
-    assert executor.run("false")["exit_code"] == 1
+    assert executor.run(EXIT_OK)["exit_code"] == 0
+    assert executor.run(EXIT_FAIL)["exit_code"] == 1
 
 
 def test_timeout_kills_command(executor):
     start = time.monotonic()
-    result = executor.run("sleep 5", timeout=1)
+    result = executor.run(SLEEP_5, timeout=1)
     elapsed = time.monotonic() - start
     assert result["timed_out"] is True
     assert elapsed < 4.0  # did not block for the full sleep
-    # shell survives the timeout — session still usable
+    # session survives the timeout — still usable (POSIX keeps the shell; Windows respawns)
     assert executor.run("echo alive")["output"].strip().endswith("alive")
 
 
 def test_large_output_truncated(tmp_path):
     ex = LocalExecutor(cwd=tmp_path, max_output_chars=200, default_timeout=10)
     try:
-        result = ex.run("for i in $(seq 1 1000); do echo line$i; done")
+        result = ex.run(PRINT_1000)
         assert result["truncated"] is True
         assert len(result["output"]) <= 200
     finally:

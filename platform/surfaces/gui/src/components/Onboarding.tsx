@@ -39,6 +39,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [model, setModel] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [keyMsg, setKeyMsg] = useState<string | null>(null);
+  const [secretsPath, setSecretsPath] = useState("");
 
   // provider choice (API pane) + local models (Ollama)
   const [conn, setConn] = useState<"api" | "local">("api");
@@ -59,6 +60,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         setModels(s.models || []);
         setModel(s.model);
         setScratch((cur) => cur || s.scratch_base || "");
+        setSecretsPath(s.secrets_path || "");
       })
       .catch(() => {});
   const refreshProviders = () =>
@@ -216,7 +218,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                   </div>
                 </div>
               </div>
-
               {conn === "api" ? (
                 <>
                   <label className="ob-label">Provider</label>
@@ -277,7 +278,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                     </button>
                   </div>
                   <div className="ob-note dim">
-                    Stored locally at ~/.config/coworker/secrets.json (0600). Never sent to the model.
+                    Stored locally{secretsPath ? ` at ${secretsPath}` : ""}, readable only by your account. Never sent to the model.
                   </div>
                   {keyMsg && <div className="ob-note">{keyMsg}</div>}
 

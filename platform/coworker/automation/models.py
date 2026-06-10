@@ -55,7 +55,7 @@ class Schedule:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Schedule":
-        return cls(kind=d.get("kind", "cron"), cron=d.get("cron"), fire_at=d.get("fire_at"), timezone=d.get("timezone", "UTC"))
+        return cls(kind=d.get("kind", "cron"), cron=d.get("cron"), fire_at=d.get("fire_at"), timezone=d.get("timezone", "local"))
 
 
 @dataclass

@@ -5,9 +5,14 @@ etc. persist across `run_shell` calls (unlike a per-call `subprocess.run`). The 
 interface is the hedge for a future `ContainerExecutor`/`VMExecutor` (sandboxing) without
 touching the engine.
 
+The shell is OS-native: `/bin/bash` on POSIX, `powershell.exe` (`-Command -` REPL) on
+Windows. Each backend has its own marker/exit-code protocol and interrupt mechanism, but
+the `Executor` contract (and the parsed `{marker} {exit_code} {cwd}` trailer) is identical.
+
 Safety here is permission-gating (high-risk tool → approval) + per-command timeout +
-best-effort non-interactive enforcement. A timed-out command is interrupted (SIGINT to
-the process group); the shell survives so session state is preserved.
+best-effort non-interactive enforcement. A timed-out command is interrupted (SIGINT to the
+foreground child on POSIX, Ctrl-Break to the child group on Windows); the shell survives so
+session state is preserved.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import os
 import queue
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -24,6 +30,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import aisuite as ai
+
+_IS_WINDOWS = sys.platform == "win32"
 
 # Env defaults that discourage commands from blocking on a prompt.
 _NONINTERACTIVE_ENV = {
@@ -52,7 +60,7 @@ class LocalExecutor(Executor):
         *,
         cwd: str | Path,
         env: Optional[dict[str, str]] = None,
-        shell_path: str = "/bin/bash",
+        shell_path: Optional[str] = None,
         default_timeout: float = 30.0,
         max_output_chars: int = 20_000,
     ) -> None:
@@ -60,22 +68,50 @@ class LocalExecutor(Executor):
         self.default_timeout = default_timeout
         self.max_output_chars = max_output_chars
         self._marker = f"__COWORKER_DONE_{uuid.uuid4().hex}__"
+        self._is_windows = _IS_WINDOWS
 
-        full_env = {**os.environ, **_NONINTERACTIVE_ENV, **(env or {})}
+        # Pick a native shell per-OS. POSIX drives bash line-by-line; Windows drives
+        # PowerShell in `-Command -` mode, which is a true stdin REPL (executes
+        # incrementally, and cwd/env persist across commands).
+        if shell_path is None:
+            shell_path = "powershell.exe" if self._is_windows else "/bin/bash"
+        self._shell_path = shell_path
+        self._env = {**os.environ, **_NONINTERACTIVE_ENV, **(env or {})}
+        self._spawn()
+
+    def _spawn(self) -> None:
+        """Start (or restart) the shell process and its reader. Reused for self-healing:
+        if a command times out and the shell is hard-closed, the next `run` respawns here
+        in the last known `cwd` (in-shell env/vars are lost, but the session continues)."""
+        if self._is_windows:
+            argv = [self._shell_path, "-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass",
+                    "-Command", "-"]
+            # New process group so a timeout can deliver Ctrl-Break to the child (and only
+            # the child), without signaling our own process.
+            spawn_kwargs: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            argv = [self._shell_path]
+            spawn_kwargs = {"start_new_session": True}
+
         self._proc = subprocess.Popen(
-            [shell_path],
+            argv,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             cwd=self.cwd,
             text=True,
             bufsize=1,
-            env=full_env,
-            start_new_session=True,
+            env=self._env,
+            **spawn_kwargs,
         )
         self._queue: "queue.Queue[Optional[str]]" = queue.Queue()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
+
+        if self._is_windows and self._proc.stdin is not None:
+            # Silence the REPL prompt so it never pollutes captured command output.
+            self._proc.stdin.write("function prompt { '' }\n")
+            self._proc.stdin.flush()
 
     def _read_loop(self) -> None:
         try:
@@ -86,15 +122,17 @@ class LocalExecutor(Executor):
             self._queue.put(None)  # EOF sentinel
 
     def run(self, command: str, timeout: Optional[float] = None) -> dict[str, Any]:
-        if self._proc.poll() is not None or self._proc.stdin is None:
+        if self._proc.poll() is not None:
+            # Shell exited (e.g. hard-closed after a prior command's timeout). Respawn so
+            # the session self-heals rather than wedging every future command.
+            self._spawn()
+        if self._proc.stdin is None:
             return self._result(command, None, "", timed_out=False, error="shell not running")
 
         timeout = timeout or self.default_timeout
         # Run the command, then emit a marker line with exit code + cwd.
         self._proc.stdin.write(command + "\n")
-        self._proc.stdin.write(
-            f'printf "\\n%s %s %s\\n" "{self._marker}" "$?" "$PWD"\n'
-        )
+        self._proc.stdin.write(self._trailer())
         self._proc.stdin.flush()
 
         deadline = time.monotonic() + timeout
@@ -106,6 +144,13 @@ class LocalExecutor(Executor):
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                if self._is_windows:
+                    # PowerShell has no reliable "interrupt one command, keep the REPL"
+                    # primitive, so don't try to resync — kill the shell tree decisively.
+                    # The next run() respawns in the last cwd (session continues).
+                    timed_out = True
+                    self.close()
+                    break
                 if not interrupted:
                     # First deadline: interrupt the running command and keep reading
                     # until ITS marker arrives, so the stream stays in sync for the
@@ -142,10 +187,31 @@ class LocalExecutor(Executor):
             command, exit_code, output, timed_out=timed_out, truncated=truncated
         )
 
+    def _trailer(self) -> str:
+        """Command appended after each user command. Emits one line `<marker> <exit> <cwd>`
+        parsed by `_parse_exit_code` / `_parse_cwd`. Reads the exit status of the *preceding*
+        command, so it must run as its own statement right after it."""
+        if self._is_windows:
+            # PowerShell: `$?` is the success bool; `$LASTEXITCODE` is the exit code of the
+            # last native program. Success → 0; else the program's code, falling back to 1.
+            return (
+                f'"`n{self._marker} '
+                f"$(if ($?) {{0}} else {{ if ($LASTEXITCODE) {{$LASTEXITCODE}} else {{1}} }}) "
+                f'$($PWD.Path)"\n'
+            )
+        return f'printf "\\n%s %s %s\\n" "{self._marker}" "$?" "$PWD"\n'
+
     def _interrupt(self) -> None:
-        # Interrupt the shell's foreground child(ren), not the shell itself, so the
-        # session survives. SIGINT makes the command exit; the queued trailer printf
-        # then emits the marker and the stream resyncs.
+        # Interrupt the running command, not the shell itself, so the session survives; the
+        # queued trailer then emits the marker and the stream resyncs.
+        if self._is_windows:
+            # Ctrl-Break to the child's process group (best-effort). If the marker never
+            # resyncs, run()'s grace timeout hard-closes the shell.
+            try:
+                self._proc.send_signal(signal.CTRL_BREAK_EVENT)
+            except (OSError, ValueError):
+                pass
+            return
         try:
             found = subprocess.run(
                 ["pgrep", "-P", str(self._proc.pid)],
@@ -164,6 +230,22 @@ class LocalExecutor(Executor):
         self._interrupt()
 
     def close(self) -> None:
+        if self._is_windows:
+            # Kill the whole tree — a timed-out command may have spawned children that
+            # `terminate()` (the shell only) would orphan. Then reap so `poll()` reliably
+            # reports the exit, which the next run()'s respawn check depends on.
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
+                    capture_output=True,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+            try:
+                self._proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            return
         try:
             self._proc.terminate()
         except (ProcessLookupError, OSError):

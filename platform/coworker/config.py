@@ -1,6 +1,6 @@
 """Configuration — layered TOML: built-in defaults < global < per-workspace.
 
-Global:    ~/.config/coworker/config.toml
+Global:    <state-dir>/config.toml   (see `secrets.state_dir`; platform-native)
 Workspace: <workspace>/.coworker/config.toml   (overrides global)
 """
 
@@ -10,6 +10,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
+from .secrets import state_dir
 
 DEFAULT_ALLOWED_COMMANDS = [
     "ls", "cat", "pwd", "echo", "head", "tail", "grep", "find", "wc",
@@ -42,7 +44,7 @@ _FIELDS = {
 
 
 def global_config_path() -> Path:
-    return Path.home() / ".config" / "coworker" / "config.toml"
+    return state_dir() / "config.toml"
 
 
 def _read(path: Path) -> dict[str, Any]:

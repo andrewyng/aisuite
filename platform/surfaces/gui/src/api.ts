@@ -364,6 +364,7 @@ export interface ModelSettings {
   onboarded: boolean;
   surfaces: SurfaceVisibility;
   scratch_base: string;
+  secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)
 }
 
 export async function setScratchBase(

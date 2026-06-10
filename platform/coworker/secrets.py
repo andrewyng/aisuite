@@ -13,18 +13,34 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 _REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_IS_WINDOWS = sys.platform == "win32"
 
 
 def state_dir() -> Path:
-    """Where coworker keeps its state: `$COWORKER_STATE_DIR` or `~/.config/coworker`."""
+    """Where coworker keeps its state — the one cross-platform source of truth.
+
+    Resolution order:
+    1. `$COWORKER_STATE_DIR` — explicit override on any OS (used by tests/sidecars).
+    2. Windows: `%APPDATA%\\coworker` (e.g. `C:\\Users\\You\\AppData\\Roaming\\coworker`),
+       the native per-user app-data location.
+    3. macOS / Linux: `~/.config/coworker` (XDG-style, unchanged from prior behavior).
+    """
     base = os.environ.get("COWORKER_STATE_DIR")
-    return Path(base).expanduser() if base else Path.home() / ".config" / "coworker"
+    if base:
+        return Path(base).expanduser()
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "coworker"
+    return Path.home() / ".config" / "coworker"
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
@@ -38,6 +54,32 @@ def _load_dotenv(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         env[key.strip()] = value.strip().strip('"').strip("'")
     return env
+
+
+def _restrict_to_user(path: Path, *, is_dir: bool) -> None:
+    """Restrict a path so only the current user can access it.
+
+    POSIX expresses this with mode bits (0700 dir / 0600 file). Windows has no such bits —
+    `os.chmod` there only toggles the read-only flag, so a 0600 chmod is a silent no-op and
+    the file inherits broad ACLs (SYSTEM, Administrators, …). Use an ACL instead: strip
+    inherited entries and grant the current user alone. Best-effort on Windows so a transient
+    icacls failure never blocks saving a key."""
+    if _IS_WINDOWS:
+        user = os.environ.get("USERNAME")
+        if not user:
+            return
+        domain = os.environ.get("USERDOMAIN")
+        account = f"{domain}\\{user}" if domain else user
+        try:
+            subprocess.run(
+                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:F"],
+                capture_output=True,
+                check=False,
+            )
+        except OSError:
+            pass
+        return
+    os.chmod(path, 0o700 if is_dir else 0o600)
 
 
 class SecretStore:
@@ -116,10 +158,10 @@ class SecretStore:
     def _write(self, store: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            os.chmod(self.path.parent, 0o700)
+            _restrict_to_user(self.path.parent, is_dir=True)
         except OSError:
             pass
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(json.dumps(store, indent=2), encoding="utf-8")
-        os.chmod(tmp, 0o600)
+        _restrict_to_user(tmp, is_dir=False)
         os.replace(tmp, self.path)

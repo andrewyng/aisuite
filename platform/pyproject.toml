@@ -20,6 +20,9 @@ dependencies = [
     "httpx>=0.27",  # sync outbound senders for messaging connectors (send_message tool)
     "ddgs>=9",  # keyless default web-search provider (DuckDuckGo); Tavily/Brave use httpx
     "croniter>=2",  # cron next-fire math for the automation scheduler
+    # IANA tz database for zoneinfo. Windows ships no system tz db, so without this every
+    # named schedule timezone (UTC, Asia/Kolkata, …) silently falls back to local time.
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

@@ -19,7 +19,7 @@ from .permissions import Mode, PermissionEngine
 from .project import load_agents_md
 from .roots import RootDir, normalize_roots, render_context
 from .providers import ProviderClient, ProviderRouter
-from .secrets import SecretStore
+from .secrets import SecretStore, state_dir
 from .skills import SkillLoader, skill_catalog_text, skill_tools
 from .tools import ToolRegistry
 from .tools.directories import request_directory_tool
@@ -42,7 +42,7 @@ def _enabled_connector_tools(secrets: SecretStore) -> tuple[set[str], set[str]]:
 
 
 def _skill_dirs(workspace: Optional[Path]) -> list[Path]:
-    dirs = [Path.home() / ".config" / "coworker" / "skills"]
+    dirs = [state_dir() / "skills"]
     if workspace is not None:
         dirs.append(workspace / ".coworker" / "skills")
     return dirs

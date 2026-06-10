@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import sys
 import time
 
 from coworker.secrets import SecretStore
@@ -50,10 +52,21 @@ def test_status_hides_values(tmp_path):
     assert "secret" not in blob and "xoxb" not in blob
 
 
-def test_file_mode_is_0600(tmp_path):
+def test_secrets_file_is_restricted(tmp_path):
+    """The secrets file must be restricted to the current user. POSIX expresses this as mode
+    0600; Windows has no such bits, so we assert the ACL instead (inheritance stripped, only
+    the current user granted)."""
     path = tmp_path / "secrets.json"
     SecretStore(path).put("x", {"a": 1})
-    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    if sys.platform == "win32":
+        out = subprocess.run(["icacls", str(path)], capture_output=True, text=True).stdout
+        user = os.environ.get("USERNAME", "")
+        assert user and user in out  # current user is granted
+        # Inherited broad principals must be gone after /inheritance:r.
+        assert "NT AUTHORITY\\SYSTEM" not in out
+        assert "BUILTIN\\Administrators" not in out
+    else:
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 
 
 def test_delete(tmp_path):
