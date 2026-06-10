@@ -71,6 +71,41 @@ async def test_acreate_without_tools(mock_create_provider):
 
 @pytest.mark.asyncio
 @patch("aisuite.provider.ProviderFactory.create_provider")
+async def test_acreate_manual_tool_calling_passes_tools(mock_create_provider):
+    """Manual mode (no max_turns): the provider must receive the tool schemas.
+
+    Async twin of the #266 regression: tools are popped from kwargs, so the
+    manual path must re-add provider-ready specs before delegating.
+    """
+    provider = Mock()
+    provider.achat_completions_create = AsyncMock(
+        return_value=_chat_response(content="ok")
+    )
+    mock_create_provider.return_value = provider
+
+    def get_weather(location: str):
+        """Get the weather for a location."""
+        return {"location": location}
+
+    schema = {
+        "type": "function",
+        "function": {"name": "manual_tool", "parameters": {"type": "object", "properties": {}}},
+    }
+
+    client = Client()
+    await client.chat.completions.acreate(
+        model="openai:gpt-4o",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[schema, get_weather],  # no max_turns → manual mode
+    )
+
+    sent = provider.achat_completions_create.await_args.kwargs["tools"]
+    assert sent[0] == schema  # dicts pass through untouched
+    assert sent[1]["function"]["name"] == "get_weather"  # callables become specs
+
+
+@pytest.mark.asyncio
+@patch("aisuite.provider.ProviderFactory.create_provider")
 async def test_acreate_awaits_async_tool(mock_create_provider):
     """An async def tool is awaited inside the async tool loop."""
     provider = Mock()

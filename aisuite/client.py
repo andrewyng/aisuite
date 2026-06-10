@@ -510,22 +510,26 @@ class Completions:
                 )
 
             # Manual tool calling (no max_turns): the provider must still see the tool
-            # schemas, so re-add the processed tools to kwargs — schema dicts pass
-            # through as-is, callables (including MCP-derived ones) become OpenAI-format
-            # specs. Regression guard: a plain `kwargs.pop("tools")` here used to drop
-            # them entirely (#266).
+            # schemas, so re-add the processed tools to kwargs. Regression guard: a
+            # plain `kwargs.pop("tools")` here used to drop them entirely (#266).
             if tools is not None:
-                converted = []
-                for tool in tools:
-                    if callable(tool):
-                        converted.extend(Tools(tools=[tool]).tools())
-                    else:
-                        converted.append(tool)
-                kwargs["tools"] = converted
+                kwargs["tools"] = self._provider_ready_tools(tools)
 
             # Delegate the chat completion to the correct provider's implementation
             response = provider.chat_completions_create(model_name, messages, **kwargs)
             return self._extract_thinking_content(response)
+
+    @staticmethod
+    def _provider_ready_tools(tools: list) -> list:
+        """Tools as a provider request can carry them: schema dicts pass through
+        as-is; callables (including MCP-derived ones) become OpenAI-format specs."""
+        converted = []
+        for tool in tools:
+            if callable(tool):
+                converted.extend(Tools(tools=[tool]).tools())
+            else:
+                converted.append(tool)
+        return converted
 
     async def acreate(self, model: str, messages: list, **kwargs):
         """Async variant of ``create``.
@@ -560,6 +564,11 @@ class Completions:
                     tool_policy_context=tool_policy_context,
                     **kwargs,
                 )
+
+            # Manual tool calling (no max_turns): same regression guard as create()
+            # (#266) — the provider must still see the tool schemas.
+            if tools is not None:
+                kwargs["tools"] = self._provider_ready_tools(tools)
 
             response = await provider.achat_completions_create(
                 model_name, messages, **kwargs
