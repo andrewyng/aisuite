@@ -112,7 +112,7 @@ export async function readArtifact(sessionId: string, path: string): Promise<Art
   return res.json();
 }
 
-/** Show the artifact in Finder ("reveal") or open it with its default app ("open"). */
+/** Show the artifact in the OS file manager ("reveal") or open it with its default app ("open"). */
 export async function revealArtifact(
   sessionId: string,
   path: string,

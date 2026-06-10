@@ -228,7 +228,8 @@ function ArtifactViewer({
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const isHtml = content?.kind === "html" && !content.error;
-  const isApp = content?.kind === "sheet" || content?.kind === "pdf"; // best viewed in a real app
+  // Best viewed in a real app: spreadsheets, PDFs, and Office docs (pptx/docx can't preview inline)
+  const isApp = content?.kind === "sheet" || content?.kind === "pdf" || content?.kind === "office";
 
   return (
     <div className="artifact-viewer">
@@ -270,8 +271,8 @@ function ArtifactViewer({
           <button
             className="artifact-icon-btn"
             onClick={() => revealArtifact(sessionId, artifact.path, "reveal")}
-            aria-label="Reveal in Finder"
-            title="Reveal in Finder"
+            aria-label="Show in folder"
+            title="Show in folder"
           >
             <Icon name="folder" size={16} />
           </button>
@@ -301,6 +302,14 @@ function ArtifactViewer({
           <CsvTable text={content.content || ""} />
         ) : content.kind === "sheet" ? (
           <SheetViewer dataUrl={content.data_url || ""} />
+        ) : content.kind === "office" ? (
+          <div className="artifact-open-prompt">
+            <Icon name="panelOpen" size={28} />
+            <p>This {/\.pptx?$/i.test(artifact.name) ? "PowerPoint" : "Word"} file can’t be previewed here.</p>
+            <button className="btn sm" onClick={() => revealArtifact(sessionId, artifact.path, "open")}>
+              Open in default app
+            </button>
+          </div>
         ) : (
           <pre className="artifact-code">{content.content}</pre>
         )}

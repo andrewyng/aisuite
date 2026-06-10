@@ -354,7 +354,7 @@ class SessionManager:
         if not root.is_dir():
             return []
         out: list[dict[str, Any]] = []
-        suffixes = {".md", ".markdown", ".html", ".htm", ".txt", ".json", ".csv", ".tsv", ".py", ".js", ".ts", ".tsx", ".css", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".xlsx", ".xls"}
+        suffixes = {".md", ".markdown", ".html", ".htm", ".txt", ".json", ".csv", ".tsv", ".py", ".js", ".ts", ".tsx", ".css", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".xlsx", ".xls", ".pptx", ".ppt", ".pptm", ".docx", ".doc", ".docm"}
         for path in root.rglob("*"):
             try:
                 rel = path.relative_to(root)
@@ -400,11 +400,15 @@ class SessionManager:
         if target is None:
             return {"ok": False, "error": err}
         kind = _artifact_kind(target)
+        if kind == "office":
+            # PowerPoint/Word binaries can't be previewed inline; the UI offers
+            # "Open in default app" instead of trying to render them.
+            return {"ok": True, "path": path, "kind": "office"}
         if kind in ("image", "pdf", "sheet"):
             import base64
 
             if target.stat().st_size > self.MAX_BINARY_PREVIEW:
-                return {"ok": False, "error": "file too large to preview — use Reveal in Finder"}
+                return {"ok": False, "error": "file too large to preview — use Reveal to open it"}
             mime = {
                 ".png": "image/png",
                 ".jpg": "image/jpeg",
@@ -424,19 +428,30 @@ class SessionManager:
         return {"ok": True, "path": path, "kind": kind, "content": text[:500000], "truncated": len(text) > 500000}
 
     def reveal_artifact(self, session_id: str, path: str, mode: str = "reveal") -> dict[str, Any]:
-        """Show the file in Finder (`reveal`) or open it with its default app (`open`). The
-        server runs on the user's machine in both desktop and browser builds, so this is local."""
+        """Show the file in the OS file manager (`reveal`) or open it with its default app
+        (`open`). The server runs on the user's machine in both desktop and browser builds, so
+        this is local. Cross-platform: macOS `open`, Windows Explorer/ShellExecute, Linux
+        `xdg-open`."""
+        import os
         import subprocess
         import sys
 
         target, err = self._artifact_target(session_id, path)
         if target is None:
             return {"ok": False, "error": err}
-        if sys.platform != "darwin":
-            return {"ok": False, "error": "only supported on macOS for now"}
-        args = ["open", "-R", str(target)] if mode == "reveal" else ["open", str(target)]
         try:
-            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if sys.platform == "darwin":
+                args = ["open", "-R", str(target)] if mode == "reveal" else ["open", str(target)]
+                subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif sys.platform == "win32":
+                if mode == "reveal":
+                    # Explorer wants the path glued to the switch: /select,<path>
+                    subprocess.Popen(["explorer", f"/select,{target}"])
+                else:
+                    os.startfile(str(target))  # type: ignore[attr-defined]  # open in default app
+            else:  # Linux/BSD
+                tgt = str(target.parent) if mode == "reveal" else str(target)
+                subprocess.Popen(["xdg-open", tgt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True}
@@ -1317,6 +1332,8 @@ def _artifact_kind(path: Path) -> str:
         return "pdf"
     if suffix in {".xlsx", ".xls"}:
         return "sheet"
+    if suffix in {".pptx", ".ppt", ".pptm", ".docx", ".doc", ".docm"}:
+        return "office"
     if suffix in {".csv", ".tsv"}:
         return "csv"
     if suffix in {".py", ".js", ".ts", ".tsx", ".css", ".json"}:

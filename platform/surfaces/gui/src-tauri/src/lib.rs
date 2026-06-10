@@ -324,7 +324,7 @@ pub fn run() {
             //    Overlay title bar (macOS): traffic lights float over the edge-to-edge UI.
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("Coworker")
+                    .title("Open Coworker")
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(980.0, 640.0)
                     .initialization_script(&inject);

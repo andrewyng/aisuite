@@ -27,5 +27,5 @@ def list_agents() -> list[dict]:
     return [
         {"name": "code", "title": "Code", "needs_workspace": True},
         {"name": "chat", "title": "Chat", "needs_workspace": False},
-        {"name": "cowork", "title": "Cowork", "needs_workspace": True},
+        {"name": "cowork", "title": "Coworker", "needs_workspace": True},
     ]

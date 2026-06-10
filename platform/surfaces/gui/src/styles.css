@@ -507,6 +507,12 @@ button.btn.danger { color: var(--accent); }
   background: repeating-conic-gradient(#f0f1f3 0% 25%, #fafbfc 0% 50%) 0 0 / 20px 20px;
 }
 .artifact-code { margin: 0; padding: 22px 26px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; color: var(--ink); }
+/* Non-previewable binaries (Office docs): a centered prompt to open in the default app. */
+.artifact-open-prompt {
+  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 40px; text-align: center; color: var(--muted);
+}
+.artifact-open-prompt p { margin: 0; max-width: 280px; }
 .artifact-pdf { display: block; width: 100%; height: 100%; min-height: calc(100vh - 86px); border: 0; }
 
 /* csv / spreadsheet preview */

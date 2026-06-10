@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 // Session surfaces shown as accordions, in display order. Cowork is always visible; Chat/Code
 // are toggled via Settings. Each has a colored icon square.
 const SURFACES: { key: string; label: string; icon: "diamond" | "chat" | "code"; cls: string }[] = [
-  { key: "cowork", label: "Cowork", icon: "diamond", cls: "ico-cowork" },
+  { key: "cowork", label: "Coworker", icon: "diamond", cls: "ico-cowork" },
   { key: "chat", label: "Chat", icon: "chat", cls: "ico-chat" },
   { key: "code", label: "Code", icon: "code", cls: "ico-code" },
 ];
