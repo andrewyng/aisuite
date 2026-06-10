@@ -70,9 +70,15 @@ def _restrict_to_user(path: Path, *, is_dir: bool) -> None:
             return
         domain = os.environ.get("USERDOMAIN")
         account = f"{domain}\\{user}" if domain else user
+        # A directory grant MUST be inheritable — (OI) object-inherit for files, (CI)
+        # container-inherit for subdirs — so everything created inside (the SQLite stores,
+        # conversations, …) inherits the user's access. Without these flags, /inheritance:r
+        # leaves the directory with a non-inheritable ACE and any child file ends up with an
+        # empty DACL → sqlite3 "unable to open database file", crashing the server on launch.
+        grant = f"{account}:(OI)(CI)F" if is_dir else f"{account}:F"
         try:
             subprocess.run(
-                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:F"],
+                ["icacls", str(path), "/inheritance:r", "/grant:r", grant],
                 capture_output=True,
                 check=False,
             )

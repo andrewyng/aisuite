@@ -26,7 +26,8 @@ export async function pickFolder(): Promise<string | null> {
 export const getAutostart = () => invoke<boolean>("get_autostart");
 export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart", { enabled });
 
-/** Keep the Mac awake (caffeinate) so scheduled tasks fire while idle. Persists across restarts. */
+/** Keep this system awake so scheduled tasks fire while idle (caffeinate on macOS,
+ * SetThreadExecutionState on Windows). Persists across restarts. */
 export const getKeepAwake = () => invoke<boolean>("get_keep_awake");
 export const setKeepAwake = (enabled: boolean) => invoke<boolean>("set_keep_awake", { enabled });
 

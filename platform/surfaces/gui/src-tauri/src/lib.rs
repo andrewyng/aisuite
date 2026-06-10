@@ -15,7 +15,7 @@
 //! comes from the SecretStore (Settings tab), see `coworker.providers.resolve_api_key`.
 
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::sync::{
@@ -248,6 +248,7 @@ fn start_window_drag(window: tauri::WebviewWindow) -> bool {
 
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -261,6 +262,13 @@ pub fn run() {
     let inject = format!("window.__COWORKER_HTTP__={http:?};window.__COWORKER_WS__={ws:?};");
 
     tauri::Builder::default()
+        // MUST be the first plugin: when a second launch happens (e.g. the user relaunches
+        // while the window is closed-to-tray), this fires in the ALREADY-running instance to
+        // surface its healthy window, and the second process exits before it can spawn a
+        // duplicate sidecar — which previously left a window stuck on "Starting coworker…".
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_main(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -281,9 +289,15 @@ pub fn run() {
                 .args(["--host", "127.0.0.1", "--port", &port.to_string()])
                 // The sidecar self-exits if we die abruptly (dev-watcher restart, crash) —
                 // belt-and-suspenders alongside the RunEvent::ExitRequested kill below.
-                .env("COWORKER_EXIT_WITH_PARENT", "1");
-            // CREATE_NO_WINDOW: the bundled server is built windowed, but guard against a
-            // stray console flashing if a console-subsystem binary is ever used on Windows.
+                .env("COWORKER_EXIT_WITH_PARENT", "1")
+                // This GUI app has no console, so a console-subsystem child would inherit
+                // invalid std handles and crash a few seconds in when uvicorn writes its logs
+                // (the "Starting coworker…" freeze on Windows). Hand it null handles instead.
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            // CREATE_NO_WINDOW: the sidecar is a console binary; without this a console window
+            // would flash when the GUI app spawns it on Windows.
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;

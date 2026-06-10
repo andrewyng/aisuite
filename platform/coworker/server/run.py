@@ -46,21 +46,36 @@ def _exit_when_orphaned() -> None:
 
 
 def _watch_parent_windows() -> None:
-    """Block on a handle to the parent process; exit when it dies. Best-effort — any failure
-    leaves the parent's RunEvent::ExitRequested kill as the primary cleanup path."""
+    """Block on a handle to the parent process; exit only when it actually terminates.
+
+    Best-effort — any failure leaves the parent's RunEvent::ExitRequested kill as the primary
+    cleanup path. Two correctness points that bit us before:
+      - `OpenProcess` returns a 64-bit HANDLE; ctypes defaults the return type to a 32-bit int,
+        which truncates the handle to garbage. Declare restype/argtypes so the handle is valid.
+      - Only `os._exit` on WAIT_OBJECT_0 (the parent genuinely died). A bad handle yields
+        WAIT_FAILED immediately — treating that as "parent died" would kill a perfectly healthy
+        server seconds after startup (exactly the freeze we saw)."""
     import ctypes
     import threading
+    from ctypes import wintypes
 
     SYNCHRONIZE = 0x0010_0000
     INFINITE = 0xFFFF_FFFF
-    kernel32 = ctypes.windll.kernel32
+    WAIT_OBJECT_0 = 0x0000_0000
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+
     handle = kernel32.OpenProcess(SYNCHRONIZE, False, os.getppid())
     if not handle:
         return
 
     def watch() -> None:
-        kernel32.WaitForSingleObject(handle, INFINITE)
-        os._exit(0)
+        if kernel32.WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0:
+            os._exit(0)
 
     threading.Thread(target=watch, daemon=True).start()
 

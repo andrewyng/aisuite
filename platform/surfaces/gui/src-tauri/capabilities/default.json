@@ -8,6 +8,7 @@
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
     "dialog:default",
     "autostart:default"
   ]

@@ -366,7 +366,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               <label className={"ob-toggle" + (isTauri() ? "" : " disabled")}>
                 <input type="checkbox" checked={keepAwake} disabled={!isTauri()} onChange={(e) => toggleKeep(e.target.checked)} />
                 <span>
-                  <strong>Keep the Mac awake</strong>
+                  <strong>Keep this system awake</strong>
                   <small>Prevent idle sleep so scheduled tasks fire on time.</small>
                 </span>
               </label>
