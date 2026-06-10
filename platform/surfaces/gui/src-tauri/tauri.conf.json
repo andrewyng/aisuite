@@ -28,6 +28,9 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/coworker-server"],
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": {
