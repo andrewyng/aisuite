@@ -21,20 +21,31 @@ DEFAULT_IGNORES = (
 
 def files(
     *,
-    root: str | Path,
+    root: str | Path | None = None,
+    roots: Optional[list] = None,
     allow_write: bool = False,
     max_read_bytes: int = 200_000,
     max_search_bytes: int = 1_000_000,
     ignore: Optional[list[str]] = None,
 ) -> list:
-    """Return root-scoped filesystem tools."""
+    """Return filesystem tools scoped to one or more roots.
+
+    Single-root (back-compat): pass `root=<path>` with `allow_write`. Multi-root: pass
+    `roots=[{"path": ..., "writable": bool}, ...]` (or RootDir-like objects / a live mutable
+    list, read on every call so runtime add/remove takes effect). Index 0 is the primary:
+    relative paths resolve against it and tool results display relative to it. Reads are
+    allowed under any root; writes only under a writable one. Write tools are exposed when
+    `allow_write` OR any root is writable.
+    """
     toolkit = FileToolkit(
         root=root,
+        roots=roots,
         allow_write=allow_write,
         max_read_bytes=max_read_bytes,
         max_search_bytes=max_search_bytes,
         ignore=ignore,
     )
+    allow_write = toolkit.has_writable
 
     def list_files(
         path: str = ".",
@@ -218,18 +229,52 @@ class FileToolkit:
     def __init__(
         self,
         *,
-        root: str | Path,
-        allow_write: bool,
+        root: str | Path | None = None,
+        roots: Optional[list] = None,
+        allow_write: bool = False,
         max_read_bytes: int,
         max_search_bytes: int,
         ignore: Optional[list[str]],
     ):
-        self.root = Path(root).expanduser().resolve()
+        # `roots` is kept by reference and re-read on every resolution, so a caller that mutates
+        # the shared list (add/remove a folder mid-session) takes effect without rebuilding tools.
+        if roots is None:
+            if root is None:
+                raise ValueError("files() requires `root` or `roots`")
+            roots = [{"path": root, "writable": allow_write}]
+        self._roots_ref = roots
         self.allow_write = allow_write
         self.max_read_bytes = max_read_bytes
         self.max_search_bytes = max_search_bytes
         self.ignore = set(DEFAULT_IGNORES if ignore is None else ignore)
+        norm = self._roots()
+        if not norm:
+            raise ValueError("files() requires at least one root")
+        self.root = norm[0][0]  # primary: stable, used for relative resolution + display
+        self.has_writable = any(writable for _, writable in norm)
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def _roots(self) -> list[tuple[Path, bool]]:
+        """Live snapshot of (resolved path, writable) for each configured root."""
+        out: list[tuple[Path, bool]] = []
+        for r in self._roots_ref:
+            if isinstance(r, dict):
+                p, w = r["path"], bool(r.get("writable", False))
+            elif isinstance(r, (str, Path)):
+                p, w = r, self.allow_write
+            else:  # duck-typed RootDir-like
+                p, w = getattr(r, "path"), bool(getattr(r, "writable", False))
+            out.append((Path(p).expanduser().resolve(), w))
+        return out
+
+    def _root_for(self, candidate: Path) -> Optional[tuple[Path, bool]]:
+        for rp, writable in self._roots():
+            try:
+                candidate.relative_to(rp)
+                return (rp, writable)
+            except ValueError:
+                continue
+        return None
 
     def list_files(
         self,
@@ -324,9 +369,9 @@ class FileToolkit:
 
     def write_file(self, path: str, content: str, overwrite: bool = True) -> str:
         """Write a UTF-8 text file under the configured root."""
-        if not self.allow_write:
+        if not self.has_writable:
             raise PermissionError("write_file is disabled for this file toolkit.")
-        file_path = self._resolve(path)
+        file_path = self._resolve(path, for_write=True)
         if file_path.exists() and file_path.is_dir():
             raise ValueError(f"Path is a directory: {path}")
         if file_path.exists() and not overwrite:
@@ -337,7 +382,7 @@ class FileToolkit:
 
     def apply_unified_diff(self, diff: str) -> dict[str, object]:
         """Apply a unified diff patch under the configured root."""
-        if not self.allow_write:
+        if not self.has_writable:
             raise PermissionError(
                 "apply_unified_diff is disabled for this file toolkit."
             )
@@ -352,7 +397,7 @@ class FileToolkit:
             old_is_dev_null = patch.old_path == "/dev/null"
             new_is_dev_null = patch.new_path == "/dev/null"
             target_path = patch.old_path if new_is_dev_null else patch.new_path
-            resolved = self._resolve_diff_path(target_path)
+            resolved = self._resolve_diff_path(target_path, for_write=True)
             old_lines = [] if old_is_dev_null else self._read_patch_lines(resolved)
             new_lines = self._apply_hunks(old_lines, patch.hunks, target_path)
             hunk_count += len(patch.hunks)
@@ -388,13 +433,13 @@ class FileToolkit:
         expected_replacements: int = 1,
     ) -> dict[str, object]:
         """Replace an exact text fragment in a UTF-8 file under the configured root."""
-        if not self.allow_write:
+        if not self.has_writable:
             raise PermissionError("replace_in_file is disabled for this file toolkit.")
         if not old:
             raise ValueError("old must be a non-empty string.")
         if expected_replacements < 1:
             raise ValueError("expected_replacements must be >= 1")
-        file_path = self._resolve_file(path)
+        file_path = self._resolve_file(path, for_write=True)
         content = file_path.read_text(encoding="utf-8")
         count = content.count(old)
         if count != expected_replacements:
@@ -412,7 +457,7 @@ class FileToolkit:
 
     def apply_patch(self, patch: str) -> dict[str, object]:
         """Apply a Codex-style patch envelope under the configured root."""
-        if not self.allow_write:
+        if not self.has_writable:
             raise PermissionError("apply_patch is disabled for this file toolkit.")
 
         lines = patch.splitlines(keepends=True)
@@ -443,7 +488,7 @@ class FileToolkit:
                         raise ValueError(f"Invalid add-file patch line: {current}")
                     content_lines.append(current[1:])
                     index += 1
-                resolved = self._resolve(path)
+                resolved = self._resolve(path, for_write=True)
                 if resolved.exists():
                     raise FileExistsError(f"File already exists: {path}")
                 resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -457,7 +502,7 @@ class FileToolkit:
 
             if line.startswith("*** Delete File: "):
                 path = line[len("*** Delete File: ") :].strip()
-                resolved = self._resolve_file(path)
+                resolved = self._resolve_file(path, for_write=True)
                 resolved.unlink()
                 relative = self._relative(resolved)
                 deleted_files.append(relative)
@@ -468,7 +513,7 @@ class FileToolkit:
 
             if line.startswith("*** Update File: "):
                 path = line[len("*** Update File: ") :].strip()
-                resolved = self._resolve_file(path)
+                resolved = self._resolve_file(path, for_write=True)
                 index += 1
                 move_to = None
                 if index < len(lines) - 1 and lines[index].startswith("*** Move to: "):
@@ -500,7 +545,7 @@ class FileToolkit:
                     chunk_lines,
                     path,
                 )
-                target = self._resolve(move_to) if move_to else resolved
+                target = self._resolve(move_to, for_write=True) if move_to else resolved
                 if move_to and target.exists() and target != resolved:
                     raise FileExistsError(f"File already exists: {move_to}")
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -525,16 +570,20 @@ class FileToolkit:
             "hunk_count": hunk_count,
         }
 
-    def _resolve(self, path: str) -> Path:
-        candidate = (self.root / path).expanduser().resolve()
-        try:
-            candidate.relative_to(self.root)
-        except ValueError as exc:
-            raise PermissionError(f"Path escapes toolkit root: {path}") from exc
+    def _resolve(self, path: str, *, for_write: bool = False) -> Path:
+        # Relative paths resolve against the primary root; absolute/`~` paths are taken as-is and
+        # validated against the root set, so the agent can reach a non-primary root by abs path.
+        p = Path(path).expanduser()
+        candidate = p.resolve() if p.is_absolute() else (self.root / p).resolve()
+        root = self._root_for(candidate)
+        if root is None:
+            raise PermissionError(f"Path escapes allowed roots: {path}")
+        if for_write and not root[1]:
+            raise PermissionError(f"Path is in a read-only directory: {path}")
         return candidate
 
-    def _resolve_file(self, path: str) -> Path:
-        file_path = self._resolve(path)
+    def _resolve_file(self, path: str, *, for_write: bool = False) -> Path:
+        file_path = self._resolve(path, for_write=for_write)
         if not file_path.exists():
             raise ValueError(f"File does not exist: {path}")
         if not file_path.is_file():
@@ -542,13 +591,21 @@ class FileToolkit:
         return file_path
 
     def _relative(self, path: Path) -> str:
-        return path.relative_to(self.root).as_posix()
+        # Display relative to the primary root; files in other roots show their absolute path
+        # (unambiguous and round-trippable as an argument back into the tools).
+        try:
+            return path.relative_to(self.root).as_posix()
+        except ValueError:
+            return str(path)
 
     def _ignored(self, path: Path) -> bool:
         if not self.ignore:
             return False
+        root = self._root_for(path)
+        if root is None:
+            return True
         try:
-            relative = path.relative_to(self.root)
+            relative = path.relative_to(root[0])
         except ValueError:
             return True
         return any(part in self.ignore for part in relative.parts)
@@ -571,8 +628,8 @@ class FileToolkit:
                 )
         return matches
 
-    def _resolve_diff_path(self, path: str) -> Path:
-        return self._resolve(self._clean_diff_path(path))
+    def _resolve_diff_path(self, path: str, *, for_write: bool = False) -> Path:
+        return self._resolve(self._clean_diff_path(path), for_write=for_write)
 
     def _read_patch_lines(self, path: Path) -> list[str]:
         if not path.exists():

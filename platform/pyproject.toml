@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coworker"
+version = "0.0.0"
+description = "Agent coworker platform — provider-agnostic agentic coworker runtime"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0",
+    "anthropic>=0.40",  # native Claude Messages API provider
+    "google-genai>=1.0",  # native Gemini provider
+    "textual>=1.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    # aisuite (toolkits/tracing) is sourced from this worktree via a .pth in the venv,
+    # not PyPI; these are aisuite's light base deps the toolkits need.
+    "docstring_parser",
+    "pydantic>=2",
+    "mcp>=1.1",  # MCP client (stdio + streamable-http); we use our own async layer on it
+    "httpx>=0.27",  # sync outbound senders for messaging connectors (send_message tool)
+    "ddgs>=9",  # keyless default web-search provider (DuckDuckGo); Tavily/Brave use httpx
+    "croniter>=2",  # cron next-fire math for the automation scheduler
+    # IANA tz database for zoneinfo. Windows ships no system tz db, so without this every
+    # named schedule timezone (UTC, Asia/Kolkata, …) silently falls back to local time.
+    "tzdata; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio", "httpx"]
+# Inbound messaging listeners (outbound send_message needs only httpx, already a core dep).
+messaging = ["python-telegram-bot>=21", "slack-bolt>=1.18"]
+# Interactive Cowork browser automation.
+browser = ["playwright>=1.44"]
+
+[project.scripts]
+coworker = "coworker.cli:main"
+coworker-server = "coworker.server.run:main"
+coworker-connectors = "coworker.connectors.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["coworker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
