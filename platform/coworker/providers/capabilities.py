@@ -20,11 +20,12 @@ def capabilities_for(model: str) -> ModelCapabilities:
             tools=True, vision=False, parallel_tool_calls=False, streaming=True
         )
 
-    # Claude / Gemini: tools + vision + streaming. Parallel tool calls stay off while we ride
-    # the vendors' OpenAI-compatibility endpoints; revisit when the native providers land.
+    # Claude / Gemini (both native): tools + vision + parallel tool calls + streaming. The
+    # engine executes parallel calls sequentially and each converter folds the results into
+    # the single next user message — exactly what both APIs require.
     if provider in ("anthropic", "gemini"):
         return ModelCapabilities(
-            tools=True, vision=True, parallel_tool_calls=False, streaming=True
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
         )
 
     # Modern OpenAI GPT models: tools + vision + parallel tool calls + streaming.

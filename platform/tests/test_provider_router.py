@@ -324,26 +324,25 @@ def test_set_provider_skips_recommended_when_not_pulled(tmp_path, monkeypatch):
     assert "ollama:qwen3-coder:30b" not in mgr.get_settings()["models"]
 
 
-def test_compat_builders_use_vendor_endpoints(monkeypatch):
+def test_provider_builders(monkeypatch):
     import pytest
 
-    from coworker.providers.registry import (
-        ANTHROPIC_COMPAT_URL,
-        GEMINI_COMPAT_URL,
-        build_provider_client,
-    )
+    from coworker.providers import AnthropicProvider, GeminiProvider
+    from coworker.providers.registry import build_provider_client
 
+    # anthropic and gemini are native: key resolution deferred to first call
     p = build_provider_client("anthropic", {"api_key": "sk-ant-x"}, None)
-    assert p._base_url == ANTHROPIC_COMPAT_URL and p._api_key == "sk-ant-x"
-    g = build_provider_client("gemini", {"api_key": "AIza-x"}, None)
-    assert g._base_url == GEMINI_COMPAT_URL
-
-    # env var fallback works; no key anywhere → a clear error naming the provider
-    monkeypatch.setenv("GEMINI_API_KEY", "AIza-env")
-    assert build_provider_client("gemini", {}, None)._api_key == "AIza-env"
+    assert isinstance(p, AnthropicProvider) and p._api_key == "sk-ant-x"
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="Anthropic"):
-        build_provider_client("anthropic", {}, None)
+        build_provider_client("anthropic", {}, None)._ensure_client()
+
+    g = build_provider_client("gemini", {"api_key": "AIza-x"}, None)
+    assert isinstance(g, GeminiProvider) and g._api_key == "AIza-x"
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Gemini"):
+        build_provider_client("gemini", {}, None)._ensure_client()
 
     # OpenAI custom endpoint (Azure /openai/v1, OpenRouter, vLLM, …) passes through
     o = build_provider_client("openai", {"base_url": "https://my.azure.example/openai/v1"}, None)
@@ -355,7 +354,7 @@ def test_anthropic_gemini_capabilities():
     for m in ("anthropic:claude-sonnet-4-6", "gemini:gemini-2.5-flash"):
         caps = capabilities_for(m)
         assert caps.tools is True and caps.vision is True and caps.streaming is True
-        assert caps.parallel_tool_calls is False  # conservative on the compat endpoints
+        assert caps.parallel_tool_calls is True  # both native: results fold correctly
 
 
 def test_anthropic_gemini_provider_config(tmp_path, monkeypatch):

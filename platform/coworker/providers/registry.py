@@ -7,25 +7,22 @@ a `ProviderClient`. The `ProviderRouter` selects a descriptor by the `provider:`
 model string and builds (and caches) its client from the matching SecretStore profile.
 
 Today: `openai` (the default, with an optional custom endpoint that covers Azure OpenAI's
-`/openai/v1` and any OpenAI-compliant gateway), `anthropic` and `gemini` (INTERIM: served via
-each vendor's OpenAI-compatible endpoint — to be replaced by native ProviderClients before
-launch; the descriptors and stored profiles stay the same when that swap happens), and
-`ollama` (local, OpenAI-compatible `/v1`). Bedrock/Vertex auth for Claude is future work.
+`/openai/v1` and any OpenAI-compliant gateway), `anthropic` (native Messages API via
+`AnthropicProvider`), `gemini` (native Google GenAI API via `GeminiProvider`), and `ollama`
+(local, OpenAI-compatible `/v1`). Bedrock/Vertex auth for Claude is future work.
 """
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from .anthropic_provider import AnthropicProvider
 from .base import ProviderClient
+from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-# Vendor OpenAI-compatibility endpoints (interim wire format for anthropic/gemini).
-ANTHROPIC_COMPAT_URL = "https://api.anthropic.com/v1"
-GEMINI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 
 
 @dataclass(frozen=True)
@@ -94,21 +91,17 @@ def _build_openai(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     return OpenAIProvider(secrets=secrets, base_url=base_url)
 
 
-def _compat_builder(provider: str, env_key: str, compat_url: str):
-    """INTERIM builder for anthropic/gemini: their official OpenAI-compatibility endpoints,
-    driven by our existing OpenAIProvider. Replace with native ProviderClients before launch —
-    only this factory changes; the descriptor, stored profile, and router stay as-is."""
+def _build_anthropic(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    # Key resolution stays in AnthropicProvider/resolve_api_key (explicit → env → SecretStore),
+    # deferred to first call so the provider can be built before a key exists.
+    api_key = ((profile or {}).get("api_key") or "").strip() or None
+    return AnthropicProvider(api_key=api_key, secrets=secrets)
 
-    def build(profile: dict[str, Any], secrets: Any) -> ProviderClient:
-        key = ((profile or {}).get("api_key") or "").strip() or os.environ.get(env_key)
-        if not key:
-            raise RuntimeError(
-                f"No {provider} API key configured. Add it in Manage → Configure Models, "
-                f"or set {env_key} in the environment."
-            )
-        return OpenAIProvider(api_key=key, base_url=compat_url)
 
-    return build
+def _build_gemini(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    # Same deferred-key contract as anthropic (GeminiProvider/resolve_api_key).
+    api_key = ((profile or {}).get("api_key") or "").strip() or None
+    return GeminiProvider(api_key=api_key, secrets=secrets)
 
 
 def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
@@ -157,7 +150,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 help="Stored locally (0600). Never sent to the model.",
             ),
         ],
-        build=_compat_builder("Anthropic", "ANTHROPIC_API_KEY", ANTHROPIC_COMPAT_URL),
+        build=_build_anthropic,
         recommended_model="claude-sonnet-4-6",
         env_key="ANTHROPIC_API_KEY",
     ),
@@ -174,7 +167,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 help="Stored locally (0600). Never sent to the model.",
             ),
         ],
-        build=_compat_builder("Gemini", "GEMINI_API_KEY", GEMINI_COMPAT_URL),
+        build=_build_gemini,
         recommended_model="gemini-2.5-flash",
         env_key="GEMINI_API_KEY",
     ),
