@@ -247,7 +247,7 @@ function ModelsTab() {
         </>
       ) : (
         <div className="conn-meta dim" style={{ marginBottom: 12 }}>
-          Run models locally with <code>ollama serve</code>. Coworker uses Ollama's
+          Run models locally with <code>ollama serve</code>. OpenCoworker uses Ollama's
           OpenAI-compatible API, so tools work. No API key needed.
         </div>
       )}
@@ -475,7 +475,7 @@ function SettingsTab() {
             <input type="checkbox" checked={autostart} onChange={(e) => toggleAuto(e.target.checked)} />
             <span>
               <strong>Open at login</strong>
-              <small>Launch Coworker automatically when you sign in.</small>
+              <small>Launch OpenCoworker automatically when you sign in.</small>
             </span>
           </label>
           <label className="ob-toggle">

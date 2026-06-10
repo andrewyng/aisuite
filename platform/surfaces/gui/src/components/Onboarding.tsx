@@ -160,7 +160,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           {step === 0 && (
             <div className="ob-step">
               <div className="ob-mark">✳</div>
-              <h2>Welcome to Coworker</h2>
+              <h2>Welcome to OpenCoworker</h2>
               <p className="ob-sub">
                 A quick setup: choose where your files are saved, then connect a model — an API
                 key or a local Ollama model. Takes about a minute.
@@ -353,14 +353,14 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="ob-step">
               <h2>Staying on</h2>
               <p className="ob-sub">
-                Scheduled automations only run while Coworker is running.
+                Scheduled automations only run while OpenCoworker is running.
                 {!isTauri() && " (Desktop app only.)"}
               </p>
               <label className={"ob-toggle" + (isTauri() ? "" : " disabled")}>
                 <input type="checkbox" checked={autostart} disabled={!isTauri()} onChange={(e) => toggleAuto(e.target.checked)} />
                 <span>
                   <strong>Open at login</strong>
-                  <small>Launch Coworker automatically when you sign in.</small>
+                  <small>Launch OpenCoworker automatically when you sign in.</small>
                 </span>
               </label>
               <label className={"ob-toggle" + (isTauri() ? "" : " disabled")}>
