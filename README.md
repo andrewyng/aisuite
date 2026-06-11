@@ -1,3 +1,19 @@
+> ![NEW](https://img.shields.io/badge/%E2%9C%A8_NEW-8250df?style=for-the-badge)
+> ## Introducing OpenCoworker
+> **An AI coworker that lives on your desktop — built on aisuite.**
+>
+> Give it a folder and a task, and it works the way a colleague would: researching, analyzing,
+> and producing real files on your machine — documents, spreadsheets, reports, PDFs.
+> Bring your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama.
+>
+> [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg)
+> &nbsp;&nbsp;•&nbsp;&nbsp;
+> [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe)
+>
+> <sub>macOS 13+ (Apple Silicon) &nbsp;·&nbsp; Windows 10/11 (x64) &nbsp;·&nbsp; your keys and your data stay on your machine</sub>
+
+<br>
+
 #  aisuite
 
 [![PyPI](https://img.shields.io/pypi/v/aisuite)](https://pypi.org/project/aisuite/)
