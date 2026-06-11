@@ -406,9 +406,9 @@ function SettingsTab() {
         Auto follows your Mac&rsquo;s appearance.
       </div>
 
-      <div className="sa-sub" style={{ marginTop: 22 }}>Cowork files</div>
+      <div className="sa-sub" style={{ marginTop: 22 }}>OpenCoworker files</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        Each Cowork conversation gets its own scratch folder under this location, where the agent
+        Each OpenCoworker conversation gets its own scratch folder under this location, where the agent
         saves files by default. You can grant access to more folders inside any conversation.
       </div>
       <label className="conn-field">
@@ -441,7 +441,7 @@ function SettingsTab() {
 
       <div className="sa-sub" style={{ marginTop: 22 }}>Surfaces</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        Cowork is always shown. Turn on Chat and Code to add them to the left panel.
+        OpenCoworker is always shown. Turn on Chat and Code to add them to the left panel.
       </div>
       <label className="ob-toggle">
         <input
@@ -687,7 +687,7 @@ export function ConnectorsTab() {
   return (
     <div className="conn-tab">
       <div className="mcp-intro">
-        Connect the accounts and tools Cowork can use. You bring the token for this local
+        Connect the accounts and tools OpenCoworker can use. You bring the token for this local
         build; managed one-click sign-in can replace this setup later.
       </div>
       <div className="conn-list">
@@ -781,7 +781,7 @@ function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void 
   if (!c.tools?.length) return <div className="conn-setup">No tools for this connector yet.</div>;
   return (
     <div className="conn-setup">
-      <div className="sa-sub">Tools exposed to Cowork</div>
+      <div className="sa-sub">Tools exposed to OpenCoworker</div>
       <div className="tool-settings">
         {c.tools.map((tool) => (
           <label className="tool-setting-row" key={tool.name}>
