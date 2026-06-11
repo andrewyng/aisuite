@@ -1,8 +1,6 @@
 # OpenCoworker quickstart
 
-[OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite. Give it a folder and a task, and it works the way a colleague would — researching, analyzing, and producing real files on your machine.
-
-No Python required: it ships as a regular desktop app.
+[OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite. Give it a folder and a task, and it works the way a colleague would — researching, analyzing, and producing reports, Pdfs, CSVs and HTML presentations on your machine.
 
 ## 1. Install
 
@@ -11,7 +9,7 @@ No Python required: it ships as a regular desktop app.
 | macOS 13+ (Apple Silicon, M1 or later) | [OpenCoworker-macos-arm64.dmg](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) |
 | Windows 10/11 (x64) | [OpenCoworker-windows-setup.exe](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) |
 
-The macOS app is signed and notarized — it opens like any other app. On Windows, SmartScreen may warn on first run: choose **More info → Run anyway** (the build isn't Authenticode-signed yet).
+NOTE: On Windows, SmartScreen may warn on first run: choose **More info → Run anyway** (the build isn't Authenticode-signed yet).
 
 ## 2. Connect a model
 
@@ -27,7 +25,7 @@ Grant access to a folder (read-only or read-write) and ask in plain language. So
 - *"Read the five vendor proposals in this folder and build me a comparison spreadsheet: pricing, terms, deadlines, red flags."*
 - *"Go through the receipts in this folder and produce a monthly expense report with totals by category."*
 
-Everything the agent produces is a real file in your folder. The built-in viewer previews documents, spreadsheets, images, and PDFs without leaving the app, and risky actions (shell commands, file writes outside granted folders) ask for your approval first.
+Everything the agent produces is saved to a scratch folder by default, but you can ask it to save it to a folder of your choice. The built-in viewer previews documents, spreadsheets, images, and PDFs without leaving the app, and risky actions (shell commands, file writes outside granted folders) ask for your approval first.
 
 ## 4. Automations
 
