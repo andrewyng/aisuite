@@ -55,7 +55,7 @@ You'll also need API keys for the providers you call — the [Chat Completions q
 
 ### The OpenCoworker app (desktop)
 
-No Python needed — download the installer and bring your own API key (or run local models with Ollama):
+Download the installer and bring your own API key (or run local models with Ollama):
 
 [**⬇ macOS (Apple Silicon)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) &nbsp;·&nbsp; [**⬇ Windows 10/11 (x64)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) &nbsp;·&nbsp; [OpenCoworker quickstart](docs/opencoworker-quickstart.md)
 
@@ -179,7 +179,7 @@ For reusable connections, security filters, and tool prefixing, use the explicit
 ---
 
 <a id="opencoworker"></a>
-## OpenCoworker — the stack, shipped as an app
+## OpenCoworker — an AI coworker on your desktop
 
 [OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite — the Agents API, Toolkits, and MCP support above are the same machinery it runs in production. Point it at a folder, give it a task, and it researches, analyzes, and produces real files on your machine, with approvals before risky actions and your API keys stored locally.
 
