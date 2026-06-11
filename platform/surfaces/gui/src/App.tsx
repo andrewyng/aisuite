@@ -818,6 +818,13 @@ export function App() {
               rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
               prefill={composerPrefill}
               resetKey={sessionId}
+              placeholder={
+                agent === "code"
+                  ? "Ask the coder to build, fix, or explain…  (drop or paste images)"
+                  : agent === "chat"
+                    ? "Ask anything…  (drop or paste images)"
+                    : "Ask the coworker…  (drop or paste images)"
+              }
               approvalSlot={
                 pendingDirReq?.kind === "dirreq" ? (
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />

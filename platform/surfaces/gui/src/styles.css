@@ -371,7 +371,8 @@ body {
 .approval-detail {
   margin-top: 11px; font-family: var(--mono); font-size: 12.5px; color: var(--ink);
   background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
-  overflow-wrap: anywhere;
+  overflow-wrap: anywhere; white-space: pre-wrap;
+  max-height: 180px; overflow-y: auto; /* long scripts scroll; full command stays reviewable */
 }
 .approval-rest {
   margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--faint);
@@ -564,7 +565,13 @@ button.btn.danger { color: var(--accent); }
   gap: 14px; padding: 40px; text-align: center; color: var(--muted);
 }
 .artifact-open-prompt p { margin: 0; max-width: 280px; }
-.artifact-pdf { display: block; width: 100%; height: 100%; min-height: calc(100vh - 86px); border: 0; }
+/* pdf.js-rendered pages, stacked like a document scroll */
+.artifact-pdfjs { padding: 18px 16px; }
+.artifact-pdf-page {
+  display: block; width: 100%; height: auto; margin: 0 auto 14px;
+  border: 1px solid var(--line); border-radius: 4px; background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
 
 /* csv / spreadsheet preview */
 .artifact-tablewrap { padding: 14px 16px 40px; overflow: auto; }
