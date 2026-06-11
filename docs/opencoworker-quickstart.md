@@ -47,4 +47,4 @@ Your API keys, your conversations, and your files stay on your machine. OpenCowo
 
 ## For developers
 
-OpenCoworker's source lives in this repository under [`platform/`](../platform/). It is built on the [Agents API and Toolkits](agents-quickstart.md) — a working reference for building your own agent harness with aisuite.
+OpenCoworker's source lives in this repository under [`platform/`](../platform/). It is built using aisuite (see the [Agents quickstart](agents-quickstart.md)) — a working reference for building your own agent harness.

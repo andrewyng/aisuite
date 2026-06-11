@@ -35,7 +35,7 @@
 
 * **[Chat Completions API](#chat-completions)** — a unified, OpenAI-style interface for *OpenAI, Anthropic, Google, Mistral, Hugging Face, AWS, Cohere, Ollama, OpenRouter*, and more. Swap providers by changing one string.
 * **[Agents API · Toolkits · MCP](#agents)** — give models real Python functions as tools, run multi-turn loops, attach ready-made toolkits (files, git, shell) or any MCP server, and govern it all with tool policies.
-* **[OpenCoworker](#opencoworker)** — a desktop AI coworker built using aisuite: the layers above, shipped as an app for everyday tasks.
+* **[OpenCoworker](#opencoworker)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks.
 
 ---
 
@@ -181,7 +181,7 @@ For reusable connections, security filters, and tool prefixing, use the explicit
 <a id="opencoworker"></a>
 ## OpenCoworker — an AI coworker on your desktop
 
-[OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite — the Agents API, Toolkits, and MCP support above are the same machinery it runs in production. Point it at a folder, give it a task, and it researches, analyzes, and produces real files on your machine, with approvals before risky actions and your API keys stored locally.
+[OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite. Point it at a folder, give it a task, and it researches, analyzes, and produces real files on your machine, with approvals before risky actions and your API keys stored locally.
 
 [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) (Apple Silicon) &nbsp;·&nbsp; [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) (10/11 x64)
 
