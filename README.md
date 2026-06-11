@@ -41,38 +41,23 @@
 
 ## Installation
 
-You can install just the base `aisuite` package, or install a provider's package along with `aisuite`.
+### The aisuite library (Python)
 
-Install just the base package without any provider SDKs:
-
-```shell
-pip install aisuite
-```
-
-Install aisuite with a specific provider (e.g., Anthropic):
+Install the base package, or include the SDKs of the providers you plan to use:
 
 ```shell
-pip install 'aisuite[anthropic]'
+pip install aisuite               # base package, no provider SDKs
+pip install 'aisuite[anthropic]'  # with a specific provider's SDK
+pip install 'aisuite[all]'        # with all provider SDKs
 ```
 
-Install aisuite with all provider libraries:
+You'll also need API keys for the providers you call — the [Chat Completions quickstart](docs/chat-completions-quickstart.md) covers key setup and your first calls.
 
-```shell
-pip install 'aisuite[all]'
-```
+### The OpenCoworker app (desktop)
 
-## Setup
+No Python needed — download the installer and bring your own API key (or run local models with Ollama):
 
-To get started, you will need API Keys for the providers you intend to use. You'll need to
-install the provider-specific library either separately or when installing aisuite.
-
-The API Keys can be set as environment variables, or can be passed as config to the aisuite Client constructor.
-You can use tools like [`python-dotenv`](https://pypi.org/project/python-dotenv/) or [`direnv`](https://direnv.net/) to set the environment variables manually. Please take a look at the `examples` folder to see usage.
-
-```shell
-export OPENAI_API_KEY="your-openai-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-```
+[**⬇ macOS (Apple Silicon)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) &nbsp;·&nbsp; [**⬇ Windows 10/11 (x64)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) &nbsp;·&nbsp; [OpenCoworker quickstart](docs/opencoworker-quickstart.md)
 
 ---
 
@@ -103,7 +88,7 @@ for model in models:
     print(response.choices[0].message.content)
 ```
 
-For the list of supported providers, see the `aisuite/providers/` directory (`<provider>_provider.py`). For more examples, check out the `examples` directory, which contains several runnable notebooks.
+**→ Quickstart:** [docs/chat-completions-quickstart.md](docs/chat-completions-quickstart.md) — install, key setup, local models, and more examples.
 
 ---
 
@@ -187,7 +172,9 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-For reusable connections, security filters, and tool prefixing, use the explicit `MCPClient` — see [docs/mcp-tools.md](docs/mcp-tools.md) and `examples/mcp_tools_example.ipynb`.
+For reusable connections, security filters, and tool prefixing, use the explicit `MCPClient`.
+
+**→ Quickstart:** [docs/agents-quickstart.md](docs/agents-quickstart.md) — manual tool handling, the full Agents API, policies, state stores, and MCP in depth.
 
 ---
 
@@ -199,6 +186,8 @@ For reusable connections, security filters, and tool prefixing, use the explicit
 [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) (Apple Silicon) &nbsp;·&nbsp; [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) (10/11 x64)
 
 Its source lives in this repository under `platform/` — a working reference for building your own agent harness on aisuite.
+
+**→ Quickstart:** [docs/opencoworker-quickstart.md](docs/opencoworker-quickstart.md) — install, connect a model, first tasks, automations.
 
 ---
 
