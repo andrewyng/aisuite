@@ -21,6 +21,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from .config import MCPServerDef
+from .oauth import build_auth
 
 
 class _Conn:
@@ -82,9 +83,12 @@ class MCPManager:
                         raise ValueError(
                             f"MCP server '{server.name}' is http but has no url"
                         )
+                    auth = (
+                        build_auth(server.name, server.oauth) if server.oauth else None
+                    )
                     read, write, *_ = await stack.enter_async_context(
                         streamablehttp_client(
-                            server.url, headers=server.headers or None
+                            server.url, headers=server.headers or None, auth=auth
                         )
                     )
                 else:

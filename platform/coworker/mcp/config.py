@@ -34,6 +34,8 @@ class MCPServerDef:
     include_tools: Optional[list[str]] = None
     exclude_tools: Optional[list[str]] = None
     requires_approval: bool = True
+    # OAuth client settings for http servers (see mcp/oauth.py); `${VAR}` refs resolved.
+    oauth: Optional[dict[str, Any]] = None
 
 
 def global_mcp_path() -> Path:
@@ -71,6 +73,7 @@ def _parse(name: str, raw: dict[str, Any], secrets: SecretStore) -> MCPServerDef
         include_tools=raw.get("include_tools"),
         exclude_tools=raw.get("exclude_tools"),
         requires_approval=bool(raw.get("requires_approval", True)),
+        oauth=raw.get("oauth") if isinstance(raw.get("oauth"), dict) else None,
     )
 
 
