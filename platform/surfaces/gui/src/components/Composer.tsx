@@ -46,6 +46,8 @@ interface Props {
   prefill?: { text: string; attachments?: Attachment[]; nonce: number };
   // Changes when the active conversation changes; clears any unsent draft.
   resetKey?: string;
+  // Surface-specific hint shown in the empty textarea.
+  placeholder?: string;
 }
 
 export function Composer(props: Props) {
@@ -169,7 +171,7 @@ export function Composer(props: Props) {
 
         <textarea
           ref={textareaRef}
-          placeholder="Ask the coder to build, fix, or explain…  (drop or paste images)"
+          placeholder={props.placeholder || "Ask the coworker…  (drop or paste images)"}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
