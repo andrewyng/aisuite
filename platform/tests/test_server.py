@@ -292,6 +292,32 @@ def test_ws_approval_round_trip(tmp_path):
     assert (tmp_path / "made.py").read_text() == "print(1)\n"
 
 
+def test_ws_session_persisted_while_parked_on_approval(tmp_path):
+    """A crash mid-turn must not eat the conversation: by the time the engine parks on an
+    approval, the session (user message + assistant tool call) is already on disk."""
+    manager = SessionManager(
+        workspace=tmp_path,
+        provider=ScriptedProvider(
+            [_tool("write_file", {"path": "x.py", "content": "1\n"}), _text("done")]
+        ),
+    )
+    client = TestClient(create_app(manager))
+    with client.websocket_connect("/ws/session/persist1") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_message", "text": "make x.py"})
+        while ws.receive_json()["type"] != "permission_required":
+            pass
+        # Parked on the approval — nothing approved, turn far from done. Already saved?
+        rec = manager.session_store.load("persist1")
+        assert rec is not None
+        roles = [m.get("role") for m in rec.messages]
+        assert "user" in roles  # turn_start checkpoint
+        assert "assistant" in roles  # iteration progress checkpoint
+        ws.send_json({"type": "approval", "decision": "deny"})
+        while ws.receive_json()["type"] != "turn_done":
+            pass
+
+
 def test_ws_browser_tool_audit_round_trip(tmp_path):
     client = _client(tmp_path, [_tool("browser_close", {}), _text("closed")])
     with client.websocket_connect("/ws/session/browser-audit?agent=cowork") as ws:

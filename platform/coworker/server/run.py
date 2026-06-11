@@ -20,32 +20,50 @@ def _exit_when_orphaned() -> None:
     crash) that skips the shell's graceful child-kill. Standalone `coworker-server` runs are
     unaffected.
 
-    POSIX: detected via re-parenting — when our parent dies, getppid() flips to 1 (init/launchd).
-    Windows: there is no re-parenting and getppid() keeps returning the stale PID, so instead we
-    block on a handle to the parent process and exit the moment it signals (i.e. the parent
-    exited)."""
+    The GUI passes its own PID in `COWORKER_PARENT_PID`. Watching that explicit PID (not
+    getppid) is what makes this work under PyInstaller onefile, where this process is a
+    *grandchild* of the GUI — the bootloader sits in between, so getppid() points at the
+    bootloader and a re-parenting check never fires when the GUI dies (the bug that leaked
+    a server pair on every app quit).
+
+    POSIX: poll the PID with kill(pid, 0). Windows: no re-parenting semantics at all, so
+    block on a process handle and exit the moment it signals (i.e. the parent exited).
+    """
     if os.environ.get("COWORKER_EXIT_WITH_PARENT") != "1":
         return
     import threading
 
+    try:
+        parent = int(os.environ.get("COWORKER_PARENT_PID") or 0)
+    except ValueError:
+        parent = 0
+    parent = parent or os.getppid()  # standalone fallback: our direct spawner
+
     if sys.platform == "win32":
-        _watch_parent_windows()
+        _watch_parent_windows(parent)
         return
 
     import time
 
-    original = os.getppid()
+    original_ppid = os.getppid()
 
     def watch() -> None:
         while True:
             time.sleep(1.5)
-            if os.getppid() != original:
+            try:
+                os.kill(parent, 0)  # liveness probe only; signal 0 delivers nothing
+            except ProcessLookupError:
+                os._exit(0)
+            except PermissionError:
+                pass  # alive, but owned by someone else (shouldn't happen) — keep waiting
+            # Secondary signal: our direct parent died (covers PID-reuse edge cases).
+            if os.getppid() != original_ppid:
                 os._exit(0)
 
     threading.Thread(target=watch, daemon=True).start()
 
 
-def _watch_parent_windows() -> None:
+def _watch_parent_windows(parent: int) -> None:
     """Block on a handle to the parent process; exit only when it actually terminates.
 
     Best-effort — any failure leaves the parent's RunEvent::ExitRequested kill as the primary
@@ -69,7 +87,7 @@ def _watch_parent_windows() -> None:
     kernel32.WaitForSingleObject.restype = wintypes.DWORD
     kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 
-    handle = kernel32.OpenProcess(SYNCHRONIZE, False, os.getppid())
+    handle = kernel32.OpenProcess(SYNCHRONIZE, False, parent)
     if not handle:
         return
 

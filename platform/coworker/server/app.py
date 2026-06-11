@@ -451,10 +451,24 @@ def create_app(manager: SessionManager) -> FastAPI:
             }
         )
 
+        # Checkpoint events: persist mid-turn so a crash/quit can't eat the conversation.
+        # turn_start = the user message just landed (a brand-new session gets its row here,
+        # not at connect — empty never-used sessions shouldn't appear in Recents);
+        # permission_required/directory_requested = parked indefinitely on the user;
+        # iteration_end = a model response + its tool results completed.
+        _CHECKPOINTS = {
+            "turn_start",
+            "permission_required",
+            "directory_requested",
+            "iteration_end",
+        }
+
         async def run_turn(content) -> None:
             try:
                 async for event in engine.run(content):
                     await ws.send_json({"type": event.type.value, "data": event.data})
+                    if event.type.value in _CHECKPOINTS:
+                        manager.save(session_id, engine)
             finally:
                 manager.save(session_id, engine)
                 await ws.send_json({"type": "turn_done", "data": {}})

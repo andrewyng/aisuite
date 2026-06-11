@@ -289,7 +289,11 @@ pub fn run() {
                 .args(["--host", "127.0.0.1", "--port", &port.to_string()])
                 // The sidecar self-exits if we die abruptly (dev-watcher restart, crash) —
                 // belt-and-suspenders alongside the RunEvent::ExitRequested kill below.
+                // The explicit PID matters: under PyInstaller onefile the python process is a
+                // *grandchild* (bootloader in between), so getppid() never points at us and a
+                // reparenting check alone leaks both processes on quit.
                 .env("COWORKER_EXIT_WITH_PARENT", "1")
+                .env("COWORKER_PARENT_PID", std::process::id().to_string())
                 // This GUI app has no console, so a console-subsystem child would inherit
                 // invalid std handles and crash a few seconds in when uvicorn writes its logs
                 // (the "Starting coworker…" freeze on Windows). Hand it null handles instead.
@@ -379,7 +383,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the OpenCoworker desktop app")
         .run(|app, event| {
-            if let RunEvent::ExitRequested { .. } = event {
+            // Also on Exit: belt-and-suspenders in case a quit path reaches teardown without
+            // a preceding ExitRequested (observed with macOS Cmd+Q under the tray setup).
+            if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(state) = app.try_state::<ServerProcess>() {
                     if let Some(mut child) = state.0.lock().unwrap().take() {
                         let _ = child.kill();
