@@ -45,7 +45,7 @@ export function ScheduledView({ onOpenRun, onRunNow }: Props) {
           <span className="mark">⏰</span> Scheduled tasks
         </div>
         <div className="sa-view-sub">
-          Run tasks on a schedule. Ask Cowork or MyHelper to "set up an automation…".
+          Run tasks on a schedule. Ask OpenCoworker or MyHelper to "set up an automation…".
         </div>
       </div>
       <div className="main-scroll">
@@ -60,7 +60,7 @@ export function ScheduledView({ onOpenRun, onRunNow }: Props) {
           <div className="hero">
             <h1 className="greeting"><span className="mark">⏰</span> No scheduled tasks yet.</h1>
             <div className="suggest-head">
-              In a Cowork session, try: "Search the web and give me a news briefing every day at 7:10pm."
+              In an OpenCoworker session, try: "Search the web and give me a news briefing every day at 7:10pm."
             </div>
           </div>
         ) : (

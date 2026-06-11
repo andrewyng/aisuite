@@ -10,7 +10,7 @@ export function IntegrationsView() {
           <Icon name="plug" size={19} className="mark" /> Integrations
         </div>
         <div className="sa-view-sub">
-          External accounts and tools Cowork can use — messaging connectors and MCP servers, with
+          External accounts and tools OpenCoworker can use — messaging connectors and MCP servers, with
           per-tool controls and approval boundaries.
         </div>
       </div>
