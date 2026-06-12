@@ -183,8 +183,14 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/connectors/{name}/connect")
     async def connector_connect(name: str, body: dict) -> dict[str, Any]:
         fields = body.get("fields") if isinstance(body, dict) else None
+        # experimental connectors require the caller to explicitly acknowledge the risk notice
+        acknowledged = bool(isinstance(body, dict) and body.get("acknowledge_risk"))
         # token validation does a blocking HTTP call → keep it off the event loop
-        return await asyncio.to_thread(manager.connect_connector, name, fields or {})
+        return await asyncio.to_thread(
+            lambda: manager.connect_connector(
+                name, fields or {}, acknowledged=acknowledged
+            )
+        )
 
     @app.post("/v1/connectors/{name}/disconnect")
     def connector_disconnect(name: str) -> dict[str, Any]:
@@ -279,6 +285,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/settings/onboarded")
     def settings_set_onboarded(body: dict) -> dict[str, Any]:
         return manager.set_onboarded(bool((body or {}).get("value", True)))
+
+    @app.post("/v1/settings/experimental-connectors")
+    def settings_set_experimental(body: dict) -> dict[str, Any]:
+        return manager.set_experimental_connectors(bool((body or {}).get("value")))
 
     @app.post("/v1/settings/surfaces")
     def settings_set_surfaces(body: dict) -> dict[str, Any]:

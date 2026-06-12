@@ -30,12 +30,22 @@ ROOT = os.path.dirname(PLATFORM)
 
 IS_WINDOWS = sys.platform == "win32"
 
+# Experimental (use-at-your-own-risk) connectors are excluded from official builds: the code
+# is stripped, not just disabled. Self-builders opt in with COWORKER_EXPERIMENTAL=1; the
+# loader in coworker/connectors/descriptors.py treats the missing package as a no-op.
+INCLUDE_EXPERIMENTAL = os.environ.get("COWORKER_EXPERIMENTAL") == "1"
+
 hiddenimports = []
 datas = []
 binaries = []
 
 for pkg in ("coworker", "aisuite", "mcp", "ddgs", "croniter", "docstring_parser"):
     hiddenimports += collect_submodules(pkg)
+
+if not INCLUDE_EXPERIMENTAL:
+    hiddenimports = [
+        m for m in hiddenimports if not m.startswith("coworker.connectors.experimental")
+    ]
 
 for pkg in ("uvicorn", "certifi", "anyio"):
     d, b, h = collect_all(pkg)
@@ -67,7 +77,8 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "PIL", "PyQt5", "PySide6"],
+    excludes=["tkinter", "matplotlib", "PIL", "PyQt5", "PySide6"]
+    + ([] if INCLUDE_EXPERIMENTAL else ["coworker.connectors.experimental"]),
     noarchive=False,
 )
 pyz = PYZ(a.pure)
