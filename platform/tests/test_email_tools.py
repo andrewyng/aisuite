@@ -137,8 +137,13 @@ def test_resolve_servers_gmail_preset():
 
 def test_resolve_servers_advanced_fields_override_preset():
     servers, _ = resolve_servers(
-        {"address": "x@gmail.com", "imap_host": "mail.corp.io", "imap_port": "1993",
-         "smtp_host": "smtp.corp.io", "smtp_port": "465"}
+        {
+            "address": "x@gmail.com",
+            "imap_host": "mail.corp.io",
+            "imap_port": "1993",
+            "smtp_host": "smtp.corp.io",
+            "smtp_port": "465",
+        }
     )
     assert (servers.imap_host, servers.imap_port) == ("mail.corp.io", 1993)
     assert (servers.smtp_host, servers.smtp_port) == ("smtp.corp.io", 465)
@@ -158,8 +163,11 @@ def test_criteria_default_is_all():
 
 def test_criteria_quoting_dates_and_unseen():
     criteria, _ = build_search_criteria(
-        from_address='a "b" c@x.io', subject="hi", since="2026-01-05",
-        before="2026-02-01", unread_only=True,
+        from_address='a "b" c@x.io',
+        subject="hi",
+        since="2026-01-05",
+        before="2026-02-01",
+        unread_only=True,
     )
     text = criteria.decode()
     assert 'FROM "a \\"b\\" c@x.io"' in text
@@ -248,7 +256,12 @@ def test_download_attachment_saves_into_scratch_only(tmp_path):
     scratch.mkdir()
 
     no_roots = _tools(secrets, imap=imap)
-    assert "no writable" in no_roots["email_download_attachment"](uid="7", filename="report.pdf")["error"]
+    assert (
+        "no writable"
+        in no_roots["email_download_attachment"](uid="7", filename="report.pdf")[
+            "error"
+        ]
+    )
 
     imap2 = FakeIMAP({"7": _multipart_message()})
     tools = _tools(secrets, imap=imap2, roots=[RootDir(path=scratch, writable=True)])
@@ -279,7 +292,9 @@ def test_send_reply_threads_and_reuses_subject(tmp_path):
     imap = FakeIMAP({"7": _multipart_message()})
     smtp = FakeSMTP()
     tools = _tools(_connected_secrets(tmp_path), imap=imap, smtp=smtp)
-    result = tools["email_send"](to="ana@example.com", subject="", body="re!", reply_to_uid="7")
+    result = tools["email_send"](
+        to="ana@example.com", subject="", body="re!", reply_to_uid="7"
+    )
     assert result["ok"] and result["subject"] == "Re: Quarterly report"
     sent = smtp.sent[0]
     assert sent["In-Reply-To"] == "<orig-123@example.com>"
@@ -295,7 +310,8 @@ def test_send_attachment_must_live_inside_roots(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("nope")
     tools = _tools(
-        _connected_secrets(tmp_path), smtp=smtp,
+        _connected_secrets(tmp_path),
+        smtp=smtp,
         roots=[RootDir(path=scratch, writable=True)],
     )
     denied = tools["email_send"](
@@ -333,8 +349,11 @@ def test_connector_registration():
     descriptor = get_descriptor("email")
     assert descriptor is not None and descriptor.auth == "app_password"
     assert {t.name for t in TOOLS_BY_CONNECTOR["email"]} == {
-        "email_list_folders", "email_search", "email_read",
-        "email_download_attachment", "email_send",
+        "email_list_folders",
+        "email_search",
+        "email_read",
+        "email_download_attachment",
+        "email_send",
     }
     assert connector_for_tool("email_send") == "email"
 

@@ -195,14 +195,18 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
                 help="Only needed for providers we don't auto-detect.",
                 placeholder="imap.example.com",
             ),
-            Field("imap_port", "IMAP port (advanced)", required=False, placeholder="993"),
+            Field(
+                "imap_port", "IMAP port (advanced)", required=False, placeholder="993"
+            ),
             Field(
                 "smtp_host",
                 "SMTP host (advanced)",
                 required=False,
                 placeholder="smtp.example.com",
             ),
-            Field("smtp_port", "SMTP port (advanced)", required=False, placeholder="587"),
+            Field(
+                "smtp_port", "SMTP port (advanced)", required=False, placeholder="587"
+            ),
         ],
         instructions=[
             "Gmail: turn on 2-Step Verification, then create an app password at myaccount.google.com/apppasswords.",

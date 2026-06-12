@@ -147,9 +147,18 @@ def decode_mime_header(raw: Any) -> str:
 
 def _strip_html(html: str) -> str:
     text = re.sub(r"<(br|/p|/div|/tr)\s*/?>", "\n", html, flags=re.IGNORECASE)
-    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL
+    )
     text = re.sub(r"<[^>]+>", "", text)
-    for entity, char in (("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'")):
+    for entity, char in (
+        ("&nbsp;", " "),
+        ("&amp;", "&"),
+        ("&lt;", "<"),
+        ("&gt;", ">"),
+        ("&quot;", '"'),
+        ("&#39;", "'"),
+    ):
         text = text.replace(entity, char)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
@@ -192,7 +201,9 @@ def list_attachment_parts(
     for part in msg.walk():
         disposition = str(part.get("Content-Disposition", ""))
         filename = part.get_filename()
-        if "attachment" not in disposition and not (filename and "inline" in disposition):
+        if "attachment" not in disposition and not (
+            filename and "inline" in disposition
+        ):
             continue
         if filename:
             out.append((decode_mime_header(filename), part))
@@ -278,7 +289,9 @@ def _select_readonly(imap: imaplib.IMAP4, folder: str) -> Optional[str]:
     return None
 
 
-def _fetch_message(imap: imaplib.IMAP4, uid: str) -> Optional[email_lib.message.Message]:
+def _fetch_message(
+    imap: imaplib.IMAP4, uid: str
+) -> Optional[email_lib.message.Message]:
     status, data = imap.uid("FETCH", uid, "(BODY.PEEK[])")
     if status != "OK" or not data or not isinstance(data[0], tuple):
         return None
@@ -347,14 +360,24 @@ def make_email_tools(
         """(imap, profile, servers, error) — error is a tool-result dict."""
         profile = secrets.get("email:default") or {}
         if not profile.get("address") or not profile.get("app_password"):
-            return None, None, None, {"error": "email is not connected; add it in Manage → Integrations"}
+            return (
+                None,
+                None,
+                None,
+                {"error": "email is not connected; add it in Manage → Integrations"},
+            )
         servers, err = resolve_servers(profile)
         if servers is None:
             return None, None, None, {"error": err}
         try:
             imap = _imap_login(profile, servers, imap_factory)
         except Exception as exc:
-            return None, None, None, {"error": f"IMAP login failed: {exc}.{_auth_hint(servers)}"}
+            return (
+                None,
+                None,
+                None,
+                {"error": f"IMAP login failed: {exc}.{_auth_hint(servers)}"},
+            )
         return imap, profile, servers, None
 
     def _logout(imap) -> None:
@@ -508,7 +531,9 @@ def make_email_tools(
     ) -> dict[str, Any]:
         scratch = roots[0] if roots else None
         if scratch is None or not scratch.writable:
-            return {"error": "no writable session directory to save the attachment into"}
+            return {
+                "error": "no writable session directory to save the attachment into"
+            }
         imap, _, _, err = _connect_imap()
         if err:
             return err
@@ -525,12 +550,17 @@ def make_email_tools(
                     target = scratch.path / _safe_filename(name)
                     counter = 1
                     while target.exists():
-                        target = scratch.path / f"{target.stem.rstrip('-0123456789') or 'attachment'}-{counter}{target.suffix}"
+                        target = (
+                            scratch.path
+                            / f"{target.stem.rstrip('-0123456789') or 'attachment'}-{counter}{target.suffix}"
+                        )
                         counter += 1
                     target.write_bytes(payload)
                     return {"ok": True, "path": str(target), "size": len(payload)}
             available = [n for n, _ in list_attachment_parts(msg)]
-            return {"error": f"no attachment named {filename!r}; message has {available}"}
+            return {
+                "error": f"no attachment named {filename!r}; message has {available}"
+            }
         except Exception as exc:
             return {"error": str(exc)}
         finally:
@@ -555,7 +585,9 @@ def make_email_tools(
 
         msg = EmailMessage()
         display = str(profile.get("display_name") or "").strip()
-        msg["From"] = formataddr((display, profile["address"])) if display else profile["address"]
+        msg["From"] = (
+            formataddr((display, profile["address"])) if display else profile["address"]
+        )
         msg["To"] = to
         if cc:
             msg["Cc"] = cc
@@ -579,7 +611,9 @@ def make_email_tools(
                     "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES SUBJECT)])",
                 )
                 if status != "OK" or not data or not isinstance(data[0], tuple):
-                    return {"error": f"reply target {reply_to_uid} not found in {reply_to_folder}"}
+                    return {
+                        "error": f"reply target {reply_to_uid} not found in {reply_to_folder}"
+                    }
                 orig = email_lib.message_from_bytes(data[0][1])
                 orig_id = str(orig.get("Message-ID", "")).strip()
                 if orig_id:
@@ -604,7 +638,9 @@ def make_email_tools(
         for raw_path in attachments or []:
             path = Path(str(raw_path)).expanduser().resolve()
             if not any(path.is_relative_to(root) for root in allowed_roots):
-                return {"error": f"attachment {raw_path} is outside the session's directories"}
+                return {
+                    "error": f"attachment {raw_path} is outside the session's directories"
+                }
             if not path.is_file():
                 return {"error": f"attachment not found: {raw_path}"}
             import mimetypes
@@ -612,7 +648,10 @@ def make_email_tools(
             ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             maintype, subtype = ctype.split("/", 1)
             msg.add_attachment(
-                path.read_bytes(), maintype=maintype, subtype=subtype, filename=path.name
+                path.read_bytes(),
+                maintype=maintype,
+                subtype=subtype,
+                filename=path.name,
             )
 
         try:
@@ -649,15 +688,33 @@ def make_email_tools(
                 "Search the connected mailbox. Returns newest-first envelopes (uid, date, "
                 "from, to, subject, unread, has_attachments). Never marks messages read.",
                 {
-                    "folder": {"type": "string", "description": "Mailbox folder, default INBOX."},
+                    "folder": {
+                        "type": "string",
+                        "description": "Mailbox folder, default INBOX.",
+                    },
                     "from_address": {"type": "string", "description": "Match sender."},
                     "to_address": {"type": "string", "description": "Match recipient."},
-                    "subject": {"type": "string", "description": "Match subject substring."},
-                    "text": {"type": "string", "description": "Match anywhere in the message."},
-                    "since": {"type": "string", "description": "On/after this date, YYYY-MM-DD."},
-                    "before": {"type": "string", "description": "Before this date, YYYY-MM-DD."},
+                    "subject": {
+                        "type": "string",
+                        "description": "Match subject substring.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Match anywhere in the message.",
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": "On/after this date, YYYY-MM-DD.",
+                    },
+                    "before": {
+                        "type": "string",
+                        "description": "Before this date, YYYY-MM-DD.",
+                    },
                     "unread_only": {"type": "boolean"},
-                    "max_results": {"type": "integer", "description": "Default 10, max 25."},
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Default 10, max 25.",
+                    },
                 },
                 [],
             ),
@@ -672,7 +729,10 @@ def make_email_tools(
                 "(use email_download_attachment to save one). Never marks messages read.",
                 {
                     "uid": {"type": "string", "description": "UID from email_search."},
-                    "folder": {"type": "string", "description": "Folder the uid lives in, default INBOX."},
+                    "folder": {
+                        "type": "string",
+                        "description": "Folder the uid lives in, default INBOX.",
+                    },
                 },
                 ["uid"],
             ),
@@ -687,8 +747,14 @@ def make_email_tools(
                 "and return the saved path. Requires user approval.",
                 {
                     "uid": {"type": "string", "description": "UID from email_search."},
-                    "filename": {"type": "string", "description": "Attachment filename as listed by email_read."},
-                    "folder": {"type": "string", "description": "Folder the uid lives in, default INBOX."},
+                    "filename": {
+                        "type": "string",
+                        "description": "Attachment filename as listed by email_read.",
+                    },
+                    "folder": {
+                        "type": "string",
+                        "description": "Folder the uid lives in, default INBOX.",
+                    },
                 },
                 ["uid", "filename"],
             ),
@@ -703,13 +769,22 @@ def make_email_tools(
                 "to a message pass reply_to_uid (threading headers and Re: subject are set "
                 "automatically; leave subject empty to reuse the original).",
                 {
-                    "to": {"type": "string", "description": "Recipient address(es), comma-separated."},
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient address(es), comma-separated.",
+                    },
                     "subject": {"type": "string"},
                     "body": {"type": "string", "description": "Plain-text body."},
                     "cc": {"type": "string"},
                     "bcc": {"type": "string"},
-                    "reply_to_uid": {"type": "string", "description": "UID of the message being replied to."},
-                    "reply_to_folder": {"type": "string", "description": "Folder of reply_to_uid, default INBOX."},
+                    "reply_to_uid": {
+                        "type": "string",
+                        "description": "UID of the message being replied to.",
+                    },
+                    "reply_to_folder": {
+                        "type": "string",
+                        "description": "Folder of reply_to_uid, default INBOX.",
+                    },
                     "attachments": {
                         "type": "array",
                         "items": {"type": "string"},
