@@ -19,7 +19,7 @@
 [![PyPI](https://img.shields.io/pypi/v/aisuite)](https://pypi.org/project/aisuite/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-`aisuite` is one open stack for building with LLMs — three layers, each useful on its own:
+`aisuite` is a lightweight Python library for building with LLMs, in two layers: a unified **Chat Completions API** across providers, and an **Agents API** with tools and toolkits on top. This repo is also home to **OpenCoworker**, a desktop AI coworker built using aisuite:
 
 ```text
 ┌───────────────────────────────────────────────┐
