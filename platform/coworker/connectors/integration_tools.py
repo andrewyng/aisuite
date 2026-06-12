@@ -17,6 +17,7 @@ import aisuite as ai
 
 from ..secrets import SecretStore
 from .browser_automation import make_browser_automation_tools
+from .email_tools import make_email_tools
 from .tool_defs import connector_for_tool
 
 
@@ -158,8 +159,12 @@ def make_integration_tools(
     *,
     enabled_connectors: Optional[set[str]] = None,
     enabled_tools: Optional[set[str]] = None,
+    roots: Optional[list[Any]] = None,
 ) -> list[Callable[..., Any]]:
     tools: list[Callable[..., Any]] = make_browser_automation_tools()
+    # Email needs the session roots: attachment downloads land in the primary scratch
+    # and outgoing attachments must resolve inside a granted directory.
+    tools.extend(make_email_tools(secrets, roots=roots))
 
     def browser_read_url(url: str, max_chars: int = 20000) -> dict[str, Any]:
         if not url.lower().startswith(("http://", "https://")):

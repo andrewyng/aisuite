@@ -74,6 +74,13 @@ def _validate_telegram(creds: dict) -> ValidationResult:
     return ValidationResult(False, error=data.get("description") or "invalid bot token")
 
 
+def _validate_email(creds: dict) -> ValidationResult:
+    from .email_tools import validate_email_account
+
+    ok, identity, error = validate_email_account(creds)
+    return ValidationResult(ok, identity=identity or None, error=error or None)
+
+
 def _validate_slack(creds: dict) -> ValidationResult:
     import httpx
 
@@ -159,6 +166,55 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Paste both tokens below and Connect, then invite the bot to a channel or DM it.",
         ],
         validate=_validate_slack,
+    ),
+    ConnectorDescriptor(
+        name="email",
+        title="Email (IMAP)",
+        icon="✉",
+        blurb="Read, search, and send mail from any IMAP account — Gmail, iCloud, Fastmail, or custom.",
+        auth="app_password",
+        two_way=False,
+        fields=[
+            Field("address", "Email address", placeholder="you@gmail.com"),
+            Field(
+                "app_password",
+                "App password",
+                secret=True,
+                help="Gmail/iCloud: generate an app password (requires 2-step verification). Not your account password.",
+            ),
+            Field(
+                "display_name",
+                "Display name",
+                required=False,
+                help="Shown as the From name on sent mail.",
+            ),
+            Field(
+                "imap_host",
+                "IMAP host (advanced)",
+                required=False,
+                help="Only needed for providers we don't auto-detect.",
+                placeholder="imap.example.com",
+            ),
+            Field(
+                "imap_port", "IMAP port (advanced)", required=False, placeholder="993"
+            ),
+            Field(
+                "smtp_host",
+                "SMTP host (advanced)",
+                required=False,
+                placeholder="smtp.example.com",
+            ),
+            Field(
+                "smtp_port", "SMTP port (advanced)", required=False, placeholder="587"
+            ),
+        ],
+        instructions=[
+            "Gmail: turn on 2-Step Verification, then create an app password at myaccount.google.com/apppasswords.",
+            "iCloud: generate an app-specific password at account.apple.com → Sign-In and Security.",
+            "Enter your address and the app password below. Gmail, iCloud, and Fastmail servers are detected automatically; for other providers fill in the IMAP/SMTP hosts.",
+            "Note: Google Workspace and Microsoft 365 accounts often have IMAP or app passwords disabled by the org admin.",
+        ],
+        validate=_validate_email,
     ),
     ConnectorDescriptor(
         name="gmail",
