@@ -1,10 +1,13 @@
 > ![NEW](https://img.shields.io/badge/%E2%9C%A8_NEW-8250df?style=for-the-badge)
-> ## Introducing OpenCoworker
-> **An AI coworker that lives on your desktop — built on aisuite.**
+> ## OpenCoworker
+> **An AI agent that lives on your desktop, built on aisuite.**
 >
-> Give it a folder and a task, and it works the way a colleague would: researching, analyzing,
-> and producing real files on your machine — documents, spreadsheets, reports, PDFs.
-> Bring your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama.
+> OpenCoworker is a desktop AI agent that can not only chat, but also do deep research and carry out tasks for
+> you on your computer. It can read files (with permission) to gain context, read/send messages (slack, email, etc.),
+> and create real deliverables like PDF reports, documents, spreadsheets. It also supports scheduled automations,
+> such as providing you a daily news summary. 
+>
+> Requires bringing your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama.
 >
 > [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg)
 > &nbsp;&nbsp;•&nbsp;&nbsp;
