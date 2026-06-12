@@ -23,7 +23,7 @@ except ImportError:
 class Client:
     def __init__(
         self,
-        provider_configs: dict = {},
+        provider_configs: Optional[dict] = None,
         extra_param_mode: Literal["strict", "warn", "permissive"] = "warn",
     ):
         """
@@ -49,18 +49,28 @@ class Client:
                 - "permissive": Allow all params without validation (testing)
         """
         self.providers = {}
-        self.provider_configs = provider_configs
+        self.provider_configs = self._copy_provider_configs(provider_configs)
         self.extra_param_mode = extra_param_mode
         self.param_validator = ParamValidator(extra_param_mode)
         self._chat = None
         self._audio = None
+
+    @staticmethod
+    def _copy_provider_configs(provider_configs: Optional[dict]) -> dict:
+        if provider_configs is None:
+            return {}
+
+        return {
+            provider_key: dict(config)
+            for provider_key, config in provider_configs.items()
+        }
 
     def _initialize_providers(self):
         """Helper method to initialize or update providers."""
         for provider_key, config in self.provider_configs.items():
             provider_key = self._validate_provider_key(provider_key)
             self.providers[provider_key] = ProviderFactory.create_provider(
-                provider_key, config
+                provider_key, dict(config)
             )
 
     def _validate_provider_key(self, provider_key):
@@ -84,7 +94,7 @@ class Client:
         if provider_configs is None:
             return
 
-        self.provider_configs.update(provider_configs)
+        self.provider_configs.update(self._copy_provider_configs(provider_configs))
         # Providers will be lazily initialized when needed
 
     @property
@@ -382,7 +392,7 @@ class Completions:
         if provider_key not in self.client.providers:
             config = self.client.provider_configs.get(provider_key, {})
             self.client.providers[provider_key] = ProviderFactory.create_provider(
-                provider_key, config
+                provider_key, dict(config)
             )
 
         provider = self.client.providers.get(provider_key)
@@ -534,7 +544,7 @@ class Transcriptions:
             config = self.client.provider_configs.get(provider_key, {})
             try:
                 self.client.providers[provider_key] = ProviderFactory.create_provider(
-                    provider_key, config
+                    provider_key, dict(config)
                 )
             except ImportError as e:
                 raise ValueError(f"Provider '{provider_key}' is not available: {e}")
