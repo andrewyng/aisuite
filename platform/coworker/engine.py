@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 from .events import Event, EventType
-from .permissions import PermissionEngine
+from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .tools import ToolRegistry
 
@@ -64,6 +64,9 @@ class TurnEngine:
         directory_requester: Optional[
             Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
         ] = None,
+        plan_approver: Optional[
+            Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
+        ] = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -83,6 +86,10 @@ class TurnEngine:
         # user to grant/decline a folder out-of-band, applies the grant to this live session, and
         # returns the outcome. None on surfaces that can't prompt (the tool then no-ops).
         self.directory_requester = directory_requester
+        # Handles the `propose_plan` tool: emits PLAN_PROPOSED, waits for the user's decision.
+        # An approving result flips the live PermissionEngine out of plan mode (same session,
+        # context kept). None on surfaces that can't prompt (the tool then no-ops).
+        self.plan_approver = plan_approver
         self.audit_context: dict[str, Any] = {}
         if instructions and not (
             self.messages and self.messages[0].get("role") == "system"
@@ -203,11 +210,20 @@ class TurnEngine:
         run concurrently; everything else runs one at a time in call order."""
         cleared: list[ToolCall] = []
         for tool_call in tool_calls:
-            # `request_directory` is interactive: the user grants a folder out-of-band and
-            # the live session gains it. The grant IS the consent, so it skips the
+            yield Event(
+                EventType.TOOL_PROPOSED,
+                {"name": tool_call.name, "arguments": tool_call.arguments},
+            )
+            self._audit(tool_call, stage="proposed")
+            # `request_directory` and `propose_plan` are interactive: the user decides
+            # out-of-band and that decision IS the consent, so they skip the
             # permission/registry path.
             if tool_call.name == "request_directory":
                 async for event in self._handle_directory_request(tool_call):
+                    yield event
+                continue
+            if tool_call.name == "propose_plan":
+                async for event in self._handle_plan_proposal(tool_call):
                     yield event
                 continue
             allowed = False
@@ -252,16 +268,11 @@ class TurnEngine:
         )
 
     async def _authorize(self, tool_call: ToolCall) -> "AsyncIterator[Event | bool]":
-        """Permission flow for one call. Yields its events, then True/False (allowed) last.
-        Denied/unknown calls get their tool-error message appended here."""
+        """Permission flow for one call (TOOL_PROPOSED is emitted by the caller). Yields
+        its events, then True/False (allowed) last. Denied/unknown calls get their
+        tool-error message appended here."""
         spec = self.registry.get(tool_call.name)
         metadata = spec.metadata if spec else None
-
-        yield Event(
-            EventType.TOOL_PROPOSED,
-            {"name": tool_call.name, "arguments": tool_call.arguments},
-        )
-        self._audit(tool_call, stage="proposed")
 
         decision = self.permissions.evaluate(
             tool_call.name, tool_call.arguments, metadata
@@ -376,6 +387,57 @@ class TurnEngine:
             self.audit_sink(payload)
         except Exception:
             pass
+
+    async def _handle_plan_proposal(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+        """Emit the plan for review, await the user's out-of-band decision, and apply it:
+        approval flips the live PermissionEngine out of plan mode (the same session keeps
+        going, with all its exploration context); rejection keeps plan mode and returns
+        the user's feedback so the agent can revise."""
+        args = tool_call.arguments or {}
+        plan = str(args.get("plan", ""))
+        if self.plan_approver is None:
+            result: dict[str, Any] = {
+                "approved": False,
+                "error": "plan approval isn't available here",
+            }
+        else:
+            yield Event(EventType.PLAN_PROPOSED, {"plan": plan})
+            self._audit(tool_call, stage="plan_proposed")
+            result = await self.plan_approver(dict(args)) or {
+                "approved": False,
+                "error": "no response",
+            }
+
+        if result.get("approved"):
+            # The approver may pick the post-plan mode ("interactive" asks per write,
+            # "auto" executes the approved plan without further prompts).
+            try:
+                self.permissions.mode = Mode(str(result.get("mode", "interactive")))
+            except ValueError:
+                self.permissions.mode = Mode.INTERACTIVE
+            result = {
+                **result,
+                "mode": self.permissions.mode.value,
+                "note": "plan approved — implement it now",
+            }
+
+        status = "ok" if result.get("approved") else "denied"
+        self.messages.append(_tool_result_message(tool_call, result))
+        self._audit(
+            tool_call,
+            stage="finished",
+            status=status,
+            result=result,
+            result_preview=_preview(result),
+        )
+        yield Event(
+            EventType.TOOL_FINISHED,
+            {
+                "name": tool_call.name,
+                "status": status,
+                "result_preview": _preview(result),
+            },
+        )
 
     async def _handle_directory_request(
         self, tool_call: ToolCall

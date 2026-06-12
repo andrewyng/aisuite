@@ -29,9 +29,35 @@ from .secrets import SecretStore, state_dir
 from .skills import SkillLoader, skill_catalog_text, skill_tools
 from .tools import ToolRegistry
 from .tools.directories import request_directory_tool
+from .tools.plan import propose_plan_tool
+from .tools.subagent import explorer_tools
 from .web import make_web_fetch_tool, make_web_search_tool
 from .tools.shell import LocalExecutor
 from .tools.todo import TodoList
+
+# Appended to the latest user message every turn while plan mode is active. The mode can
+# flip mid-session (plan approval), so this can't live in the static instructions.
+_PLAN_MODE_CONTEXT = """\
+Plan mode is active: write and shell tools are blocked. Explore read-only and design an
+approach. When you've committed to one, present it with `propose_plan` (what you'll change,
+in which files, how you'll verify) — don't describe edits as if you were making them. If
+the plan is approved, this same session switches to execution and you implement it; if
+rejected, revise the plan using the feedback."""
+
+# When-to-remember rules, injected only when a memory store is wired. Without these,
+# models either never call `remember` or save noise the repo already records.
+_MEMORY_GUIDANCE = """\
+Memory:
+- You have persistent memory across sessions. Use `remember` for durable facts: the user's \
+corrections and stated preferences (include the why), and project context you couldn't \
+rederive from the code. Don't save what the repo already records (code structure, git \
+history, AGENTS.md) or details that only matter to the current task. Use absolute dates, \
+never "yesterday".
+- Before saving, check the known-memories list: if an entry already covers it, revise that \
+entry with `memory_update` instead of adding a near-duplicate; retire wrong or obsolete \
+entries with `memory_forget`.
+- Memories reflect when they were written. If one names a file, flag, or URL, verify it \
+still exists before relying on it."""
 
 
 def _enabled_connector_tools(secrets: SecretStore) -> tuple[set[str], set[str]]:
@@ -78,6 +104,7 @@ def build_engine(
     audit_sink: Optional[Any] = None,
     roots: Optional[list] = None,
     directory_requester: Optional[Any] = None,
+    plan_approver: Optional[Any] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
@@ -129,6 +156,21 @@ def build_engine(
     # Web search + fetch: research tools for every agent (keyless DuckDuckGo default).
     registry.register(make_web_search_tool(secrets))
     registry.register(make_web_fetch_tool())
+    # Route by the model's `provider:` prefix (OpenAI default, Ollama, …). The manager normally
+    # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
+    # Resolved here (not at engine construction) because the explorer subagent captures it.
+    provider = provider or ProviderRouter(secrets, default_provider="openai")
+    # The Code agent can fan broad research out to read-only explorer subagents, keeping its
+    # own context for the actual change.
+    if agent.name == "code" and ws is not None:
+        registry.register_all(
+            explorer_tools(
+                workspace=ws,
+                provider=provider,
+                model=model,
+                model_settings=model_settings,
+            )
+        )
     # Scheduling: Cowork + MyHelper can set up scheduled tasks (origin = this session).
     if (
         task_store is not None
@@ -156,6 +198,7 @@ def build_engine(
         registry.register_all(
             memory_tools(memory_store, workspace=str(ws) if ws else None)
         )
+        instructions = f"{instructions}\n\n{_MEMORY_GUIDANCE}"
         remembered = memory_store.list(scope=Scope.GLOBAL)
         if ws is not None:
             remembered += memory_store.list(scope=Scope.WORKSPACE, workspace=str(ws))
@@ -176,17 +219,30 @@ def build_engine(
         auto_allow_tools=set(config.auto_allow),
         roots=root_list or None,
     )
-    # Tell the agent, each turn, which directories it has and their access (orphan Cowork can gain
-    # folders mid-session) — appended to the latest user message since mid-thread system messages
-    # aren't reliable across providers. Multi-dir surfaces (Cowork/MyHelper) only.
-    context_provider = (
+    # Sessions that START in plan mode get the exit door: propose_plan, whose approval
+    # flips `permissions.mode` live (the engine handles the round-trip).
+    if mode is Mode.PLAN:
+        registry.register(propose_plan_tool())
+
+    # Per-turn ephemeral context, appended to the latest user message since mid-thread system
+    # messages aren't reliable across providers. Two producers: the plan-mode reminder (mode can
+    # flip mid-session, so it's checked each turn, not baked into the instructions) and the live
+    # directory list (orphan Cowork can gain folders mid-session; Cowork/MyHelper only).
+    roots_context = (
         (lambda: render_context(root_list))
         if root_list and agent.name in ("cowork", "myhelper")
         else None
     )
-    # Route by the model's `provider:` prefix (OpenAI default, Ollama, …). The manager normally
-    # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
-    provider = provider or ProviderRouter(secrets, default_provider="openai")
+
+    def context_provider() -> str:
+        parts = []
+        if permissions.mode is Mode.PLAN:
+            parts.append(_PLAN_MODE_CONTEXT)
+        if roots_context is not None:
+            ctx = roots_context()
+            if ctx:
+                parts.append(ctx)
+        return "\n\n".join(parts)
 
     engine = TurnEngine(
         provider=provider,
@@ -203,6 +259,7 @@ def build_engine(
         audit_sink=audit_sink,
         context_provider=context_provider,
         directory_requester=directory_requester,
+        plan_approver=plan_approver,
     )
     engine.executor = executor  # type: ignore[attr-defined]
     engine.todo = todo  # type: ignore[attr-defined]

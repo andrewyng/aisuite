@@ -49,11 +49,12 @@ def test_memory_listable_and_editable(tmp_path):
     assert store.get(item.id) is None
 
 
-def test_format_memories(tmp_path):
+def test_format_memories_shows_ids(tmp_path):
     store = _store(tmp_path)
-    store.add("fact one", workspace="/proj")
+    item = store.add("fact one", workspace="/proj")
     rendered = format_memories(store.list(workspace="/proj"))
     assert "fact one" in rendered and "Known memories" in rendered
+    assert f"[#{item.id}]" in rendered  # ids let the agent update/forget
 
 
 # -- remember tool --------------------------------------------------------------
@@ -71,6 +72,35 @@ def test_remember_tool_persists(tmp_path):
         m.content == "deploys on Fridays are banned"
         for m in store.list(workspace="/proj")
     )
+
+
+def test_memory_update_and_forget_tools(tmp_path):
+    store = _store(tmp_path)
+    reg = ToolRegistry()
+    reg.register_all(memory_tools(store, workspace="/proj"))
+    assert {"remember", "memory_update", "memory_forget"} <= set(reg.names())
+
+    saved = reg.execute("remember", {"content": "uses npm"})
+    updated = reg.execute(
+        "memory_update", {"memory_id": saved["id"], "content": "uses pnpm, not npm"}
+    )
+    assert updated["updated"] is True
+    assert store.get(saved["id"]).content == "uses pnpm, not npm"
+
+    gone = reg.execute("memory_forget", {"memory_id": saved["id"]})
+    assert gone["deleted"] is True
+    assert store.get(saved["id"]) is None
+
+
+def test_memory_update_and_forget_unknown_id(tmp_path):
+    store = _store(tmp_path)
+    reg = ToolRegistry()
+    reg.register_all(memory_tools(store, workspace="/proj"))
+    assert (
+        "no memory"
+        in reg.execute("memory_update", {"memory_id": 99, "content": "x"})["error"]
+    )
+    assert "no memory" in reg.execute("memory_forget", {"memory_id": 99})["error"]
 
 
 # -- sessions -------------------------------------------------------------------
@@ -121,9 +151,16 @@ def test_build_code_engine_injects_memory(tmp_path):
         workspace=tmp_path, provider=_StubProvider(), memory_store=store
     )
     try:
-        assert "remember" in engine.registry.names()
+        assert {"remember", "memory_update", "memory_forget"} <= set(
+            engine.registry.names()
+        )
         assert engine.messages[0]["role"] == "system"
         assert "always run black" in engine.messages[0]["content"]
+        # when-to-remember guidance rides along with the tools
+        assert "memory_update" in engine.messages[0]["content"]
+        assert (
+            "Don't save what the repo already records" in engine.messages[0]["content"]
+        )
     finally:
         engine.executor.close()
 

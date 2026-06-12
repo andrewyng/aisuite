@@ -18,6 +18,9 @@ class EventType(str, Enum):
     TOOL_PROPOSED = "tool_proposed"
     PERMISSION_REQUIRED = "permission_required"
     DIRECTORY_REQUESTED = "directory_requested"  # agent asks the user to grant a folder
+    PLAN_PROPOSED = (
+        "plan_proposed"  # agent presents a plan for approval (plan mode exit)
+    )
     TOOL_STARTED = "tool_started"
     TOOL_FINISHED = "tool_finished"
     ITERATION_END = "iteration_end"
