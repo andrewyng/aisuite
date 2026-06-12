@@ -93,6 +93,125 @@ def _validate_slack(creds: dict) -> ValidationResult:
     return ValidationResult(False, error=data.get("error") or "invalid bot token")
 
 
+def _validate_whoami(
+    method: str,
+    url: str,
+    *,
+    headers: dict,
+    identity: Callable[[dict], str],
+    json: Optional[dict] = None,
+) -> ValidationResult:
+    """Shared one-shot whoami check: 2xx + extractable identity, else a failure."""
+    import httpx
+
+    try:
+        resp = httpx.request(method, url, headers=headers, json=json, timeout=15)
+        data = resp.json()
+    except Exception as exc:
+        return ValidationResult(False, error=str(exc))
+    if resp.status_code >= 400:
+        detail = (
+            (data.get("message") or data.get("error") or data.get("error_summary"))
+            if isinstance(data, dict)
+            else None
+        )
+        return ValidationResult(False, error=str(detail or f"HTTP {resp.status_code}"))
+    try:
+        return ValidationResult(True, identity=str(identity(data)))
+    except Exception:
+        return ValidationResult(False, error="unexpected response from API")
+
+
+def _validate_linear(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "POST",
+        "https://api.linear.app/graphql",
+        headers={
+            "Authorization": creds.get("api_key", ""),
+            "Content-Type": "application/json",
+        },
+        json={"query": "{ viewer { name } }"},
+        identity=lambda d: d["data"]["viewer"]["name"],
+    )
+
+
+def _validate_gitlab(creds: dict) -> ValidationResult:
+    base = str(creds.get("base_url") or "https://gitlab.com").rstrip("/")
+    return _validate_whoami(
+        "GET",
+        f"{base}/api/v4/user",
+        headers={"PRIVATE-TOKEN": creds.get("token", "")},
+        identity=lambda d: "@" + d["username"],
+    )
+
+
+def _validate_discord(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://discord.com/api/v10/users/@me",
+        headers={"Authorization": f"Bot {creds.get('bot_token', '')}"},
+        identity=lambda d: d["username"],
+    )
+
+
+def _validate_asana(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://app.asana.com/api/1.0/users/me",
+        headers={"Authorization": f"Bearer {creds.get('token', '')}"},
+        identity=lambda d: d["data"]["name"],
+    )
+
+
+def _validate_hubspot(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.hubapi.com/account-info/v3/details",
+        headers={"Authorization": f"Bearer {creds.get('token', '')}"},
+        identity=lambda d: f"portal {d['portalId']}",
+    )
+
+
+def _validate_dropbox(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "POST",
+        "https://api.dropboxapi.com/2/users/get_current_account",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d["email"],
+    )
+
+
+def _quickbooks_host(creds: dict) -> str:
+    env = str(creds.get("environment", "")).lower()
+    return (
+        "sandbox-quickbooks.api.intuit.com"
+        if env.startswith("sand")
+        else "quickbooks.api.intuit.com"
+    )
+
+
+def _validate_quickbooks(creds: dict) -> ValidationResult:
+    realm = creds.get("realm_id", "")
+    return _validate_whoami(
+        "GET",
+        f"https://{_quickbooks_host(creds)}/v3/company/{realm}/companyinfo/{realm}",
+        headers={
+            "Authorization": f"Bearer {creds.get('access_token', '')}",
+            "Accept": "application/json",
+        },
+        identity=lambda d: d["CompanyInfo"]["CompanyName"],
+    )
+
+
+def _validate_box(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.box.com/2.0/users/me",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d["login"],
+    )
+
+
 _ALLOWED_FIELD = Field(
     key="allowed_users",
     label="Allowed user IDs",
@@ -346,6 +465,220 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Paste your subdomain, agent email, and API token below.",
         ],
         available=True,
+    ),
+    ConnectorDescriptor(
+        name="linear",
+        title="Linear",
+        icon="⟋",
+        blurb="Search, read, and create Linear issues.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field(
+                "api_key",
+                "API key",
+                secret=True,
+                help="Personal API key from Linear settings.",
+                placeholder="lin_api_…",
+            ),
+        ],
+        instructions=[
+            "In Linear, open Settings → Security & access → Personal API keys.",
+            "Create a key and paste it below.",
+        ],
+        validate=_validate_linear,
+    ),
+    ConnectorDescriptor(
+        name="gitlab",
+        title="GitLab",
+        icon="▲",
+        blurb="Work with issues and merge requests on GitLab.com or self-hosted.",
+        auth="token",
+        two_way=False,
+        fields=[
+            Field(
+                "base_url",
+                "GitLab URL",
+                required=False,
+                help="Leave empty for gitlab.com.",
+                placeholder="https://gitlab.example.com",
+            ),
+            Field(
+                "token",
+                "Personal access token",
+                secret=True,
+                help="Token with read_api scope (api for write actions).",
+                placeholder="glpat-…",
+            ),
+        ],
+        instructions=[
+            "Create a GitLab personal access token with the read_api scope (api for write actions).",
+            "For self-hosted GitLab, enter your instance URL; leave empty for gitlab.com.",
+        ],
+        validate=_validate_gitlab,
+    ),
+    ConnectorDescriptor(
+        name="discord",
+        title="Discord",
+        icon="✦",
+        blurb="Read channels and send messages through a Discord bot.",
+        auth="bot_token",
+        two_way=False,
+        fields=[
+            Field(
+                "bot_token",
+                "Bot token",
+                secret=True,
+                help="From the Bot tab of your Discord application.",
+            ),
+        ],
+        instructions=[
+            "Go to discord.com/developers/applications → New Application → Bot.",
+            "Copy the bot token and paste it below.",
+            "Use the OAuth2 URL generator to invite the bot to your server with Read/Send Messages permissions.",
+        ],
+        validate=_validate_discord,
+    ),
+    ConnectorDescriptor(
+        name="stripe",
+        title="Stripe",
+        icon="≋",
+        blurb="Read-only access to customers, charges, and invoices.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field(
+                "api_key",
+                "Restricted API key",
+                secret=True,
+                help="Read-only restricted key recommended.",
+                placeholder="rk_live_…",
+            ),
+        ],
+        instructions=[
+            "In the Stripe Dashboard, create a restricted API key with read access to Customers, Charges, and Invoices.",
+            "Paste the key below. The connector only exposes read tools.",
+        ],
+    ),
+    ConnectorDescriptor(
+        name="asana",
+        title="Asana",
+        icon="⊙",
+        blurb="Search tasks, read details, and create tasks.",
+        auth="token",
+        two_way=False,
+        fields=[
+            Field(
+                "token",
+                "Personal access token",
+                secret=True,
+                help="From the Asana developer console.",
+            ),
+        ],
+        instructions=[
+            "In Asana, open My Settings → Apps → Manage developer apps.",
+            "Create a personal access token and paste it below.",
+        ],
+        validate=_validate_asana,
+    ),
+    ConnectorDescriptor(
+        name="hubspot",
+        title="HubSpot",
+        icon="⊚",
+        blurb="Search CRM contacts, companies, and deals; create contacts.",
+        auth="token",
+        two_way=False,
+        fields=[
+            Field(
+                "token",
+                "Private app token",
+                secret=True,
+                help="Access token of a HubSpot private app.",
+                placeholder="pat-…",
+            ),
+        ],
+        instructions=[
+            "In HubSpot, go to Settings → Integrations → Private Apps and create an app.",
+            "Grant CRM object read scopes (and crm.objects.contacts.write to create contacts).",
+            "Copy the access token and paste it below.",
+        ],
+        validate=_validate_hubspot,
+    ),
+    ConnectorDescriptor(
+        name="dropbox",
+        title="Dropbox",
+        icon="▣",
+        blurb="Search, browse, and read files in Dropbox.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Dropbox token with files.metadata.read and files.content.read scopes.",
+            ),
+        ],
+        instructions=[
+            "Create an app in the Dropbox App Console with files.metadata.read and files.content.read scopes.",
+            "Generate an access token and paste it below. Managed sign-in will replace this manual step later.",
+        ],
+        validate=_validate_dropbox,
+    ),
+    ConnectorDescriptor(
+        name="box",
+        title="Box",
+        icon="▢",
+        blurb="Search, browse, and read files in Box.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Box developer token or OAuth access token.",
+            ),
+        ],
+        instructions=[
+            "Create a Box app at app.box.com/developers/console.",
+            "Generate a developer token (or OAuth access token) and paste it below. Managed sign-in will replace this manual step later.",
+        ],
+        validate=_validate_box,
+    ),
+    ConnectorDescriptor(
+        name="quickbooks",
+        title="QuickBooks",
+        icon="◴",
+        blurb="Read-only access to customers, invoices, and financial reports.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Intuit OAuth token with the com.intuit.quickbooks.accounting scope. Expires hourly.",
+            ),
+            Field(
+                "realm_id",
+                "Company ID (realm ID)",
+                help="Shown during OAuth authorization and in the developer playground.",
+            ),
+            Field(
+                "environment",
+                "Environment",
+                required=False,
+                help="production (default) or sandbox.",
+                placeholder="production",
+            ),
+        ],
+        instructions=[
+            "Create an app at developer.intuit.com and authorize it against your company (the OAuth playground works for testing).",
+            "Copy the access token and the company ID (realm ID) and paste them below.",
+            "Intuit access tokens expire after about an hour. Managed sign-in will replace this manual step later.",
+        ],
+        validate=_validate_quickbooks,
     ),
 ]
 
