@@ -1,6 +1,6 @@
 # OpenCoworker quickstart
 
-[OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite. Give it a folder and a task, and it works the way a colleague would — researching, analyzing, and producing reports, Pdfs, CSVs and HTML presentations on your machine.
+[OpenCoworker] is a desktop AI agent that can not only chat, but also do deep research and carry out tasks for you on your computer. It can read files (with permission) to gain context, read/send messages (slack, email, etc.), and create real deliverables like PDF reports, documents, spreadsheets. It also supports scheduled automations, such as providing you a daily news summary.
 
 ## 1. Install
 
@@ -13,7 +13,7 @@ NOTE: On Windows, SmartScreen may warn on first run: choose **More info → Run 
 
 ## 2. Connect a model
 
-On first launch, pick a provider and paste your API key — OpenAI, Anthropic (Claude), or Google (Gemini) — or select **Ollama** to run fully local with no key at all. Keys are stored on your machine and sent only to the provider you chose; there is no OpenCoworker server.
+Pick a provider and paste your API key — OpenAI, Anthropic (Claude), or Google (Gemini) — or select **Ollama** to run fully local with no key at all. Keys are stored on your machine and sent only to the provider you chose; there is no OpenCoworker server.
 
 You can connect several providers and switch models per conversation.
 
