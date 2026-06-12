@@ -123,6 +123,7 @@ def build_engine(
                 secrets,
                 enabled_connectors=enabled_connectors,
                 enabled_tools=enabled_tools,
+                roots=root_list or None,
             )
         )
     # Web search + fetch: research tools for every agent (keyless DuckDuckGo default).
