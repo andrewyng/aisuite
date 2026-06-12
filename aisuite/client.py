@@ -360,7 +360,7 @@ class Completions:
         Supports automatic tool execution when max_turns is specified.
         """
         # Check that correct format is used
-        if ":" not in model:
+        if not isinstance(model, str) or ":" not in model:
             raise ValueError(
                 f"Invalid model format. Expected 'provider:model', got '{model}'"
             )
