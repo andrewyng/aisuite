@@ -35,6 +35,7 @@ from ..connectors import (
     set_experimental_enabled,
     update_connector_tools,
 )
+from ..connectors.descriptors import get_descriptor as connector_descriptor
 from ..connectors.browser_automation import (
     browser_close_session,
     browser_state,
@@ -363,6 +364,14 @@ class SessionManager:
 
     def set_experimental_connectors(self, value: bool) -> dict[str, Any]:
         return set_experimental_enabled(self.secrets, value)
+
+    async def connector_status(self, name: str) -> dict[str, Any]:
+        """Live adapter status (pairing QR etc.) for connectors whose adapter exposes one."""
+        adapter = self.gateway._adapters.get(name) if self.gateway is not None else None
+        status = getattr(adapter, "status", None)
+        if adapter is None or status is None:
+            return {"running": False, "status": "down"}
+        return await status()
 
     def disconnect_connector(self, name: str) -> dict[str, Any]:
         return disconnect_connector(self.secrets, name)
@@ -990,6 +999,14 @@ class SessionManager:
         )
         for platform, st in settings.items():
             if not st.enabled:
+                continue
+            # experimental platforms only listen while the opt-in setting is on
+            desc = connector_descriptor(platform)
+            if (
+                desc is not None
+                and desc.experimental
+                and not experimental_enabled(self.secrets)
+            ):
                 continue
             profile = self.secrets.get(f"{platform}:default") or {}
             adapter = make_adapter(platform, profile)

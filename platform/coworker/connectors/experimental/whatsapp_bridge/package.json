@@ -1,0 +1,13 @@
+{
+  "name": "coworker-whatsapp-bridge",
+  "version": "0.1.0",
+  "description": "EXPERIMENTAL WhatsApp personal-account bridge for OpenCoworker (unofficial protocol — use at your own risk)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9"
+  }
+}

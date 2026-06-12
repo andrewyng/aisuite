@@ -6,3 +6,7 @@ __pycache__/
 build/
 dist/
 .coverage
+
+# experimental WhatsApp bridge — deps are installed into the state dir, never vendored
+coworker/connectors/experimental/whatsapp_bridge/node_modules/
+coworker/connectors/experimental/whatsapp_bridge/package-lock.json

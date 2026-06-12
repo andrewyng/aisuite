@@ -14,7 +14,24 @@ from typing import Optional
 from ..secrets import SecretStore
 from .base import SessionSource
 
-PLATFORMS = ("telegram", "slack")
+PLATFORMS: list[str] = ["telegram", "slack"]
+
+# Per-platform credential key in the SecretStore profile that proves "connected enough to
+# listen". None → the platform needs no stored credential (e.g. QR-paired bridges); a bare
+# profile written by connect_connector is enough.
+_CREDENTIAL_KEYS: dict[str, Optional[str]] = {
+    "telegram": "bot_token",
+    "slack": "bot_token",
+}
+
+
+def register_platform(
+    name: str, *, credential_key: Optional[str] = "bot_token"
+) -> None:
+    """Register an extra two-way platform (used by the experimental package)."""
+    if name not in PLATFORMS:
+        PLATFORMS.append(name)
+    _CREDENTIAL_KEYS[name] = credential_key
 
 
 @dataclass
@@ -49,13 +66,14 @@ def load_settings(
     out: dict[str, ConnectorSettings] = {}
     for platform in PLATFORMS:
         profile = secrets.get(f"{platform}:default") or {}
-        token = profile.get("bot_token")
+        cred_key = _CREDENTIAL_KEYS.get(platform, "bot_token")
+        has_cred = bool(profile.get(cred_key)) if cred_key else bool(profile)
         allowed = set(profile.get("allowed_users") or [])
         allowed |= _csv(os.environ.get(f"{platform.upper()}_ALLOWED_USERS"))
         allow_all = bool(profile.get("allow_all")) or os.environ.get(
             f"{platform.upper()}_ALLOW_ALL_USERS", ""
         ).lower() in ("1", "true", "yes")
-        enabled = bool(token) and profile.get("enabled", True)
+        enabled = has_cred and profile.get("enabled", True)
         out[platform] = ConnectorSettings(
             platform=platform,
             enabled=enabled,

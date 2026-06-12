@@ -196,6 +196,11 @@ def create_app(manager: SessionManager) -> FastAPI:
     def connector_disconnect(name: str) -> dict[str, Any]:
         return manager.disconnect_connector(name)
 
+    @app.get("/v1/connectors/{name}/status")
+    async def connector_status(name: str) -> dict[str, Any]:
+        # live adapter state — e.g. the WhatsApp Personal pairing QR while it's scanning
+        return await manager.connector_status(name)
+
     @app.patch("/v1/connectors/{name}/tools")
     def connector_tools_patch(name: str, body: dict) -> dict[str, Any]:
         enabled = (body or {}).get("enabled")
