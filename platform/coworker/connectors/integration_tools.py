@@ -8,10 +8,12 @@ access-token fields without changing the tool surface.
 from __future__ import annotations
 
 import base64
+import json
 import re
 from email.message import EmailMessage
 from html.parser import HTMLParser
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 import aisuite as ai
 
@@ -152,6 +154,38 @@ def _basic_auth(email: str, token: str) -> tuple[str, str]:
 
 def _atlassian_base(profile: dict[str, Any]) -> str:
     return str(profile.get("base_url", "")).rstrip("/")
+
+
+def _bearer_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+
+def _gitlab_api(profile: dict[str, Any]) -> str:
+    base = str(profile.get("base_url") or "https://gitlab.com").rstrip("/")
+    return f"{base}/api/v4"
+
+
+def _linear_gql(api_key: str, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    return _request(
+        "POST",
+        "https://api.linear.app/graphql",
+        headers={"Authorization": api_key, "Content-Type": "application/json"},
+        json={"query": query, "variables": variables},
+    )
+
+
+def _clamp(n: Any, default: int = 10, ceiling: int = 20) -> int:
+    return max(1, min(int(n or default), ceiling))
+
+
+def _qbo_base(profile: dict[str, Any]) -> str:
+    env = str(profile.get("environment", "")).lower()
+    host = (
+        "sandbox-quickbooks.api.intuit.com"
+        if env.startswith("sand")
+        else "quickbooks.api.intuit.com"
+    )
+    return f"https://{host}/v3/company/{profile['realm_id']}"
 
 
 def make_integration_tools(
@@ -983,6 +1017,891 @@ def make_integration_tools(
             ),
             approval=True,
             caps=["zendesk", "write"],
+        )
+    )
+
+    def linear_search_issues(query: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "linear", "api_key")
+        if err:
+            return err
+        gql = (
+            "query($term: String!, $first: Int!) {"
+            " searchIssues(term: $term, first: $first) {"
+            " nodes { identifier title url state { name } assignee { name } } } }"
+        )
+        return _linear_gql(
+            profile["api_key"], gql, {"term": query, "first": _clamp(max_results)}
+        )
+
+    linear_search_issues.__name__ = "linear_search_issues"
+    tools.append(
+        _attach(
+            linear_search_issues,
+            _schema(
+                "linear_search_issues",
+                "Search Linear issues by text.",
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["query"],
+            ),
+            caps=["linear", "read"],
+        )
+    )
+
+    def linear_get_issue(issue_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "linear", "api_key")
+        if err:
+            return err
+        gql = (
+            "query($id: String!) { issue(id: $id) {"
+            " identifier title description url state { name } assignee { name }"
+            " comments { nodes { body user { name } } } } }"
+        )
+        return _linear_gql(profile["api_key"], gql, {"id": issue_id})
+
+    linear_get_issue.__name__ = "linear_get_issue"
+    tools.append(
+        _attach(
+            linear_get_issue,
+            _schema(
+                "linear_get_issue",
+                "Read a Linear issue (with comments) by ID or key like ENG-123.",
+                {"issue_id": {"type": "string"}},
+                ["issue_id"],
+            ),
+            caps=["linear", "read"],
+        )
+    )
+
+    def linear_list_teams() -> dict[str, Any]:
+        profile, err = _profile(secrets, "linear", "api_key")
+        if err:
+            return err
+        return _linear_gql(
+            profile["api_key"], "{ teams { nodes { id key name } } }", {}
+        )
+
+    linear_list_teams.__name__ = "linear_list_teams"
+    tools.append(
+        _attach(
+            linear_list_teams,
+            _schema(
+                "linear_list_teams",
+                "List Linear teams (IDs are needed to create issues).",
+                {},
+                [],
+            ),
+            caps=["linear", "read"],
+        )
+    )
+
+    def linear_create_issue(
+        team_id: str, title: str, description: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "linear", "api_key")
+        if err:
+            return err
+        gql = (
+            "mutation($input: IssueCreateInput!) { issueCreate(input: $input) {"
+            " success issue { identifier url } } }"
+        )
+        return _linear_gql(
+            profile["api_key"],
+            gql,
+            {"input": {"teamId": team_id, "title": title, "description": description}},
+        )
+
+    linear_create_issue.__name__ = "linear_create_issue"
+    tools.append(
+        _attach(
+            linear_create_issue,
+            _schema(
+                "linear_create_issue",
+                "Create a Linear issue. Get team_id from linear_list_teams. Requires user approval.",
+                {
+                    "team_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                ["team_id", "title"],
+            ),
+            approval=True,
+            caps=["linear", "write"],
+        )
+    )
+
+    def gitlab_search(
+        query: str, scope: str = "issues", max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "gitlab", "token")
+        if err:
+            return err
+        kind = scope if scope in ("projects", "issues", "merge_requests") else "issues"
+        return _request(
+            "GET",
+            f"{_gitlab_api(profile)}/search",
+            headers={"PRIVATE-TOKEN": profile["token"]},
+            params={"scope": kind, "search": query, "per_page": _clamp(max_results)},
+        )
+
+    gitlab_search.__name__ = "gitlab_search"
+    tools.append(
+        _attach(
+            gitlab_search,
+            _schema(
+                "gitlab_search",
+                "Search GitLab projects, issues, or merge_requests (scope).",
+                {
+                    "query": {"type": "string"},
+                    "scope": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                ["query"],
+            ),
+            caps=["gitlab", "read"],
+        )
+    )
+
+    def gitlab_get_issue(project: str, issue_iid: int) -> dict[str, Any]:
+        profile, err = _profile(secrets, "gitlab", "token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_gitlab_api(profile)}/projects/{quote(project, safe='')}/issues/{issue_iid}",
+            headers={"PRIVATE-TOKEN": profile["token"]},
+        )
+
+    gitlab_get_issue.__name__ = "gitlab_get_issue"
+    tools.append(
+        _attach(
+            gitlab_get_issue,
+            _schema(
+                "gitlab_get_issue",
+                "Read a GitLab issue. project is an ID or full path like group/repo.",
+                {"project": {"type": "string"}, "issue_iid": {"type": "integer"}},
+                ["project", "issue_iid"],
+            ),
+            caps=["gitlab", "read"],
+        )
+    )
+
+    def gitlab_get_merge_request(project: str, mr_iid: int) -> dict[str, Any]:
+        profile, err = _profile(secrets, "gitlab", "token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_gitlab_api(profile)}/projects/{quote(project, safe='')}/merge_requests/{mr_iid}",
+            headers={"PRIVATE-TOKEN": profile["token"]},
+        )
+
+    gitlab_get_merge_request.__name__ = "gitlab_get_merge_request"
+    tools.append(
+        _attach(
+            gitlab_get_merge_request,
+            _schema(
+                "gitlab_get_merge_request",
+                "Read a GitLab merge request. project is an ID or full path like group/repo.",
+                {"project": {"type": "string"}, "mr_iid": {"type": "integer"}},
+                ["project", "mr_iid"],
+            ),
+            caps=["gitlab", "read"],
+        )
+    )
+
+    def gitlab_create_issue(
+        project: str, title: str, description: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "gitlab", "token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            f"{_gitlab_api(profile)}/projects/{quote(project, safe='')}/issues",
+            headers={"PRIVATE-TOKEN": profile["token"]},
+            json={"title": title, "description": description},
+        )
+
+    gitlab_create_issue.__name__ = "gitlab_create_issue"
+    tools.append(
+        _attach(
+            gitlab_create_issue,
+            _schema(
+                "gitlab_create_issue",
+                "Create a GitLab issue. Requires user approval.",
+                {
+                    "project": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                ["project", "title"],
+            ),
+            approval=True,
+            caps=["gitlab", "write"],
+        )
+    )
+
+    def discord_list_channels(guild_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "discord", "bot_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"https://discord.com/api/v10/guilds/{guild_id}/channels",
+            headers={"Authorization": f"Bot {profile['bot_token']}"},
+        )
+
+    discord_list_channels.__name__ = "discord_list_channels"
+    tools.append(
+        _attach(
+            discord_list_channels,
+            _schema(
+                "discord_list_channels",
+                "List channels in a Discord server (guild).",
+                {"guild_id": {"type": "string"}},
+                ["guild_id"],
+            ),
+            caps=["discord", "read"],
+        )
+    )
+
+    def discord_read_messages(channel_id: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "discord", "bot_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {profile['bot_token']}"},
+            params={"limit": _clamp(max_results, ceiling=50)},
+        )
+
+    discord_read_messages.__name__ = "discord_read_messages"
+    tools.append(
+        _attach(
+            discord_read_messages,
+            _schema(
+                "discord_read_messages",
+                "Read recent messages from a Discord channel.",
+                {"channel_id": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["channel_id"],
+            ),
+            caps=["discord", "read"],
+        )
+    )
+
+    def discord_send_message(channel_id: str, content: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "discord", "bot_token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {profile['bot_token']}"},
+            json={"content": content[:2000]},
+        )
+
+    discord_send_message.__name__ = "discord_send_message"
+    tools.append(
+        _attach(
+            discord_send_message,
+            _schema(
+                "discord_send_message",
+                "Send a message to a Discord channel. Requires user approval.",
+                {"channel_id": {"type": "string"}, "content": {"type": "string"}},
+                ["channel_id", "content"],
+            ),
+            approval=True,
+            caps=["discord", "write"],
+        )
+    )
+
+    def stripe_search_customers(query: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "stripe", "api_key")
+        if err:
+            return err
+        return _request(
+            "GET",
+            "https://api.stripe.com/v1/customers/search",
+            headers=_bearer_headers(profile["api_key"]),
+            params={"query": query, "limit": _clamp(max_results)},
+        )
+
+    stripe_search_customers.__name__ = "stripe_search_customers"
+    tools.append(
+        _attach(
+            stripe_search_customers,
+            _schema(
+                "stripe_search_customers",
+                "Search Stripe customers. Query uses Stripe search syntax, e.g. email:'jane@example.com' or name~'Jane'.",
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["query"],
+            ),
+            caps=["stripe", "read"],
+        )
+    )
+
+    def stripe_list_charges(
+        customer_id: str = "", max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "stripe", "api_key")
+        if err:
+            return err
+        params: dict[str, Any] = {"limit": _clamp(max_results)}
+        if customer_id:
+            params["customer"] = customer_id
+        return _request(
+            "GET",
+            "https://api.stripe.com/v1/charges",
+            headers=_bearer_headers(profile["api_key"]),
+            params=params,
+        )
+
+    stripe_list_charges.__name__ = "stripe_list_charges"
+    tools.append(
+        _attach(
+            stripe_list_charges,
+            _schema(
+                "stripe_list_charges",
+                "List Stripe charges, optionally for one customer.",
+                {"customer_id": {"type": "string"}, "max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["stripe", "read"],
+        )
+    )
+
+    def stripe_list_invoices(
+        customer_id: str = "", max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "stripe", "api_key")
+        if err:
+            return err
+        params: dict[str, Any] = {"limit": _clamp(max_results)}
+        if customer_id:
+            params["customer"] = customer_id
+        return _request(
+            "GET",
+            "https://api.stripe.com/v1/invoices",
+            headers=_bearer_headers(profile["api_key"]),
+            params=params,
+        )
+
+    stripe_list_invoices.__name__ = "stripe_list_invoices"
+    tools.append(
+        _attach(
+            stripe_list_invoices,
+            _schema(
+                "stripe_list_invoices",
+                "List Stripe invoices, optionally for one customer.",
+                {"customer_id": {"type": "string"}, "max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["stripe", "read"],
+        )
+    )
+
+    def asana_list_workspaces() -> dict[str, Any]:
+        profile, err = _profile(secrets, "asana", "token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            "https://app.asana.com/api/1.0/workspaces",
+            headers=_bearer_headers(profile["token"]),
+        )
+
+    asana_list_workspaces.__name__ = "asana_list_workspaces"
+    tools.append(
+        _attach(
+            asana_list_workspaces,
+            _schema(
+                "asana_list_workspaces",
+                "List Asana workspaces (GIDs are needed to search tasks).",
+                {},
+                [],
+            ),
+            caps=["asana", "read"],
+        )
+    )
+
+    def asana_search_tasks(
+        workspace_gid: str, query: str, max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "asana", "token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"https://app.asana.com/api/1.0/workspaces/{workspace_gid}/typeahead",
+            headers=_bearer_headers(profile["token"]),
+            params={
+                "resource_type": "task",
+                "query": query,
+                "count": _clamp(max_results),
+            },
+        )
+
+    asana_search_tasks.__name__ = "asana_search_tasks"
+    tools.append(
+        _attach(
+            asana_search_tasks,
+            _schema(
+                "asana_search_tasks",
+                "Search Asana tasks by name in a workspace. Get workspace_gid from asana_list_workspaces.",
+                {
+                    "workspace_gid": {"type": "string"},
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                ["workspace_gid", "query"],
+            ),
+            caps=["asana", "read"],
+        )
+    )
+
+    def asana_get_task(task_gid: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "asana", "token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"https://app.asana.com/api/1.0/tasks/{task_gid}",
+            headers=_bearer_headers(profile["token"]),
+        )
+
+    asana_get_task.__name__ = "asana_get_task"
+    tools.append(
+        _attach(
+            asana_get_task,
+            _schema(
+                "asana_get_task",
+                "Read an Asana task.",
+                {"task_gid": {"type": "string"}},
+                ["task_gid"],
+            ),
+            caps=["asana", "read"],
+        )
+    )
+
+    def asana_create_task(
+        project_gid: str, name: str, notes: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "asana", "token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            "https://app.asana.com/api/1.0/tasks",
+            headers=_bearer_headers(profile["token"]),
+            json={"data": {"name": name, "notes": notes, "projects": [project_gid]}},
+        )
+
+    asana_create_task.__name__ = "asana_create_task"
+    tools.append(
+        _attach(
+            asana_create_task,
+            _schema(
+                "asana_create_task",
+                "Create an Asana task in a project. Requires user approval.",
+                {
+                    "project_gid": {"type": "string"},
+                    "name": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                ["project_gid", "name"],
+            ),
+            approval=True,
+            caps=["asana", "write"],
+        )
+    )
+
+    def hubspot_search(
+        query: str, object_type: str = "contacts", max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "hubspot", "token")
+        if err:
+            return err
+        kind = (
+            object_type
+            if object_type in ("contacts", "companies", "deals", "tickets")
+            else "contacts"
+        )
+        return _request(
+            "POST",
+            f"https://api.hubapi.com/crm/v3/objects/{kind}/search",
+            headers=_bearer_headers(profile["token"]),
+            json={"query": query, "limit": _clamp(max_results)},
+        )
+
+    hubspot_search.__name__ = "hubspot_search"
+    tools.append(
+        _attach(
+            hubspot_search,
+            _schema(
+                "hubspot_search",
+                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type).",
+                {
+                    "query": {"type": "string"},
+                    "object_type": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                ["query"],
+            ),
+            caps=["hubspot", "read"],
+        )
+    )
+
+    def hubspot_get_object(object_type: str, object_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "hubspot", "token")
+        if err:
+            return err
+        kind = (
+            object_type
+            if object_type in ("contacts", "companies", "deals", "tickets")
+            else "contacts"
+        )
+        return _request(
+            "GET",
+            f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
+            headers=_bearer_headers(profile["token"]),
+        )
+
+    hubspot_get_object.__name__ = "hubspot_get_object"
+    tools.append(
+        _attach(
+            hubspot_get_object,
+            _schema(
+                "hubspot_get_object",
+                "Read a HubSpot CRM record by ID.",
+                {"object_type": {"type": "string"}, "object_id": {"type": "string"}},
+                ["object_type", "object_id"],
+            ),
+            caps=["hubspot", "read"],
+        )
+    )
+
+    def hubspot_create_contact(
+        email: str, first_name: str = "", last_name: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "hubspot", "token")
+        if err:
+            return err
+        props = {"email": email}
+        if first_name:
+            props["firstname"] = first_name
+        if last_name:
+            props["lastname"] = last_name
+        return _request(
+            "POST",
+            "https://api.hubapi.com/crm/v3/objects/contacts",
+            headers=_bearer_headers(profile["token"]),
+            json={"properties": props},
+        )
+
+    hubspot_create_contact.__name__ = "hubspot_create_contact"
+    tools.append(
+        _attach(
+            hubspot_create_contact,
+            _schema(
+                "hubspot_create_contact",
+                "Create a HubSpot contact. Requires user approval.",
+                {
+                    "email": {"type": "string"},
+                    "first_name": {"type": "string"},
+                    "last_name": {"type": "string"},
+                },
+                ["email"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def _dropbox_path(path: str) -> str:
+        path = (path or "").strip()
+        if path and not path.startswith("/"):
+            path = "/" + path
+        return path
+
+    def dropbox_search(query: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "dropbox", "access_token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            "https://api.dropboxapi.com/2/files/search_v2",
+            headers=_bearer_headers(profile["access_token"]),
+            json={"query": query, "options": {"max_results": _clamp(max_results)}},
+        )
+
+    dropbox_search.__name__ = "dropbox_search"
+    tools.append(
+        _attach(
+            dropbox_search,
+            _schema(
+                "dropbox_search",
+                "Search Dropbox files and folders by name/content.",
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["query"],
+            ),
+            caps=["dropbox", "read"],
+        )
+    )
+
+    def dropbox_list_folder(path: str = "") -> dict[str, Any]:
+        profile, err = _profile(secrets, "dropbox", "access_token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            "https://api.dropboxapi.com/2/files/list_folder",
+            headers=_bearer_headers(profile["access_token"]),
+            json={"path": _dropbox_path(path)},
+        )
+
+    dropbox_list_folder.__name__ = "dropbox_list_folder"
+    tools.append(
+        _attach(
+            dropbox_list_folder,
+            _schema(
+                "dropbox_list_folder",
+                "List a Dropbox folder. Empty path is the root.",
+                {"path": {"type": "string"}},
+                [],
+            ),
+            caps=["dropbox", "read"],
+        )
+    )
+
+    def dropbox_read_file(path: str, max_chars: int = 20000) -> dict[str, Any]:
+        profile, err = _profile(secrets, "dropbox", "access_token")
+        if err:
+            return err
+        out = _request(
+            "POST",
+            "https://content.dropboxapi.com/2/files/download",
+            headers={
+                "Authorization": f"Bearer {profile['access_token']}",
+                "Dropbox-API-Arg": json.dumps({"path": _dropbox_path(path)}),
+            },
+        )
+        if "error" in out:
+            return out
+        text = out["data"] if isinstance(out["data"], str) else str(out["data"])
+        cap = max(1, min(int(max_chars or 20000), 100000))
+        return {"path": path, "text": text[:cap], "truncated": len(text) > cap}
+
+    dropbox_read_file.__name__ = "dropbox_read_file"
+    tools.append(
+        _attach(
+            dropbox_read_file,
+            _schema(
+                "dropbox_read_file",
+                "Read a text file from Dropbox by path.",
+                {"path": {"type": "string"}, "max_chars": {"type": "integer"}},
+                ["path"],
+            ),
+            caps=["dropbox", "read"],
+        )
+    )
+
+    def box_search(query: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "box", "access_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            "https://api.box.com/2.0/search",
+            headers=_bearer_headers(profile["access_token"]),
+            params={"query": query, "limit": _clamp(max_results)},
+        )
+
+    box_search.__name__ = "box_search"
+    tools.append(
+        _attach(
+            box_search,
+            _schema(
+                "box_search",
+                "Search Box files and folders.",
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["query"],
+            ),
+            caps=["box", "read"],
+        )
+    )
+
+    def box_list_folder(folder_id: str = "0") -> dict[str, Any]:
+        profile, err = _profile(secrets, "box", "access_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"https://api.box.com/2.0/folders/{folder_id}/items",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+
+    box_list_folder.__name__ = "box_list_folder"
+    tools.append(
+        _attach(
+            box_list_folder,
+            _schema(
+                "box_list_folder",
+                "List items in a Box folder. Folder '0' is the root.",
+                {"folder_id": {"type": "string"}},
+                [],
+            ),
+            caps=["box", "read"],
+        )
+    )
+
+    def box_read_file(file_id: str, max_chars: int = 20000) -> dict[str, Any]:
+        profile, err = _profile(secrets, "box", "access_token")
+        if err:
+            return err
+        out = _request(
+            "GET",
+            f"https://api.box.com/2.0/files/{file_id}/content",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+        if "error" in out:
+            return out
+        text = out["data"] if isinstance(out["data"], str) else str(out["data"])
+        cap = max(1, min(int(max_chars or 20000), 100000))
+        return {"file_id": file_id, "text": text[:cap], "truncated": len(text) > cap}
+
+    box_read_file.__name__ = "box_read_file"
+    tools.append(
+        _attach(
+            box_read_file,
+            _schema(
+                "box_read_file",
+                "Read a text file from Box by file ID.",
+                {"file_id": {"type": "string"}, "max_chars": {"type": "integer"}},
+                ["file_id"],
+            ),
+            caps=["box", "read"],
+        )
+    )
+
+    def quickbooks_query(query: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "quickbooks", "access_token", "realm_id")
+        if err:
+            return err
+        q = query.strip()
+        if "maxresults" not in q.lower():
+            q = f"{q} MAXRESULTS {_clamp(max_results, ceiling=100)}"
+        return _request(
+            "GET",
+            f"{_qbo_base(profile)}/query",
+            headers=_bearer_headers(profile["access_token"]),
+            params={"query": q},
+        )
+
+    quickbooks_query.__name__ = "quickbooks_query"
+    tools.append(
+        _attach(
+            quickbooks_query,
+            _schema(
+                "quickbooks_query",
+                "Run a QuickBooks Online query, e.g. \"SELECT * FROM Invoice WHERE TotalAmt > '100'\". "
+                "Entities include Customer, Invoice, Bill, Payment, Account, Vendor.",
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["query"],
+            ),
+            caps=["quickbooks", "read"],
+        )
+    )
+
+    def quickbooks_list_customers(max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "quickbooks", "access_token", "realm_id")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_qbo_base(profile)}/query",
+            headers=_bearer_headers(profile["access_token"]),
+            params={
+                "query": f"SELECT * FROM Customer MAXRESULTS {_clamp(max_results)}"
+            },
+        )
+
+    quickbooks_list_customers.__name__ = "quickbooks_list_customers"
+    tools.append(
+        _attach(
+            quickbooks_list_customers,
+            _schema(
+                "quickbooks_list_customers",
+                "List QuickBooks customers.",
+                {"max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["quickbooks", "read"],
+        )
+    )
+
+    def quickbooks_list_invoices(max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "quickbooks", "access_token", "realm_id")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_qbo_base(profile)}/query",
+            headers=_bearer_headers(profile["access_token"]),
+            params={
+                "query": "SELECT * FROM Invoice ORDERBY TxnDate DESC "
+                f"MAXRESULTS {_clamp(max_results)}"
+            },
+        )
+
+    quickbooks_list_invoices.__name__ = "quickbooks_list_invoices"
+    tools.append(
+        _attach(
+            quickbooks_list_invoices,
+            _schema(
+                "quickbooks_list_invoices",
+                "List recent QuickBooks invoices.",
+                {"max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["quickbooks", "read"],
+        )
+    )
+
+    def quickbooks_get_report(
+        report: str, start_date: str = "", end_date: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "quickbooks", "access_token", "realm_id")
+        if err:
+            return err
+        params: dict[str, Any] = {}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return _request(
+            "GET",
+            f"{_qbo_base(profile)}/reports/{quote(report, safe='')}",
+            headers=_bearer_headers(profile["access_token"]),
+            params=params or None,
+        )
+
+    quickbooks_get_report.__name__ = "quickbooks_get_report"
+    tools.append(
+        _attach(
+            quickbooks_get_report,
+            _schema(
+                "quickbooks_get_report",
+                "Run a QuickBooks report such as ProfitAndLoss, BalanceSheet, CashFlow, "
+                "AgedReceivables. Dates are YYYY-MM-DD.",
+                {
+                    "report": {"type": "string"},
+                    "start_date": {"type": "string"},
+                    "end_date": {"type": "string"},
+                },
+                ["report"],
+            ),
+            caps=["quickbooks", "read"],
         )
     )
 

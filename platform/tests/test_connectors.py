@@ -852,3 +852,252 @@ def test_superagent_rest(tmp_path, monkeypatch):
         ).json()["ok"]
         is True
     )
+
+
+# -- new tool connectors (linear / gitlab / discord / stripe / asana / hubspot /
+#    dropbox / box) --------------------------------------------------------------
+_NEW_CONNECTORS = {
+    "linear": {"api_key": "lin_api_x"},
+    "gitlab": {"token": "glpat-x"},
+    "discord": {"bot_token": "B0T"},
+    "stripe": {"api_key": "rk_test_x"},
+    "asana": {"token": "asana_pat"},
+    "hubspot": {"token": "pat-x"},
+    "dropbox": {"access_token": "dbx"},
+    "box": {"access_token": "boxtok"},
+    "quickbooks": {"access_token": "qbo", "realm_id": "9341453"},
+}
+
+
+def test_new_connector_descriptors_listed(tmp_path):
+    from coworker.connectors import connector_list
+
+    by_name = {
+        c["name"]: c for c in connector_list(SecretStore(tmp_path / "secrets.json"))
+    }
+    for name in _NEW_CONNECTORS:
+        assert by_name[name]["available"] is True
+        assert by_name[name]["connected"] is False
+        assert by_name[name]["two_way"] is False
+        assert by_name[name]["instructions"]
+        assert by_name[name]["tools"], f"{name} has no tools in the catalog"
+    # stripe and quickbooks are deliberately read-only
+    assert all(t["kind"] == "read" for t in by_name["stripe"]["tools"])
+    assert all(t["kind"] == "read" for t in by_name["dropbox"]["tools"])
+    assert all(t["kind"] == "read" for t in by_name["box"]["tools"])
+    assert all(t["kind"] == "read" for t in by_name["quickbooks"]["tools"])
+
+
+def test_new_connectors_connect_and_gate_tools(tmp_path):
+    from coworker.connectors import connect_connector, connector_list
+    from coworker.connectors.integration_tools import make_integration_tools
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    for name, fields in _NEW_CONNECTORS.items():
+        assert connect_connector(secrets, name, fields, validate=False)["ok"] is True
+
+    by_name = {c["name"]: c for c in connector_list(secrets)}
+    for name in _NEW_CONNECTORS:
+        assert by_name[name]["connected"] is True and by_name[name]["enabled"] is True
+
+    # only the enabled connectors' tools survive the filter
+    tools = make_integration_tools(secrets, enabled_connectors={"linear", "box"})
+    names = {t.__name__ for t in tools}
+    assert "linear_search_issues" in names and "box_search" in names
+    assert "gitlab_search" not in names and "stripe_list_charges" not in names
+
+
+def test_new_tools_error_when_not_connected(tmp_path):
+    from coworker.connectors.integration_tools import make_integration_tools
+
+    tools = {
+        t.__name__: t
+        for t in make_integration_tools(SecretStore(tmp_path / "secrets.json"))
+    }
+    assert "not connected" in tools["linear_search_issues"](query="q")["error"]
+    assert "not connected" in tools["gitlab_search"](query="q")["error"]
+    assert "not connected" in tools["discord_send_message"]("1", "hi")["error"]
+    assert "not connected" in tools["stripe_search_customers"]("e:'a'")["error"]
+    assert "not connected" in tools["asana_get_task"]("1")["error"]
+    assert "not connected" in tools["hubspot_search"]("acme")["error"]
+    assert "not connected" in tools["dropbox_list_folder"]()["error"]
+    assert "not connected" in tools["box_read_file"]("1")["error"]
+    assert "not connected" in tools["quickbooks_query"]("SELECT * FROM Bill")["error"]
+
+
+def _connected_tools(tmp_path, monkeypatch, calls):
+    """All new connectors connected + _request recorded instead of hitting the network."""
+    import coworker.connectors.integration_tools as it
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    for name, fields in _NEW_CONNECTORS.items():
+        secrets.put(f"{name}:default", {**fields, "enabled": True})
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": headers or {},
+                "params": params,
+                "json": json,
+            }
+        )
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    return {t.__name__: t for t in it.make_integration_tools(secrets)}
+
+
+def test_new_tools_request_routing(tmp_path, monkeypatch):
+    calls = []
+    tools = _connected_tools(tmp_path, monkeypatch, calls)
+
+    tools["linear_search_issues"]("crash", max_results=5)
+    assert calls[-1]["url"] == "https://api.linear.app/graphql"
+    assert calls[-1]["headers"]["Authorization"] == "lin_api_x"  # raw key, no Bearer
+    assert calls[-1]["json"]["variables"] == {"term": "crash", "first": 5}
+
+    tools["gitlab_get_issue"]("group/repo", 7)
+    assert (
+        calls[-1]["url"] == "https://gitlab.com/api/v4/projects/group%2Frepo/issues/7"
+    )
+    assert calls[-1]["headers"]["PRIVATE-TOKEN"] == "glpat-x"
+
+    tools["discord_send_message"]("123", "x" * 3000)
+    assert calls[-1]["url"] == "https://discord.com/api/v10/channels/123/messages"
+    assert calls[-1]["headers"]["Authorization"] == "Bot B0T"
+    assert len(calls[-1]["json"]["content"]) == 2000  # discord hard limit
+
+    tools["stripe_list_charges"](customer_id="cus_1", max_results=99)
+    assert calls[-1]["params"] == {"limit": 20, "customer": "cus_1"}
+
+    tools["asana_search_tasks"]("WS1", "report")
+    assert "workspaces/WS1/typeahead" in calls[-1]["url"]
+
+    tools["hubspot_search"]("acme", object_type="bogus")
+    assert calls[-1]["url"].endswith("/crm/v3/objects/contacts/search")  # fallback
+
+    tools["dropbox_list_folder"]("Docs")
+    assert calls[-1]["json"] == {"path": "/Docs"}  # leading slash added
+    tools["dropbox_list_folder"]()
+    assert calls[-1]["json"] == {"path": ""}  # root stays empty
+
+    tools["dropbox_read_file"]("/a.txt")
+    assert "Dropbox-API-Arg" in calls[-1]["headers"]
+
+    tools["box_read_file"]("f1")
+    assert calls[-1]["url"] == "https://api.box.com/2.0/files/f1/content"
+
+    tools["quickbooks_query"]("SELECT * FROM Invoice", max_results=5)
+    assert (
+        calls[-1]["url"] == "https://quickbooks.api.intuit.com/v3/company/9341453/query"
+    )
+    assert calls[-1]["params"]["query"] == "SELECT * FROM Invoice MAXRESULTS 5"
+    tools["quickbooks_query"]("SELECT * FROM Bill MAXRESULTS 3")
+    assert (
+        calls[-1]["params"]["query"] == "SELECT * FROM Bill MAXRESULTS 3"
+    )  # untouched
+
+    tools["quickbooks_get_report"]("ProfitAndLoss", start_date="2026-01-01")
+    assert calls[-1]["url"].endswith("/reports/ProfitAndLoss")
+    assert calls[-1]["params"] == {"start_date": "2026-01-01"}
+
+
+def test_new_write_tools_require_approval(tmp_path, monkeypatch):
+    # every connector tool is approval-gated in this codebase (see _attach default);
+    # the write tools matter most, so pin them explicitly
+    tools = _connected_tools(tmp_path, monkeypatch, [])
+    for name in (
+        "linear_create_issue",
+        "gitlab_create_issue",
+        "discord_send_message",
+        "asana_create_task",
+        "hubspot_create_contact",
+        "stripe_search_customers",
+        "dropbox_read_file",
+        "box_search",
+    ):
+        assert tools[name].__aisuite_tool_metadata__.requires_approval is True, name
+
+
+def test_gitlab_self_hosted_base_url(tmp_path, monkeypatch):
+    import coworker.connectors.integration_tools as it
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put(
+        "gitlab:default",
+        {"token": "t", "base_url": "https://git.example.com/", "enabled": True},
+    )
+    calls = []
+    monkeypatch.setattr(
+        it, "_request", lambda m, url, **kw: calls.append(url) or {"ok": True}
+    )
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    tools["gitlab_search"]("q")
+    assert calls[0] == "https://git.example.com/api/v4/search"
+
+
+def test_quickbooks_sandbox_environment(tmp_path, monkeypatch):
+    import coworker.connectors.integration_tools as it
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put(
+        "quickbooks:default",
+        {"access_token": "t", "realm_id": "r1", "environment": "sandbox"},
+    )
+    calls = []
+    monkeypatch.setattr(
+        it, "_request", lambda m, url, **kw: calls.append(url) or {"ok": True}
+    )
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    tools["quickbooks_list_customers"]()
+    assert calls[0] == "https://sandbox-quickbooks.api.intuit.com/v3/company/r1/query"
+
+
+def test_new_connector_validators_wired():
+    from coworker.connectors.descriptors import get_descriptor
+
+    for name in (
+        "linear",
+        "gitlab",
+        "discord",
+        "asana",
+        "hubspot",
+        "dropbox",
+        "box",
+        "quickbooks",
+    ):
+        assert get_descriptor(name).validate is not None, name
+    # stripe restricted-key permissions vary, so it has no whoami validator
+    assert get_descriptor("stripe").validate is None
+
+
+def test_validate_whoami_helper(monkeypatch):
+    import coworker.connectors.descriptors as d
+
+    class _Resp:
+        def __init__(self, status, payload):
+            self.status_code = status
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake(status, payload):
+        import httpx
+
+        monkeypatch.setattr(httpx, "request", lambda *a, **k: _Resp(status, payload))
+
+    fake(200, {"username": "alice"})
+    res = d._validate_gitlab({"token": "t"})
+    assert res.ok and res.identity == "@alice"
+
+    fake(401, {"message": "401 Unauthorized"})
+    res = d._validate_gitlab({"token": "bad"})
+    assert not res.ok and "Unauthorized" in res.error
+
+    # 200 but unexpected shape (e.g. GraphQL errors payload) must not pass
+    fake(200, {"errors": [{"message": "auth"}]})
+    res = d._validate_linear({"api_key": "bad"})
+    assert not res.ok

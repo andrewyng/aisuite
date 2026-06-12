@@ -267,6 +267,181 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "write",
         "Create a Zendesk ticket.",
     ),
+    ConnectorToolDef(
+        "linear",
+        "linear_search_issues",
+        "Search issues",
+        "read",
+        "Search Linear issues.",
+    ),
+    ConnectorToolDef(
+        "linear", "linear_get_issue", "Read issue", "read", "Read a Linear issue."
+    ),
+    ConnectorToolDef(
+        "linear", "linear_list_teams", "List teams", "read", "List Linear teams."
+    ),
+    ConnectorToolDef(
+        "linear",
+        "linear_create_issue",
+        "Create issue",
+        "write",
+        "Create a Linear issue.",
+    ),
+    ConnectorToolDef(
+        "gitlab",
+        "gitlab_search",
+        "Search GitLab",
+        "read",
+        "Search projects, issues, or merge requests.",
+    ),
+    ConnectorToolDef(
+        "gitlab", "gitlab_get_issue", "Read issue", "read", "Read a GitLab issue."
+    ),
+    ConnectorToolDef(
+        "gitlab",
+        "gitlab_get_merge_request",
+        "Read merge request",
+        "read",
+        "Read a GitLab merge request.",
+    ),
+    ConnectorToolDef(
+        "gitlab",
+        "gitlab_create_issue",
+        "Create issue",
+        "write",
+        "Create a GitLab issue.",
+    ),
+    ConnectorToolDef(
+        "discord",
+        "discord_list_channels",
+        "List channels",
+        "read",
+        "List channels in a Discord server.",
+    ),
+    ConnectorToolDef(
+        "discord",
+        "discord_read_messages",
+        "Read messages",
+        "read",
+        "Read recent Discord channel messages.",
+    ),
+    ConnectorToolDef(
+        "discord",
+        "discord_send_message",
+        "Send message",
+        "write",
+        "Send a Discord channel message.",
+    ),
+    ConnectorToolDef(
+        "stripe",
+        "stripe_search_customers",
+        "Search customers",
+        "read",
+        "Search Stripe customers.",
+    ),
+    ConnectorToolDef(
+        "stripe",
+        "stripe_list_charges",
+        "List charges",
+        "read",
+        "List Stripe charges.",
+    ),
+    ConnectorToolDef(
+        "stripe",
+        "stripe_list_invoices",
+        "List invoices",
+        "read",
+        "List Stripe invoices.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "asana_list_workspaces",
+        "List workspaces",
+        "read",
+        "List Asana workspaces.",
+    ),
+    ConnectorToolDef(
+        "asana", "asana_search_tasks", "Search tasks", "read", "Search Asana tasks."
+    ),
+    ConnectorToolDef(
+        "asana", "asana_get_task", "Read task", "read", "Read an Asana task."
+    ),
+    ConnectorToolDef(
+        "asana", "asana_create_task", "Create task", "write", "Create an Asana task."
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_search",
+        "Search CRM",
+        "read",
+        "Search HubSpot contacts, companies, deals, or tickets.",
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_get_object",
+        "Read record",
+        "read",
+        "Read a HubSpot CRM record.",
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_create_contact",
+        "Create contact",
+        "write",
+        "Create a HubSpot contact.",
+    ),
+    ConnectorToolDef(
+        "dropbox", "dropbox_search", "Search files", "read", "Search Dropbox files."
+    ),
+    ConnectorToolDef(
+        "dropbox",
+        "dropbox_list_folder",
+        "List folder",
+        "read",
+        "List a Dropbox folder.",
+    ),
+    ConnectorToolDef(
+        "dropbox",
+        "dropbox_read_file",
+        "Read file",
+        "read",
+        "Read a text file from Dropbox.",
+    ),
+    ConnectorToolDef("box", "box_search", "Search files", "read", "Search Box files."),
+    ConnectorToolDef(
+        "box", "box_list_folder", "List folder", "read", "List a Box folder."
+    ),
+    ConnectorToolDef(
+        "box", "box_read_file", "Read file", "read", "Read a text file from Box."
+    ),
+    ConnectorToolDef(
+        "quickbooks",
+        "quickbooks_query",
+        "Query records",
+        "read",
+        "Run a QuickBooks Online query.",
+    ),
+    ConnectorToolDef(
+        "quickbooks",
+        "quickbooks_list_customers",
+        "List customers",
+        "read",
+        "List QuickBooks customers.",
+    ),
+    ConnectorToolDef(
+        "quickbooks",
+        "quickbooks_list_invoices",
+        "List invoices",
+        "read",
+        "List recent QuickBooks invoices.",
+    ),
+    ConnectorToolDef(
+        "quickbooks",
+        "quickbooks_get_report",
+        "Run report",
+        "read",
+        "Run a QuickBooks financial report.",
+    ),
 )
 
 TOOL_TO_CONNECTOR = {d.name: d.connector for d in TOOL_DEFS}
