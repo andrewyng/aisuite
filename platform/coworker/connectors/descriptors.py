@@ -54,6 +54,11 @@ class ConnectorDescriptor:
     instructions: list[str]
     available: bool = True  # False → shown as "soon"
     validate: Optional[Callable[[dict], ValidationResult]] = None
+    # Experimental connectors are hidden unless the user enables them in settings, require an
+    # explicit risk acknowledgment to connect, and ship in a separate package
+    # (connectors/experimental/) that release builds exclude entirely.
+    experimental: bool = False
+    risk_notice: str = ""
 
 
 # -- validators (sync httpx, one-shot) -----------------------------------------
@@ -216,6 +221,15 @@ def _validate_box(creds: dict) -> ValidationResult:
         "https://api.box.com/2.0/users/me",
         headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
         identity=lambda d: d["login"],
+    )
+
+
+def _validate_whatsapp(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        f"https://graph.facebook.com/v21.0/{creds.get('phone_number_id', '')}",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d["display_phone_number"],
     )
 
 
@@ -703,6 +717,34 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         validate=_validate_box,
     ),
     ConnectorDescriptor(
+        name="whatsapp",
+        title="WhatsApp",
+        icon="◌",
+        blurb="Send WhatsApp messages through Meta's official Cloud API (outbound only).",
+        auth="token",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "Access token",
+                secret=True,
+                help="From your Meta app's WhatsApp setup page (a system-user token for long-lived access).",
+            ),
+            Field(
+                "phone_number_id",
+                "Phone number ID",
+                help="The Cloud API phone number ID (not the phone number itself).",
+            ),
+        ],
+        instructions=[
+            "Create a Meta app at developers.facebook.com and add the WhatsApp product.",
+            "Copy the access token and the phone number ID from the API setup page.",
+            "The free test number can message up to 5 verified recipients without business verification.",
+            "Free-form messages only reach people who messaged your number in the last 24 hours; outside that window only approved templates are delivered.",
+        ],
+        validate=_validate_whatsapp,
+    ),
+    ConnectorDescriptor(
         name="quickbooks",
         title="QuickBooks",
         icon="◴",
@@ -739,6 +781,23 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
 ]
 
 _BY_NAME = {d.name: d for d in DESCRIPTORS}
+
+
+def register_descriptor(descriptor: ConnectorDescriptor) -> None:
+    """Register an extra connector (used by the experimental package and tests)."""
+    DESCRIPTORS.append(descriptor)
+    _BY_NAME[descriptor.name] = descriptor
+
+
+# Experimental connectors live in a separate package so release builds can exclude the code
+# entirely (see packaging/coworker-server.spec). When the package is absent this is a no-op.
+try:
+    from .experimental import EXPERIMENTAL_DESCRIPTORS as _EXPERIMENTAL
+except ImportError:
+    _EXPERIMENTAL = []
+for _exp in _EXPERIMENTAL:
+    _exp.experimental = True  # enforced here, not trusted from the author
+    register_descriptor(_exp)
 
 
 def list_descriptors() -> list[ConnectorDescriptor]:

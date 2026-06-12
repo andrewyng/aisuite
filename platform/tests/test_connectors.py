@@ -866,6 +866,7 @@ _NEW_CONNECTORS = {
     "dropbox": {"access_token": "dbx"},
     "box": {"access_token": "boxtok"},
     "quickbooks": {"access_token": "qbo", "realm_id": "9341453"},
+    "whatsapp": {"access_token": "wa_tok", "phone_number_id": "555111"},
 }
 
 
@@ -1003,6 +1004,17 @@ def test_new_tools_request_routing(tmp_path, monkeypatch):
     assert calls[-1]["url"].endswith("/reports/ProfitAndLoss")
     assert calls[-1]["params"] == {"start_date": "2026-01-01"}
 
+    tools["whatsapp_send_message"]("15551234567", "x" * 5000)
+    assert calls[-1]["url"] == "https://graph.facebook.com/v21.0/555111/messages"
+    assert calls[-1]["json"]["messaging_product"] == "whatsapp"
+    assert len(calls[-1]["json"]["text"]["body"]) == 4096  # whatsapp hard limit
+
+    tools["whatsapp_send_template"]("15551234567", "order_update")
+    assert calls[-1]["json"]["template"] == {
+        "name": "order_update",
+        "language": {"code": "en_US"},
+    }
+
 
 def test_new_write_tools_require_approval(tmp_path, monkeypatch):
     # every connector tool is approval-gated in this codebase (see _attach default);
@@ -1017,6 +1029,8 @@ def test_new_write_tools_require_approval(tmp_path, monkeypatch):
         "stripe_search_customers",
         "dropbox_read_file",
         "box_search",
+        "whatsapp_send_message",
+        "whatsapp_send_template",
     ):
         assert tools[name].__aisuite_tool_metadata__.requires_approval is True, name
 
@@ -1067,6 +1081,7 @@ def test_new_connector_validators_wired():
         "dropbox",
         "box",
         "quickbooks",
+        "whatsapp",
     ):
         assert get_descriptor(name).validate is not None, name
     # stripe restricted-key permissions vary, so it has no whoami validator
@@ -1101,3 +1116,125 @@ def test_validate_whoami_helper(monkeypatch):
     fake(200, {"errors": [{"message": "auth"}]})
     res = d._validate_linear({"api_key": "bad"})
     assert not res.ok
+
+
+# -- experimental connector gating ----------------------------------------------
+@pytest.fixture
+def experimental_descriptor():
+    """Register a synthetic experimental connector through the same hook the
+    experimental package uses, and clean it up afterwards."""
+    import coworker.connectors.descriptors as d
+
+    desc = d.ConnectorDescriptor(
+        name="dangerzone",
+        title="Danger Zone",
+        icon="!",
+        blurb="Test-only experimental connector.",
+        auth="token",
+        two_way=False,
+        fields=[d.Field("token", "Token", secret=True)],
+        instructions=["test only"],
+        experimental=True,
+        risk_notice="This may eat your laundry.",
+    )
+    d.register_descriptor(desc)
+    yield desc
+    d.DESCRIPTORS.remove(desc)
+    d._BY_NAME.pop(desc.name, None)
+
+
+def test_experimental_hidden_until_enabled(tmp_path, experimental_descriptor):
+    from coworker.connectors import connector_list, set_experimental_enabled
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    assert "dangerzone" not in {c["name"] for c in connector_list(secrets)}
+
+    assert set_experimental_enabled(secrets, True)["enabled"] is True
+    listed = {c["name"]: c for c in connector_list(secrets)}
+    assert listed["dangerzone"]["experimental"] is True
+    assert "laundry" in listed["dangerzone"]["risk_notice"]
+    # first-party connectors are never flagged
+    assert listed["github"]["experimental"] is False
+    assert listed["whatsapp"]["experimental"] is False
+
+    set_experimental_enabled(secrets, False)
+    assert "dangerzone" not in {c["name"] for c in connector_list(secrets)}
+
+
+def test_experimental_connect_requires_optin_and_ack(tmp_path, experimental_descriptor):
+    from coworker.connectors import (
+        connect_connector,
+        connector_list,
+        set_experimental_enabled,
+    )
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    res = connect_connector(secrets, "dangerzone", {"token": "t"}, validate=False)
+    assert res["ok"] is False and "disabled" in res["error"]
+
+    set_experimental_enabled(secrets, True)
+    res = connect_connector(secrets, "dangerzone", {"token": "t"}, validate=False)
+    assert res["ok"] is False and "acknowledgment" in res["error"]
+    assert "laundry" in res["risk_notice"]  # surfaced so the UI can show it
+
+    res = connect_connector(
+        secrets, "dangerzone", {"token": "t"}, validate=False, acknowledged=True
+    )
+    assert res["ok"] is True
+
+    # turning the setting off hides it (and gates its tools) even though connected
+    set_experimental_enabled(secrets, False)
+    assert "dangerzone" not in {c["name"] for c in connector_list(secrets)}
+
+
+def test_experimental_does_not_gate_regular_connectors(tmp_path):
+    from coworker.connectors import connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    res = connect_connector(
+        secrets, "github", {"token": "ghp_x"}, validate=False
+    )  # no acknowledged flag
+    assert res["ok"] is True
+
+
+def test_experimental_rest_roundtrip(tmp_path, monkeypatch, experimental_descriptor):
+    from fastapi.testclient import TestClient
+
+    from coworker.server.app import create_app
+    from coworker.server.manager import SessionManager
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    client = TestClient(create_app(SessionManager(data_dir=tmp_path / "data")))
+
+    assert client.get("/v1/settings").json()["experimental_connectors"] is False
+    names = {c["name"] for c in client.get("/v1/connectors").json()["connectors"]}
+    assert "dangerzone" not in names
+
+    assert (
+        client.post(
+            "/v1/settings/experimental-connectors", json={"value": True}
+        ).json()["enabled"]
+        is True
+    )
+    assert client.get("/v1/settings").json()["experimental_connectors"] is True
+    names = {c["name"] for c in client.get("/v1/connectors").json()["connectors"]}
+    assert "dangerzone" in names
+
+    r = client.post(
+        "/v1/connectors/dangerzone/connect", json={"fields": {"token": "T"}}
+    ).json()
+    assert r["ok"] is False and "acknowledgment" in r["error"]
+    r = client.post(
+        "/v1/connectors/dangerzone/connect",
+        json={"fields": {"token": "T"}, "acknowledge_risk": True},
+    ).json()
+    assert r["ok"] is True
+
+
+def test_experimental_package_loads_cleanly():
+    """The experimental package import hook is a no-op when the package is empty or absent."""
+    from coworker.connectors.descriptors import DESCRIPTORS
+    from coworker.connectors.experimental import EXPERIMENTAL_DESCRIPTORS
+
+    assert EXPERIMENTAL_DESCRIPTORS == []
+    assert all(d.experimental is False for d in DESCRIPTORS if d.name != "dangerzone")

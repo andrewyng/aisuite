@@ -9,6 +9,10 @@
 #
 # The result is UNSIGNED — first launch needs right-click → Open (Gatekeeper). Real
 # code-signing + notarization is a later step.
+#
+# Experimental (use-at-your-own-risk) connectors are EXCLUDED from this build by default —
+# the spec strips coworker.connectors.experimental. Self-builders can opt in with:
+#   COWORKER_EXPERIMENTAL=1 ./build_dmg.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

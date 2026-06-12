@@ -442,6 +442,20 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "read",
         "Run a QuickBooks financial report.",
     ),
+    ConnectorToolDef(
+        "whatsapp",
+        "whatsapp_send_message",
+        "Send message",
+        "write",
+        "Send a WhatsApp text message.",
+    ),
+    ConnectorToolDef(
+        "whatsapp",
+        "whatsapp_send_template",
+        "Send template",
+        "write",
+        "Send an approved WhatsApp template message.",
+    ),
 )
 
 TOOL_TO_CONNECTOR = {d.name: d.connector for d in TOOL_DEFS}

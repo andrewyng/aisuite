@@ -27,6 +27,8 @@ from .setup import (
     connect_connector,
     connector_list,
     disconnect_connector,
+    experimental_enabled,
+    set_experimental_enabled,
     update_connector_tools,
 )
 from .superagent import SUPERAGENT_MESSAGING_NOTE, SuperAgent
@@ -54,6 +56,8 @@ __all__ = [
     "connect_connector",
     "connector_list",
     "disconnect_connector",
+    "experimental_enabled",
+    "set_experimental_enabled",
     "update_connector_tools",
     "make_integration_tools",
     "make_send_message_tool",

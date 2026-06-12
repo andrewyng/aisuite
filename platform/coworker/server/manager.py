@@ -29,8 +29,10 @@ from ..connectors import (
     connect_connector,
     connector_list,
     disconnect_connector,
+    experimental_enabled,
     load_settings,
     make_adapter,
+    set_experimental_enabled,
     update_connector_tools,
 )
 from ..connectors.browser_automation import (
@@ -353,9 +355,14 @@ class SessionManager:
     def list_connectors(self) -> list[dict[str, Any]]:
         return connector_list(self.secrets)
 
-    def connect_connector(self, name: str, fields: dict[str, Any]) -> dict[str, Any]:
+    def connect_connector(
+        self, name: str, fields: dict[str, Any], *, acknowledged: bool = False
+    ) -> dict[str, Any]:
         # validates the token by a live API call (sync httpx) — run off the event loop
-        return connect_connector(self.secrets, name, fields)
+        return connect_connector(self.secrets, name, fields, acknowledged=acknowledged)
+
+    def set_experimental_connectors(self, value: bool) -> dict[str, Any]:
+        return set_experimental_enabled(self.secrets, value)
 
     def disconnect_connector(self, name: str) -> dict[str, Any]:
         return disconnect_connector(self.secrets, name)
@@ -770,6 +777,7 @@ class SessionManager:
             "has_key": env_key or stored,
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
+            "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
             "scratch_base": self._prefs.get("scratch_base")
             or self.DEFAULT_SCRATCH_BASE,
