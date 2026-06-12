@@ -3,6 +3,8 @@
 Async, but with blocking provider/tool calls wrapped in `asyncio.to_thread` so the loop
 (and any UI consuming its events) stays responsive. One user turn spans many model↔tool
 iterations until the model stops requesting tools, a rail trips, or it's interrupted.
+When the model requests several tool calls in one turn, low-risk ones (reads, searches)
+execute concurrently; writes/shell stay strictly ordered.
 
 Approvals are handled out-of-band via an injected async `approver`: when the permission
 engine says `needs_user`, the engine emits `PERMISSION_REQUIRED` and awaits the approver.
@@ -147,9 +149,8 @@ class TurnEngine:
                 )
                 return
 
-            for tool_call in turn.tool_calls:
-                async for event in self._handle_tool_call(tool_call):
-                    yield event
+            async for event in self._handle_tool_calls(turn.tool_calls):
+                yield event
 
             yield Event(EventType.ITERATION_END, {"iteration": iterations})
 
@@ -194,7 +195,65 @@ class TurnEngine:
             else:
                 return
 
-    async def _handle_tool_call(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+    async def _handle_tool_calls(
+        self, tool_calls: list[ToolCall]
+    ) -> AsyncIterator[Event]:
+        """Run one assistant turn's tool calls: authorize all of them first (sequentially —
+        approval prompts are interactive), then execute. Low-risk calls (reads, searches)
+        run concurrently; everything else runs one at a time in call order."""
+        cleared: list[ToolCall] = []
+        for tool_call in tool_calls:
+            # `request_directory` is interactive: the user grants a folder out-of-band and
+            # the live session gains it. The grant IS the consent, so it skips the
+            # permission/registry path.
+            if tool_call.name == "request_directory":
+                async for event in self._handle_directory_request(tool_call):
+                    yield event
+                continue
+            allowed = False
+            async for item in self._authorize(tool_call):
+                if isinstance(item, Event):
+                    yield item
+                else:
+                    allowed = item
+            if allowed:
+                cleared.append(tool_call)
+
+        concurrent = (
+            [tc for tc in cleared if self._parallel_safe(tc)]
+            if len(cleared) > 1
+            else []
+        )
+        serial = [tc for tc in cleared if tc not in concurrent]
+
+        if concurrent:
+            for tool_call in concurrent:
+                yield Event(EventType.TOOL_STARTED, {"name": tool_call.name})
+                self._audit(tool_call, stage="started")
+            outcomes = await asyncio.gather(
+                *[asyncio.to_thread(self._execute_sync, tc) for tc in concurrent]
+            )
+            for tool_call, (result, status) in zip(concurrent, outcomes):
+                yield self._record_result(tool_call, result, status)
+
+        for tool_call in serial:
+            yield Event(EventType.TOOL_STARTED, {"name": tool_call.name})
+            self._audit(tool_call, stage="started")
+            result, status = await asyncio.to_thread(self._execute_sync, tool_call)
+            yield self._record_result(tool_call, result, status)
+
+    def _parallel_safe(self, tool_call: ToolCall) -> bool:
+        # Only metadata-declared low-risk tools (reads, searches, git queries) run
+        # concurrently; writes, shell, and anything unannotated stay strictly ordered.
+        spec = self.registry.get(tool_call.name)
+        metadata = spec.metadata if spec else None
+        return getattr(metadata, "risk_level", "") == "low" and not getattr(
+            metadata, "requires_approval", False
+        )
+
+    async def _authorize(self, tool_call: ToolCall) -> "AsyncIterator[Event | bool]":
+        """Permission flow for one call. Yields its events, then True/False (allowed) last.
+        Denied/unknown calls get their tool-error message appended here."""
         spec = self.registry.get(tool_call.name)
         metadata = spec.metadata if spec else None
 
@@ -203,13 +262,6 @@ class TurnEngine:
             {"name": tool_call.name, "arguments": tool_call.arguments},
         )
         self._audit(tool_call, stage="proposed")
-
-        # `request_directory` is interactive: the user grants a folder out-of-band and the live
-        # session gains it. The grant IS the consent, so it skips the permission/registry path.
-        if tool_call.name == "request_directory":
-            async for event in self._handle_directory_request(tool_call):
-                yield event
-            return
 
         decision = self.permissions.evaluate(
             tool_call.name, tool_call.arguments, metadata
@@ -270,6 +322,7 @@ class TurnEngine:
                 {"name": tool_call.name, "status": "denied", "reason": reason},
             )
             self._audit(tool_call, stage="finished", status="denied", reason=reason)
+            yield False
             return
 
         if spec is None:
@@ -280,19 +333,19 @@ class TurnEngine:
                 EventType.TOOL_FINISHED,
                 {"name": tool_call.name, "status": "error", "reason": "unknown tool"},
             )
+            yield False
             return
 
-        yield Event(EventType.TOOL_STARTED, {"name": tool_call.name})
-        self._audit(tool_call, stage="started")
-        try:
-            result = await asyncio.to_thread(
-                self.registry.execute, tool_call.name, tool_call.arguments
-            )
-            status = "ok"
-        except Exception as exc:
-            result = {"error": str(exc), "error_type": type(exc).__name__}
-            status = "error"
+        yield True
 
+    def _execute_sync(self, tool_call: ToolCall) -> tuple[Any, str]:
+        """Execute one authorized call (runs in a worker thread)."""
+        try:
+            return self.registry.execute(tool_call.name, tool_call.arguments), "ok"
+        except Exception as exc:
+            return {"error": str(exc), "error_type": type(exc).__name__}, "error"
+
+    def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
         self.messages.append(_tool_result_message(tool_call, result))
         self._audit(
             tool_call,
@@ -301,7 +354,7 @@ class TurnEngine:
             result=result,
             result_preview=_preview(result),
         )
-        yield Event(
+        return Event(
             EventType.TOOL_FINISHED,
             {
                 "name": tool_call.name,

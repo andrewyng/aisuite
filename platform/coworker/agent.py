@@ -19,6 +19,7 @@ from .connectors import (
     make_send_message_tool,
 )
 from .engine import Approver, TurnEngine
+from .environment import environment_context
 from .memory import MemoryStore, Scope, format_memories, memory_tools
 from .permissions import Mode, PermissionEngine
 from .project import load_agents_md
@@ -146,6 +147,7 @@ def build_engine(
 
     instructions = agent.system_prompt
     if ws is not None:
+        instructions = f"{instructions}\n\n{environment_context(ws)}"
         conventions = load_agents_md(ws)
         if conventions:
             instructions = f"{instructions}\n\n{conventions}"

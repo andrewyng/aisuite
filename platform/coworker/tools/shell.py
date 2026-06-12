@@ -13,6 +13,11 @@ Safety here is permission-gating (high-risk tool → approval) + per-command tim
 best-effort non-interactive enforcement. A timed-out command is interrupted (SIGINT to the
 foreground child on POSIX, Ctrl-Break to the child group on Windows); the shell survives so
 session state is preserved.
+
+Background tasks (`run_shell` with `run_in_background`) get their own detached process —
+NOT the persistent shell — so a dev server can run while the session keeps working. They
+are deliberately not killed by `close()` (which the timeout-recovery path calls); they end
+when they exit or via `shell_task_kill`.
 """
 
 from __future__ import annotations
@@ -33,6 +38,11 @@ import aisuite as ai
 
 _IS_WINDOWS = sys.platform == "win32"
 
+# Foreground timeout bounds: long enough for installs/builds/test runs by default, capped so
+# a model-requested timeout can't wedge the turn for more than ten minutes.
+_DEFAULT_TIMEOUT = 120.0
+_MAX_TIMEOUT = 600.0
+
 # Env defaults that discourage commands from blocking on a prompt.
 _NONINTERACTIVE_ENV = {
     "GIT_TERMINAL_PROMPT": "0",
@@ -46,11 +56,82 @@ class Executor(ABC):
     @abstractmethod
     def run(self, command: str, timeout: Optional[float] = None) -> dict[str, Any]: ...
 
+    def run_background(self, command: str) -> dict[str, Any]:
+        return {"error": "background execution is not supported by this executor"}
+
+    def background_output(self, task_id: str) -> dict[str, Any]:
+        return {"error": "background execution is not supported by this executor"}
+
+    def background_kill(self, task_id: str) -> dict[str, Any]:
+        return {"error": "background execution is not supported by this executor"}
+
     def interrupt(self) -> None:  # pragma: no cover - default no-op
         pass
 
     def close(self) -> None:  # pragma: no cover - default no-op
         pass
+
+
+class _BackgroundTask:
+    """One detached background command: its own process (not the persistent shell), a
+    reader thread draining output into a buffer, and an incremental-read cursor."""
+
+    def __init__(self, task_id: str, command: str, cwd: str, env: dict[str, str]):
+        self.id = task_id
+        self.command = command
+        if _IS_WINDOWS:
+            argv = ["powershell.exe", "-NoProfile", "-Command", command]
+            spawn_kwargs: dict[str, Any] = {
+                "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
+            }
+        else:
+            argv = ["/bin/bash", "-c", command]
+            spawn_kwargs = {"start_new_session": True}
+        self.proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=cwd,
+            text=True,
+            bufsize=1,
+            env=env,
+            **spawn_kwargs,
+        )
+        self._lock = threading.Lock()
+        self._lines: list[str] = []
+        self._cursor = 0
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+
+    def _read_loop(self) -> None:
+        assert self.proc.stdout is not None
+        for line in self.proc.stdout:
+            with self._lock:
+                self._lines.append(line)
+
+    def read_new(self) -> str:
+        with self._lock:
+            new = "".join(self._lines[self._cursor :])
+            self._cursor = len(self._lines)
+        return new
+
+    def kill(self) -> None:
+        if self.proc.poll() is not None:
+            return
+        if _IS_WINDOWS:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self.proc.pid)],
+                    capture_output=True,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+            return
+        try:
+            os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 class LocalExecutor(Executor):
@@ -60,7 +141,7 @@ class LocalExecutor(Executor):
         cwd: str | Path,
         env: Optional[dict[str, str]] = None,
         shell_path: Optional[str] = None,
-        default_timeout: float = 30.0,
+        default_timeout: float = _DEFAULT_TIMEOUT,
         max_output_chars: int = 20_000,
     ) -> None:
         self.cwd = str(Path(cwd).expanduser().resolve())
@@ -68,6 +149,8 @@ class LocalExecutor(Executor):
         self.max_output_chars = max_output_chars
         self._marker = f"__COWORKER_DONE_{uuid.uuid4().hex}__"
         self._is_windows = _IS_WINDOWS
+        self._bg_tasks: dict[str, _BackgroundTask] = {}
+        self._bg_counter = 0
 
         # Pick a native shell per-OS. POSIX drives bash line-by-line; Windows drives
         # PowerShell in `-Command -` mode, which is a true stdin REPL (executes
@@ -193,10 +276,59 @@ class LocalExecutor(Executor):
         output = "".join(lines)
         truncated = len(output) > self.max_output_chars
         if truncated:
-            output = output[: self.max_output_chars]
+            # Keep the TAIL: builds and test runners put the verdict at the end.
+            output = output[-self.max_output_chars :]
         return self._result(
             command, exit_code, output, timed_out=timed_out, truncated=truncated
         )
+
+    # -- background tasks ---------------------------------------------------------
+    def run_background(self, command: str) -> dict[str, Any]:
+        self._bg_counter += 1
+        task_id = f"bg-{self._bg_counter}"
+        try:
+            task = _BackgroundTask(task_id, command, self.cwd, self._env)
+        except OSError as exc:
+            return {"error": f"failed to start background task: {exc}"}
+        self._bg_tasks[task_id] = task
+        return {
+            "task_id": task_id,
+            "command": command,
+            "status": "running",
+            "note": "use shell_task_output to read its output, shell_task_kill to stop it",
+        }
+
+    def background_output(self, task_id: str) -> dict[str, Any]:
+        task = self._bg_tasks.get(task_id)
+        if task is None:
+            return {"error": f"unknown task: {task_id}"}
+        output = task.read_new()
+        truncated = len(output) > self.max_output_chars
+        if truncated:
+            output = output[-self.max_output_chars :]
+        exit_code = task.proc.poll()
+        return {
+            "task_id": task_id,
+            "status": "running" if exit_code is None else "exited",
+            "exit_code": exit_code,
+            "output": output,
+            "truncated": truncated,
+        }
+
+    def background_kill(self, task_id: str) -> dict[str, Any]:
+        task = self._bg_tasks.get(task_id)
+        if task is None:
+            return {"error": f"unknown task: {task_id}"}
+        task.kill()
+        try:
+            task.proc.wait(timeout=5)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        return {
+            "task_id": task_id,
+            "status": "running" if task.proc.poll() is None else "killed",
+            "exit_code": task.proc.poll(),
+        }
 
     def _trailer(self) -> str:
         """Command appended after each user command. Emits one line `<marker> <exit> <cwd>`
@@ -294,21 +426,143 @@ def _parse_cwd(line: str, marker: str) -> Optional[str]:
         return None
 
 
+_RUN_SHELL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "run_shell",
+        "description": (
+            "Run a shell command in the persistent session (cwd and env persist across "
+            "calls). Output longer than the limit keeps the END (where test/build verdicts "
+            "are). Set run_in_background for long-running processes like dev servers, then "
+            "poll with shell_task_output."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The command to run.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Short human-readable summary of what the command does (e.g. "
+                        "'Install dependencies'), shown in approval prompts and logs."
+                    ),
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": (
+                        f"Max seconds to wait (default {int(_DEFAULT_TIMEOUT)}, "
+                        f"max {int(_MAX_TIMEOUT)}). Ignored for background tasks."
+                    ),
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": (
+                        "Run detached and return a task_id immediately instead of waiting. "
+                        "Use for servers, watchers, and very long builds."
+                    ),
+                },
+            },
+            "required": ["command"],
+        },
+    },
+}
+
+_TASK_OUTPUT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "shell_task_output",
+        "description": (
+            "Read NEW output (since the last read) from a background task started with "
+            "run_shell run_in_background=true, plus its status and exit code."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task_id returned by run_shell.",
+                }
+            },
+            "required": ["task_id"],
+        },
+    },
+}
+
+_TASK_KILL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "shell_task_kill",
+        "description": "Stop a background task started with run_shell run_in_background=true.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task_id returned by run_shell.",
+                }
+            },
+            "required": ["task_id"],
+        },
+    },
+}
+
+
 def shell_tools(executor: Executor) -> list:
-    """Return the `run_shell` tool bound to a persistent executor."""
+    """Return the shell tools (`run_shell` + background-task helpers) bound to a
+    persistent executor."""
 
-    def run_shell(command: str, timeout_seconds: Optional[int] = None) -> dict:
-        """Run a shell command in the persistent session (cwd and env persist)."""
-        return executor.run(command, timeout=timeout_seconds)
+    def run_shell(
+        command: str,
+        description: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
+        run_in_background: bool = False,
+    ) -> dict:
+        # `description` is not used here on purpose: it rides along in the call arguments
+        # so approval prompts and the audit log can show intent, not just the raw command.
+        if run_in_background:
+            return executor.run_background(command)
+        timeout = None
+        if isinstance(timeout_seconds, (int, float)) and timeout_seconds > 0:
+            timeout = min(float(timeout_seconds), _MAX_TIMEOUT)
+        return executor.run(command, timeout=timeout)
 
-    return [
-        ai.tool(
-            run_shell,
-            metadata=ai.ToolMetadata(
-                category="shell",
-                risk_level="high",
-                capabilities=["run_command"],
-                requires_approval=True,
-            ),
-        )
-    ]
+    def shell_task_output(task_id: str) -> dict:
+        return executor.background_output(task_id)
+
+    def shell_task_kill(task_id: str) -> dict:
+        return executor.background_kill(task_id)
+
+    wrapped_run = ai.tool(
+        run_shell,
+        metadata=ai.ToolMetadata(
+            category="shell",
+            risk_level="high",
+            capabilities=["run_command"],
+            requires_approval=True,
+        ),
+    )
+    wrapped_run.__coworker_schema__ = _RUN_SHELL_SCHEMA
+    wrapped_output = ai.tool(
+        shell_task_output,
+        metadata=ai.ToolMetadata(
+            category="shell",
+            risk_level="low",
+            capabilities=["run_command"],
+            requires_approval=False,
+        ),
+    )
+    wrapped_output.__coworker_schema__ = _TASK_OUTPUT_SCHEMA
+    wrapped_kill = ai.tool(
+        shell_task_kill,
+        metadata=ai.ToolMetadata(
+            category="shell",
+            risk_level="low",
+            capabilities=["run_command"],
+            requires_approval=False,
+        ),
+    )
+    wrapped_kill.__coworker_schema__ = _TASK_KILL_SCHEMA
+    return [wrapped_run, wrapped_output, wrapped_kill]
