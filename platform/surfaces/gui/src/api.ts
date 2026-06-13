@@ -660,6 +660,16 @@ export class Session {
     this.send({ type: "directory_response", granted, ...(path ? { path } : {}), writable: !!writable });
   }
 
+  // Reply to a `propose_plan` prompt: approve (choosing the execution mode) or reject with feedback.
+  respondPlan(approved: boolean, mode?: string, feedback?: string) {
+    this.send({
+      type: "plan_response",
+      approved,
+      ...(mode ? { mode } : {}),
+      ...(feedback ? { feedback } : {}),
+    });
+  }
+
   interrupt() {
     this.send({ type: "interrupt" });
   }

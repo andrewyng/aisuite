@@ -129,6 +129,20 @@ export function Transcript({ items }: Props) {
                 {item.path && <span className="dim">{item.path}</span>}
               </div>
             );
+          case "planreq":
+            if (!item.resolved) return null; // pending plan renders in the composer head
+            return (
+              <div className="bubble-assistant" key={bi}>
+                <div className="who">proposed plan</div>
+                <Markdown text={item.plan} />
+                <div className="approval-inline">
+                  <span className={"status " + (item.resolved === "approved" ? "ok" : "denied")}>
+                    {item.resolved === "approved" ? "✓" : "✕"}
+                  </span>
+                  <span>{item.resolved === "approved" ? "Plan approved" : "Sent back with feedback"}</span>
+                </div>
+              </div>
+            );
           case "notice":
             return (
               <div className={"notice " + (item.tone === "warn" ? "warn" : "")} key={bi}>
