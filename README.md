@@ -7,13 +7,17 @@
 > and create real deliverables like PDF reports, documents, spreadsheets. It also supports scheduled automations,
 > such as providing you a daily news summary. 
 >
-> Requires bringing your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama.
+> Requires bringing your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama. Your data stays on your machine.
 >
 > [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg)
-> &nbsp;&nbsp;•&nbsp;&nbsp;
+> <sub>&nbsp;&nbsp;macOS 13+ (Apple Silicon)</sub> &nbsp;&nbsp;
+> 
 > [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe)
+> <sub>&nbsp;&nbsp;Windows 10/11 (x64) &nbsp;·&nbsp; </sub>
 >
-> <sub>macOS 13+ (Apple Silicon) &nbsp;·&nbsp; Windows 10/11 (x64) &nbsp;·&nbsp; your keys and your data stay on your machine</sub>
+> [**Quickstart:**](docs/opencoworker-quickstart.md) — install, connect a model, first tasks, automations.
+> 
+> Its source lives in this repository under `platform/` — a working reference for building your own agent harness on aisuite.
 
 <br>
 
@@ -38,7 +42,7 @@
 
 * **[Chat Completions API](#chat-completions)** — a unified, OpenAI-style interface for *OpenAI, Anthropic, Google, Mistral, Hugging Face, AWS, Cohere, Ollama, OpenRouter*, and more. Swap providers by changing one string.
 * **[Agents API · Toolkits · MCP](#agents)** — give models real Python functions as tools, run multi-turn loops, attach ready-made toolkits (files, git, shell) or any MCP server, and govern it all with tool policies.
-* **[OpenCoworker](#opencoworker)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks.
+* **[OpenCoworker](docs/opencoworker-quickstart.md)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks.
 
 ---
 
@@ -178,19 +182,6 @@ print(response.choices[0].message.content)
 For reusable connections, security filters, and tool prefixing, use the explicit `MCPClient`.
 
 **→ Quickstart:** [docs/agents-quickstart.md](docs/agents-quickstart.md) — manual tool handling, the full Agents API, policies, state stores, and MCP in depth.
-
----
-
-<a id="opencoworker"></a>
-## OpenCoworker — an AI coworker on your desktop
-
-[OpenCoworker](https://www.opencoworker.app) is a desktop AI coworker built using aisuite. Point it at a folder, give it a task, and it researches, analyzes, and produces real files on your machine, with approvals before risky actions and your API keys stored locally.
-
-[**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) (Apple Silicon) &nbsp;·&nbsp; [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) (10/11 x64)
-
-Its source lives in this repository under `platform/` — a working reference for building your own agent harness on aisuite.
-
-**→ Quickstart:** [docs/opencoworker-quickstart.md](docs/opencoworker-quickstart.md) — install, connect a model, first tasks, automations.
 
 ---
 
