@@ -395,8 +395,21 @@ class TurnEngine:
         the user's feedback so the agent can revise."""
         args = tool_call.arguments or {}
         plan = str(args.get("plan", ""))
-        if self.plan_approver is None:
-            result: dict[str, Any] = {
+        if self.permissions.mode is not Mode.PLAN:
+            # The tool is always registered (mode can flip mid-session), but proposing a
+            # plan only means something while the session is actually in plan mode. The
+            # right next step differs by mode: discuss stays read-only, so the agent
+            # should talk through the change; write-capable modes should just do it.
+            if self.permissions.mode is Mode.DISCUSS:
+                error = (
+                    "not in plan mode — this is discuss mode (read-only), so describe "
+                    "the proposed changes in chat instead"
+                )
+            else:
+                error = "not in plan mode — proceed with the work directly"
+            result: dict[str, Any] = {"approved": False, "error": error}
+        elif self.plan_approver is None:
+            result = {
                 "approved": False,
                 "error": "plan approval isn't available here",
             }

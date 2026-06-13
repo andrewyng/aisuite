@@ -172,13 +172,79 @@ def test_build_engine_plan_mode_wiring(tmp_path):
         engine.executor.close()
 
 
-def test_build_engine_interactive_has_no_propose_plan(tmp_path):
+def test_build_engine_interactive_registers_tool_without_reminder(tmp_path):
     from coworker.agent import build_engine
     from coworker.agents import code_agent
 
+    # The tool is always registered (the GUI can flip a live session into plan mode via
+    # set_mode), but the per-turn reminder only appears while actually planning.
     engine = build_engine(agent=code_agent(), workspace=tmp_path, provider=_Stub())
     try:
-        assert "propose_plan" not in engine.registry.names()
+        assert "propose_plan" in engine.registry.names()
         assert "Plan mode is active" not in engine.context_provider()
     finally:
         engine.executor.close()
+
+
+def test_discuss_mode_blocks_writes_without_plan_pressure(tmp_path):
+    engine, permissions = _plan_engine(
+        tmp_path,
+        [
+            _tool_turn("write_file", {"path": "x.py", "content": "x"}),
+            _text_turn("here's what I'd change instead"),
+        ],
+    )
+    permissions.mode = Mode.DISCUSS
+    events = _collect(engine, "tweak x.py")
+    assert not (tmp_path / "x.py").exists()
+    assert any(
+        m.get("role") == "tool" and "discuss mode is read-only" in m["content"]
+        for m in engine.messages
+    )
+
+
+def test_propose_plan_in_discuss_mode_says_describe_instead(tmp_path):
+    engine, permissions = _plan_engine(
+        tmp_path,
+        [_tool_turn("propose_plan", {"plan": "p"}), _text_turn("ok, describing")],
+    )
+    permissions.mode = Mode.DISCUSS
+    events = _collect(engine, "go")
+    assert EventType.PLAN_PROPOSED not in [e.type for e in events]
+    assert any(
+        m.get("role") == "tool" and "describe the proposed changes" in m["content"]
+        for m in engine.messages
+    )
+
+
+def test_build_engine_discuss_reminder_not_plan_contract(tmp_path):
+    from coworker.agent import build_engine
+    from coworker.agents import code_agent
+
+    engine = build_engine(
+        agent=code_agent(), workspace=tmp_path, provider=_Stub(), mode=Mode.DISCUSS
+    )
+    try:
+        ctx = engine.context_provider()
+        assert "Discuss mode is active" in ctx
+        assert "propose_plan" not in ctx  # no planning pressure in discuss mode
+    finally:
+        engine.executor.close()
+
+
+def test_propose_plan_outside_plan_mode_is_rejected(tmp_path):
+    async def approve(args):  # pragma: no cover - must not be called
+        raise AssertionError("approver should not run outside plan mode")
+
+    engine, permissions = _plan_engine(
+        tmp_path,
+        [_tool_turn("propose_plan", {"plan": "p"}), _text_turn("ok, proceeding")],
+        plan_approver=approve,
+    )
+    permissions.mode = Mode.INTERACTIVE  # session was flipped out of plan mode
+    events = _collect(engine, "go")
+    assert EventType.PLAN_PROPOSED not in [e.type for e in events]
+    assert any(
+        m.get("role") == "tool" and "not in plan mode" in m["content"]
+        for m in engine.messages
+    )

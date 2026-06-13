@@ -35,6 +35,13 @@ from .web import make_web_fetch_tool, make_web_search_tool
 from .tools.shell import LocalExecutor
 from .tools.todo import TodoList
 
+# Appended each turn while discuss mode is active: enforcement-only read-only, with no
+# pressure toward a plan proposal (that's what distinguishes it from plan mode).
+_DISCUSS_MODE_CONTEXT = """\
+Discuss mode is active: write and shell tools are disabled. Explore and answer freely; if
+the user asks for a change, describe it in chat instead of attempting it (they can switch
+to plan or approval mode to have you make it)."""
+
 # Appended to the latest user message every turn while plan mode is active. The mode can
 # flip mid-session (plan approval), so this can't live in the static instructions.
 _PLAN_MODE_CONTEXT = """\
@@ -219,10 +226,10 @@ def build_engine(
         auto_allow_tools=set(config.auto_allow),
         roots=root_list or None,
     )
-    # Sessions that START in plan mode get the exit door: propose_plan, whose approval
-    # flips `permissions.mode` live (the engine handles the round-trip).
-    if mode is Mode.PLAN:
-        registry.register(propose_plan_tool())
+    # The plan-mode exit door. Always registered (surfaces can flip a live session into
+    # plan mode via set_mode, and the registry is fixed at build); the engine rejects the
+    # call whenever the session isn't actually in plan mode.
+    registry.register(propose_plan_tool())
 
     # Per-turn ephemeral context, appended to the latest user message since mid-thread system
     # messages aren't reliable across providers. Two producers: the plan-mode reminder (mode can
@@ -238,6 +245,8 @@ def build_engine(
         parts = []
         if permissions.mode is Mode.PLAN:
             parts.append(_PLAN_MODE_CONTEXT)
+        elif permissions.mode is Mode.DISCUSS:
+            parts.append(_DISCUSS_MODE_CONTEXT)
         if roots_context is not None:
             ctx = roots_context()
             if ctx:
