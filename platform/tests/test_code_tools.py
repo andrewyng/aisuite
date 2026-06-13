@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+from coworker.tools.files import file_tools
 from coworker.tools.git import git_tools
 from coworker.tools.search import _py_grep, search_tools
 from coworker.web.fetch import _html_to_text, make_web_fetch_tool
@@ -79,6 +80,43 @@ def test_git_log_errors_outside_repo(tmp_path):
     assert "error" in git_log()
 
 
+# -- read_file -----------------------------------------------------------------
+def test_read_file_numbers_lines(tmp_path):
+    (tmp_path / "a.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    read_file = file_tools(str(tmp_path))[0]
+    out = read_file(path="a.py")
+    assert out["total_lines"] == 3
+    assert out["start_line"] == 1 and out["end_line"] == 3
+    assert out["content"].splitlines()[0].endswith("1\tone")
+    assert "note" not in out  # nothing left to read
+
+
+def test_read_file_windows_and_tells_how_to_continue(tmp_path):
+    (tmp_path / "big.txt").write_text(
+        "\n".join(f"line{i}" for i in range(1, 51)) + "\n", encoding="utf-8"
+    )
+    read_file = file_tools(str(tmp_path))[0]
+    out = read_file(path="big.txt", start_line=5, max_lines=10)
+    assert out["start_line"] == 5 and out["end_line"] == 14
+    assert out["total_lines"] == 50
+    assert "line5" in out["content"] and "line15" not in out["content"]
+    assert "start_line=15" in out["note"]
+
+
+def test_read_file_truncates_long_lines(tmp_path):
+    (tmp_path / "wide.txt").write_text("x" * 2000 + "\n", encoding="utf-8")
+    read_file = file_tools(str(tmp_path))[0]
+    out = read_file(path="wide.txt")
+    assert "(line truncated)" in out["content"]
+    assert len(out["content"]) < 1000
+
+
+def test_read_file_rejects_escape_and_non_files(tmp_path):
+    read_file = file_tools(str(tmp_path))[0]
+    assert "escapes" in read_file(path="../secret.txt")["error"]
+    assert "not a file" in read_file(path="missing.txt")["error"]
+
+
 # -- web_fetch -----------------------------------------------------------------
 def test_web_fetch_rejects_non_http():
     web_fetch = make_web_fetch_tool()
@@ -102,6 +140,7 @@ def test_code_agent_has_grep_and_git_log_not_search_files(tmp_path):
     names = {getattr(t, "__name__", "") for t in code_agent().build_tools(ctx)}
     assert "grep" in names and "git_log" in names
     assert "search_files" not in names  # replaced by grep
+    assert "read_file_lines" not in names  # folded into our windowed read_file
     assert {"read_file", "write_file", "git_status", "git_diff"} <= names
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import aisuite as ai
 
+from ..tools.files import file_tools
 from ..tools.git import git_tools
 from ..tools.search import search_tools
 from ..tools.shell import shell_tools
@@ -17,6 +18,12 @@ Understand before you change:
 - Explore first. Use `grep` and `read_file` to find the relevant code and learn how it works \
 before editing. Don't guess at APIs, signatures, or layout — read them. `git_log` shows how a \
 file evolved. Read meaningful chunks, not a line at a time.
+- Independent lookups run in parallel: when you need several reads/greps and none depends on \
+another's result, request them together in one batch instead of one per turn.
+- For broad questions spanning many files ("where is X handled?", "how does the Y flow \
+work?"), delegate to `explore` — a read-only subagent that searches in its own context and \
+returns only a report, keeping your context for the actual change. Independent explores can \
+run in parallel. For a single known file, just read it yourself.
 
 Match the codebase:
 - Write code that reads like the surrounding code: match its style, naming, structure, and \
@@ -35,10 +42,13 @@ Patch / *** Update File / @@ / +/- lines / *** End Patch) for targeted multi-lin
 `apply_unified_diff` for standard unified diffs; `write_file` for new files or full rewrites.
 
 Verify:
-- `run_shell` is a persistent bash (cd and env persist). After changes, run the narrowest \
+- `run_shell` is a persistent shell (cd and env persist). After changes, run the narrowest \
 relevant test/build/lint to confirm your work. Don't report something done without verifying \
 it; if you can't verify, say so plainly. Don't repeat a failing command — if stuck after 2–3 \
 attempts, step back, reconsider, and surface the blocker.
+- Pass a short `description` with each command (shown in approval prompts), and raise \
+`timeout_seconds` for slow builds/tests. For long-running processes (dev servers, watchers), \
+set `run_in_background` and poll `shell_task_output`; stop them with `shell_task_kill`.
 
 Plan multi-step work:
 - For anything beyond a few steps, maintain a task list with `todo_write`: keep exactly one \
@@ -59,14 +69,17 @@ the request is ambiguous rather than guessing."""
 def code_agent() -> Agent:
     def factory(context: AgentContext) -> list:
         ws = str(context.workspace)
-        # Our `grep` (ripgrep, .gitignore-aware) replaces the toolkit's slower search_files.
+        # Our `grep` (ripgrep, .gitignore-aware) replaces the toolkit's slower search_files;
+        # our line-numbered, windowing `read_file` replaces its read_file/read_file_lines.
+        replaced = {"search_files", "read_file", "read_file_lines"}
         files = [
             t
             for t in ai.toolkits.files(root=ws, allow_write=True)
-            if getattr(t, "__name__", "") != "search_files"
+            if getattr(t, "__name__", "") not in replaced
         ]
         tools = [
             *files,
+            *file_tools(ws),  # read_file (numbered lines, windowed)
             *ai.toolkits.git(root=ws),  # git_status, git_diff
             *git_tools(ws),  # git_log
             *search_tools(ws),  # grep

@@ -15,10 +15,18 @@ from typing import Any, Optional
 
 
 class Mode(str, Enum):
-    PLAN = "plan"  # read-only
+    DISCUSS = "discuss"  # read-only conversation: no edits, no planning workflow
+    PLAN = (
+        "plan"  # read-only + the planning contract (explore → propose_plan → execute)
+    )
     INTERACTIVE = "interactive"  # ask for approval (default)
     AUTO = "auto"  # full access
     CUSTOM = "custom"  # interactive + auto-allow the config's `auto_allow` tools
+
+
+# Modes whose enforcement is read-only. DISCUSS and PLAN share the same gate; they differ
+# only in intent — PLAN additionally drives the agent toward a propose_plan approval.
+READ_ONLY_MODES = frozenset({Mode.DISCUSS, Mode.PLAN})
 
 
 @dataclass
@@ -74,9 +82,11 @@ class PermissionEngine:
         is_shell = tool_name == SHELL_TOOL
         consequential = is_write or is_shell or requires_approval
 
-        # Plan mode: read-only.
-        if self.mode is Mode.PLAN and consequential:
-            return Decision(False, "plan mode is read-only", needs_user=False)
+        # Discuss / plan modes: read-only.
+        if self.mode in READ_ONLY_MODES and consequential:
+            return Decision(
+                False, f"{self.mode.value} mode is read-only", needs_user=False
+            )
 
         # Path scoping for writes that name a path (all modes): must land in a writable root.
         if is_write:

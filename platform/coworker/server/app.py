@@ -380,6 +380,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         await ws.accept()
         approval_queue: asyncio.Queue[str] = asyncio.Queue()
         directory_queue: asyncio.Queue[dict] = asyncio.Queue()
+        plan_queue: asyncio.Queue[dict] = asyncio.Queue()
 
         async def approver(_request) -> ApprovalOutcome:
             decision = await approval_queue.get()
@@ -387,6 +388,18 @@ def create_app(manager: SessionManager) -> FastAPI:
                 return ApprovalOutcome(decision)
             except ValueError:
                 return ApprovalOutcome.DENY
+
+        async def plan_approver(_args: dict) -> dict:
+            # The engine has already emitted PLAN_PROPOSED; wait for the user's verdict.
+            # Approval carries the post-plan mode ("interactive" or "auto"); rejection
+            # carries feedback the agent uses to revise the plan.
+            resp = await plan_queue.get()
+            if not resp.get("approved"):
+                return {
+                    "approved": False,
+                    "feedback": resp.get("feedback") or "the user rejected the plan",
+                }
+            return {"approved": True, "mode": resp.get("mode") or "interactive"}
 
         async def directory_requester(args: dict) -> dict:
             # The engine has already emitted DIRECTORY_REQUESTED; wait for the user's reply, then
@@ -432,6 +445,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             approver=approver,
             extra_tools=mcp_tools,
             directory_requester=directory_requester,
+            plan_approver=plan_approver,
         )
         if engine is None:
             await ws.send_json(
@@ -470,6 +484,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             "turn_start",
             "permission_required",
             "directory_requested",
+            "plan_proposed",
             "iteration_end",
         }
 
@@ -491,6 +506,8 @@ def create_app(manager: SessionManager) -> FastAPI:
                     approval_queue.put_nowait(message.get("decision", "deny"))
                 elif kind == "directory_response":
                     directory_queue.put_nowait(message)
+                elif kind == "plan_response":
+                    plan_queue.put_nowait(message)
                 elif kind == "interrupt":
                     engine.request_interrupt()
                 elif kind == "set_mode":

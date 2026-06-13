@@ -7,6 +7,7 @@ export type EventType =
   | "tool_proposed"
   | "permission_required"
   | "directory_requested"
+  | "plan_proposed"
   | "tool_started"
   | "tool_finished"
   | "iteration_end"
@@ -68,5 +69,10 @@ export type Item =
       path?: string;
       writable?: boolean;
       resolved?: "granted" | "denied";
+    }
+  | {
+      kind: "planreq";
+      plan: string;
+      resolved?: "approved" | "rejected";
     }
   | { kind: "notice"; tone: "info" | "warn"; text: string };

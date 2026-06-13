@@ -34,6 +34,7 @@ import { IntegrationsView } from "./components/IntegrationsView";
 import { AuditView } from "./components/AuditView";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
+import { PlanCard } from "./components/PlanCard";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -369,6 +370,9 @@ export function App() {
             { kind: "dirreq", reason: d.reason || "", path: d.path || "", writable: !!d.writable },
           ]);
           break;
+        case "plan_proposed":
+          setItems((p) => [...p, { kind: "planreq", plan: d.plan || "" }]);
+          break;
         case "tool_finished":
           setItems((p) => updateLastTool(p, d.name, d.status, d.result_preview || d.reason));
           // Refresh the right rail when something it shows may have changed: browser state, or a
@@ -434,6 +438,11 @@ export function App() {
   const approve = (decision: ApprovalDecision) => {
     setItems((p) => resolveLastApproval(p, decision));
     sessionRef.current?.approve(decision);
+  };
+  const respondPlan = (approved: boolean, mode?: string, feedback?: string) => {
+    setItems((p) => resolveLastPlan(p, approved ? "approved" : "rejected"));
+    sessionRef.current?.respondPlan(approved, mode, feedback);
+    if (approved && mode) setMode(mode); // the server flips the live engine to this mode
   };
   const respondDirectory = (granted: boolean, path?: string, writable?: boolean) => {
     setItems((p) => resolveLastDirReq(p, granted ? "granted" : "denied"));
@@ -599,6 +608,7 @@ export function App() {
   const idle = items.length === 0 && !streaming;
   const pendingApproval = [...items].reverse().find((i) => i.kind === "approval" && !i.resolved);
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
+  const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New chat";
   const commitTitleRename = () => {
@@ -826,7 +836,9 @@ export function App() {
                     : "Ask the coworker…  (drop or paste images)"
               }
               approvalSlot={
-                pendingDirReq?.kind === "dirreq" ? (
+                pendingPlan?.kind === "planreq" ? (
+                  <PlanCard item={pendingPlan} onRespond={respondPlan} />
+                ) : pendingDirReq?.kind === "dirreq" ? (
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
                 ) : pendingApproval?.kind === "approval" ? (
                   <ApprovalCard item={pendingApproval} onApprove={approve} compact />
@@ -978,6 +990,18 @@ function resolveLastDirReq(items: Item[], resolved: "granted" | "denied"): Item[
   for (let i = copy.length - 1; i >= 0; i--) {
     const it = copy[i];
     if (it.kind === "dirreq" && !it.resolved) {
+      copy[i] = { ...it, resolved };
+      break;
+    }
+  }
+  return copy;
+}
+
+function resolveLastPlan(items: Item[], resolved: "approved" | "rejected"): Item[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i >= 0; i--) {
+    const it = copy[i];
+    if (it.kind === "planreq" && !it.resolved) {
       copy[i] = { ...it, resolved };
       break;
     }

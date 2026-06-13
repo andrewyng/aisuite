@@ -62,8 +62,9 @@ class MemoryStore(ABC):
 
 
 def format_memories(items: list[MemoryItem]) -> str:
-    """Render memories for injection into the system prompt."""
+    """Render memories for injection into the system prompt. Ids are shown so the agent
+    can revise a memory (`memory_update`) or retire it (`memory_forget`)."""
     if not items:
         return ""
-    lines = [f"- {item.content}" for item in items]
+    lines = [f"- [#{item.id}] {item.content}" for item in items]
     return "Known memories (from earlier sessions):\n" + "\n".join(lines)

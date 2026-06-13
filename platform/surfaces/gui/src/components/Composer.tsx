@@ -5,7 +5,8 @@ import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
 
 const PERMISSION_OPTIONS: Option[] = [
-  { value: "plan", label: "Read-only", description: "Suggest changes — don't edit files or run commands" },
+  { value: "discuss", label: "Discuss", description: "Chat and explore — no edits or commands" },
+  { value: "plan", label: "Plan", description: "Explore read-only, propose a plan for approval, then build" },
   { value: "interactive", label: "Ask for approval", description: "Ask before edits and commands" },
   { value: "auto", label: "Full access", description: "Run everything without asking" },
   { value: "custom", label: "Custom", description: "Use auto-allow rules from config.toml" },

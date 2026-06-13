@@ -687,6 +687,13 @@ button.btn.danger { color: var(--accent); }
 .dirreq-access { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
 .dirreq-actions .spacer { flex: 1; }
 
+/* propose_plan prompt (plan-mode exit) */
+.plan-card .plan-body {
+  max-height: 320px; overflow-y: auto; font-size: 13.5px;
+  margin: 8px 0 2px; padding: 8px 10px;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+}
+
 /* folder gate */
 .gate-overlay { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; z-index: 50; }
 .gate { width: 480px; max-width: 92vw; background: var(--paper); border: 1px solid var(--line-strong); border-radius: 16px; padding: 26px 26px 22px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); }

@@ -186,6 +186,7 @@ class SessionManager:
         approver: Optional[Approver] = None,
         extra_tools: Optional[list[Any]] = None,
         directory_requester: Optional[Any] = None,
+        plan_approver: Optional[Any] = None,
     ) -> Optional[TurnEngine]:
         engine = self._engines.get(session_id)
         if engine is not None:
@@ -193,6 +194,8 @@ class SessionManager:
                 engine.approver = approver
             if directory_requester is not None:
                 engine.directory_requester = directory_requester
+            if plan_approver is not None:
+                engine.plan_approver = plan_approver
             return engine
 
         record = self.session_store.load(session_id)
@@ -243,6 +246,7 @@ class SessionManager:
             audit_sink=self.audit_store.append,
             roots=roots,
             directory_requester=directory_requester,
+            plan_approver=plan_approver,
         )
         self._engines[session_id] = engine
         return engine
