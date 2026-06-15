@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -43,3 +45,68 @@ def test_nebius_provider():
         )
 
         assert response.choices[0].message.content == response_text_content
+
+
+def test_nebius_provider_tool_calling():
+    """tools are forwarded unchanged and tool_calls in the response survive."""
+
+    messages = [{"role": "user", "content": "What's the weather in SF?"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                },
+            },
+        }
+    ]
+    selected_model = "our-favorite-model"
+
+    provider = NebiusProvider()
+
+    tool_call = SimpleNamespace(
+        id="call_1",
+        type="function",
+        function=SimpleNamespace(name="get_weather", arguments='{"city": "SF"}'),
+    )
+    mock_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="tool_calls",
+                message=SimpleNamespace(
+                    role="assistant", content=None, tool_calls=[tool_call]
+                ),
+            )
+        ]
+    )
+
+    with patch.object(
+        provider.client.chat.completions,
+        "create",
+        return_value=mock_response,
+    ) as mock_create:
+        response = provider.chat_completions_create(
+            messages=messages,
+            model=selected_model,
+            tools=tools,
+            tool_choice="auto",
+        )
+
+        mock_create.assert_called_with(
+            messages=messages,
+            model=selected_model,
+            tools=tools,
+            tool_choice="auto",
+        )
+
+        assert response.choices[0].finish_reason == "tool_calls"
+        assert response.choices[0].message.tool_calls[0].function.name == "get_weather"
+        assert (
+            response.choices[0].message.tool_calls[0].function.arguments
+            == '{"city": "SF"}'
+        )
