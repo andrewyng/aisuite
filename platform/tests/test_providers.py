@@ -74,6 +74,34 @@ def test_complete_parses_tool_calls():
     assert "tools" in client.chat.completions.calls[0]
 
 
+def test_complete_strips_gemini_extra_content_from_history():
+    # A session run on Gemini then switched to OpenAI carries `extra_content` (thought
+    # signatures) on its tool calls. The OpenAI API rejects unknown fields, so it must be
+    # stripped on the way out — without mutating the engine's shared history.
+    client = _FakeClient(_response(content="ok"))
+    provider = OpenAIProvider(client=client)
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_0",
+                    "type": "function",
+                    "function": {"name": "f", "arguments": "{}"},
+                    "extra_content": {"google": {"thought_signature": "SIG"}},
+                }
+            ],
+        }
+    ]
+    provider.complete(model="gpt-5.5", messages=messages)
+
+    sent = client.chat.completions.calls[0]["messages"]
+    assert "extra_content" not in sent[0]["tool_calls"][0]
+    # original history untouched
+    assert "extra_content" in messages[0]["tool_calls"][0]
+
+
 def test_complete_tolerates_bad_tool_args():
     tc = SimpleNamespace(
         id="call_2", function=SimpleNamespace(name="x", arguments="{not json")

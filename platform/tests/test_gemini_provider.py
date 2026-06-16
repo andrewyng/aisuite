@@ -54,10 +54,26 @@ def _text_part(text):
     return SimpleNamespace(text=text, function_call=None)
 
 
-def _call_part(name, args):
-    return SimpleNamespace(
+def _call_part(name, args, signature=None):
+    part = SimpleNamespace(
         text=None, function_call=SimpleNamespace(name=name, args=args)
     )
+    if signature is not None:
+        part.thought_signature = signature
+    return part
+
+
+def _stored_call(call_id, name, arguments="{}", signature=None):
+    """An OpenAI-shaped stored tool call, optionally carrying a Gemini thought signature the way
+    the engine persists it (`extra_content.google.thought_signature`)."""
+    entry = {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": arguments},
+    }
+    if signature is not None:
+        entry["extra_content"] = {"google": {"thought_signature": signature}}
+    return entry
 
 
 # -- message conversion -------------------------------------------------------------
@@ -94,6 +110,98 @@ def test_convert_assistant_tool_turn_maps_role_model():
     )
     assert contents[1]["role"] == "model"
     assert contents[1]["parts"] == [{"function_call": {"name": "f", "args": {"x": 1}}}]
+
+
+def test_convert_replays_thought_signature_on_first_tool_call():
+    # A stored signature must ride back as a part-level sibling of function_call (not nested
+    # inside it) — that is exactly where Gemini validates it.
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "do it"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    _stored_call("call_0", "f", '{"x": 1}', signature="SIG")
+                ],
+            },
+        ]
+    )
+    assert contents[1]["parts"] == [
+        {"function_call": {"name": "f", "args": {"x": 1}}, "thought_signature": "SIG"}
+    ]
+
+
+def test_convert_parallel_tool_calls_signature_only_on_first():
+    # Parallel calls: Gemini attaches the signature only to the first function call. The second
+    # part must NOT get one (a stray signature there triggers the same 400 we are fixing).
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    _stored_call("call_0", "a", "{}", signature="SIG-A"),
+                    _stored_call("call_1", "b", "{}"),
+                ],
+            },
+        ]
+    )
+    parts = contents[1]["parts"]
+    assert parts[0]["thought_signature"] == "SIG-A"
+    assert "thought_signature" not in parts[1]
+
+
+def test_convert_multi_step_turn_replays_each_step_signature():
+    # Sequential (multi-step) function calling: every step's first call keeps its own signature.
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    _stored_call("call_0", "first", "{}", signature="SIG-1")
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_0", "content": "r1"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    _stored_call("call_0", "second", "{}", signature="SIG-2")
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_0", "content": "r2"},
+        ]
+    )
+    signatures = [
+        p.get("thought_signature")
+        for c in contents
+        for p in c["parts"]
+        if "function_call" in p
+    ]
+    assert signatures == ["SIG-1", "SIG-2"]
+
+
+def test_thought_signature_round_trip_through_history():
+    # End-to-end: a turn the provider parsed → engine history entry → replayed by convert_messages.
+    from coworker.engine import _tool_call_message_entry
+    from coworker.providers import ToolCall
+
+    entry = _tool_call_message_entry(
+        ToolCall(id="call_0", name="f", arguments={"x": 1}, thought_signature="SIG")
+    )
+    assert entry["extra_content"] == {"google": {"thought_signature": "SIG"}}
+
+    _, contents = convert_messages(
+        [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "", "tool_calls": [entry]},
+        ]
+    )
+    assert contents[1]["parts"][0]["thought_signature"] == "SIG"
 
 
 def test_convert_tool_results_map_id_to_name_and_merge():
@@ -327,6 +435,38 @@ def test_complete_parses_function_calls_with_synthesized_ids():
     assert turn.tool_calls[0].arguments == {"path": "a.txt"}
 
 
+def test_complete_captures_thought_signature():
+    fake = _FakeClient(
+        response=_response(
+            [_call_part("write_file", {"path": "a.txt"}, signature="SIG")]
+        )
+    )
+    provider = GeminiProvider(client=fake)
+    turn = provider.complete(model="m", messages=[{"role": "user", "content": "go"}])
+    assert turn.tool_calls[0].thought_signature == "SIG"
+
+
+def test_complete_normalizes_bytes_thought_signature():
+    # The live google-genai SDK returns thought_signature as bytes; it must become a str before
+    # the engine persists history (json.dumps rejects bytes).
+    import json
+
+    from coworker.engine import _tool_call_message_entry
+    from coworker.providers.base import normalize_thought_signature
+
+    assert normalize_thought_signature(b"SIG") == "SIG"
+
+    fake = _FakeClient(
+        response=_response([_call_part("todo_write", {"items": []}, signature=b"SIG")])
+    )
+    provider = GeminiProvider(client=fake)
+    turn = provider.complete(model="m", messages=[{"role": "user", "content": "go"}])
+    assert turn.tool_calls[0].thought_signature == "SIG"
+
+    entry = _tool_call_message_entry(turn.tool_calls[0])
+    json.dumps(entry)  # must not raise TypeError
+
+
 @pytest.mark.parametrize(
     "finish,expected",
     [
@@ -430,6 +570,20 @@ def test_stream_collects_function_calls_across_chunks():
         ("call_1", "g"),
     ]
     assert final.tool_calls[0].arguments == {"x": 1}
+
+
+def test_stream_preserves_thought_signature_on_tool_call():
+    # The signature rides on the function-call part; the final turn must keep it after the
+    # chunks are merged.
+    chunks = [
+        _response([_text_part("working")], finish_reason=None),
+        _response([_call_part("f", {"x": 1}, signature="SIG")], finish_reason="STOP"),
+    ]
+    provider = GeminiProvider(client=_FakeClient(chunks=chunks))
+    final = list(
+        provider.stream(model="m", messages=[{"role": "user", "content": "x"}])
+    )[-1].turn
+    assert final.tool_calls[0].thought_signature == "SIG"
 
 
 def test_stream_handles_enum_like_finish_reason():
