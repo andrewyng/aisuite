@@ -8,8 +8,44 @@
 |---|---|
 | macOS 13+ (Apple Silicon, M1 or later) | [OpenCoworker-macos-arm64.dmg](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) |
 | Windows 10/11 (x64) | [OpenCoworker-windows-setup.exe](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) |
+| Linux (x64) | Build from source — see below |
 
 NOTE: On Windows, SmartScreen may warn on first run: choose **More info → Run anyway** (the build isn't Authenticode-signed yet).
+
+### Linux: build from source
+
+No pre-built binary is provided yet. The build takes ~5–10 minutes and produces a `.deb` (Ubuntu/Debian) and `.AppImage`.
+
+**1. System dependencies (Ubuntu/Debian):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+  nodejs npm python3 python3-venv
+```
+
+**2. Rust:**
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+```
+
+**3. Python venv + dependencies:**
+```bash
+cd platform/
+python3 -m venv .venv
+.venv/bin/pip install -e . -e ../ pyinstaller 'mcp[cli]'
+```
+
+**4. Run the build script:**
+```bash
+cd platform/packaging/
+./build_linux.sh
+```
+
+The `.deb` and `.AppImage` are written to `platform/surfaces/gui/src-tauri/target/release/bundle/`. Install the `.deb` with:
+```bash
+sudo dpkg -i OpenCoworker_*.deb
+```
 
 ## 2. Connect a model
 

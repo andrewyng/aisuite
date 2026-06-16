@@ -13,7 +13,10 @@
 > <sub>&nbsp;&nbsp;macOS 13+ (Apple Silicon)</sub> &nbsp;&nbsp;
 > 
 > [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe)
-> <sub>&nbsp;&nbsp;Windows 10/11 (x64) &nbsp;·&nbsp; </sub>
+> <sub>&nbsp;&nbsp;Windows 10/11 (x64)</sub> &nbsp;&nbsp;
+>
+> [**⬇ Linux (build from source)**](docs/opencoworker-quickstart.md#linux-build-from-source)
+> <sub>&nbsp;&nbsp;Ubuntu/Debian x64 — ~10 min, produces .deb + .AppImage</sub>
 >
 > [**Quickstart:**](docs/opencoworker-quickstart.md) — install, connect a model, first tasks, automations.
 > 
