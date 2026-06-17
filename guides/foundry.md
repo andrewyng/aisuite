@@ -10,17 +10,19 @@ There are two ways to use the `foundry` provider.
 ## Managed mode (recommended)
 
 Install [Foundry Local](https://learn.microsoft.com/azure/ai-foundry/foundry-local/get-started)
-and the Python SDK:
+and the Foundry Local Python SDK. Pick the package that matches your hardware
+(see the [SDK reference](https://learn.microsoft.com/azure/foundry-local/reference/reference-sdk-current?pivots=programming-language-python)):
 
 ```shell
 pip install foundry-local-sdk
 ```
 
-In managed mode, `aisuite` uses the SDK's `FoundryLocalManager` to start the local
-service on demand, download and load the requested model, and resolve the model
-alias (e.g. `phi-3.5-mini`) to the concrete model id served by the endpoint.
-Because Foundry Local picks a dynamic port, the manager is the easiest way to
-discover the endpoint.
+In managed mode, `aisuite` uses the SDK to start the local service on demand,
+download and load the requested model, and resolve the model alias (e.g.
+`phi-3.5-mini`) to the concrete model id served by the endpoint. Because Foundry
+Local picks a dynamic port, the SDK is the easiest way to discover the endpoint.
+Both the current `foundry-local-sdk` (imported as `foundry_local_sdk`) and the
+legacy 0.x package (imported as `foundry_local`) are supported.
 
 Sample code:
 ```python
