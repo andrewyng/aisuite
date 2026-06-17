@@ -10,7 +10,9 @@ There are two ways to use the `foundry` provider.
 ## Managed mode (recommended)
 
 Install [Foundry Local](https://learn.microsoft.com/azure/ai-foundry/foundry-local/get-started)
-and the Foundry Local Python SDK. Pick the package that matches your hardware
+and the Foundry Local Python SDK. The SDK is included in the `foundry` extra
+(`pip install 'aisuite[foundry]'`) on Python 3.11+. You can also install it
+directly, picking the package that matches your hardware
 (see the [SDK reference](https://learn.microsoft.com/azure/foundry-local/reference/reference-sdk-current?pivots=programming-language-python)):
 
 ```shell
