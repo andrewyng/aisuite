@@ -638,6 +638,8 @@ class SessionManager:
             return ["gemini-2.5-flash", "gemini-2.5-pro"]
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
+        if name == "foundry_local":
+            return [m.split(":", 1)[-1] for m in self._foundry_models()]
         return []
 
     def set_provider(
@@ -732,6 +734,27 @@ class SessionManager:
             data = httpx.get(base + "/api/tags", timeout=2.0).json()
             return [
                 f"ollama:{m['name']}" for m in data.get("models", []) if m.get("name")
+            ]
+        except Exception:
+            return []
+
+    def _foundry_models(self) -> list[str]:
+        """Live list of models loaded in the configured Foundry Local service (via its
+        OpenAI-compatible `/v1/models`), as `foundry_local:<id>` so they're directly selectable.
+        Empty if Foundry Local isn't configured or unreachable — best-effort, never raises.
+        """
+        profile = self.secrets.get("provider:foundry_local")
+        if not profile:
+            return []
+        base = (profile.get("base_url") or "http://localhost:5273").strip().rstrip("/")
+        if not base.endswith("/v1"):
+            base = base + "/v1"
+        try:
+            import httpx
+
+            data = httpx.get(base + "/models", timeout=2.0).json()
+            return [
+                f"foundry_local:{m['id']}" for m in data.get("data", []) if m.get("id")
             ]
         except Exception:
             return []

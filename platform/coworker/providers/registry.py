@@ -8,8 +8,9 @@ model string and builds (and caches) its client from the matching SecretStore pr
 
 Today: `openai` (the default, with an optional custom endpoint that covers Azure OpenAI's
 `/openai/v1` and any OpenAI-compliant gateway), `anthropic` (native Messages API via
-`AnthropicProvider`), `gemini` (native Google GenAI API via `GeminiProvider`), and `ollama`
-(local, OpenAI-compatible `/v1`). Bedrock/Vertex auth for Claude is future work.
+`AnthropicProvider`), `gemini` (native Google GenAI API via `GeminiProvider`), `ollama`
+(local, OpenAI-compatible `/v1`), and `foundry_local` (Microsoft Foundry Local's on-device,
+OpenAI-compatible `/v1`). Bedrock/Vertex auth for Claude is future work.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_FOUNDRY_URL = "http://localhost:5273"
 
 
 @dataclass(frozen=True)
@@ -73,18 +75,22 @@ class ProviderDescriptor:
         }
 
 
-def _normalize_ollama_url(url: Optional[str]) -> str:
-    """Accept `http://host:11434` or `.../v1` and return an OpenAI-compatible base URL.
+def _normalize_openai_compatible_url(url: Optional[str], default: str) -> str:
+    """Accept `http://host:port` or `.../v1` and return an OpenAI-compatible base URL.
 
-    Ollama serves its OpenAI-compatible API under `/v1`; the native API lives at the root, so we
-    always target `<root>/v1`.
+    OpenAI-compatible local servers (Ollama, Foundry Local) serve their API under `/v1`; the
+    native API may live at the root, so we always target `<root>/v1`.
     """
-    base = (url or DEFAULT_OLLAMA_URL).strip().rstrip("/")
+    base = (url or default).strip().rstrip("/")
     if not base:
-        base = DEFAULT_OLLAMA_URL
+        base = default
     if not base.endswith("/v1"):
         base = base + "/v1"
     return base
+
+
+def _normalize_ollama_url(url: Optional[str]) -> str:
+    return _normalize_openai_compatible_url(url, DEFAULT_OLLAMA_URL)
 
 
 def _build_openai(profile: dict[str, Any], secrets: Any) -> ProviderClient:
@@ -113,6 +119,17 @@ def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     # string, so we pass a placeholder. `base_url` comes from the stored profile (or the default).
     base_url = _normalize_ollama_url((profile or {}).get("base_url"))
     return OpenAIProvider(api_key="ollama", base_url=base_url)
+
+
+def _build_foundry_local(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    # Foundry Local exposes an OpenAI-compatible `/v1`, like Ollama: the endpoint ignores the key
+    # but the SDK requires a non-empty string, so we pass a placeholder. The model string must be
+    # a concrete served id (e.g. `Phi-3.5-mini-instruct-generic-cpu`), which the Settings UI lists
+    # live from the endpoint's `/v1/models`. The port is dynamic, so `base_url` is user-supplied.
+    base_url = _normalize_openai_compatible_url(
+        (profile or {}).get("base_url"), DEFAULT_FOUNDRY_URL
+    )
+    return OpenAIProvider(api_key="foundry", base_url=base_url)
 
 
 DESCRIPTORS: list[ProviderDescriptor] = [
@@ -193,6 +210,24 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         # Reliable native tool-calling + strong coding quality (verified). Pull with
         # `ollama pull qwen3-coder:30b`.
         recommended_model="qwen3-coder:30b",
+    ),
+    ProviderDescriptor(
+        name="foundry_local",
+        title="Foundry Local (on-device)",
+        needs_key=False,
+        fields=[
+            ProviderField(
+                "base_url",
+                "Foundry Local endpoint",
+                secret=False,
+                required=False,
+                placeholder=DEFAULT_FOUNDRY_URL,
+                help="The OpenAI-compatible endpoint of the running Foundry Local service. "
+                "The port is dynamic — run `foundry service status` to find it. The /v1 path "
+                "is added automatically.",
+            ),
+        ],
+        build=_build_foundry_local,
     ),
 ]
 
