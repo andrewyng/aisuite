@@ -5,13 +5,13 @@ open-source models directly on your device through Microsoft's on-device runtime
 It exposes an OpenAI-compatible API, so you can use the `aisuite` interface for
 chat completions. No API key is needed for these locally hosted models.
 
-There are two ways to use the `foundry` provider.
+There are two ways to use the `foundry_local` provider.
 
 ## Managed mode (recommended)
 
 Install [Foundry Local](https://learn.microsoft.com/azure/ai-foundry/foundry-local/get-started)
-and the Foundry Local Python SDK. The SDK is included in the `foundry` extra
-(`pip install 'aisuite[foundry]'`) on Python 3.11+. You can also install it
+and the Foundry Local Python SDK. The SDK is included in the `foundry-local` extra
+(`pip install 'aisuite[foundry-local]'`) on Python 3.11+. You can also install it
 directly, picking the package that matches your hardware
 (see the [SDK reference](https://learn.microsoft.com/azure/foundry-local/reference/reference-sdk-current?pivots=programming-language-python)):
 
@@ -38,7 +38,7 @@ def main():
     ]
 
     # Use a Foundry Local model alias.
-    foundry_phi = "foundry:phi-3.5-mini"
+    foundry_phi = "foundry_local:phi-3.5-mini"
 
     response = client.chat.completions.create(
         model=foundry_phi,
@@ -66,7 +66,7 @@ import aisuite as ai
 def main():
     client = ai.Client(
         provider_configs={
-            "foundry": {
+            "foundry_local": {
                 "api_url": "http://localhost:5273",
                 "timeout": 300,
             }
@@ -77,7 +77,7 @@ def main():
     ]
 
     response = client.chat.completions.create(
-        model="foundry:Phi-3.5-mini-instruct-generic-cpu",
+        model="foundry_local:Phi-3.5-mini-instruct-generic-cpu",
         messages=messages,
         temperature=0.75,
     )

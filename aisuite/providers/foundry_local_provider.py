@@ -171,6 +171,6 @@ class FoundryLocalProvider(OpenaiProvider):
 
 
 # The provider factory derives the class name from the provider key
-# ("foundry" -> "FoundryProvider"), so keep that name available as an alias of
-# the product-named class.
-FoundryProvider = FoundryLocalProvider
+# ("foundry_local" -> "Foundry_localProvider" via str.capitalize), so keep that
+# name available as an alias of the product-named class.
+Foundry_localProvider = FoundryLocalProvider

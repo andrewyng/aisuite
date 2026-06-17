@@ -4,8 +4,8 @@ from unittest.mock import patch
 import pytest
 
 from aisuite.provider import LLMError
-from aisuite.providers import foundry_provider
-from aisuite.providers.foundry_provider import FoundryLocalProvider
+from aisuite.providers import foundry_local_provider
+from aisuite.providers.foundry_local_provider import FoundryLocalProvider
 
 # --- Fakes for the legacy 0.x `foundry_local` SDK -------------------------
 
@@ -95,24 +95,24 @@ def _reset(monkeypatch):
 
 
 def _use_legacy_sdk(monkeypatch):
-    monkeypatch.setattr(foundry_provider, "_import_new_sdk", lambda: None)
+    monkeypatch.setattr(foundry_local_provider, "_import_new_sdk", lambda: None)
     monkeypatch.setattr(
-        foundry_provider, "_import_legacy_sdk", lambda: FakeLegacyManager
+        foundry_local_provider, "_import_legacy_sdk", lambda: FakeLegacyManager
     )
 
 
 def _use_new_sdk(monkeypatch):
     monkeypatch.setattr(
-        foundry_provider,
+        foundry_local_provider,
         "_import_new_sdk",
         lambda: (FakeConfiguration, FakeNewManager),
     )
-    monkeypatch.setattr(foundry_provider, "_import_legacy_sdk", lambda: None)
+    monkeypatch.setattr(foundry_local_provider, "_import_legacy_sdk", lambda: None)
 
 
 def _no_sdk(monkeypatch):
-    monkeypatch.setattr(foundry_provider, "_import_new_sdk", lambda: None)
-    monkeypatch.setattr(foundry_provider, "_import_legacy_sdk", lambda: None)
+    monkeypatch.setattr(foundry_local_provider, "_import_new_sdk", lambda: None)
+    monkeypatch.setattr(foundry_local_provider, "_import_legacy_sdk", lambda: None)
 
 
 _MOCK_RESPONSE = SimpleNamespace(
