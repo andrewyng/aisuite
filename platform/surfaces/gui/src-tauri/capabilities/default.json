@@ -9,6 +9,7 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-unminimize",
+    "clipboard-manager:allow-read-image",
     "dialog:default",
     "autostart:default"
   ]
