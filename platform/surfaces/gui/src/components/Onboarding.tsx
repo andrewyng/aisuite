@@ -41,13 +41,14 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [keyMsg, setKeyMsg] = useState<string | null>(null);
   const [secretsPath, setSecretsPath] = useState("");
 
-  // provider choice (API pane) + local models (Ollama)
+  // provider choice (API pane) + local runtimes (Ollama, Foundry Local — any keyless provider)
   const [conn, setConn] = useState<"api" | "local">("api");
   const [apiProv, setApiProv] = useState("openai");
+  const [localProv, setLocalProv] = useState("ollama");
   const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [ollamaUrl, setOllamaUrl] = useState("");
-  const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
+  const [localUrl, setLocalUrl] = useState("");
+  const [localMsg, setLocalMsg] = useState<string | null>(null);
 
   // always-on
   const [autostart, setAuto] = useState(false);
@@ -67,8 +68,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     getProviders()
       .then((ps) => {
         setProviders(ps);
-        const oll = ps.find((p) => p.name === "ollama");
-        if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
         const oai = ps.find((p) => p.name === "openai");
         if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
       })
@@ -82,6 +81,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       getKeepAwake().then((v) => setKeep(!!v));
     }
   }, []);
+
+  // Prefill the selected local runtime's stored URL when the runtime (or provider data) changes.
+  useEffect(() => {
+    const p = providers.find((x) => x.name === localProv);
+    setLocalUrl(p?.values?.base_url || "");
+  }, [localProv, providers]);
 
   const browseScratch = async () => {
     const p = await pickFolder();
@@ -110,28 +115,30 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const ollama = providers.find((p) => p.name === "ollama");
-  const saveOllama = async () => {
-    setOllamaMsg(null);
-    const res = await setProvider("ollama", { base_url: ollamaUrl.trim() });
+  const localDesc = providers.find((p) => p.name === localProv);
+  const saveLocal = async () => {
+    setLocalMsg(null);
+    const res = await setProvider(localProv, { base_url: localUrl.trim() });
     if (res.ok) {
       const rec = res.recommended_model;
-      setOllamaMsg(
+      setLocalMsg(
         rec
-          ? `Saved. ${rec} is the recommended model — pick it below (pull it first with: ollama pull ${rec}).`
+          ? `Saved. ${rec} is the recommended model — pick it below (make sure it's available).`
           : "Saved.",
       );
       refreshSettings(); // the recommended model may have been added to the list
     } else {
-      setOllamaMsg(res.error || "Couldn't save the Ollama URL.");
+      setLocalMsg(res.error || "Couldn't save the URL.");
     }
   };
 
   // The provider the model step is currently configuring. Its models render as a checklist
   // (tick = in the composer picker, black badge = default) once the provider is usable.
-  const apiProviders = providers.filter((p) => p.name !== "ollama");
-  const provName = conn === "local" ? "ollama" : apiProv;
+  const apiProviders = providers.filter((p) => p.needs_key);
+  const localProviders = providers.filter((p) => !p.needs_key);
+  const provName = conn === "local" ? localProv : apiProv;
   const selProv = providers.find((p) => p.name === provName);
+  const localUrlField = selProv?.fields.find((f) => f.key === "base_url");
   const knownNames = providers.map((p) => p.name);
 
   const toggleAuto = async (v: boolean) => setAuto(!!(await setAutostart(v)));
@@ -204,8 +211,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="ob-step">
               <h2>Connect a model</h2>
               <p className="ob-sub">
-                Connect a model provider with an API key — or run models locally with Ollama
-                (free, runs on your Mac) — then pick the default model for new sessions.
+                Connect a model provider with an API key — or run models locally (Ollama or
+                Foundry Local, free and on-device) — then pick the default model for new sessions.
               </p>
 
               <div className="subtabs ob-subtabs">
@@ -214,7 +221,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                     API key
                   </div>
                   <div className={"mtab" + (conn === "local" ? " active" : "")} onClick={() => setConn("local")}>
-                    Local (Ollama)
+                    Local
                   </div>
                 </div>
               </div>
@@ -305,38 +312,55 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 </>
               ) : (
                 <>
-                  <label className="ob-label">Ollama server URL</label>
+                  {localProviders.length > 1 && (
+                    <>
+                      <label className="ob-label">Runtime</label>
+                      <select
+                        className="ob-select"
+                        value={localProv}
+                        onChange={(e) => {
+                          setLocalProv(e.target.value);
+                          setLocalMsg(null);
+                        }}
+                      >
+                        {localProviders.map((p) => (
+                          <option key={p.name} value={p.name}>
+                            {p.title}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                  <label className="ob-label">{localUrlField?.label || "Server URL"}</label>
                   <div className="ob-row">
                     <input
-                      placeholder="http://localhost:11434"
-                      value={ollamaUrl}
+                      placeholder={localUrlField?.placeholder || "http://localhost:11434"}
+                      value={localUrl}
                       autoComplete="off"
                       spellCheck={false}
-                      onChange={(e) => setOllamaUrl(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && saveOllama()}
+                      onChange={(e) => setLocalUrl(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && saveLocal()}
                     />
-                    <button className="btn primary" onClick={saveOllama}>
+                    <button className="btn primary" onClick={saveLocal}>
                       Save
                     </button>
                   </div>
                   <div className="ob-note dim">
-                    Needs <code>ollama serve</code> running
-                    {ollama?.recommended_model ? (
-                      <> and a tool-capable model pulled, e.g. <code>ollama pull {ollama.recommended_model}</code></>
-                    ) : null}
-                    . No API key needed; you can fine-tune models later in Manage.
+                    {localUrlField?.help ||
+                      "The OpenAI-compatible /v1 path is added automatically."}{" "}
+                    No API key needed; you can fine-tune models later in Manage.
                   </div>
-                  {ollamaMsg && <div className="ob-note">{ollamaMsg}</div>}
+                  {localMsg && <div className="ob-note">{localMsg}</div>}
 
                   <label className="ob-label">Models</label>
                   <div className="ob-note dim" style={{ margin: "0 0 4px" }}>
-                    Your pulled models. Ticked ones show in the composer's picker; the default is
+                    Your local models. Ticked ones show in the composer's picker; the default is
                     what new sessions start with.
                   </div>
                   <ModelChecklist
-                    provider="ollama"
+                    provider={localProv}
                     knownProviders={knownNames}
-                    suggested={ollama?.suggested_models || []}
+                    suggested={localDesc?.suggested_models || []}
                     curated={models}
                     defaultModel={model}
                     onChanged={(next) => {
