@@ -56,7 +56,10 @@ class FoundryLocalProvider(OpenaiProvider):
     * Explicit endpoint: set ``api_url``/``base_url`` (or the
       ``FOUNDRY_LOCAL_API_URL`` environment variable) to an already-running
       Foundry Local OpenAI-compatible endpoint. In this mode the SDK is not
-      required and the model string is passed through unchanged.
+      required. A friendly model alias is resolved to the concrete served id by
+      querying the endpoint's ``/v1/models`` (an already-concrete id is passed
+      through unchanged), so the same ``foundry_local:<alias>`` string works in
+      both modes.
     """
 
     _ENV_API_URL = "FOUNDRY_LOCAL_API_URL"
@@ -89,7 +92,71 @@ class FoundryLocalProvider(OpenaiProvider):
     def chat_completions_create(self, model, messages, **kwargs):
         if self._managed:
             model = self._ensure_managed_model(model)
+        else:
+            model = self._resolve_explicit_model(model)
         return super().chat_completions_create(model, messages, **kwargs)
+
+    def _resolve_explicit_model(self, model):
+        """In explicit-endpoint mode, resolve a friendly alias (e.g.
+        ``phi-3.5-mini``) to the concrete model id the endpoint serves, so the
+        same ``foundry_local:<alias>`` string works in both managed and explicit
+        modes. Resolution queries the endpoint's ``/v1/models`` and matches, in
+        order, an exact id, a ``parent`` alias, then an id prefixed by the alias.
+        Falls back to ``model`` unchanged when the lookup fails or there is no
+        confident match (so an already-concrete id keeps working)."""
+        if model in self._model_ids:
+            return self._model_ids[model]
+
+        try:
+            served = list(self.client.models.list())
+        except Exception:
+            # Endpoint unreachable or doesn't implement /v1/models: don't block
+            # the request, just forward the model string unchanged.
+            served = None
+
+        resolved = self._match_served_model(model, served) if served else model
+        self._model_ids[model] = resolved
+        return resolved
+
+    @staticmethod
+    def _served_parent(served_model):
+        """Return the ``parent`` alias a served model was derived from, if the
+        endpoint advertises one (it may be a model attribute or an extra field)."""
+        parent = getattr(served_model, "parent", None)
+        if parent is None:
+            extra = getattr(served_model, "model_extra", None)
+            if extra:
+                parent = extra.get("parent")
+        return parent
+
+    def _match_served_model(self, alias, served):
+        ids = [m.id for m in served]
+        # 1. Already a concrete served id.
+        if alias in ids:
+            return alias
+        # 2. A model the endpoint reports as derived from this alias.
+        by_parent = [m.id for m in served if self._served_parent(m) == alias]
+        if len(by_parent) == 1:
+            return by_parent[0]
+        if len(by_parent) > 1:
+            raise LLMError(self._ambiguous_alias_message(alias, by_parent))
+        # 3. A served id whose alias-boundary prefix matches (e.g.
+        #    "phi-3.5-mini" -> "phi-3.5-mini-instruct-generic-cpu:4").
+        by_prefix = [model_id for model_id in ids if model_id.startswith(alias + "-")]
+        if len(by_prefix) == 1:
+            return by_prefix[0]
+        if len(by_prefix) > 1:
+            raise LLMError(self._ambiguous_alias_message(alias, by_prefix))
+        # 4. No confident match: forward unchanged and let the endpoint decide.
+        return alias
+
+    @staticmethod
+    def _ambiguous_alias_message(alias, candidates):
+        return (
+            f"Foundry Local alias '{alias}' matches multiple models served by the "
+            f"endpoint: {', '.join(sorted(candidates))}. Pass one of these concrete "
+            "model ids instead."
+        )
 
     def _ensure_managed_model(self, alias):
         """Bootstrap the Foundry Local service for ``alias`` on first use and

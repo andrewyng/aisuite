@@ -57,8 +57,10 @@ if __name__ == "__main__":
 If you already have the Foundry Local service running, you can point `aisuite`
 directly at its OpenAI-compatible endpoint via the `api_url`/`base_url` config key
 or the `FOUNDRY_LOCAL_API_URL` environment variable. The SDK is not required in
-this mode, and the model string is passed through unchanged, so you must use the
-concrete model id served by the endpoint.
+this mode. You can use either a model alias (e.g. `phi-3.5-mini`) — `aisuite`
+resolves it to the concrete id the endpoint serves by querying its `/v1/models`
+list — or pass a concrete model id directly. Make sure the model is already
+loaded on the running service (e.g. `foundry model run phi-3.5-mini`).
 
 ```python
 import aisuite as ai
@@ -77,7 +79,9 @@ def main():
     ]
 
     response = client.chat.completions.create(
-        model="foundry_local:Phi-3.5-mini-instruct-generic-cpu",
+        # A friendly alias is resolved against the endpoint; a concrete id
+        # (e.g. "Phi-3.5-mini-instruct-generic-cpu") also works.
+        model="foundry_local:phi-3.5-mini",
         messages=messages,
         temperature=0.75,
     )
@@ -86,6 +90,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+## Tool (function) calling
+
+Foundry Local exposes an OpenAI-compatible API, so tool calls flow through
+`aisuite` unchanged for models that support them. Passing `tools=` to
+`client.chat.completions.create(...)` currently requires the `mcp` extra to be
+installed, otherwise the call fails with `NameError: name 'is_mcp_config' is not
+defined` (this affects every provider, not just Foundry Local):
+
+```shell
+pip install 'aisuite[mcp]'
 ```
 
 Happy coding! If you’d like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).

@@ -154,14 +154,95 @@ def test_explicit_endpoint_from_env(monkeypatch):
 def test_explicit_endpoint_passes_model_through():
     provider = FoundryLocalProvider(api_url="http://localhost:1234")
     messages = [{"role": "user", "content": "Hi"}]
-    with patch.object(
+    with patch.object(provider.client.models, "list", return_value=[]), patch.object(
         provider.client.chat.completions, "create", return_value=_MOCK_RESPONSE
     ) as mock_create:
         response = provider.chat_completions_create(
             model="phi-3.5-mini", messages=messages
         )
     assert response.choices[0].message.content == "hello"
-    # No SDK involved, so the alias is forwarded unchanged.
+    # The endpoint advertises no models, so the alias is forwarded unchanged.
+    assert mock_create.call_args.kwargs["model"] == "phi-3.5-mini"
+
+
+def _served(model_id, parent=None):
+    extra = {"parent": parent} if parent is not None else {}
+    return SimpleNamespace(id=model_id, parent=parent, model_extra=extra)
+
+
+def test_explicit_endpoint_resolves_alias_by_prefix():
+    # CLI-served endpoints expose ids like "...-cpu:4" with no parent field,
+    # so the alias must be matched as an id prefix.
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
+    served = [_served("phi-3.5-mini-instruct-generic-cpu:4")]
+    with patch.object(
+        provider.client.models, "list", return_value=served
+    ), patch.object(
+        provider.client.chat.completions, "create", return_value=_MOCK_RESPONSE
+    ) as mock_create:
+        provider.chat_completions_create(
+            model="phi-3.5-mini", messages=[{"role": "user", "content": "Hi"}]
+        )
+    assert (
+        mock_create.call_args.kwargs["model"] == "phi-3.5-mini-instruct-generic-cpu:4"
+    )
+
+
+def test_explicit_endpoint_resolves_alias_by_parent():
+    # SDK-started endpoints advertise a parent alias for each served model.
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
+    served = [_served("phi-3.5-mini-instruct-generic-gpu", parent="phi-3.5-mini")]
+    with patch.object(
+        provider.client.models, "list", return_value=served
+    ), patch.object(
+        provider.client.chat.completions, "create", return_value=_MOCK_RESPONSE
+    ) as mock_create:
+        provider.chat_completions_create(
+            model="phi-3.5-mini", messages=[{"role": "user", "content": "Hi"}]
+        )
+    assert mock_create.call_args.kwargs["model"] == "phi-3.5-mini-instruct-generic-gpu"
+
+
+def test_explicit_endpoint_concrete_id_passes_through():
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
+    served = [_served("phi-3.5-mini-instruct-generic-cpu:4")]
+    with patch.object(
+        provider.client.models, "list", return_value=served
+    ), patch.object(
+        provider.client.chat.completions, "create", return_value=_MOCK_RESPONSE
+    ) as mock_create:
+        provider.chat_completions_create(
+            model="phi-3.5-mini-instruct-generic-cpu:4",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+    assert (
+        mock_create.call_args.kwargs["model"] == "phi-3.5-mini-instruct-generic-cpu:4"
+    )
+
+
+def test_explicit_endpoint_ambiguous_alias_raises():
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
+    served = [
+        _served("phi-3.5-mini-instruct-generic-cpu:4"),
+        _served("phi-3.5-mini-instruct-generic-gpu:4"),
+    ]
+    with patch.object(provider.client.models, "list", return_value=served):
+        with pytest.raises(LLMError, match="matches multiple models"):
+            provider.chat_completions_create(
+                model="phi-3.5-mini", messages=[{"role": "user", "content": "Hi"}]
+            )
+
+
+def test_explicit_endpoint_unreachable_models_list_falls_back():
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
+    with patch.object(
+        provider.client.models, "list", side_effect=RuntimeError("connection error")
+    ), patch.object(
+        provider.client.chat.completions, "create", return_value=_MOCK_RESPONSE
+    ) as mock_create:
+        provider.chat_completions_create(
+            model="phi-3.5-mini", messages=[{"role": "user", "content": "Hi"}]
+        )
     assert mock_create.call_args.kwargs["model"] == "phi-3.5-mini"
 
 
