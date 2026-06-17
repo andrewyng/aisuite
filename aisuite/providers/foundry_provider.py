@@ -36,7 +36,7 @@ def _import_legacy_sdk():
         return None
 
 
-class FoundryProvider(OpenaiProvider):
+class FoundryLocalProvider(OpenaiProvider):
     """
     Foundry Local provider for Microsoft's `Foundry Local
     <https://learn.microsoft.com/azure/ai-foundry/foundry-local/>`_ on-device runtime.
@@ -168,3 +168,9 @@ class FoundryProvider(OpenaiProvider):
             self._manager.load_model(alias)
             info = self._manager.get_model_info(alias)
             self._model_ids[alias] = info.id if info is not None else alias
+
+
+# The provider factory derives the class name from the provider key
+# ("foundry" -> "FoundryProvider"), so keep that name available as an alias of
+# the product-named class.
+FoundryProvider = FoundryLocalProvider

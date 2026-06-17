@@ -5,7 +5,7 @@ import pytest
 
 from aisuite.provider import LLMError
 from aisuite.providers import foundry_provider
-from aisuite.providers.foundry_provider import FoundryProvider
+from aisuite.providers.foundry_provider import FoundryLocalProvider
 
 # --- Fakes for the legacy 0.x `foundry_local` SDK -------------------------
 
@@ -129,7 +129,7 @@ _MOCK_RESPONSE = SimpleNamespace(
 
 
 def test_explicit_endpoint_points_at_openai_compatible_v1():
-    provider = FoundryProvider(api_url="http://localhost:1234")
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
     assert "localhost:1234/v1" in str(provider.client.base_url)
     assert provider.client.api_key == "foundry"
 
@@ -141,18 +141,18 @@ def test_explicit_endpoint_normalises_v1_idempotently():
         {"base_url": "http://localhost:5273/v1"},
         {"api_url": "http://localhost:5273/v1"},
     ):
-        provider = FoundryProvider(**kwargs)
+        provider = FoundryLocalProvider(**kwargs)
         assert str(provider.client.base_url) == "http://localhost:5273/v1/"
 
 
 def test_explicit_endpoint_from_env(monkeypatch):
     monkeypatch.setenv("FOUNDRY_LOCAL_API_URL", "http://remote-host:9999")
-    provider = FoundryProvider()
+    provider = FoundryLocalProvider()
     assert "remote-host:9999/v1" in str(provider.client.base_url)
 
 
 def test_explicit_endpoint_passes_model_through():
-    provider = FoundryProvider(api_url="http://localhost:1234")
+    provider = FoundryLocalProvider(api_url="http://localhost:1234")
     messages = [{"role": "user", "content": "Hi"}]
     with patch.object(
         provider.client.chat.completions, "create", return_value=_MOCK_RESPONSE
@@ -170,7 +170,7 @@ def test_explicit_endpoint_passes_model_through():
 
 def test_managed_legacy_bootstraps_and_resolves_model_id(monkeypatch):
     _use_legacy_sdk(monkeypatch)
-    provider = FoundryProvider()
+    provider = FoundryLocalProvider()
     messages = [{"role": "user", "content": "Hi"}]
 
     model_id = provider._ensure_managed_model("phi-3.5-mini")
@@ -190,7 +190,7 @@ def test_managed_legacy_bootstraps_and_resolves_model_id(monkeypatch):
 
 def test_managed_legacy_loads_additional_alias(monkeypatch):
     _use_legacy_sdk(monkeypatch)
-    provider = FoundryProvider()
+    provider = FoundryLocalProvider()
 
     provider._ensure_managed_model("phi-3.5-mini")
     manager = provider._manager
@@ -210,7 +210,7 @@ def test_managed_legacy_loads_additional_alias(monkeypatch):
 
 def test_managed_new_bootstraps_via_web_service(monkeypatch):
     _use_new_sdk(monkeypatch)
-    provider = FoundryProvider()
+    provider = FoundryLocalProvider()
     messages = [{"role": "user", "content": "Hi"}]
 
     model_id = provider._ensure_managed_model("qwen2.5-0.5b")
@@ -233,7 +233,7 @@ def test_managed_new_bootstraps_via_web_service(monkeypatch):
 
 def test_managed_new_reuses_singleton_and_loads_additional_alias(monkeypatch):
     _use_new_sdk(monkeypatch)
-    provider = FoundryProvider()
+    provider = FoundryLocalProvider()
 
     first = provider._ensure_managed_model("qwen2.5-0.5b")
     manager = provider._manager
@@ -250,7 +250,7 @@ def test_managed_new_reuses_singleton_and_loads_additional_alias(monkeypatch):
 
 def test_managed_mode_without_sdk_raises(monkeypatch):
     _no_sdk(monkeypatch)
-    provider = FoundryProvider()
+    provider = FoundryLocalProvider()
     with pytest.raises(LLMError, match="Foundry Local SDK is not installed"):
         provider.chat_completions_create(
             model="phi-3.5-mini", messages=[{"role": "user", "content": "Hi"}]
