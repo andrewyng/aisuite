@@ -152,11 +152,33 @@ class SessionManager:
         base = self._prefs.get("scratch_base") or self.DEFAULT_SCRATCH_BASE
         return Path(base).expanduser()
 
+    def _scratch_path(self, session_id: str) -> str:
+        """This conversation's scratch directory path — computed, not created."""
+        return str((self.scratch_base() / session_id).resolve())
+
     def _provision_scratch(self, session_id: str) -> str:
         """Create (idempotently) and return this conversation's scratch directory."""
         d = self.scratch_base() / session_id
         d.mkdir(parents=True, exist_ok=True)
         return str(d.resolve())
+
+    def _cleanup_scratch(self, session_id: str) -> None:
+        """Best-effort removal of a session's scratch dir — only when it is empty and it
+        is a direct, name-matched child of the scratch base. Resolving first collapses any
+        `..`/separator trickery so a crafted session id can't escape the base. Never
+        recurse; never delete agent output."""
+        try:
+            base = self.scratch_base().resolve()
+            d = (base / session_id).resolve()
+            if (
+                d.name == session_id
+                and d.parent == base
+                and d.is_dir()
+                and not any(d.iterdir())
+            ):
+                d.rmdir()
+        except OSError:
+            pass
 
     def resolve_workspace(self, requested: Optional[str]) -> Optional[str]:
         if requested:
@@ -1316,7 +1338,7 @@ class SessionManager:
         primary = (
             record.workspace
             if record and record.workspace
-            else self._provision_scratch(session_id)
+            else self._scratch_path(session_id)
         )
         extra = (record.extra_roots if record else []) or []
         out = [
@@ -1475,6 +1497,7 @@ class SessionManager:
             except Exception:
                 pass
         ok = self.session_store.delete(session_id)
+        self._cleanup_scratch(session_id)
         return {"ok": ok, "session_id": session_id}
 
     # -- provider proxy ---------------------------------------------------------
