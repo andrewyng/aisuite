@@ -109,11 +109,13 @@ function ModelsTab() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [ollamaUrl, setOllamaUrl] = useState("");
-  const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
-  // Two panes: hosted API models (key-based, per provider) and local Ollama models.
+  const [localUrl, setLocalUrl] = useState("");
+  const [localMsg, setLocalMsg] = useState<string | null>(null);
+  // Two panes: hosted API models (key-based, per provider) and local OpenAI-compatible
+  // runtimes (Ollama, Foundry Local — any keyless provider).
   const [sub, setSub] = useState<"api" | "local">("api");
   const [apiProv, setApiProv] = useState("openai");
+  const [localProv, setLocalProv] = useState("ollama");
   const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
 
   const refresh = () => getSettings().then(setSettings).catch(() => setSettings(null));
@@ -121,8 +123,6 @@ function ModelsTab() {
     getProviders()
       .then((ps) => {
         setProviders(ps);
-        const oll = ps.find((p) => p.name === "ollama");
-        if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
         const oai = ps.find((p) => p.name === "openai");
         if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
       })
@@ -132,27 +132,36 @@ function ModelsTab() {
     loadProviders();
   }, []);
 
-  const saveOllama = async () => {
-    setOllamaMsg(null);
-    const res = await setProvider("ollama", { base_url: ollamaUrl.trim() });
+  // Prefill the local runtime's stored URL when the selected runtime (or provider data) changes.
+  useEffect(() => {
+    const p = providers.find((x) => x.name === localProv);
+    setLocalUrl(p?.values?.base_url || "");
+  }, [localProv, providers]);
+
+  const saveLocal = async () => {
+    setLocalMsg(null);
+    const res = await setProvider(localProv, { base_url: localUrl.trim() });
     if (res.ok) {
       const rec = res.recommended_model;
-      setOllamaMsg(
+      setLocalMsg(
         rec
-          ? `Saved. ${rec} is the recommended model — added to your list if it's pulled (else: ollama pull ${rec}).`
-          : "Saved. Tick or add an Ollama model under “Models” below to use it.",
+          ? `Saved. ${rec} is the recommended model — added to your list if it's available.`
+          : "Saved. Tick or add a model under “Models” below to use it.",
       );
       loadProviders();
-      refresh(); // pick up the auto-added recommended model in the curated list
+      refresh(); // pick up any auto-added recommended model in the curated list
     } else {
-      setOllamaMsg(res.error || "Failed to save Ollama URL.");
+      setLocalMsg(res.error || "Failed to save.");
     }
   };
 
   // The provider the pane is configuring (the ModelChecklist owns add/remove/default).
   const knownNames = providers.map((p) => p.name);
-  const provName = sub === "local" ? "ollama" : apiProv;
+  const apiProviders = providers.filter((p) => p.needs_key);
+  const localProviders = providers.filter((p) => !p.needs_key);
+  const provName = sub === "local" ? localProv : apiProv;
   const selProv = providers.find((p) => p.name === provName);
+  const localUrlField = selProv?.fields.find((f) => f.key === "base_url");
 
   const save = async () => {
     if (!draft.trim() && !(apiProv === "openai" && endpoint.trim())) return;
@@ -181,7 +190,7 @@ function ModelsTab() {
       <div className="sa-sub" style={{ marginTop: 22 }}>Models</div>
       <div className="conn-meta dim" style={{ marginBottom: 4 }}>
         {sub === "local" ? (
-          <>Your pulled Ollama models. Ticked ones show in the composer's picker; the black badge marks the default for new sessions.</>
+          <>Your local models. Ticked ones show in the composer's picker; the black badge marks the default for new sessions.</>
         ) : (
           <>Ticked models show in the composer's picker; the black badge marks the default for new sessions.</>
         )}
@@ -228,13 +237,11 @@ function ModelsTab() {
                 setMsg(null);
               }}
             >
-              {providers
-                .filter((p) => p.name !== "ollama")
-                .map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.title}
-                  </option>
-                ))}
+              {apiProviders.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.title}
+                </option>
+              ))}
             </select>
           </label>
           <div className="conn-meta" style={{ marginBottom: 12 }}>
@@ -247,8 +254,8 @@ function ModelsTab() {
         </>
       ) : (
         <div className="conn-meta dim" style={{ marginBottom: 12 }}>
-          Run models locally with <code>ollama serve</code>. OpenCoworker uses Ollama's
-          OpenAI-compatible API, so tools work. No API key needed.
+          Run models on your own machine. OpenCoworker talks to each runtime's OpenAI-compatible
+          API, so tools work. No API key needed.
         </div>
       )}
 
@@ -309,28 +316,46 @@ function ModelsTab() {
         </>
       ) : (
         <>
+          {localProviders.length > 1 && (
+            <label className="conn-field">
+              <span className="conn-field-label">Runtime</span>
+              <select
+                value={localProv}
+                onChange={(e) => {
+                  setLocalProv(e.target.value);
+                  setLocalMsg(null);
+                }}
+              >
+                {localProviders.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="conn-field">
-            <span className="conn-field-label">Ollama server URL</span>
+            <span className="conn-field-label">{localUrlField?.label || "Server URL"}</span>
             <input
               type="text"
-              placeholder="http://localhost:11434"
-              value={ollamaUrl}
+              placeholder={localUrlField?.placeholder || "http://localhost:11434"}
+              value={localUrl}
               spellCheck={false}
               autoComplete="off"
-              onChange={(e) => setOllamaUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && saveOllama()}
+              onChange={(e) => setLocalUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveLocal()}
             />
             <span className="conn-field-help">
-              The OpenAI-compatible <code>/v1</code> path is added automatically. Leave blank for the
-              default. Your pulled models appear under <strong>Models</strong> below.
+              {localUrlField?.help ||
+                "The OpenAI-compatible /v1 path is added automatically. Leave blank for the default."}
             </span>
           </label>
           <div className="conn-setup-actions">
-            <button className="btn-primary sm" onClick={saveOllama}>
-              Save Ollama URL
+            <button className="btn-primary sm" onClick={saveLocal}>
+              Save
             </button>
           </div>
-          {ollamaMsg && <div className="conn-meta" style={{ marginTop: 10 }}>{ollamaMsg}</div>}
+          {localMsg && <div className="conn-meta" style={{ marginTop: 10 }}>{localMsg}</div>}
           {checklist}
         </>
       )}

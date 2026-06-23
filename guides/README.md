@@ -15,9 +15,10 @@ Here are the instructions for:
 - [xAI](xai.md)
 - [DeepSeek](deepseek.md)
 
-For locally hosted models using `Ollama` or `LM Studio`, follow these instructions:
+For locally hosted models using `Ollama`, `LM Studio`, or `Foundry Local`, follow these instructions:
 - [Ollama](ollama.md)
 - [LM Studio](lmstudio.md)
+- [Foundry Local](foundry_local.md)
 
 Unless otherwise stated, these guides have not been endorsed by the providers. 
 
