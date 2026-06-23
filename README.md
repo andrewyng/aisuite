@@ -52,6 +52,8 @@
 
 Install the base package, or include the SDKs of the providers you plan to use:
 
+Minimum version of python required is 3.12, doesn't work with 3.9
+
 ```shell
 pip install aisuite               # base package, no provider SDKs
 pip install 'aisuite[anthropic]'  # with a specific provider's SDK
