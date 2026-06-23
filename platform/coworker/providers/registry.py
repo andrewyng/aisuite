@@ -274,7 +274,10 @@ def verify_provider_key(
                 timeout=timeout,
             )
     except Exception as exc:  # DNS/connection/timeout — never let it bubble to a 500
-        return {"ok": False, "error": f"Couldn't reach {d.title} ({exc.__class__.__name__})."}
+        return {
+            "ok": False,
+            "error": f"Couldn't reach {d.title} ({exc.__class__.__name__}).",
+        }
 
     if resp.status_code < 300:
         return {"ok": True}

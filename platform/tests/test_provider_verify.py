@@ -51,7 +51,9 @@ def test_verify_openai_ok(monkeypatch):
 def test_verify_openai_custom_endpoint(monkeypatch):
     cap: dict = {}
     _patch_get(monkeypatch, status=200, capture=cap)
-    verify_provider_key("openai", api_key="sk-x", base_url="https://gw.example/openai/v1/")
+    verify_provider_key(
+        "openai", api_key="sk-x", base_url="https://gw.example/openai/v1/"
+    )
     # trailing slash trimmed, /models appended to the custom endpoint
     assert cap["url"] == "https://gw.example/openai/v1/models"
 
