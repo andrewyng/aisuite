@@ -89,7 +89,10 @@ async def test_acreate_manual_tool_calling_passes_tools(mock_create_provider):
 
     schema = {
         "type": "function",
-        "function": {"name": "manual_tool", "parameters": {"type": "object", "properties": {}}},
+        "function": {
+            "name": "manual_tool",
+            "parameters": {"type": "object", "properties": {}},
+        },
     }
 
     client = Client()
