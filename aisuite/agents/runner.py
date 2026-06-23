@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 from typing import Any, Callable, Optional
 
@@ -30,6 +31,34 @@ class ThreadAlreadyExistsError(RuntimeError):
     """Raised when a new persisted run would overwrite an existing thread."""
 
 
+def _run_blocking(coro):
+    """Run an async coroutine to completion from synchronous code.
+
+    Uses asyncio.run when no loop is active. If called from within a running
+    event loop (e.g. a notebook), falls back to nest_asyncio so the sync
+    wrappers still work.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is None:
+        return asyncio.run(coro)
+
+    try:
+        import nest_asyncio
+    except ImportError as exc:  # pragma: no cover - depends on optional extra
+        raise RuntimeError(
+            "Runner.run_sync was called from within a running event loop. "
+            "Install the 'mcp' extra (which provides nest_asyncio) or call the "
+            "async Runner.run(...) instead."
+        ) from exc
+
+    nest_asyncio.apply()
+    return loop.run_until_complete(coro)
+
+
 class Runner:
     @staticmethod
     async def run(
@@ -51,7 +80,7 @@ class Runner:
         artifact_store: Optional[ArtifactStore] = None,
         **kwargs: Any,
     ) -> RunResult:
-        return Runner.run_sync(
+        return await Runner._run_impl(
             agent,
             input,
             client=client,
@@ -74,6 +103,21 @@ class Runner:
     def run_sync(
         agent: Agent,
         input: str | list[dict[str, Any]] | RunState,
+        **kwargs: Any,
+    ) -> RunResult:
+        """Synchronous wrapper around the async Runner.run.
+
+        Drives the provider's synchronous completion path so existing callers
+        (and tests that patch ``client.chat.completions.create``) are unaffected.
+        """
+        return _run_blocking(
+            Runner._run_impl(agent, input, use_async_client=False, **kwargs)
+        )
+
+    @staticmethod
+    async def _run_impl(
+        agent: Agent,
+        input: str | list[dict[str, Any]] | RunState,
         *,
         client: Optional[Client] = None,
         max_turns: int = 5,
@@ -88,6 +132,7 @@ class Runner:
         state_store: Optional[StateStore] = None,
         thread_id: Optional[str] = None,
         artifact_store: Optional[ArtifactStore] = None,
+        use_async_client: bool = True,
         **kwargs: Any,
     ) -> RunResult:
         if (state_store is None) != (thread_id is None):
@@ -208,11 +253,18 @@ class Runner:
             )
         )
         try:
-            response = active_client.chat.completions.create(
-                model=agent.model,
-                messages=copy.deepcopy(messages),
-                **request_kwargs,
-            )
+            if use_async_client:
+                response = await active_client.chat.completions.acreate(
+                    model=agent.model,
+                    messages=copy.deepcopy(messages),
+                    **request_kwargs,
+                )
+            else:
+                response = active_client.chat.completions.create(
+                    model=agent.model,
+                    messages=copy.deepcopy(messages),
+                    **request_kwargs,
+                )
             status: RunStatus = "completed"
         except Exception as exc:
             agent_step.ended_at = now()
@@ -335,26 +387,39 @@ class Runner:
         input: str | list[dict[str, Any]],
         **overrides: Any,
     ) -> RunResult:
-        return Runner.continue_sync(target, input, **overrides)
+        return await Runner._continue_impl(target, input, **overrides)
 
     @staticmethod
     def continue_sync(
+        target: RunResult | Agent,
+        input: str | list[dict[str, Any]],
+        **overrides: Any,
+    ) -> RunResult:
+        """Synchronous wrapper around the async Runner.continue_run."""
+        return _run_blocking(
+            Runner._continue_impl(target, input, use_async_client=False, **overrides)
+        )
+
+    @staticmethod
+    async def _continue_impl(
         target: RunResult | Agent,
         input: str | list[dict[str, Any]],
         *,
         state_store: Optional[StateStore] = None,
         thread_id: Optional[str] = None,
         artifact_store: Optional[ArtifactStore] = None,
+        use_async_client: bool = True,
         **overrides: Any,
     ) -> RunResult:
         if isinstance(target, RunResult):
             state = target.to_state()
             state.add_user_message(input)
-            result = Runner.run_sync(
+            result = await Runner._run_impl(
                 target.last_agent,
                 state,
                 client=overrides.pop("client", target._client),
                 artifact_store=artifact_store,
+                use_async_client=use_async_client,
                 **overrides,
             )
             if state_store is not None or thread_id is not None:
@@ -382,10 +447,11 @@ class Runner:
 
         state = stored.state
         state.add_user_message(input)
-        result = Runner.run_sync(
+        result = await Runner._run_impl(
             target,
             state,
             artifact_store=artifact_store,
+            use_async_client=use_async_client,
             **overrides,
         )
         next_state = result.to_state()
