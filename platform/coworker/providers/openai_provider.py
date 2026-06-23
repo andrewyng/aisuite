@@ -351,12 +351,162 @@ def _renumber(calls: list[ToolCall]) -> list[ToolCall]:
     ]
 
 
+def _extract_paren(text: str, start: int) -> Optional[str]:
+    """Return the balanced `(…)` substring beginning at `text[start]` (quote-aware, single OR
+    double quotes since this parses Python-call syntax), or None if it doesn't close."""
+    depth = 0
+    in_str = False
+    esc = False
+    quote = ""
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+        elif ch in "\"'":
+            in_str = True
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _split_top_level(s: str) -> list[str]:
+    """Split `s` on top-level commas, ignoring commas inside quotes or `()`/`[]`/`{}`. Empty
+    parts are dropped."""
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    in_str = False
+    esc = False
+    quote = ""
+    for ch in s:
+        if in_str:
+            buf.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+            continue
+        if ch in "\"'":
+            in_str = True
+            quote = ch
+            buf.append(ch)
+        elif ch in "([{":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        parts.append("".join(buf))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _split_kwarg(part: str) -> tuple[str, bool, str]:
+    """If `part` is a top-level `key=value` kwarg (key a bare identifier), return (key, True,
+    value); else (part, False, ""). Ignores `=` inside quotes/brackets and `==`/`!=`/`<=`/`>=`.
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    quote = ""
+    for i, ch in enumerate(part):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+            continue
+        if ch in "\"'":
+            in_str = True
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "=" and depth == 0:
+            prev = part[i - 1] if i else ""
+            nxt = part[i + 1] if i + 1 < len(part) else ""
+            if prev in "=!<>" or nxt == "=":
+                continue
+            key = part[:i].strip()
+            if key.isidentifier():
+                return key, True, part[i + 1 :].strip()
+    return part, False, ""
+
+
+def _coerce_py_value(raw: str) -> Any:
+    """Coerce a Python-call argument literal: quoted string → its text; `True`/`False`/`None` →
+    bool/None; otherwise JSON (numbers, arrays, objects); else the raw string."""
+    s = raw.strip()
+    if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+        if s[0] == '"':
+            v = _loads(s)
+            if isinstance(v, str):
+                return v
+        return s[1:-1]
+    if s == "True":
+        return True
+    if s == "False":
+        return False
+    if s in ("None", "null"):
+        return None
+    v = _loads(s)
+    if v is not None:
+        return v
+    return s
+
+
+def _parse_py_call(paren: str, sole_param: Optional[str]) -> Optional[dict[str, Any]]:
+    """Parse a balanced `(…)` arg list into an arguments dict: `k=v` kwargs, plus a lone
+    positional mapped onto the tool's sole parameter. None if it can't be mapped safely.
+    """
+    inner = paren.strip()
+    if inner.startswith("(") and inner.endswith(")"):
+        inner = inner[1:-1].strip()
+    if not inner:
+        return {}
+    args: dict[str, Any] = {}
+    positionals: list[str] = []
+    for part in _split_top_level(inner):
+        key, is_kwarg, val = _split_kwarg(part)
+        if is_kwarg:
+            args[key] = _coerce_py_value(val)
+        else:
+            positionals.append(part)
+    if positionals:
+        if len(positionals) == 1 and sole_param and not args:
+            args[sole_param] = _coerce_py_value(positionals[0])
+        else:
+            return None  # can't safely map bare positionals onto named params
+    return args
+
+
 def _salvage_tool_calls_from_text(
     content: str, tools: Optional[list[dict[str, Any]]] = None
 ) -> list[ToolCall]:
     """Best-effort recovery of tool calls embedded in assistant text. Tries, in order:
     1. `<tool_call>…</tool_call>` blocks (anywhere, balanced); 2. embedded `{"name","arguments"}`
-    objects (even mixed with prose); 3. `toolname {args}` / `toolname [args]` for known tools.
+    objects (even mixed with prose); 3. `toolname {args}` / `toolname [args]` for known tools;
+    4. Python-call `toolname(key="v", …)` for known tools (gemma's ```tool_code blocks).
     Returns [] (treat as plain text) when nothing tool-shaped is found."""
     text = (content or "").strip()
     if not text:
@@ -419,5 +569,21 @@ def _salvage_tool_calls_from_text(
                         continue
                     args = {param: parsed}
                 calls.append(ToolCall(id="", name=name, arguments=args))
+                break  # one salvaged call per tool name
+    if calls:
+        return _renumber(calls)
+
+    # 4) Python-call shorthand: `toolname(key="v", …)` — gemma emits this inside ```tool_code
+    #    fences (and sometimes bare). Only for offered tools; a lone positional → the sole param.
+    if names:
+        for name in names:
+            for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", text):
+                sub = _extract_paren(text, m.end() - 1)  # m.end()-1 is the "("
+                if sub is None:
+                    continue
+                parsed = _parse_py_call(sub, single.get(name))
+                if parsed is None:
+                    continue
+                calls.append(ToolCall(id="", name=name, arguments=parsed))
                 break  # one salvaged call per tool name
     return _renumber(calls)

@@ -254,6 +254,75 @@ def test_salvage_filters_unknown_tool_name():
     assert _salvage_tool_calls_from_text(text, _TODO_TOOLS) == []
 
 
+def test_salvage_python_call_kwargs():
+    # gemma/code models emit Python-call syntax instead of JSON tool_calls.
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                },
+            },
+        }
+    ]
+    calls = _salvage_tool_calls_from_text('get_weather(city="Paris")', tools)
+    assert len(calls) == 1 and calls[0].name == "get_weather"
+    assert calls[0].arguments == {"city": "Paris"}
+
+
+def test_salvage_python_call_in_tool_code_fence():
+    # The exact gemma shape: a ```tool_code fenced Python call with multiple kwargs.
+    text = '```tool_code\nget_weather(city="Paris", units="metric")\n```'
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string"},
+                        "units": {"type": "string"},
+                    },
+                },
+            },
+        }
+    ]
+    calls = _salvage_tool_calls_from_text(text, tools)
+    assert calls[0].name == "get_weather"
+    assert calls[0].arguments == {"city": "Paris", "units": "metric"}
+
+
+def test_salvage_python_call_positional_to_sole_param():
+    # A lone positional maps onto the tool's single parameter; `True` → bool.
+    calls = _salvage_tool_calls_from_text("list_files(True)", _TODO_TOOLS)
+    assert calls[0].name == "list_files"
+    assert calls[0].arguments == {"recursive": True}
+
+
+def test_salvage_python_call_complex_value():
+    # kwarg whose value is a JSON array of objects (top-level comma split must hold).
+    text = 'todo_write(items=[{"content": "a", "status": "pending"}])'
+    calls = _salvage_tool_calls_from_text(text, _TODO_TOOLS)
+    assert calls[0].name == "todo_write"
+    assert calls[0].arguments == {"items": [{"content": "a", "status": "pending"}]}
+
+
+def test_salvage_python_call_filters_unknown_tool():
+    # An unoffered tool name in call syntax must NOT be salvaged.
+    assert _salvage_tool_calls_from_text('rm_rf(path="/")', _TODO_TOOLS) == []
+
+
+def test_salvage_python_call_ignores_prose_mention():
+    # Prose that merely names a tool (no call parens) stays plain text.
+    assert (
+        _salvage_tool_calls_from_text("I could use list_files here.", _TODO_TOOLS) == []
+    )
+
+
 def test_salvage_nested_braces_in_tag():
     text = '<tool_call>{"name": "todo_write", "arguments": {"items": [{"content": "a", "status": "pending"}]}}</tool_call>'
     calls = _salvage_tool_calls_from_text(text, _TODO_TOOLS)
