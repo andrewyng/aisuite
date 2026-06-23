@@ -22,8 +22,13 @@ poetry add openai
 
 In your code:
 ```python
+
+from dotenv import load_dotenv
+
 import aisuite as ai
 client = ai.Client()
+
+load_dotenv('.env')
 
 provider = "openai"
 model_id = "gpt-4-turbo"
