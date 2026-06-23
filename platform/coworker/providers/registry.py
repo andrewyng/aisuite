@@ -217,3 +217,74 @@ def build_provider_client(
     """Build a `ProviderClient` for `name` from its stored profile. Unknown → OpenAI default."""
     descriptor = _BY_NAME.get(name) or _BY_NAME["openai"]
     return descriptor.build(profile or {}, secrets)
+
+
+def detect_provider(api_key: str) -> Optional[str]:
+    """Best-effort provider guess from an API key's shape, for the onboarding auto-detect.
+    Returns a known provider name or None. Mirrors the GUI's client-side detection so both agree.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    if key.startswith("sk-ant-"):
+        return "anthropic"
+    if key.startswith("AIza"):
+        return "gemini"
+    if key.startswith(("sk-", "sk_")):
+        return "openai"
+    return None
+
+
+def verify_provider_key(
+    name: str,
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    timeout: float = 10.0,
+) -> dict[str, Any]:
+    """Validate a provider's credentials with one cheap, read-only call (list models) — the same
+    pattern connectors use to validate tokens. Transient: callers pass the key directly so a user
+    can Test before saving. Never raises; returns {ok, error?}.
+    """
+    import httpx
+
+    d = _BY_NAME.get(name) or _BY_NAME["openai"]
+    key = (api_key or "").strip()
+    try:
+        if name == "anthropic":
+            resp = httpx.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                timeout=timeout,
+            )
+        elif name == "gemini":
+            resp = httpx.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": key},
+                timeout=timeout,
+            )
+        elif name == "ollama":
+            base = _normalize_ollama_url(base_url)
+            resp = httpx.get(base.rstrip("/") + "/models", timeout=timeout)
+        else:  # openai + any OpenAI-compatible endpoint (Azure, OpenRouter, vLLM…)
+            base = (base_url or "").strip().rstrip("/") or "https://api.openai.com/v1"
+            resp = httpx.get(
+                base + "/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=timeout,
+            )
+    except Exception as exc:  # DNS/connection/timeout — never let it bubble to a 500
+        return {"ok": False, "error": f"Couldn't reach {d.title} ({exc.__class__.__name__})."}
+
+    if resp.status_code < 300:
+        return {"ok": True}
+    if resp.status_code in (401, 403):
+        if name == "ollama":
+            return {"ok": False, "error": "Server rejected the request."}
+        return {"ok": False, "error": "Invalid API key."}
+    if resp.status_code == 404 and name == "ollama":
+        return {
+            "ok": False,
+            "error": "Reached the server, but no OpenAI-compatible /v1 API there.",
+        }
+    return {"ok": False, "error": f"{d.title} returned HTTP {resp.status_code}."}

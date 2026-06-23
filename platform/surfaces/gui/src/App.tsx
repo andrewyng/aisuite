@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
   finalizeAutomationRun,
+  getArtifacts,
   getHealth,
   getRecentWorkspaces,
   getSessionMessages,
@@ -141,11 +142,18 @@ export function App() {
   const [sessionId, setSessionId] = useState<string>(newId());
   const [gateCreate, setGateCreate] = useState(false);
   const [showManage, setShowManage] = useState(false);
-  const [manageTab, setManageTab] = useState<"settings" | undefined>(undefined);
+  const [manageTab, setManageTab] = useState<"settings" | "models" | undefined>(undefined);
+  // Whether the default model's provider is actually configured (any provider). Drives the
+  // composer's "No model connected" chip. Default true so we don't flash the chip before settings
+  // load; corrected by loadSettings.
+  const [modelReady, setModelReady] = useState(true);
   const [surface, setSurface] = useState<"session" | "superagent" | "scheduled" | "integrations" | "audit">("session");
   const [helperName, setHelperName] = useState("MyHelper");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
+  // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
+  // the topbar when the side panel is hidden, so produced files are never buried.
+  const [artifactCount, setArtifactCount] = useState(0);
   const [topbarMenuOpen, setTopbarMenuOpen] = useState(false);
   // Inline rename in the topbar (window.prompt is a no-op in the desktop webview).
   const [renamingTitle, setRenamingTitle] = useState(false);
@@ -302,9 +310,16 @@ export function App() {
     getSettings()
       .then((s) => {
         setModels(s.models || []);
+        setModelReady(s.model_ready);
         if (s.surfaces) setSurfaces(s.surfaces);
       })
       .catch(() => {});
+
+  // Open Settings → Configure Models (from the composer's "No model connected" chip).
+  const openModelSetup = () => {
+    setManageTab("models");
+    setShowManage(true);
+  };
 
   useEffect(() => {
     refreshSessions();
@@ -425,11 +440,29 @@ export function App() {
     });
     sessionRef.current = session;
     return () => session.close();
-  }, [booting, sessionId, workspace, agent, refreshSessions]);
+    // NOTE: `workspace` is intentionally NOT a dependency. Every real workspace change
+    // (pick folder, select/switch session, new session) is paired with a `sessionId`
+    // change, so the socket still reconnects when it should. The one workspace-only change
+    // is the `ready` handler adopting the server's provisioned Cowork scratch dir — listing
+    // `workspace` here made that adoption tear down and rebuild the socket immediately after
+    // first connect, dropping the user's first message (the "send twice" bug). The scratch
+    // dir is deterministic from `sessionId` server-side, so skipping that reconnect is safe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booting, sessionId, agent, refreshSessions]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [items, streaming]);
+
+  // Track produced-file count for the topbar "Artifacts" affordance (works even when the rail is
+  // hidden, where the rail itself doesn't fetch). Cowork only; refreshes on file writes/turn end.
+  useEffect(() => {
+    if (agent !== "cowork" || surface !== "session") {
+      setArtifactCount(0);
+      return;
+    }
+    getArtifacts(sessionId).then((a) => setArtifactCount(a.length)).catch(() => {});
+  }, [agent, surface, sessionId, browserRefreshKey]);
 
   const send = (text: string, attachments?: Attachment[]) => {
     setItems((p) => [...p, { kind: "user", text, attachments }]);
@@ -647,6 +680,7 @@ export function App() {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             getSuperagent().then((s) => s?.name && setHelperName(s.name)).catch(() => {});
+            loadSettings(); // pick up a model connected during setup (clears the composer chip)
           }}
         />
       )}
@@ -753,6 +787,18 @@ export function App() {
           </div>
           <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
           <div className="main-topbar-actions">
+            {agent === "cowork" && railHidden && artifactCount > 0 && (
+              <button
+                className="topbar-artifacts-btn"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => setRailHidden(false)}
+                title="Show files this conversation produced"
+              >
+                <Icon name="file" size={14} />
+                <span>Artifacts</span>
+                <span className="topbar-artifacts-count">{artifactCount}</span>
+              </button>
+            )}
             {agent === "cowork" && (
               <button
                 className="topbar-icon-btn"
@@ -818,6 +864,8 @@ export function App() {
               models={models}
               running={running}
               connected={connected}
+              modelReady={modelReady}
+              onConnectModel={openModelSetup}
               onSend={send}
               onInterrupt={interrupt}
               onModeChange={changeMode}

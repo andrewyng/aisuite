@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  createAutomation,
   deleteAutomation,
   getAutomation,
   getAutomations,
@@ -11,6 +12,51 @@ import {
 const fmt = (t: number | null) =>
   t ? new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
 
+// One-click prebuilt templates. Each maps directly to a createAutomation payload.
+interface Template {
+  key: string;
+  title: string;
+  blurb: string;
+  instructions: string;
+  cron: string;
+  when: string;
+}
+
+const TEMPLATES: Template[] = [
+  {
+    key: "news",
+    title: "Morning news briefing",
+    blurb: "A 5-bullet tech & world news digest, saved as markdown.",
+    instructions:
+      "Search the web for the most important technology and world news from the last 24 hours and write a concise 5-bullet briefing, saved as a markdown file.",
+    cron: "0 8 * * *",
+    when: "Every day · 8:00 AM",
+  },
+  {
+    key: "inbox",
+    title: "Inbox digest",
+    blurb: "One short digest of your unread email.",
+    instructions: "Summarize my unread email into one short digest note.",
+    cron: "0 9 * * 1-5",
+    when: "Weekdays · 9:00 AM",
+  },
+  {
+    key: "cleanup",
+    title: "Folder cleanup",
+    blurb: "Sort recent Downloads into tidy folders by type.",
+    instructions: "Sort my recent Downloads into tidy folders by file type.",
+    cron: "30 17 * * 5",
+    when: "Fridays · 5:30 PM",
+  },
+];
+
+// Map a simple time-of-day + frequency selection to a 5-field cron string.
+function toCron(time: string, freq: string): string {
+  const [h, m] = (time || "09:00").split(":").map((x) => parseInt(x, 10) || 0);
+  const dow = freq === "weekdays" ? "1-5" : freq === "weekends" ? "0,6" : "*";
+  return `${m} ${h} * * ${dow}`;
+}
+
 interface Props {
   onOpenRun: (sessionId: string, workspace: string, agent: string) => void;
   onRunNow: (taskId: string) => void;
@@ -19,6 +65,8 @@ interface Props {
 export function ScheduledView({ onOpenRun, onRunNow }: Props) {
   const [tasks, setTasks] = useState<Automation[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const refresh = () => getAutomations().then(setTasks).catch(() => setTasks([]));
   useEffect(() => {
@@ -26,6 +74,27 @@ export function ScheduledView({ onOpenRun, onRunNow }: Props) {
     const h = setInterval(refresh, 5000);
     return () => clearInterval(h);
   }, []);
+
+  // Create from a payload, refresh the list, and open the new task's detail.
+  const create = async (payload: {
+    title: string;
+    instructions: string;
+    cron?: string;
+  }) => {
+    setBusy(payload.title);
+    try {
+      const res = await createAutomation(payload);
+      await refresh();
+      if (res.ok && res.task) {
+        setShowForm(false);
+        setOpenId(res.task.id);
+      } else if (res.error) {
+        alert(res.error);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
 
   if (openId) {
     return (
@@ -38,15 +107,25 @@ export function ScheduledView({ onOpenRun, onRunNow }: Props) {
     );
   }
 
+  const empty = tasks.length === 0;
+
   return (
     <div className="main">
-      <div className="sa-view-head">
-        <div className="sa-view-title">
-          <span className="mark">⏰</span> Scheduled tasks
+      <div className="sa-view-head sched-head">
+        <div>
+          <div className="sa-view-title">
+            <span className="mark">⏰</span> Scheduled tasks
+          </div>
+          <div className="sa-view-sub">
+            Run tasks on a schedule — pick a template below or build your own.
+          </div>
         </div>
-        <div className="sa-view-sub">
-          Run tasks on a schedule. Ask OpenCoworker or MyHelper to "set up an automation…".
-        </div>
+        <button
+          className="btn-primary sm"
+          onClick={() => setShowForm((v) => !v)}
+        >
+          + New automation
+        </button>
       </div>
       <div className="main-scroll">
         <div className="sched-banner">
@@ -56,13 +135,48 @@ export function ScheduledView({ onOpenRun, onRunNow }: Props) {
             the scheduled time, the task runs once when the server next starts (catch-up).
           </span>
         </div>
-        {tasks.length === 0 ? (
-          <div className="hero">
-            <h1 className="greeting"><span className="mark">⏰</span> No scheduled tasks yet.</h1>
-            <div className="suggest-head">
-              In an OpenCoworker session, try: "Search the web and give me a news briefing every day at 7:10pm."
+
+        {showForm && (
+          <NewAutomationForm
+            busy={busy !== null}
+            onCancel={() => setShowForm(false)}
+            onCreate={create}
+          />
+        )}
+
+        {(empty || showForm) && (
+          <div className="tmpl-wrap">
+            <div className="sa-sub tmpl-head">Start from a template</div>
+            <div className="tmpl-grid">
+              {TEMPLATES.map((t) => (
+                <div className="tmpl-card" key={t.key}>
+                  <div className="tmpl-title">{t.title}</div>
+                  <div className="tmpl-blurb">{t.blurb}</div>
+                  <div className="tmpl-when">🕐 {t.when}</div>
+                  <button
+                    className="btn sm tmpl-add"
+                    disabled={busy !== null}
+                    onClick={() =>
+                      create({ title: t.title, instructions: t.instructions, cron: t.cron })
+                    }
+                  >
+                    {busy === t.title ? "Creating…" : "Use this"}
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
+        )}
+
+        {empty ? (
+          !showForm && (
+            <div className="hero tmpl-empty">
+              <div className="suggest-head">
+                No scheduled tasks yet — use a template above, click <strong>+ New automation</strong>,
+                or just ask OpenCoworker in a session.
+              </div>
+            </div>
+          )
         ) : (
           <div className="sched-list">
             {tasks.map((t) => (
@@ -81,6 +195,80 @@ export function ScheduledView({ onOpenRun, onRunNow }: Props) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function NewAutomationForm({
+  busy,
+  onCancel,
+  onCreate,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onCreate: (p: { title: string; instructions: string; cron?: string }) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [time, setTime] = useState("09:00");
+  const [freq, setFreq] = useState("daily");
+
+  const valid = title.trim() && instructions.trim();
+
+  return (
+    <div className="tmpl-form">
+      <div className="sa-sub tmpl-head">New automation</div>
+      <input
+        className="tmpl-input"
+        placeholder="Title (e.g. Daily standup notes)"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <textarea
+        className="tmpl-input tmpl-textarea"
+        placeholder="What should it do each run? (e.g. Summarize today's calendar and open tasks.)"
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+      />
+      <div className="tmpl-sched">
+        <label className="tmpl-field">
+          <span>At</span>
+          <input
+            type="time"
+            className="tmpl-input tmpl-time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+          />
+        </label>
+        <label className="tmpl-field">
+          <span>Repeat</span>
+          <select
+            className="tmpl-input tmpl-select"
+            value={freq}
+            onChange={(e) => setFreq(e.target.value)}
+          >
+            <option value="daily">Every day</option>
+            <option value="weekdays">Weekdays</option>
+            <option value="weekends">Weekends</option>
+          </select>
+        </label>
+      </div>
+      <div className="tmpl-form-actions">
+        <button
+          className="btn-primary sm"
+          disabled={!valid || busy}
+          onClick={() =>
+            onCreate({
+              title: title.trim(),
+              instructions: instructions.trim(),
+              cron: toCron(time, freq),
+            })
+          }
+        >
+          {busy ? "Creating…" : "Create automation"}
+        </button>
+        <button className="link" onClick={onCancel}>cancel</button>
       </div>
     </div>
   );

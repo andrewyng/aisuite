@@ -13,9 +13,11 @@ from .registry import (
     ProviderDescriptor,
     ProviderField,
     build_provider_client,
+    detect_provider,
     get_descriptor,
     provider_descriptors,
     provider_names,
+    verify_provider_key,
 )
 from .router import ProviderRouter
 
@@ -37,4 +39,6 @@ __all__ = [
     "provider_names",
     "get_descriptor",
     "build_provider_client",
+    "detect_provider",
+    "verify_provider_key",
 ]

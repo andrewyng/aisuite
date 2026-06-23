@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import {
+  detectProvider,
   getProviders,
   getSettings,
   setOnboarded,
   setProvider,
   setScratchBase,
+  verifyProvider,
   type ProviderInfo,
 } from "../api";
 import {
   getAutostart,
   getKeepAwake,
   isTauri,
+  openExternal,
   pickFolder,
   setAutostart,
   setKeepAwake,
@@ -18,6 +21,25 @@ import {
 import { ModelChecklist } from "./ModelChecklist";
 
 const STEPS = ["Welcome", "Files", "Model", "Always-on"];
+
+// Where a non-developer gets an API key for each provider — shown in the "Don't have a key?"
+// helper on the model step. Rendered as a copyable link so it works even in the desktop webview.
+const KEY_HELP: Record<string, { url: string; steps: string }> = {
+  openai: {
+    url: "https://platform.openai.com/api-keys",
+    steps: "Sign in, click “Create new secret key”, then copy it here.",
+  },
+  anthropic: {
+    url: "https://console.anthropic.com/settings/keys",
+    steps: "Sign in, click “Create Key”, then copy it here.",
+  },
+  gemini: {
+    url: "https://aistudio.google.com/apikey",
+    steps: "Sign in, click “Create API key”, then copy it here.",
+  },
+};
+
+type Verify = { state: "idle" | "testing" | "ok" | "error"; msg?: string };
 
 /**
  * First-run setup wizard (desktop). Walks through where files are saved, connecting a model
@@ -44,10 +66,17 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   // provider choice (API pane) + local models (Ollama)
   const [conn, setConn] = useState<"api" | "local">("api");
   const [apiProv, setApiProv] = useState("openai");
+  // True once the user manually picks a provider — stops key auto-detect from overriding them.
+  const [manualProv, setManualProv] = useState(false);
+  const [detected, setDetected] = useState<string | null>(null);
+  const [verify, setVerify] = useState<Verify>({ state: "idle" });
+  const [keyHelpOpen, setKeyHelpOpen] = useState(false);
   const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
+  // First Skip click with no model connected asks for confirmation rather than leaving silently.
+  const [skipConfirm, setSkipConfirm] = useState(false);
 
   // always-on
   const [autostart, setAuto] = useState(false);
@@ -94,14 +123,41 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     setScratchMsg(res.ok ? "Saved." : res.error || "Couldn't use that folder.");
   };
 
+  // Build the {api_key, base_url?} payload for the currently selected API provider.
+  const keyFields = (): Record<string, string> => {
+    const fields: Record<string, string> = { api_key: keyDraft.trim() };
+    if (apiProv === "openai") fields.base_url = endpoint.trim();
+    return fields;
+  };
+
+  // Guess the provider from the key as the user types/pastes it, and switch the dropdown to match
+  // (until they pick one by hand). Mirrors the "OpenAI key detected automatically" affordance.
+  const onKeyChange = (v: string) => {
+    setKeyDraft(v);
+    setKeyMsg(null);
+    setVerify({ state: "idle" });
+    const det = detectProvider(v);
+    setDetected(det);
+    if (det && !manualProv && det !== apiProv && providers.some((p) => p.name === det)) {
+      setApiProv(det);
+    }
+  };
+
+  const testKey = async () => {
+    if (!keyDraft.trim() && !selProv?.configured) return;
+    setVerify({ state: "testing" });
+    setKeyMsg(null);
+    const res = await verifyProvider(apiProv, keyFields());
+    setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "Couldn't verify." });
+  };
+
   const saveKey = async () => {
     if (!keyDraft.trim()) return;
     setKeyMsg(null);
-    const fields: Record<string, string> = { api_key: keyDraft.trim() };
-    if (apiProv === "openai") fields.base_url = endpoint.trim();
-    const res = await setProvider(apiProv, fields);
+    const res = await setProvider(apiProv, keyFields());
     if (res.ok) {
       setKeyDraft("");
+      setVerify({ state: "idle" });
       setKeyMsg("Saved locally.");
       refreshProviders();
       refreshSettings(); // the provider's recommended model may have been added to the list
@@ -137,9 +193,31 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const toggleAuto = async (v: boolean) => setAuto(!!(await setAutostart(v)));
   const toggleKeep = async (v: boolean) => setKeep(!!(await setKeepAwake(v)));
 
+  // The provider the default model routes to (prefix before `:`, else OpenAI). A model is "ready"
+  // only if that provider is configured — used to warn when Skipping with nothing connected.
+  const modelProviderName = (m: string): string => {
+    const i = (m || "").indexOf(":");
+    if (i > 0) {
+      const p = m.slice(0, i);
+      if (providers.some((x) => x.name === p)) return p;
+    }
+    return "openai";
+  };
+  const modelReady = providers.some(
+    (p) => p.name === modelProviderName(model) && p.configured,
+  );
+
   const finish = async () => {
     await setOnboarded(!showAgain); // ticked "show again" → keep showing → onboarded=false
     onDone();
+  };
+  // Skip warns once if no model is connected (chat would stay paused), then leaves on confirm.
+  const requestSkip = () => {
+    if (!modelReady && !skipConfirm) {
+      setSkipConfirm(true);
+      return;
+    }
+    finish();
   };
 
   const last = step === STEPS.length - 1;
@@ -162,9 +240,16 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               <div className="ob-mark">✳</div>
               <h2>Welcome to OpenCoworker</h2>
               <p className="ob-sub">
-                A quick setup: choose where your files are saved, then connect a model — an API
-                key or a local Ollama model. Takes about a minute.
+                An open-source desktop agent that does real work on your machine — research, code,
+                and documents. Your files and your keys stay on this computer; nothing leaves
+                unless you say so.
               </p>
+              <ul className="ob-valueprops">
+                <li><strong>Private by default</strong> — runs locally, bring your own API key (or use a free local model).</li>
+                <li><strong>Real deliverables</strong> — it writes files, reports, and code, not just chat.</li>
+                <li><strong>Always reachable</strong> — schedule automations and connect your tools.</li>
+              </ul>
+              <p className="ob-sub dim">A quick setup takes about a minute.</p>
             </div>
           )}
 
@@ -225,9 +310,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                     className="ob-select"
                     value={apiProv}
                     onChange={(e) => {
+                      setManualProv(true);
                       setApiProv(e.target.value);
                       setKeyDraft("");
                       setKeyMsg(null);
+                      setVerify({ state: "idle" });
+                      setDetected(null);
                     }}
                   >
                     {apiProviders.map((p) => (
@@ -266,9 +354,17 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                       value={keyDraft}
                       autoComplete="off"
                       spellCheck={false}
-                      onChange={(e) => setKeyDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && saveKey()}
+                      onChange={(e) => onKeyChange(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && testKey()}
                     />
+                    <button
+                      className="btn"
+                      onClick={testKey}
+                      disabled={verify.state === "testing" || (!keyDraft.trim() && !selProv?.configured)}
+                      title="Check the key works — without saving it"
+                    >
+                      {verify.state === "testing" ? "Testing…" : "Test"}
+                    </button>
                     <button
                       className="btn primary"
                       onClick={saveKey}
@@ -277,6 +373,33 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                       Save
                     </button>
                   </div>
+
+                  {detected && !manualProv && (
+                    <div className="ob-note ob-detected">
+                      ✓ {providers.find((p) => p.name === detected)?.title || detected} key detected
+                      automatically. <span className="dim">Not right? Pick a provider above.</span>
+                    </div>
+                  )}
+                  {verify.state === "ok" && <div className="ob-note ob-ok">✓ Key verified — you're good to go.</div>}
+                  {verify.state === "error" && <div className="ob-note ob-err">{verify.msg}</div>}
+
+                  <div className="ob-keyhelp">
+                    <button className="ob-link" onClick={() => setKeyHelpOpen((o) => !o)}>
+                      {keyHelpOpen ? "▾" : "▸"} Don't have an API key? Get one in about 2 minutes
+                    </button>
+                    {keyHelpOpen && KEY_HELP[apiProv] && (
+                      <div className="ob-keyhelp-body">
+                        <div>{KEY_HELP[apiProv].steps}</div>
+                        <div className="ob-row" style={{ marginTop: 6 }}>
+                          <button className="btn" onClick={() => openExternal(KEY_HELP[apiProv].url)}>
+                            Open {selProv?.title || "provider"} ↗
+                          </button>
+                          <code className="ob-url">{KEY_HELP[apiProv].url}</code>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="ob-note dim">
                     Stored locally{secretsPath ? ` at ${secretsPath}` : ""}, readable only by your account. Never sent to the model.
                   </div>
@@ -379,8 +502,24 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           )}
         </div>
 
+        {skipConfirm && (
+          <div className="ob-skipwarn">
+            <span>
+              No model is connected yet — chat stays paused until you add one. You can still browse,
+              and connect a model later from Settings.
+            </span>
+            <div className="ob-skipwarn-actions">
+              <button className="btn" onClick={() => { setSkipConfirm(false); setStep(2); setConn("api"); }}>
+                Connect a model
+              </button>
+              <button className="btn ghost" onClick={finish}>
+                Skip anyway
+              </button>
+            </div>
+          </div>
+        )}
         <div className="ob-foot">
-          <button className="btn ghost" onClick={finish}>
+          <button className="btn ghost" onClick={requestSkip}>
             Skip
           </button>
           <div className="ob-foot-right">

@@ -14,7 +14,7 @@ const PERMISSION_OPTIONS: Option[] = [
 
 // Fallback list when the server hasn't supplied one yet; the live list (incl. detected Ollama
 // models) arrives via the `models` prop.
-const MODEL_VALUES = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "deepseek-chat"];
+const MODEL_VALUES = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini"];
 
 // Identify an attachment by name + payload size so duplicates (e.g. the same file picked twice,
 // or a prefill applied twice) collapse to one chip.
@@ -31,6 +31,10 @@ interface Props {
   models?: string[];
   running: boolean;
   connected: boolean;
+  // False when the default model's provider has no key — the composer shows a "connect a model"
+  // banner and routes sends to setup (preserving the draft) instead of dropping them.
+  modelReady?: boolean;
+  onConnectModel?: () => void;
   onSend: (text: string, attachments?: Attachment[]) => void;
   onInterrupt: () => void;
   onModeChange: (mode: string) => void;
@@ -95,9 +99,16 @@ export function Composer(props: Props) {
     if (next.length) setAttachments((a) => mergeAttachments(a, next));
   };
 
+  const needsModel = props.modelReady === false;
+
   const submit = () => {
     const t = text.trim();
     if ((!t && attachments.length === 0) || props.running) return;
+    // No model connected: keep the draft (don't drop it) and send the user to setup instead.
+    if (needsModel) {
+      props.onConnectModel?.();
+      return;
+    }
     props.onSend(t, attachments);
     setText("");
     setAttachments([]);
@@ -198,14 +209,32 @@ export function Composer(props: Props) {
           {props.workspace !== undefined && (
             <Dropdown value={props.mode} options={PERMISSION_OPTIONS} onChange={props.onModeChange} />
           )}
-          <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} />
+          {/* No model connected: don't imply a usable model — show "No model ⚠" that opens setup. */}
+          {needsModel ? (
+            <button
+              className="pill model-warn"
+              onClick={() => props.onConnectModel?.()}
+              title="Connect a model"
+              aria-label="No model connected — connect a model"
+            >
+              <span className="pill-label">No model</span>
+              <span className="model-warn-ico" aria-hidden>⚠</span>
+            </button>
+          ) : (
+            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} />
+          )}
           <span className="spacer" />
           {props.running ? (
             <button className="btn danger" onClick={props.onInterrupt}>
               ⏹ Stop
             </button>
           ) : (
-            <button className="send" onClick={submit} disabled={!props.connected}>
+            <button
+              className="send"
+              onClick={submit}
+              disabled={!props.connected}
+              title={needsModel ? "Connect a model to send" : undefined}
+            >
               ↑
             </button>
           )}
@@ -213,8 +242,17 @@ export function Composer(props: Props) {
       </div>
       <div className="statusline">
         <span>
-          <span className={"dot " + (!props.connected ? "off" : props.running ? "running" : "idle")} />
-          &nbsp;{!props.connected ? "disconnected" : props.running ? "working…" : "ready"}
+          <span
+            className={"dot " + (needsModel || !props.connected ? "off" : props.running ? "running" : "idle")}
+          />
+          &nbsp;
+          {needsModel
+            ? "needs setup — connect a model to send"
+            : !props.connected
+              ? "disconnected"
+              : props.running
+                ? "working…"
+                : "ready"}
         </span>
         <span>Enter to send · Shift+Enter for newline</span>
       </div>

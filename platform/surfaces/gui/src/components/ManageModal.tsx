@@ -22,6 +22,7 @@ import {
   setSuperagentName,
   setSuperagentWorkspace,
   updateConnectorTools,
+  verifyProvider,
   type AuditEvent,
   type Connector,
   type McpServer,
@@ -97,6 +98,12 @@ export function ManageModal({
             <div className="manage-empty">Skill management — coming soon.</div>
           )}
         </div>
+        <div className="manage-foot">
+          <span className="manage-foot-note dim">● Changes save automatically</span>
+          <button className="btn-primary sm" onClick={onClose}>
+            Done — back to chat
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -115,6 +122,7 @@ function ModelsTab() {
   const [sub, setSub] = useState<"api" | "local">("api");
   const [apiProv, setApiProv] = useState("openai");
   const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
+  const [verify, setVerify] = useState<{ state: "idle" | "testing" | "ok" | "error"; msg?: string }>({ state: "idle" });
 
   const refresh = () => getSettings().then(setSettings).catch(() => setSettings(null));
   const loadProviders = () =>
@@ -154,19 +162,38 @@ function ModelsTab() {
   const provName = sub === "local" ? "ollama" : apiProv;
   const selProv = providers.find((p) => p.name === provName);
 
+  const keyFields = (): Record<string, string> => {
+    const fields: Record<string, string> = {};
+    if (draft.trim()) fields.api_key = draft.trim();
+    if (apiProv === "openai") fields.base_url = endpoint.trim();
+    return fields;
+  };
+
+  const testKey = async () => {
+    if (!draft.trim() && !selProv?.configured) return;
+    setVerify({ state: "testing" });
+    const res = await verifyProvider(apiProv, keyFields());
+    setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "Couldn't verify." });
+  };
+
   const save = async () => {
     if (!draft.trim() && !(apiProv === "openai" && endpoint.trim())) return;
     setBusy(true);
     setMsg(null);
-    const fields: Record<string, string> = {};
-    if (draft.trim()) fields.api_key = draft.trim();
-    if (apiProv === "openai") fields.base_url = endpoint.trim();
-    const res = await setProvider(apiProv, fields);
+    const res = await setProvider(apiProv, keyFields());
     setBusy(false);
     if (res.ok) {
       setDraft("");
-      setMsg("Saved. The key is stored locally and never sent to the model.");
-      refresh();
+      setVerify({ state: "idle" });
+      // set_provider auto-adds the provider's model and makes it the default if the old default
+      // wasn't usable — so the composer is ready immediately. Confirm that to the user.
+      const updated = await getSettings().catch(() => null);
+      if (updated) setSettings(updated);
+      setMsg(
+        updated
+          ? `Saved. “${updated.model}” is ready in the composer — stored locally, never sent to the model.`
+          : "Saved. The key is stored locally and never sent to the model.",
+      );
       loadProviders();
     } else {
       setMsg(res.error || "Failed to save key.");
@@ -226,6 +253,7 @@ function ModelsTab() {
                 setApiProv(e.target.value);
                 setDraft("");
                 setMsg(null);
+                setVerify({ state: "idle" });
               }}
             >
               {providers
@@ -239,9 +267,9 @@ function ModelsTab() {
           </label>
           <div className="conn-meta" style={{ marginBottom: 12 }}>
             {selProv?.configured ? (
-              <span className="ok">key configured{provName === "openai" && settings.source === "env" ? " (from environment)" : ""}</span>
+              <span className="ok">● Connected — key set{provName === "openai" && settings.source === "env" ? " (from environment)" : ""}</span>
             ) : (
-              <span className="danger">no API key — calls to this provider will fail</span>
+              <span className="danger">● Not connected — add a key below to use this provider</span>
             )}
           </div>
         </>
@@ -297,6 +325,14 @@ function ModelsTab() {
           </label>
           <div className="conn-setup-actions">
             <button
+              className="btn sm"
+              onClick={testKey}
+              disabled={verify.state === "testing" || (!draft.trim() && !selProv?.configured)}
+              title="Check the key works — without saving it"
+            >
+              {verify.state === "testing" ? "Testing…" : "Test"}
+            </button>
+            <button
               className="btn-primary sm"
               onClick={save}
               disabled={busy || (!draft.trim() && !(apiProv === "openai" && endpoint.trim()))}
@@ -304,6 +340,8 @@ function ModelsTab() {
               {busy ? "Saving…" : "Save"}
             </button>
           </div>
+          {verify.state === "ok" && <div className="conn-meta ok" style={{ marginTop: 10 }}>✓ Key verified.</div>}
+          {verify.state === "error" && <div className="conn-meta danger" style={{ marginTop: 10 }}>{verify.msg}</div>}
           {msg && <div className="conn-meta" style={{ marginTop: 10 }}>{msg}</div>}
           {checklist}
         </>

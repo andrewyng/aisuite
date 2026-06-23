@@ -360,6 +360,7 @@ export interface ModelSettings {
   model: string;
   models: string[];
   has_key: boolean;
+  model_ready: boolean; // can the default model's provider actually run (any provider)?
   source: "env" | "store" | null;
   onboarded: boolean;
   surfaces: SurfaceVisibility;
@@ -481,6 +482,29 @@ export async function setProvider(
   return res.json();
 }
 
+/** Live read-only credential check (does NOT save the key). Triggered by the user's "Test" click. */
+export async function verifyProvider(
+  name: string,
+  fields: Record<string, string>,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/providers/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, fields }),
+  });
+  return res.json();
+}
+
+/** Client-side provider guess from an API key's shape (mirrors the server's detect_provider). */
+export function detectProvider(apiKey: string): string | null {
+  const key = (apiKey || "").trim();
+  if (!key) return null;
+  if (key.startsWith("sk-ant-")) return "anthropic";
+  if (key.startsWith("AIza")) return "gemini";
+  if (key.startsWith("sk-") || key.startsWith("sk_")) return "openai";
+  return null;
+}
+
 // -- super-agent --------------------------------------------------------------
 export interface RecentSender {
   user_id: string;
@@ -548,6 +572,21 @@ export interface AutomationRun {
 export async function getAutomations(): Promise<Automation[]> {
   const res = await fetch(`${httpBase()}/v1/automations`);
   return (await res.json()).tasks ?? [];
+}
+
+export async function createAutomation(payload: {
+  title: string;
+  instructions: string;
+  cron?: string;
+  fire_at?: string;
+  timezone?: string;
+}): Promise<{ ok: boolean; error?: string; task?: Automation }> {
+  const res = await fetch(`${httpBase()}/v1/automations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
 }
 
 export async function getAutomation(id: string): Promise<{ task: Automation; runs: AutomationRun[] }> {
@@ -634,17 +673,32 @@ export type Handlers = {
 
 export class Session {
   private ws: WebSocket;
+  // Payloads sent before the socket finished opening, replayed on `onopen`. Belt-and-suspenders
+  // against the first message being dropped if the user sends in the connect window.
+  private outbox: object[] = [];
 
   constructor(sessionId: string, workspace: string, agent: string, handlers: Handlers) {
     const q = `?workspace=${encodeURIComponent(workspace)}&agent=${encodeURIComponent(agent)}`;
     this.ws = new WebSocket(`${wsBase()}/ws/session/${sessionId}${q}`);
     this.ws.onmessage = (e) => handlers.onEvent(JSON.parse(e.data));
-    this.ws.onopen = () => handlers.onOpen?.();
+    this.ws.onopen = () => {
+      this.flush();
+      handlers.onOpen?.();
+    };
     this.ws.onclose = () => handlers.onClose?.();
+  }
+
+  private flush() {
+    if (this.ws.readyState !== WebSocket.OPEN) return;
+    const pending = this.outbox;
+    this.outbox = [];
+    for (const p of pending) this.ws.send(JSON.stringify(p));
   }
 
   private send(payload: object) {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(payload));
+    // Still connecting: queue and flush on open rather than silently dropping.
+    else if (this.ws.readyState === WebSocket.CONNECTING) this.outbox.push(payload);
   }
 
   userMessage(text: string, attachments?: unknown[]) {
@@ -689,16 +743,28 @@ export class Session {
 
 export class SuperagentSession {
   private ws: WebSocket;
+  private outbox: object[] = [];
 
   constructor(handlers: Handlers) {
     this.ws = new WebSocket(`${wsBase()}/ws/superagent`);
     this.ws.onmessage = (e) => handlers.onEvent(JSON.parse(e.data));
-    this.ws.onopen = () => handlers.onOpen?.();
+    this.ws.onopen = () => {
+      this.flush();
+      handlers.onOpen?.();
+    };
     this.ws.onclose = () => handlers.onClose?.();
+  }
+
+  private flush() {
+    if (this.ws.readyState !== WebSocket.OPEN) return;
+    const pending = this.outbox;
+    this.outbox = [];
+    for (const p of pending) this.ws.send(JSON.stringify(p));
   }
 
   private send(payload: object) {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(payload));
+    else if (this.ws.readyState === WebSocket.CONNECTING) this.outbox.push(payload);
   }
 
   userMessage(text: string, attachments?: unknown[]) {
