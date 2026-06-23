@@ -545,6 +545,7 @@ export interface Automation {
   title: string;
   instructions: string;
   schedule: string;
+  schedule_raw?: { kind: string; cron?: string | null; fire_at?: string | null; timezone?: string };
   workspace: string;
   agent: string;
   enabled: boolean;

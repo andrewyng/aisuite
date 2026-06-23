@@ -374,14 +374,17 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                     </button>
                   </div>
 
-                  {detected && !manualProv && (
-                    <div className="ob-note ob-detected">
+                  {/* One status line at a time: verified (strongest) > error > auto-detected. */}
+                  {verify.state === "ok" ? (
+                    <div className="ob-status ob-ok">✓ Key verified — you're good to go.</div>
+                  ) : verify.state === "error" ? (
+                    <div className="ob-status ob-err">{verify.msg}</div>
+                  ) : detected && !manualProv ? (
+                    <div className="ob-status ob-detected">
                       ✓ {providers.find((p) => p.name === detected)?.title || detected} key detected
                       automatically. <span className="dim">Not right? Pick a provider above.</span>
                     </div>
-                  )}
-                  {verify.state === "ok" && <div className="ob-note ob-ok">✓ Key verified — you're good to go.</div>}
-                  {verify.state === "error" && <div className="ob-note ob-err">{verify.msg}</div>}
+                  ) : null}
 
                   <div className="ob-keyhelp">
                     <button className="ob-link" onClick={() => setKeyHelpOpen((o) => !o)}>
@@ -400,7 +403,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                     )}
                   </div>
 
-                  <div className="ob-note dim">
+                  <div className="ob-note dim" style={{ marginTop: 18 }}>
                     Stored locally{secretsPath ? ` at ${secretsPath}` : ""}, readable only by your account. Never sent to the model.
                   </div>
                   {keyMsg && <div className="ob-note">{keyMsg}</div>}
