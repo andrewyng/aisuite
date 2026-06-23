@@ -841,6 +841,10 @@ button.link:disabled { color: var(--faint); cursor: default; }
 .conn-meta { font-size: 11.5px; color: var(--faint); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
 .conn-meta.ok, .conn-meta .ok { color: var(--ok); }
 .conn-meta.danger, .conn-meta .danger { color: var(--danger); }
+/* Informational paragraph (may contain inline <code>) — a normal text block, NOT the flex
+   status row .conn-meta uses, so sentences don't get split into gapped flex items. */
+.conn-note { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+.conn-note code { white-space: nowrap; }
 .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-dot); display: inline-block; }
 .manage-body { flex: 1 1 auto; min-height: 0; }
 .manage-foot { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-top: 1px solid var(--line); }

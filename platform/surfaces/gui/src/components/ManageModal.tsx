@@ -274,7 +274,7 @@ function ModelsTab() {
           </div>
         </>
       ) : (
-        <div className="conn-meta dim" style={{ marginBottom: 12 }}>
+        <div className="conn-note dim" style={{ marginBottom: 12 }}>
           Run models locally with <code>ollama serve</code>. OpenCoworker uses Ollama's
           OpenAI-compatible API, so tools work. No API key needed.
         </div>
@@ -283,7 +283,7 @@ function ModelsTab() {
       {sub === "api" ? (
         <>
           {provName === "openai" && settings.source === "env" ? (
-            <div className="conn-meta dim">
+            <div className="conn-note dim">
               A key is set via <code>OPENAI_API_KEY</code> in this server's environment. You can override
               it below; the stored key is used only when the environment variable is absent.
             </div>
