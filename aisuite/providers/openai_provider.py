@@ -11,6 +11,72 @@ from aisuite.framework.message import (
 )
 
 
+_MAX_TOKENS_PARAM = "max_tokens"
+_MAX_COMPLETION_TOKENS_PARAM = "max_completion_tokens"
+_MAX_COMPLETION_TOKEN_MODEL_PREFIXES = (
+    "gpt-5",
+    "o1",
+    "o3",
+    "o4",
+)
+
+
+def _prefers_max_completion_tokens(model):
+    """Return True for OpenAI model families that reject max_tokens."""
+    normalized_model = str(model).strip().lower()
+    return normalized_model.startswith(_MAX_COMPLETION_TOKEN_MODEL_PREFIXES)
+
+
+def _normalize_chat_completion_kwargs(model, kwargs):
+    """Map aisuite's max_tokens abstraction to OpenAI's current parameter names."""
+    normalized_kwargs = dict(kwargs)
+    if _prefers_max_completion_tokens(model) and _MAX_TOKENS_PARAM in normalized_kwargs:
+        max_tokens = normalized_kwargs.pop(_MAX_TOKENS_PARAM)
+        normalized_kwargs.setdefault(_MAX_COMPLETION_TOKENS_PARAM, max_tokens)
+    return normalized_kwargs
+
+
+def _error_body(error):
+    body = getattr(error, "body", None)
+    if not isinstance(body, dict):
+        return {}
+    nested_error = body.get("error")
+    if isinstance(nested_error, dict):
+        return nested_error
+    return body
+
+
+def _is_unsupported_param_error(error, param):
+    body = _error_body(error)
+    message = str(body.get("message") or error)
+    reported_param = body.get("param")
+    code = body.get("code")
+    return (
+        reported_param == param
+        or (param in message and "unsupported" in message.lower())
+        or (code == "unsupported_parameter" and param in message)
+    )
+
+
+def _alternate_token_limit_param(param):
+    if param == _MAX_TOKENS_PARAM:
+        return _MAX_COMPLETION_TOKENS_PARAM
+    return _MAX_TOKENS_PARAM
+
+
+def _retry_kwargs_for_unsupported_token_param(error, request_kwargs):
+    for param in (_MAX_TOKENS_PARAM, _MAX_COMPLETION_TOKENS_PARAM):
+        if param not in request_kwargs:
+            continue
+        if not _is_unsupported_param_error(error, param):
+            continue
+        retry_kwargs = dict(request_kwargs)
+        token_limit = retry_kwargs.pop(param)
+        retry_kwargs.setdefault(_alternate_token_limit_param(param), token_limit)
+        return retry_kwargs
+    return None
+
+
 class OpenaiProvider(Provider):
     def __init__(self, **config):
         """
@@ -41,27 +107,61 @@ class OpenaiProvider(Provider):
     def chat_completions_create(self, model, messages, **kwargs):
         # Any exception raised by OpenAI will be returned to the caller.
         # Maybe we should catch them and raise a custom LLMError.
+        transformed_messages = None
+        request_kwargs = None
         try:
             transformed_messages = self.transformer.convert_request(messages)
+            request_kwargs = _normalize_chat_completion_kwargs(model, kwargs)
             response = self.client.chat.completions.create(
                 model=model,
                 messages=transformed_messages,
-                **kwargs,  # Pass any additional arguments to the OpenAI API
+                **request_kwargs,  # Pass any additional arguments to the OpenAI API
             )
             return response
+        except openai.BadRequestError as e:
+            if request_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            retry_kwargs = _retry_kwargs_for_unsupported_token_param(e, request_kwargs)
+            if retry_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            try:
+                return self.client.chat.completions.create(
+                    model=model,
+                    messages=transformed_messages,
+                    **retry_kwargs,
+                )
+            except Exception as retry_error:
+                raise LLMError(f"An error occurred: {retry_error}")
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
 
     async def achat_completions_create(self, model, messages, **kwargs):
         # Native async path via openai.AsyncOpenAI.
+        transformed_messages = None
+        request_kwargs = None
         try:
             transformed_messages = self.transformer.convert_request(messages)
+            request_kwargs = _normalize_chat_completion_kwargs(model, kwargs)
             response = await self.aclient.chat.completions.create(
                 model=model,
                 messages=transformed_messages,
-                **kwargs,  # Pass any additional arguments to the OpenAI API
+                **request_kwargs,  # Pass any additional arguments to the OpenAI API
             )
             return response
+        except openai.BadRequestError as e:
+            if request_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            retry_kwargs = _retry_kwargs_for_unsupported_token_param(e, request_kwargs)
+            if retry_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            try:
+                return await self.aclient.chat.completions.create(
+                    model=model,
+                    messages=transformed_messages,
+                    **retry_kwargs,
+                )
+            except Exception as retry_error:
+                raise LLMError(f"An error occurred: {retry_error}")
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
 
