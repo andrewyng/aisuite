@@ -9,7 +9,7 @@ from openai import BadRequestError
 import pytest
 
 from aisuite.providers.openai_provider import OpenaiProvider
-from aisuite.provider import ASRError
+from aisuite.provider import ASRError, LLMError
 from aisuite.framework.message import (
     TranscriptionResult,
     TranscriptionOptions,
@@ -41,17 +41,20 @@ def mock_openai_response():
     return mock_response
 
 
-def _bad_request_for_param(param):
+def _bad_request_for_param(param, *, message=None, code="unsupported_parameter"):
+    message = (
+        message or f"Unsupported parameter: '{param}' is not supported with this model."
+    )
     request = httpx.Request("POST", "https://api.openai.test/v1/chat/completions")
     response = httpx.Response(400, request=request)
     return BadRequestError(
-        f"Unsupported parameter: '{param}' is not supported with this model.",
+        message,
         response=response,
         body={
             "error": {
-                "message": f"Unsupported parameter: '{param}' is not supported with this model.",
+                "message": message,
                 "param": param,
-                "code": "unsupported_parameter",
+                "code": code,
             }
         },
     )
@@ -119,6 +122,28 @@ class TestOpenAIProvider:
         assert "max_completion_tokens" not in first_call
         assert second_call["max_completion_tokens"] == 64
         assert "max_tokens" not in second_call
+
+    def test_chat_completion_does_not_retry_non_unsupported_token_error(
+        self, openai_provider
+    ):
+        """Other max_tokens validation errors should not be retried as compatibility issues."""
+        with patch.object(
+            openai_provider.client.chat.completions,
+            "create",
+            side_effect=_bad_request_for_param(
+                "max_tokens",
+                message="Invalid value for max_tokens.",
+                code="invalid_request_error",
+            ),
+        ) as mock_create:
+            with pytest.raises(LLMError, match="Invalid value for max_tokens"):
+                openai_provider.chat_completions_create(
+                    "custom-model",
+                    [{"role": "user", "content": "hi"}],
+                    max_tokens=-1,
+                )
+
+        assert mock_create.call_count == 1
 
 
 class TestOpenAIASR:

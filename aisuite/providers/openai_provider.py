@@ -49,13 +49,16 @@ def _error_body(error):
 def _is_unsupported_param_error(error, param):
     body = _error_body(error)
     message = str(body.get("message") or error)
+    normalized_message = message.lower()
     reported_param = body.get("param")
     code = body.get("code")
-    return (
-        reported_param == param
-        or (param in message and "unsupported" in message.lower())
-        or (code == "unsupported_parameter" and param in message)
+    param_matches = reported_param == param or param in message
+    unsupported = (
+        code == "unsupported_parameter"
+        or "unsupported" in normalized_message
+        or "not supported" in normalized_message
     )
+    return param_matches and unsupported
 
 
 def _alternate_token_limit_param(param):
