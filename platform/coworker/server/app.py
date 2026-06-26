@@ -261,6 +261,14 @@ def create_app(manager: SessionManager) -> FastAPI:
             return {"ok": False, "error": "name required"}
         return manager.set_provider(name, (body or {}).get("fields"))
 
+    @app.post("/v1/providers/verify")
+    async def providers_verify(body: dict) -> dict[str, Any]:
+        # Live read-only credential check (sync httpx) — run off the event loop.
+        name = (body or {}).get("name", "") or "openai"
+        return await asyncio.to_thread(
+            manager.verify_provider, name, (body or {}).get("fields")
+        )
+
     # -- settings (model API key) -----------------------------------------------
     @app.get("/v1/settings")
     def settings_get() -> dict[str, Any]:
@@ -319,6 +327,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.get("/v1/automations")
     def automations_list() -> dict[str, Any]:
         return manager.list_automations()
+
+    @app.post("/v1/automations")
+    def automations_create(body: dict) -> dict[str, Any]:
+        return manager.create_automation(body or {})
 
     @app.get("/v1/automations/{task_id}")
     def automation_get(task_id: str) -> dict[str, Any]:

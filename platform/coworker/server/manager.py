@@ -21,7 +21,7 @@ from ..conversations import ConversationStore, title_from
 from ..engine import Approver, TurnEngine
 from ..roots import RootDir
 from ..agents import myhelper_agent
-from ..automation import Scheduler, TaskRun, TaskStore
+from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
 from ..connectors import (
     Gateway,
     SUPERAGENT_MESSAGING_NOTE,
@@ -57,6 +57,7 @@ from ..providers import (
     ProviderRouter,
     get_descriptor,
     provider_descriptors,
+    verify_provider_key,
 )
 from ..secrets import SecretStore, state_dir
 from ..sessions import SessionRecord
@@ -680,6 +681,27 @@ class SessionManager:
             self.set_default_model(added)
         return {"ok": True, "provider": name, "recommended_model": rec}
 
+    def verify_provider(
+        self, name: str, fields: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Test a provider's credentials with a live read-only call, WITHOUT persisting them, so
+        onboarding can offer a "Test" button. Falls back to the stored/env key when the form left
+        the key blank (e.g. testing an already-configured provider)."""
+        import os
+
+        d = get_descriptor(name)
+        if d is None:
+            return {"ok": False, "error": f"unknown provider: {name}"}
+        fields = fields or {}
+        profile = self.secrets.get(f"provider:{name}") or {}
+        api_key = (fields.get("api_key") or profile.get("api_key") or "").strip()
+        if not api_key and d.env_key:
+            api_key = os.environ.get(d.env_key, "").strip()
+        base_url = (fields.get("base_url") or profile.get("base_url") or "").strip()
+        if d.needs_key and not api_key:
+            return {"ok": False, "error": "Enter an API key to test."}
+        return verify_provider_key(name, api_key=api_key, base_url=base_url)
+
     def _model_provider(self, model: str) -> str:
         """The provider a model string routes to (known `prefix:` or the OpenAI default)."""
         if ":" in (model or ""):
@@ -700,7 +722,7 @@ class SessionManager:
         )
 
     # -- settings / prefs (model API key, default model, onboarding) -------------
-    KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
+    KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini"]
 
     def _prefs_path(self) -> Path:
         return self._data_base / "prefs.json"
@@ -774,11 +796,25 @@ class SessionManager:
 
         env_key = bool(os.environ.get("OPENAI_API_KEY"))
         stored = bool((self.secrets.get("provider:openai") or {}).get("api_key"))
+        # Only surface models whose provider is actually configured — the composer picker should
+        # reflect what's connected, not the built-in seed list. The active default is always kept
+        # selectable (it's hidden behind the "No model" state until a provider is connected anyway).
+        selectable = [
+            m
+            for m in self._curated_models()
+            if self._provider_configured(self._model_provider(m))
+        ]
+        if self.model not in selectable:
+            selectable.insert(0, self.model)
         return {
             "provider": "openai",
             "model": self.model,
-            "models": self._curated_models(),
+            "models": selectable,
             "has_key": env_key or stored,
+            # Provider-agnostic "can this default model actually run?" — true when the default
+            # model's provider is configured (any provider, not just OpenAI). Drives the GUI's
+            # "No model connected" composer chip and the onboarding Skip warning.
+            "model_ready": self._provider_configured(self._model_provider(self.model)),
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
             "experimental_connectors": experimental_enabled(self.secrets),
@@ -1196,6 +1232,48 @@ class SessionManager:
             "task": task.public(),
             "runs": [r.to_dict() for r in self.task_store.runs(task_id)],
         }
+
+    def create_automation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create an automation directly from the GUI (the "New automation" / template flow).
+        Mirrors the agent-facing `create_scheduled_task` validation, but binds the task to a
+        fresh per-task scratch workspace instead of an origin conversation's folder."""
+        from croniter import croniter
+
+        title = (payload.get("title") or "").strip()
+        instructions = (payload.get("instructions") or "").strip()
+        cron = (payload.get("cron") or "").strip() or None
+        fire_at = (payload.get("fire_at") or "").strip() or None
+        timezone = (payload.get("timezone") or "").strip() or "local"
+
+        if not title:
+            return {"ok": False, "error": "title is required"}
+        if not instructions:
+            return {"ok": False, "error": "instructions are required"}
+        if not cron and not fire_at:
+            return {
+                "ok": False,
+                "error": "provide a cron (recurring) or a fire_at ISO datetime (one-time)",
+            }
+        if cron and not croniter.is_valid(cron):
+            return {"ok": False, "error": f"invalid cron expression: {cron}"}
+
+        schedule = Schedule(
+            kind="once" if (fire_at and not cron) else "cron",
+            cron=cron,
+            fire_at=fire_at,
+            timezone=timezone,
+        )
+        task = ScheduledTask(
+            title=title,
+            instructions=instructions,
+            schedule=schedule,
+            workspace="",
+            origin_surface="cowork",
+            agent="cowork",
+        )
+        task.workspace = self._provision_scratch(task.task_session_id)
+        self.task_store.save(task)
+        return {"ok": True, "task": task.public()}
 
     def update_automation(
         self, task_id: str, changes: dict[str, Any]

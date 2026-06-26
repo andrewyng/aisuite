@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getSuperagent, SuperagentSession, type SuperagentStatus } from "../api";
 import type { ApprovalDecision, Item, WsEvent } from "../types";
+import { Icon } from "./Icon";
 import { Transcript } from "./Transcript";
 
 const newId = () =>
@@ -140,13 +141,15 @@ export function SuperAgentView() {
   return (
     <div className="main">
       <div className="sa-view-head">
-        <div className="sa-view-title">
-          <span className="mark">✳</span> {status?.name || "MyHelper"}
-          <span className={"sa-status-dot" + (connected ? " on" : "")} />
-        </div>
-        <div className="sa-view-sub">
-          {listening.length ? `listening on ${listening.join(", ")}` : "no bots connected"} ·{" "}
-          {status?.workspace || ""}
+        <div className="sa-view-heading">
+          <div className="sa-view-title">
+            <Icon name="sparkle" size={21} /> {status?.name || "MyHelper"}
+            <span className={"sa-status-dot" + (connected ? " on" : "")} />
+          </div>
+          <div className="sa-view-sub">
+            {listening.length ? `listening on ${listening.join(", ")}` : "no bots connected"} ·{" "}
+            {status?.workspace || ""}
+          </div>
         </div>
       </div>
 

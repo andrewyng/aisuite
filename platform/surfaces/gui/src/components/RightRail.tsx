@@ -103,7 +103,20 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
             title={`Artifacts${artifacts.length ? ` (${artifacts.length})` : ""}`}
             open={open.artifacts}
             onToggle={() => setOpen({ ...open, artifacts: !open.artifacts })}
-            action={<button className="rail-mini-btn" onClick={(e) => { e.stopPropagation(); refreshArtifacts(); }} title="Refresh artifacts"><Icon name="refresh" size={13} /></button>}
+            action={
+              <>
+                {artifacts.length > 0 && (
+                  <button
+                    className="rail-mini-btn"
+                    onClick={(e) => { e.stopPropagation(); revealArtifact(sessionId, artifacts[0].path, "reveal"); }}
+                    title="Show the folder where these files are saved"
+                  >
+                    <Icon name="folder" size={13} />
+                  </button>
+                )}
+                <button className="rail-mini-btn" onClick={(e) => { e.stopPropagation(); refreshArtifacts(); }} title="Refresh artifacts"><Icon name="refresh" size={13} /></button>
+              </>
+            }
           >
             {artifacts.length === 0 ? (
               <div className="rail-muted">No previewable files yet.</div>

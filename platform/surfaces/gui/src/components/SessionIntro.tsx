@@ -67,11 +67,32 @@ export function SessionIntro({
         <span className="mark">✳</span> What should we produce?
       </h1>
       <p className="intro-lede">
-        I work in a private temporary space — share folders or connect your tools, and I can do more.
+        Pick a task to start — I'll do the work and save the result. Or just type what you need below.
       </p>
 
+      {/* Lead with one-click tasks (the fastest path to value); setup comes after. */}
+      <div className="intro-tasks">
+        {TASKS.map((t, i) => (
+          <button className="task-card" key={i} onClick={() => runTask(t)}>
+            <span className="task-card-ico">{t.ico}</span>
+            <span className="task-card-text">{t.text}</span>
+            <span className="task-card-hint">{t.pickFile ? "Pick a file →" : "Start →"}</span>
+          </button>
+        ))}
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            onFile(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      </div>
+
       <div className="suggestions intro-setup">
-        <div className="suggest-head">Set me up</div>
+        <div className="suggest-head">Set me up (optional)</div>
         <div className="suggest" onClick={() => setAddingFolder((v) => !v)}>
           <span className="ico"><Icon name="folderPlus" size={16} /></span>
           Give me access to a folder
@@ -97,27 +118,6 @@ export function SessionIntro({
           Connect Gmail, Calendar, Drive…
           {active.length > 0 && <span className="suggest-hint">· {active.join(" ✓ · ")} ✓</span>}
         </div>
-      </div>
-
-      <div className="suggestions">
-        <div className="suggest-head">Try a task</div>
-        {TASKS.map((t, i) => (
-          <div className="suggest" key={i} onClick={() => runTask(t)}>
-            <span className="ico">{t.ico}</span>
-            {t.text}
-            {t.pickFile && <span className="suggest-hint">· pick a file</span>}
-          </div>
-        ))}
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,.tsv,.txt,text/csv"
-          style={{ display: "none" }}
-          onChange={(e) => {
-            onFile(e.target.files);
-            e.target.value = "";
-          }}
-        />
       </div>
     </div>
   );
