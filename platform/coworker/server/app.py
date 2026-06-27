@@ -65,6 +65,33 @@ def create_app(manager: SessionManager) -> FastAPI:
     def personas() -> dict[str, Any]:
         return {"personas": manager.personas.list_all()}
 
+    @app.get("/v1/inbox")
+    def inbox(session_id: str = "", state: str = "") -> dict[str, Any]:
+        from dataclasses import asdict
+
+        items = manager.inbox.list(
+            session_id=session_id or None, state=state or None
+        )
+        return {"items": [asdict(i) for i in items]}
+
+    @app.post("/v1/inbox/{item_id}/resolve")
+    def resolve_inbox_item(item_id: str, body: dict) -> dict[str, Any]:
+        # Idempotent + first-responder-wins: ok=False means it was already resolved elsewhere.
+        ok = manager.inbox.resolve(item_id, str(body.get("resolution", "deny")))
+        return {"ok": ok}
+
+    @app.get("/v1/inbox/reconcile")
+    def reconcile_inbox(session_id: str) -> dict[str, Any]:
+        # Called when a session resumes attended control (surface pending + recap inline).
+        return manager.inbox.reconcile_on_resume(session_id)
+
+    @app.post("/v1/sessions/{session_id}/unattended")
+    def set_unattended(session_id: str, body: dict) -> dict[str, Any]:
+        # The GUI gates the on-transition behind a one-tap confirm.
+        on = bool(body.get("unattended"))
+        manager.unattended.set(session_id, on)
+        return {"ok": True, "session_id": session_id, "unattended": on}
+
     @app.post("/v1/personas/install")
     def install_persona(body: dict) -> dict[str, Any]:
         # Returns a consent summary per persona; they land disabled pending the user's approval

@@ -16,8 +16,11 @@ from typing import Any, Optional
 
 from ..agent import build_engine
 from ..agents import get_agent
+from ..inbox import InboxStore
 from ..personas import PersonaRegistry
 from ..personas.registry import set_registry as set_persona_registry
+from ..selfwake import WakeStore
+from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
 from ..engine import Approver, TurnEngine
@@ -124,6 +127,10 @@ class SessionManager:
         # process singleton so agents.get_agent resolves persona ids (incl. third-party) here.
         self.personas = PersonaRegistry(state_path=base / "personas.json")
         set_persona_registry(self.personas)
+        # Inbox (cross-session human-attention queue), the Unattended toggle, and self-wake records.
+        self.inbox = InboxStore(base / "inbox.json")
+        self.unattended = UnattendedRegistry(base / "unattended.json")
+        self.wakes = WakeStore(base / "wakes.json")
 
     # -- workspaces -------------------------------------------------------------
     def open_workspace(self, path: str, *, create: bool = False) -> dict[str, Any]:
