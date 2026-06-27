@@ -36,6 +36,7 @@ interface Props {
   onNewProject: () => void;
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
   onManage: () => void;
   onOpenSuperagent: () => void;
   onOpenScheduled: () => void;
@@ -73,6 +74,15 @@ export function Sidebar(props: Props) {
   const [openKey, setOpenKey] = useState<string | null>(props.agent);
   useEffect(() => setOpenKey(props.agent), [props.agent]);
   const browseKey = openKey ?? props.agent; // the persona whose sessions the body shows
+
+  // Pinned sessions across ALL personas — the cross-persona band at the top (manual pins only).
+  const pinnedSessions = props.sessions.filter(
+    (s) => s.pinned && !s.session_id.startsWith("__") && !s.archived,
+  );
+  const personaIcon = (agentId: string) => {
+    const p = personas?.find((x) => x.id === agentId);
+    return { icon: (p && ICON_FOR[p.icon]) || "diamond", cls: `ico-${p?.icon || "cowork"}` } as const;
+  };
 
   // Body data is keyed to the BROWSED persona (only one body renders at a time).
   const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
@@ -127,6 +137,13 @@ export function Sidebar(props: Props) {
               {title}
             </span>
             <span className="session-actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                title={s.pinned ? "Unpin" : "Pin to top"}
+                className={s.pinned ? "pinned" : undefined}
+                onClick={() => props.onTogglePin(s.session_id, !s.pinned)}
+              >
+                <Icon name="pin" size={12} />
+              </button>
               <button
                 title="Rename"
                 onClick={() => {
@@ -329,6 +346,38 @@ export function Sidebar(props: Props) {
           <Icon name="clock" size={16} className="ico" /> Automations
         </div>
       </div>
+
+      {pinnedSessions.length > 0 && (
+        <div className="pinned-band">
+          <div className="pinned-label">Pinned</div>
+          {pinnedSessions.map((s) => {
+            const pi = personaIcon(s.agent);
+            return (
+              <div
+                key={s.session_id}
+                className={"pinned-row" + (s.session_id === props.activeSession ? " active" : "")}
+                title={s.title || s.session_id}
+                onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
+              >
+                <span className={"pinned-ico " + pi.cls}>
+                  <Icon name={pi.icon} size={11} />
+                </span>
+                <span className="pinned-title">{s.title || s.session_id}</span>
+                <button
+                  className="pinned-unpin"
+                  title="Unpin"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onTogglePin(s.session_id, false);
+                  }}
+                >
+                  <Icon name="pin" size={11} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="surfaces">
         {visibleSurfaces.map((s) => {

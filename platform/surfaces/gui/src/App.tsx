@@ -708,6 +708,7 @@ export function App() {
         onNewProject={newProject}
         onRenameSession={renameConversation}
         onDeleteSession={deleteConversation}
+        onTogglePin={togglePinned}
         onManage={() => setShowManage(true)}
         onOpenSuperagent={() => setSurface("superagent")}
         onOpenScheduled={() => setSurface("scheduled")}

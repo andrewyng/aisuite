@@ -199,6 +199,23 @@ body {
   font: inherit; line-height: 1;
 }
 .session-actions button:hover { background: var(--panel); color: var(--ink); }
+.session-actions button.pinned { color: var(--accent); }
+
+/* -- Pinned band (cross-persona, manual pins) ------------------------------ */
+.pinned-band { display: flex; flex-direction: column; gap: 1px; padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.pinned-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); padding: 2px 8px 4px; }
+.pinned-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; user-select: none; }
+.pinned-row:hover { background: var(--paper); }
+.pinned-row.active { background: var(--paper); }
+.pinned-ico { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: #fff; flex: none; }
+.pinned-ico.ico-cowork { background: #16a34a; }
+.pinned-ico.ico-chat { background: var(--accent); }
+.pinned-ico.ico-code { background: #7c3aed; }
+.pinned-ico.ico-ops { background: #ea580c; }
+.pinned-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; }
+.pinned-unpin { width: 20px; height: 20px; display: none; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--accent); cursor: pointer; flex: none; }
+.pinned-row:hover .pinned-unpin { display: grid; }
+.pinned-unpin:hover { background: var(--panel); }
 .session-search {
   width: calc(100% - 12px); margin: 0 6px 8px; padding: 7px 9px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
