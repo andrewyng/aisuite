@@ -64,11 +64,15 @@ class PersonaRegistry:
         self._entries: dict[str, PersonaEntry] = {}
         self._enabled: dict[str, bool] = {}
         self._surfaced: dict[str, bool] = {}
+        self._sources: list[str] = []  # persisted user-installed dirs (local or cloned)
         self._default = DEFAULT_PERSONA_ID
         self._load_builtin(builtin_dir)
         for d in extra_dirs or []:
             self._load_dir(d, builtin=False)
         self._load_state()
+        # Re-load personas the user installed in prior sessions (persisted as sources).
+        for src in list(self._sources):
+            self._load_dir(src, builtin=False)
 
     # -- loading ----------------------------------------------------------------
     def _register_builder(
@@ -128,6 +132,7 @@ class PersonaRegistry:
             self._enabled = dict(data.get("enabled", {}))
             self._surfaced = dict(data.get("surfaced", {}))
             self._default = data.get("default", DEFAULT_PERSONA_ID)
+            self._sources = list(data.get("sources", []))
 
     def save(self) -> None:
         if not self.state_path:
@@ -139,6 +144,7 @@ class PersonaRegistry:
                     "enabled": self._enabled,
                     "surfaced": self._surfaced,
                     "default": self._default,
+                    "sources": self._sources,
                 },
                 indent=2,
             ),
@@ -234,6 +240,42 @@ class PersonaRegistry:
         self._default = persona_id
         self._enabled[persona_id] = True  # a default must be enabled
         self.save()
+
+    # -- install (third-party personas) -----------------------------------------
+    def install_from_dir(self, directory: str | Path) -> list[dict]:
+        """Install persona(s) from a local directory. Returns a consent summary per persona.
+        Newly installed personas land **disabled + unsurfaced** (pending the user's consent);
+        the caller enables them only after the user approves the declared capabilities."""
+        from .loading import consent_summary
+
+        d = Path(directory)
+        if not d.is_dir():
+            raise FileNotFoundError(f"not a directory: {d}")
+        before = set(self._entries)
+        self._load_dir(d, builtin=False)
+        summaries: list[dict] = []
+        for pid, entry in self._entries.items():
+            if pid in before or entry.builtin or entry.manifest is None:
+                continue
+            self._enabled[pid] = False  # pending consent — never auto-enabled
+            self._surfaced[pid] = False
+            summaries.append(consent_summary(entry.manifest))
+        if str(d) not in self._sources:
+            self._sources.append(str(d))
+        self.save()
+        return summaries
+
+    def install_from_git(
+        self, url: str, *, cache_base: Optional[str | Path] = None, clone=None
+    ) -> list[dict]:
+        """Clone a persona repo and install its personas (disabled pending consent)."""
+        from .loading import clone_persona_repo, git_clone
+
+        base = Path(cache_base) if cache_base else (
+            (self.state_path.parent if self.state_path else Path.cwd()) / "persona-cache"
+        )
+        dest = clone_persona_repo(url, base, clone=clone or git_clone)
+        return self.install_from_dir(dest)
 
 
 # -- module singleton (used by agents.get_agent / list_agents) ------------------

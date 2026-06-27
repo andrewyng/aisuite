@@ -25,6 +25,7 @@ from .permissions import Mode, PermissionEngine
 from .project import load_agents_md
 from .roots import RootDir, normalize_roots, render_context
 from .providers import ProviderClient, ProviderRouter
+from .overrides import RiskOverrideStore
 from .secrets import SecretStore, state_dir
 from .skills import SkillLoader, skill_catalog_text, skill_tools
 from .tools import ToolRegistry
@@ -215,12 +216,16 @@ def build_engine(
     if catalog:
         instructions = f"{instructions}\n\n{catalog}"
 
+    # User-local risk overrides (mainly to relax MCP's conservative default). Empty store →
+    # no-op; never written by persona loading (the no-self-grant rule).
+    risk_overrides = RiskOverrideStore(state_dir() / "risk_overrides.json").resolver()
     permissions = PermissionEngine(
         workspace_root=ws or (root_list[0].path if root_list else Path.cwd()),
         mode=mode,
         allowed_commands=allowed_commands or config.allowed_commands,
         auto_allow_tools=set(config.auto_allow),
         roots=root_list or None,
+        risk_overrides=risk_overrides,
     )
     # The plan-mode exit door. Always registered (surfaces can flip a live session into
     # plan mode via set_mode, and the registry is fixed at build); the engine rejects the

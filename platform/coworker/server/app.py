@@ -65,6 +65,22 @@ def create_app(manager: SessionManager) -> FastAPI:
     def personas() -> dict[str, Any]:
         return {"personas": manager.personas.list_all()}
 
+    @app.post("/v1/personas/install")
+    def install_persona(body: dict) -> dict[str, Any]:
+        # Returns a consent summary per persona; they land disabled pending the user's approval
+        # (then POST /v1/personas/{id} {enabled:true, surfaced:true}).
+        reg = manager.personas
+        try:
+            if body.get("git_url"):
+                summaries = reg.install_from_git(str(body["git_url"]))
+            elif body.get("dir"):
+                summaries = reg.install_from_dir(str(body["dir"]))
+            else:
+                return {"ok": False, "error": "provide a `dir` or `git_url`"}
+        except Exception as e:  # surface manifest/clone errors to the caller
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "consent": summaries, "personas": reg.list_all()}
+
     @app.post("/v1/personas/{persona_id}")
     def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
         reg = manager.personas
