@@ -592,12 +592,14 @@ def create_app(manager: SessionManager) -> FastAPI:
         }
 
         async def run_turn(content) -> None:
+            manager.mark_running(session_id)  # busy → self-wakes steer instead of colliding
             try:
                 async for event in engine.run(content):
                     await ws.send_json({"type": event.type.value, "data": event.data})
                     if event.type.value in _CHECKPOINTS:
                         manager.save(session_id, engine)
             finally:
+                manager.mark_idle(session_id)
                 manager.save(session_id, engine)
                 await ws.send_json({"type": "turn_done", "data": {}})
 

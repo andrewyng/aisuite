@@ -22,11 +22,18 @@ Runner = Callable[[ScheduledTask, str], Awaitable[TaskRun]]
 
 class Scheduler:
     def __init__(
-        self, store: TaskStore, runner: Runner, *, tick_seconds: float = 30.0
+        self,
+        store: TaskStore,
+        runner: Runner,
+        *,
+        tick_seconds: float = 30.0,
+        extra_tick: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> None:
         self.store = store
         self.runner = runner
         self.tick_seconds = tick_seconds
+        # An extra per-tick coroutine (self-wake resumption: resume sessions whose wakes are due).
+        self.extra_tick = extra_tick
         self._task: Optional[asyncio.Task] = None
         self._running_ids: set[str] = set()  # overlap guard
 
@@ -59,6 +66,11 @@ class Scheduler:
     async def _tick(self, *, trigger: str) -> None:
         for task in self.store.due():
             await self.run_task(task, trigger=trigger)
+        if self.extra_tick is not None:
+            try:
+                await self.extra_tick()
+            except Exception:
+                logger.exception("scheduler extra_tick (wake resume) failed")
 
     async def run_task(self, task: ScheduledTask, *, trigger: str) -> Optional[TaskRun]:
         if task.id in self._running_ids:  # skip-on-overlap

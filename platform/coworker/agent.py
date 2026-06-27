@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from .agents import Agent, AgentContext, code_agent
 from .automation import scheduling_tools
+from .selfwake import selfwake_tools
 from .config import load_config
 from .connectors import (
     connector_list,
@@ -108,6 +109,7 @@ def build_engine(
     extra_tools: Optional[list[Any]] = None,
     secrets: Optional[SecretStore] = None,
     task_store: Optional[Any] = None,
+    wake_store: Optional[Any] = None,
     session_id: Optional[str] = None,
     audit_sink: Optional[Any] = None,
     roots: Optional[list] = None,
@@ -190,6 +192,10 @@ def build_engine(
         registry.register_all(
             scheduling_tools(task_store, origin=origin, default_workspace=str(ws))
         )
+    # Self-wake: knowledge surfaces can suspend + schedule their own resumption (timer /
+    # on-completion / on-event). The scheduler tick resumes due wakes.
+    if wake_store is not None and session_id and agent.family == "knowledge":
+        registry.register_all(selfwake_tools(wake_store, session_id))
 
     instructions = agent.system_prompt
     if ws is not None:

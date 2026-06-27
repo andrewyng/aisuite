@@ -104,6 +104,7 @@ class SessionManager:
         if self.default_workspace:
             self.session_store.touch_workspace(self.default_workspace)
         self._engines: dict[str, TurnEngine] = {}
+        self._running_sessions: set[str] = set()  # sessions with an in-flight turn (busy)
         self.secrets = SecretStore()
         # No explicit provider injected → route by the model's `provider:` prefix (OpenAI default,
         # Ollama, …). Tests inject a provider directly and bypass the router. The same router is
@@ -122,8 +123,11 @@ class SessionManager:
         self._sa_clients: set[Any] = set()
         self._sa_pending: Optional[asyncio.Future] = None
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
+        # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
-        self.scheduler = Scheduler(self.task_store, self._run_scheduled_task)
+        self.scheduler = Scheduler(
+            self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
+        )
         # Personas: registry + lifecycle state under this manager's data dir. Installed as the
         # process singleton so agents.get_agent resolves persona ids (incl. third-party) here.
         self.personas = PersonaRegistry(state_path=base / "personas.json")
@@ -259,6 +263,7 @@ class SessionManager:
             extra_tools=extra_tools,
             secrets=self.secrets,
             task_store=self.task_store,
+            wake_store=self.wakes,
             session_id=session_id,
             audit_sink=self.audit_store.append,
             roots=roots,
@@ -1163,6 +1168,67 @@ class SessionManager:
         for tool in task.always_allowed_tools:
             engine.permissions.allow_tool_for_session(tool)
         return engine
+
+    # -- self-wake resumption ---------------------------------------------------
+    async def resume_due_wakes(self) -> int:
+        """Resume sessions whose self-wakes are due (called each scheduler tick). A suspended
+        agent (it called sleep_for / wake_on / wake_on_event and ended its turn) is re-invoked on
+        its own session with a wake message so it continues where it left off. Returns the count."""
+        resumed = 0
+        for wake in self.wakes.due():
+            try:
+                await self._resume_wake(wake)
+                resumed += 1
+            except Exception:
+                pass
+            finally:
+                self.wakes.mark_fired(wake.id)
+        return resumed
+
+    def mark_running(self, session_id: str) -> None:
+        self._running_sessions.add(session_id)
+
+    def mark_idle(self, session_id: str) -> None:
+        self._running_sessions.discard(session_id)
+
+    def is_running(self, session_id: str) -> bool:
+        return session_id in self._running_sessions
+
+    async def _resume_wake(self, wake) -> None:
+        message = self._wake_message(wake)
+        # Busy (mid tool-loop): steer the wake into the live turn at its next loop step — don't
+        # start a colliding run. Idle: run a fresh background turn (results persist; if the
+        # session is Unattended, any approvals route to the Inbox).
+        if self.is_running(wake.session_id):
+            engine = self._engines.get(wake.session_id)
+            if engine is not None:
+                engine.queue_steering(message)
+            return
+        engine = self.get_engine(wake.session_id)
+        if engine is None:
+            return
+        self.mark_running(wake.session_id)
+        try:
+            async for _event in engine.run(message):
+                pass
+            self.save(wake.session_id, engine)
+        finally:
+            self.mark_idle(wake.session_id)
+
+    @staticmethod
+    def _wake_message(wake) -> str:
+        note = f" (note: {wake.note})" if getattr(wake, "note", "") else ""
+        if wake.kind == "completion":
+            return (
+                f"⏰ Wake — the job `{wake.job_id}` you were waiting on has completed{note}. "
+                "Continue where you left off."
+            )
+        if wake.kind == "event":
+            return (
+                f"⏰ Wake — the event `{wake.event_key}` you were waiting on has fired{note}. "
+                "Continue where you left off."
+            )
+        return f"⏰ Wake — the timer you set has fired{note}. Continue where you left off."
 
     async def _run_scheduled_task(self, task, trigger: str) -> TaskRun:
         run = TaskRun(
