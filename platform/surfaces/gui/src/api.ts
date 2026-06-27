@@ -390,6 +390,113 @@ export async function setSurfaces(
   return res.json();
 }
 
+// -- Personas -----------------------------------------------------------------
+export interface Persona {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  needs_workspace: boolean;
+  builtin: boolean;
+  family: string;
+  tools: string[];
+  enabled: boolean;
+  surfaced: boolean;
+  default: boolean;
+}
+
+export interface PersonaConsent {
+  id: string;
+  name: string;
+  description: string;
+  tools: string[];
+  risk: string[];
+  connectors: boolean;
+  mcp: string[];
+  messaging: boolean;
+  recommended_mode: string;
+  recommended_models: string[];
+  source: string | null;
+  builtin: boolean;
+}
+
+export async function getPersonas(): Promise<Persona[]> {
+  const res = await fetch(`${httpBase()}/v1/personas`);
+  return (await res.json()).personas;
+}
+
+export async function updatePersona(
+  id: string,
+  body: { enabled?: boolean; surfaced?: boolean; default?: boolean },
+): Promise<{ ok: boolean; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export async function installPersona(
+  body: { dir?: string; git_url?: string },
+): Promise<{ ok: boolean; consent?: PersonaConsent[]; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/install`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+// -- Inbox + Unattended -------------------------------------------------------
+export interface InboxItem {
+  id: string;
+  session_id: string;
+  kind: "approval" | "question" | "notification";
+  title: string;
+  body: string;
+  state: "pending" | "resolved";
+  resolution: string | null;
+  inbox: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export async function getInbox(sessionId?: string, state?: string): Promise<InboxItem[]> {
+  const q = new URLSearchParams();
+  if (sessionId) q.set("session_id", sessionId);
+  if (state) q.set("state", state);
+  const res = await fetch(`${httpBase()}/v1/inbox?${q.toString()}`);
+  return (await res.json()).items;
+}
+
+export async function resolveInboxItem(
+  id: string,
+  resolution: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/inbox/${encodeURIComponent(id)}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resolution }),
+  });
+  return res.json();
+}
+
+export async function setUnattended(
+  sessionId: string,
+  unattended: boolean,
+): Promise<{ ok: boolean; unattended: boolean }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/unattended`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unattended }),
+    },
+  );
+  return res.json();
+}
+
 export async function getSettings(): Promise<ModelSettings> {
   const res = await fetch(`${httpBase()}/v1/settings`);
   return res.json();

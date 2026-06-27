@@ -33,8 +33,9 @@ import {
 import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
 import { useThemePref } from "../theme";
 import { ModelChecklist } from "./ModelChecklist";
+import { PersonasTab } from "./PersonasTab";
 
-type Tab = "settings" | "models" | "superagent" | "mcps" | "skills";
+type Tab = "settings" | "models" | "personas" | "superagent" | "mcps" | "skills";
 
 const EXAMPLE = `{
   "filesystem": {
@@ -48,6 +49,7 @@ const EXAMPLE = `{
 const TABS: { key: Tab; label: string; disabled?: boolean }[] = [
   { key: "settings", label: "Settings" },
   { key: "models", label: "Configure Models" },
+  { key: "personas", label: "Personas" },
   { key: "mcps", label: "MCPs" },
   { key: "skills", label: "Skills" },
   { key: "superagent", label: "Super-agent", disabled: true },
@@ -90,6 +92,8 @@ export function ManageModal({
             <SettingsTab />
           ) : tab === "models" ? (
             <ModelsTab />
+          ) : tab === "personas" ? (
+            <PersonasTab />
           ) : tab === "superagent" ? (
             <SuperagentTab />
           ) : tab === "mcps" ? (

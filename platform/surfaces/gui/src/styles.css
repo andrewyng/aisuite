@@ -1255,3 +1255,35 @@ button.btn.ghost:hover { color: var(--ink); }
 .tmpl-form-actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
 
 .tmpl-empty { margin-top: 18px; }
+
+/* Personas tab (Manage modal) */
+.persona-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.persona-row-main { flex: 1; min-width: 0; }
+.persona-row-name { font-weight: 600; }
+.persona-row-tag { font-size: 12px; }
+.persona-row-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.persona-install {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.persona-install input { flex: 1; }
+.consent-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--panel);
+}
