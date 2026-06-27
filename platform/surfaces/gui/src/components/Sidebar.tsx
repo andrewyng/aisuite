@@ -23,6 +23,29 @@ const surfaceFromPersona = (p: Persona) => ({
   cls: `ico-${p.icon || "cowork"}`,
 });
 
+// Attention = Inbox items awaiting a session (an amber count that bubbles session → persona →
+// footer Inbox — all views of the one Inbox queue, never a second list).
+function AttnBadge({ n }: { n: number }) {
+  if (!n) return null;
+  return (
+    <span className="attn-badge" title={`${n} awaiting your attention`}>
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
+
+// Liveness = working (in-flight turn) / sleeping (a self-wake is pending). A count-less dot that
+// never bubbles — it says "this is alive", not "this needs you".
+function LiveDot({ state }: { state?: "working" | "sleeping" | "idle" }) {
+  if (state !== "working" && state !== "sleeping") return null;
+  return (
+    <span
+      className={"live-dot live-" + state}
+      title={state === "working" ? "Working now" : "Sleeping (will wake itself)"}
+    />
+  );
+}
+
 interface Props {
   agent: string;
   workspace: string;
@@ -84,6 +107,23 @@ export function Sidebar(props: Props) {
     return { icon: (p && ICON_FOR[p.icon]) || "diamond", cls: `ico-${p?.icon || "cowork"}` } as const;
   };
 
+  // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
+  // amber count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
+  const attnByPersona = new Map<string, number>();
+  const liveByPersona = new Map<string, "working" | "sleeping">();
+  let totalAttention = 0;
+  for (const s of props.sessions) {
+    if (s.session_id.startsWith("__") || s.archived) continue;
+    const a = s.attention || 0;
+    if (a > 0) {
+      attnByPersona.set(s.agent, (attnByPersona.get(s.agent) || 0) + a);
+      totalAttention += a;
+    }
+    if (s.liveness === "working") liveByPersona.set(s.agent, "working");
+    else if (s.liveness === "sleeping" && liveByPersona.get(s.agent) !== "working")
+      liveByPersona.set(s.agent, "sleeping");
+  }
+
   // Body data is keyed to the BROWSED persona (only one body renders at a time).
   const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
   const mine = all.filter((s) => !s.archived);
@@ -135,6 +175,10 @@ export function Sidebar(props: Props) {
             <span className="session-title">
               {s.pinned && <Icon name="pin" size={11} className="session-pin" />}
               {title}
+            </span>
+            <span className="session-meta">
+              <LiveDot state={s.liveness} />
+              <AttnBadge n={s.attention || 0} />
             </span>
             <span className="session-actions" onClick={(e) => e.stopPropagation()}>
               <button
@@ -226,38 +270,6 @@ export function Sidebar(props: Props) {
           <div className="surf-action" onClick={() => props.onNewSession(browseKey)}>
             <Icon name="plus" size={16} className="ico" /> New {browseKey === "chat" ? "chat" : "session"}
           </div>
-          {searchOpen ? (
-            <div className="surf-search">
-              <Icon name="search" size={15} className="ico" />
-              <input
-                className="surf-search-input"
-                placeholder="Search conversations"
-                value={query}
-                autoFocus
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setSearchOpen(false);
-                    setQuery("");
-                  }
-                }}
-              />
-              <button
-                className="surf-search-x"
-                title="Close search"
-                onClick={() => {
-                  setSearchOpen(false);
-                  setQuery("");
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ) : (
-            <div className="surf-action" onClick={() => setSearchOpen(true)}>
-              <Icon name="search" size={16} className="ico" /> Search
-            </div>
-          )}
         </div>
 
         {workspaceSurface ? (
@@ -333,6 +345,38 @@ export function Sidebar(props: Props) {
 
       {/* Shared zone: capabilities common to ALL coworkers, above the persona accordions. */}
       <div className="shared-nav">
+        {searchOpen ? (
+          <div className="surf-search">
+            <Icon name="search" size={15} className="ico" />
+            <input
+              className="surf-search-input"
+              placeholder="Search conversations"
+              value={query}
+              autoFocus
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchOpen(false);
+                  setQuery("");
+                }
+              }}
+            />
+            <button
+              className="surf-search-x"
+              title="Close search"
+              onClick={() => {
+                setSearchOpen(false);
+                setQuery("");
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ) : (
+          <div className="shared-link" onClick={() => setSearchOpen(true)}>
+            <Icon name="search" size={16} className="ico" /> Search
+          </div>
+        )}
         <div
           className={"shared-link" + (props.integrationsActive ? " active" : "")}
           onClick={props.onOpenIntegrations}
@@ -392,6 +436,8 @@ export function Sidebar(props: Props) {
                   <Icon name={s.icon} size={13} />
                 </span>
                 <span className="surf-label">{s.label}</span>
+                <LiveDot state={liveByPersona.get(s.key)} />
+                <AttnBadge n={attnByPersona.get(s.key) || 0} />
                 <Icon name={expanded ? "chevronDown" : "chevronRight"} size={16} className="surf-chev" />
               </div>
               {expanded && surfaceBody()}
@@ -406,6 +452,7 @@ export function Sidebar(props: Props) {
           onClick={props.onOpenInbox}
         >
           <Icon name="chat" size={15} className="ico" /> Inbox
+          <AttnBadge n={totalAttention} />
         </div>
         <div
           className={"manage-link" + (props.auditActive ? " active" : "")}

@@ -8,15 +8,21 @@ import {
   getSessions,
   getSettings,
   getSuperagent,
+  getPersonas,
+  getInbox,
+  resolveInboxItem,
   deleteSession,
   renameSession,
   runAutomation,
   setSessionFlags,
   Session,
+  type InboxItem,
+  type Persona,
   type RecentWorkspace,
   type SurfaceVisibility,
 } from "./api";
 import type { ApprovalDecision, Attachment, Item, SessionInfo, TodoItem, WsEvent } from "./types";
+import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, startWindowDrag } from "./tauri";
 import { Icon } from "./components/Icon";
 import { Sidebar } from "./components/Sidebar";
@@ -68,11 +74,10 @@ function normalizeTodos(raw: unknown): TodoItem[] {
   });
 }
 
-// Has a workspace (project-grouped, shows a working-area chip): Code + Cowork.
-const needsWorkspace = (a: string) => a === "code" || a === "cowork";
-// MUST pick a folder before starting: Code only. Cowork starts orphan — the server
-// auto-provisions a per-conversation scratch directory and reports it in the `ready` event.
-const gatesWorkspace = (a: string) => a === "code";
+// Fallbacks used only before the persona list loads (the in-component, family-aware
+// needsWorkspace/gatesWorkspace consult the real persona once available).
+const needsWorkspaceFallback = (a: string) => a === "code" || a === "cowork";
+const gatesWorkspaceFallback = (a: string) => a === "code";
 const LAST_SESSION_KEY = "coworker:last-session-by-agent:v1";
 
 type LastSession = { sessionId: string; workspace: string; updatedAt: number };
@@ -162,6 +167,32 @@ export function App() {
   const [renameDraft, setRenameDraft] = useState("");
   // A pending composer prefill (text + attachments) pushed from the session start panel.
   const [composerPrefill, setComposerPrefill] = useState<{ text: string; attachments?: Attachment[]; nonce: number }>();
+
+  // Persona metadata drives workspace behavior by FAMILY, not by hardcoded id (so a DevOps/SecOps
+  // code-family persona gates a folder like Code, and a knowledge persona starts orphan like Cowork).
+  const [personas, setPersonas] = useState<Persona[] | null>(null);
+  useEffect(() => {
+    getPersonas().then(setPersonas).catch(() => {});
+  }, []);
+  const personaOf = (a: string) => personas?.find((p) => p.id === a);
+
+  // Pending Inbox items for the ACTIVE session — surfaced inline above the composer so an
+  // unattended session's blocking question/approval can be answered in context (resolving the
+  // same item the Inbox shows; first responder wins).
+  const [sessionInbox, setSessionInbox] = useState<InboxItem[]>([]);
+  const resolveSessionInbox = async (id: string, resolution: string) => {
+    await resolveInboxItem(id, resolution);
+    getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
+    refreshSessions(); // attention badge should drop right away
+  };
+  // Shows a working-area chip / project grouping. Persona's needs_workspace; fallback before load.
+  const needsWorkspace = (a: string) => personaOf(a)?.needs_workspace ?? needsWorkspaceFallback(a);
+  // MUST pick a folder before starting (git-bound code family). Knowledge starts orphan — the
+  // server auto-provisions a per-conversation scratch dir and reports it in the `ready` event.
+  const gatesWorkspace = (a: string) => {
+    const p = personaOf(a);
+    return p ? p.family === "code" : gatesWorkspaceFallback(a);
+  };
 
   // The desktop tray's "Settings" item dispatches this on the window.
   useEffect(() => {
@@ -466,6 +497,17 @@ export function App() {
     getArtifacts(sessionId).then((a) => setArtifactCount(a.length)).catch(() => {});
   }, [agent, surface, sessionId, browserRefreshKey]);
 
+  // Keep the active session's pending Inbox items fresh (answer-in-context card). Loads on session
+  // change + after each turn, plus a slow poll so an unattended agent's new question surfaces.
+  useEffect(() => {
+    if (surface !== "session") return;
+    const load = () =>
+      getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [surface, sessionId, browserRefreshKey]);
+
   const send = (text: string, attachments?: Attachment[]) => {
     setItems((p) => [...p, { kind: "user", text, attachments }]);
     sessionRef.current?.userMessage(text, attachments);
@@ -513,6 +555,11 @@ export function App() {
     // server provisions a NEW scratch dir for the new session id. Code keeps its repo.
     if (!gatesWorkspace(target)) setWorkspace(null);
     setSessionId(newId());
+  };
+  // Inbox → session: resolve the item's session to its workspace/agent and open it.
+  const openSessionFromInbox = (sid: string) => {
+    const s = sessions.find((x) => x.session_id === sid);
+    if (s) selectSession(sid, s.workspace, s.agent);
   };
   const selectSession = async (id: string, ws: string, ag: string) => {
     setSurface("session"); // selecting a conversation always returns to the conversation view
@@ -731,7 +778,7 @@ export function App() {
       ) : surface === "audit" ? (
         <AuditView />
       ) : surface === "inbox" ? (
-        <InboxView />
+        <InboxView sessions={sessions} onOpenSession={openSessionFromInbox} />
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
@@ -907,6 +954,9 @@ export function App() {
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
                 ) : pendingApproval?.kind === "approval" ? (
                   <ApprovalCard item={pendingApproval} onApprove={approve} compact />
+                ) : sessionInbox[0] ? (
+                  // Unattended session blocked on an Inbox item — answer it in context.
+                  <InboxItemCard item={sessionInbox[0]} onResolve={resolveSessionInbox} compact />
                 ) : undefined
               }
             />

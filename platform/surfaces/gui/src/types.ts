@@ -39,6 +39,10 @@ export interface SessionInfo {
   messages: number;
   pinned?: boolean;
   archived?: boolean;
+  // Inbox items awaiting this session (the amber attention count that bubbles up the sidebar).
+  attention?: number;
+  // working = in-flight turn; sleeping = a self-wake is pending; idle = neither. A count-less dot.
+  liveness?: "working" | "sleeping" | "idle";
 }
 
 // Attachments (images, text files) sent with a user message.

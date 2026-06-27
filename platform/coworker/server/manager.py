@@ -1676,12 +1676,24 @@ class SessionManager:
                 "messages": r.message_count,
                 "pinned": r.pinned,
                 "archived": r.archived,
+                # Attention = Inbox items awaiting this session (the amber count that bubbles
+                # session → persona → footer Inbox). Liveness = working (in-flight turn) /
+                # sleeping (a self-wake is pending) / idle — a count-less dot that never bubbles.
+                "attention": len(self.inbox.pending(session_id=r.session_id)),
+                "liveness": self._session_liveness(r.session_id),
             }
             for r in self.session_store.list(workspace=ws)
             if not r.session_id.startswith(
                 "__"
             )  # hide superagent/task-run internal threads
         ]
+
+    def _session_liveness(self, session_id: str) -> str:
+        if self.is_running(session_id):
+            return "working"
+        if self.wakes.pending(session_id):
+            return "sleeping"
+        return "idle"
 
     def list_agents(self) -> list[dict[str, Any]]:
         return _list_agents()

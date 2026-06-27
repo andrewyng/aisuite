@@ -201,6 +201,22 @@ body {
 .session-actions button:hover { background: var(--panel); color: var(--ink); }
 .session-actions button.pinned { color: var(--accent); }
 
+/* -- Attention (amber count) + liveness (count-less dot) indicators -------- */
+/* Per-session badges sit at the right edge; the hover actions replace them. */
+.session-meta { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.session:hover .session-meta, .session.active .session-meta { display: none; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+.live-working { background: #16a34a; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18); animation: live-pulse 1.6s ease-in-out infinite; }
+.live-sleeping { background: var(--faint); }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* Amber, count-bearing: this many Inbox items await you. Bubbles session → persona → footer. */
+.attn-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #d97706; color: #fff; font-size: 11px; font-weight: 700;
+  line-height: 18px; text-align: center; flex: none; box-sizing: border-box;
+}
+.manage-link .attn-badge { margin-left: auto; }
+
 /* -- Pinned band (cross-persona, manual pins) ------------------------------ */
 .pinned-band { display: flex; flex-direction: column; gap: 1px; padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .pinned-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); padding: 2px 8px 4px; }
@@ -1336,6 +1352,24 @@ button.btn.ghost:hover { color: var(--ink); }
   margin-top: 8px;
 }
 .inbox-item-actions input { flex: 1; }
+/* Compact variant: rendered inline above the composer (answer-in-context), no outer card chrome. */
+.inbox-item.compact { border: 0; padding: 0; margin: 0; background: transparent; }
+/* "Go to session" chip: persona icon + session title, links back for context. */
+.inbox-session-chip {
+  display: inline-flex; align-items: center; gap: 7px; margin: 8px 0 2px;
+  max-width: 100%; padding: 4px 8px 4px 5px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--paper); color: var(--muted);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.inbox-session-chip:hover:not(:disabled) { color: var(--ink); border-color: var(--line-strong); }
+.inbox-session-chip:disabled { cursor: default; opacity: 0.6; }
+.inbox-chip-ico { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: #fff; flex: none; }
+.inbox-chip-ico.ico-cowork { background: #16a34a; }
+.inbox-chip-ico.ico-chat { background: var(--accent); }
+.inbox-chip-ico.ico-code { background: #7c3aed; }
+.inbox-chip-ico.ico-ops { background: #ea580c; }
+.inbox-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-chip-go { flex: none; color: var(--faint); }
 
 /* Unattended toggle (composer head) */
 .wschip.unattended-on {
