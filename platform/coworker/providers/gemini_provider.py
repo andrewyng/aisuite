@@ -24,6 +24,7 @@ from .base import (
     ProviderClient,
     StreamChunk,
     ToolCall,
+    normalize_thought_signature,
 )
 from .capabilities import capabilities_for
 
@@ -141,6 +142,29 @@ def _result_payload(content: Any) -> dict[str, Any]:
         return {"result": str(content or "")}
 
 
+def _signature_from_stored_call(call: dict[str, Any]) -> Optional[str]:
+    """The thought signature stashed on a stored OpenAI-shaped tool call, if any. We persist it
+    as `extra_content.google.thought_signature` (Google's OpenAI-compat convention)."""
+    extra = call.get("extra_content")
+    if not isinstance(extra, dict):
+        return None
+    google = extra.get("google")
+    if not isinstance(google, dict):
+        return None
+    return normalize_thought_signature(google.get("thought_signature"))
+
+
+def _function_call_part(
+    name: str, args: dict[str, Any], signature: Optional[str] = None
+) -> dict[str, Any]:
+    """A Gemini `function_call` part. The thought signature rides as a sibling of `function_call`
+    (a part-level field), never nested inside it — Gemini validates it there."""
+    part: dict[str, Any] = {"function_call": {"name": name, "args": args}}
+    if signature:
+        part["thought_signature"] = signature
+    return part
+
+
 def convert_messages(
     messages: list[dict[str, Any]],
 ) -> tuple[Optional[str], list[dict[str, Any]]]:
@@ -187,12 +211,11 @@ def convert_messages(
                 name = function.get("name") or ""
                 call_names[call.get("id") or ""] = name
                 parts.append(
-                    {
-                        "function_call": {
-                            "name": name,
-                            "args": _parse_args(function.get("arguments")),
-                        }
-                    }
+                    _function_call_part(
+                        name,
+                        _parse_args(function.get("arguments")),
+                        _signature_from_stored_call(call),
+                    )
                 )
             if parts:
                 converted.append({"role": "model", "parts": parts})
@@ -262,18 +285,33 @@ def convert_tools(tools: Optional[list[dict[str, Any]]]) -> list[dict[str, Any]]
     return [{"function_declarations": declarations}] if declarations else []
 
 
-def _parse_candidate(response: Any) -> tuple[list[str], list[ToolCall], Optional[str]]:
-    """Pull text parts, function calls (with synthesized ids), and the finish reason out of a
-    GenerateContentResponse (or one streamed chunk of it)."""
-    texts: list[str] = []
-    calls: list[ToolCall] = []
-    finish = None
+def _candidate_parts(response: Any) -> list[Any]:
+    """The content parts of the first candidate (empty when the response has none)."""
     candidates = getattr(response, "candidates", None) or []
     if not candidates:
-        return texts, calls, finish
-    candidate = candidates[0]
-    content = getattr(candidate, "content", None)
-    for part in getattr(content, "parts", None) or []:
+        return []
+    content = getattr(candidates[0], "content", None)
+    return list(getattr(content, "parts", None) or [])
+
+
+def _candidate_finish(response: Any) -> Optional[str]:
+    """The first candidate's finish reason as a plain string (the SDK uses a .name enum)."""
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return None
+    raw_finish = getattr(candidates[0], "finish_reason", None)
+    if raw_finish is None:
+        return None
+    return getattr(raw_finish, "name", None) or str(raw_finish)
+
+
+def _parse_parts(parts: list[Any]) -> tuple[list[str], list[ToolCall]]:
+    """Split a list of content parts into text and function calls. The thought signature is a
+    part-level field, so it is read off the same part as the function call (synthesized ids are
+    assigned by the caller, which has the running count)."""
+    texts: list[str] = []
+    calls: list[ToolCall] = []
+    for part in parts or []:
         text = getattr(part, "text", None)
         if text:
             texts.append(text)
@@ -281,15 +319,22 @@ def _parse_candidate(response: Any) -> tuple[list[str], list[ToolCall], Optional
         if function_call is not None:
             calls.append(
                 ToolCall(
-                    id="",  # synthesized by the caller (needs the running count)
+                    id="",
                     name=getattr(function_call, "name", "") or "",
                     arguments=dict(getattr(function_call, "args", None) or {}),
+                    thought_signature=normalize_thought_signature(
+                        getattr(part, "thought_signature", None)
+                    ),
                 )
             )
-    raw_finish = getattr(candidate, "finish_reason", None)
-    if raw_finish is not None:
-        finish = getattr(raw_finish, "name", None) or str(raw_finish)
-    return texts, calls, finish
+    return texts, calls
+
+
+def _parse_candidate(response: Any) -> tuple[list[str], list[ToolCall], Optional[str]]:
+    """Pull text parts, function calls (with synthesized ids), and the finish reason out of a
+    GenerateContentResponse (or one streamed chunk of it)."""
+    texts, calls = _parse_parts(_candidate_parts(response))
+    return texts, calls, _candidate_finish(response)
 
 
 def _map_finish(finish: Optional[str], has_calls: bool) -> Optional[str]:
@@ -370,7 +415,12 @@ class GeminiProvider(ProviderClient):
         response = self._ensure_client().models.generate_content(**kwargs)
         texts, calls, finish = _parse_candidate(response)
         tool_calls = [
-            ToolCall(id=f"call_{i}", name=c.name, arguments=c.arguments)
+            ToolCall(
+                id=f"call_{i}",
+                name=c.name,
+                arguments=c.arguments,
+                thought_signature=c.thought_signature,
+            )
             for i, c in enumerate(calls)
         ]
         return AssistantTurn(
@@ -397,22 +447,32 @@ class GeminiProvider(ProviderClient):
         client = self._ensure_client()
 
         text_parts: list[str] = []
-        calls: list[ToolCall] = []
+        raw_parts: list[Any] = []
         finish = None
 
-        # Unlike Anthropic, function_call parts arrive whole (args are a complete dict per
-        # part), so there is no JSON accumulation — just collect parts across chunks.
+        # Function_call parts arrive whole (args are a complete dict per part), but the thought
+        # signature can land on a different chunk than the call itself. So accumulate the raw
+        # parts across all chunks and parse the function calls once at the end — that keeps each
+        # signature attached to its part instead of being lost mid-stream.
         for chunk in client.models.generate_content_stream(**kwargs):
-            texts, chunk_calls, chunk_finish = _parse_candidate(chunk)
-            for text in texts:
+            chunk_parts = _candidate_parts(chunk)
+            chunk_texts, _ = _parse_parts(chunk_parts)
+            for text in chunk_texts:
                 text_parts.append(text)
                 yield StreamChunk(text_delta=text)
-            calls.extend(chunk_calls)
+            raw_parts.extend(chunk_parts)
+            chunk_finish = _candidate_finish(chunk)
             if chunk_finish:
                 finish = chunk_finish
 
+        _, calls = _parse_parts(raw_parts)
         tool_calls = [
-            ToolCall(id=f"call_{i}", name=c.name, arguments=c.arguments)
+            ToolCall(
+                id=f"call_{i}",
+                name=c.name,
+                arguments=c.arguments,
+                thought_signature=c.thought_signature,
+            )
             for i, c in enumerate(calls)
         ]
         yield StreamChunk(

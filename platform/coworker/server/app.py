@@ -8,7 +8,6 @@ proxy so any OpenAI-format client can use the runtime as a backend.
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,7 +17,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..attachments import build_user_content
-from ..engine import ApprovalOutcome
+from ..engine import ApprovalOutcome, _tool_call_message_entry
 from ..permissions import Mode
 from ..providers import AssistantTurn
 from .manager import SessionManager
@@ -546,14 +545,7 @@ def create_app(manager: SessionManager) -> FastAPI:
 def _openai_response(model: str, turn: AssistantTurn) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": turn.text or ""}
     if turn.tool_calls:
-        message["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-            }
-            for tc in turn.tool_calls
-        ]
+        message["tool_calls"] = [_tool_call_message_entry(tc) for tc in turn.tool_calls]
     return {
         "id": "chatcmpl-" + uuid.uuid4().hex[:12],
         "object": "chat.completion",

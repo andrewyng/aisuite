@@ -115,14 +115,16 @@ def test_files_toolkit_applies_unified_diff_to_existing_file(tmp_path):
         fn.__name__: fn for fn in ai.toolkits.files(root=tmp_path, allow_write=True)
     }
 
-    result = tools["apply_unified_diff"]("""--- a/sample.txt
+    result = tools["apply_unified_diff"](
+        """--- a/sample.txt
 +++ b/sample.txt
 @@ -1,3 +1,3 @@
  one
 -two
 +TWO
  three
-""")
+"""
+    )
 
     assert result == {
         "changed_files": ["sample.txt"],
@@ -142,7 +144,8 @@ def test_files_toolkit_applies_unified_diff_add_and_delete(tmp_path):
         fn.__name__: fn for fn in ai.toolkits.files(root=tmp_path, allow_write=True)
     }
 
-    result = tools["apply_unified_diff"]("""--- /dev/null
+    result = tools["apply_unified_diff"](
+        """--- /dev/null
 +++ b/new.txt
 @@ -0,0 +1,2 @@
 +hello
@@ -152,7 +155,8 @@ def test_files_toolkit_applies_unified_diff_add_and_delete(tmp_path):
 @@ -1,2 +0,0 @@
 -bye
 -now
-""")
+"""
+    )
 
     assert result == {
         "changed_files": ["new.txt"],
@@ -171,7 +175,8 @@ def test_files_toolkit_applies_codex_patch_to_existing_file(tmp_path):
         fn.__name__: fn for fn in ai.toolkits.files(root=tmp_path, allow_write=True)
     }
 
-    result = tools["apply_patch"]("""*** Begin Patch
+    result = tools["apply_patch"](
+        """*** Begin Patch
 *** Update File: sample.txt
 @@
  one
@@ -179,7 +184,8 @@ def test_files_toolkit_applies_codex_patch_to_existing_file(tmp_path):
 +TWO
  three
 *** End Patch
-""")
+"""
+    )
 
     assert result == {
         "changed_files": ["sample.txt"],
@@ -200,7 +206,8 @@ def test_files_toolkit_applies_codex_patch_add_delete_and_move(tmp_path):
         fn.__name__: fn for fn in ai.toolkits.files(root=tmp_path, allow_write=True)
     }
 
-    result = tools["apply_patch"]("""*** Begin Patch
+    result = tools["apply_patch"](
+        """*** Begin Patch
 *** Add File: new.txt
 +hello
 +world
@@ -212,7 +219,8 @@ def test_files_toolkit_applies_codex_patch_add_delete_and_move(tmp_path):
 +new
  name
 *** End Patch
-""")
+"""
+    )
 
     assert result == {
         "changed_files": ["new.txt", "renamed.txt"],
@@ -233,7 +241,8 @@ def test_files_toolkit_applies_codex_patch_multiple_hunks_and_insertions(tmp_pat
         fn.__name__: fn for fn in ai.toolkits.files(root=tmp_path, allow_write=True)
     }
 
-    result = tools["apply_patch"]("""*** Begin Patch
+    result = tools["apply_patch"](
+        """*** Begin Patch
 *** Update File: sample.txt
 @@
 -one
@@ -244,7 +253,8 @@ def test_files_toolkit_applies_codex_patch_multiple_hunks_and_insertions(tmp_pat
 +inserted
  four
 *** End Patch
-""")
+"""
+    )
 
     assert result == {
         "changed_files": ["sample.txt"],
@@ -265,21 +275,25 @@ def test_files_toolkit_rejects_bad_or_escaping_codex_patch(tmp_path):
     }
 
     with pytest.raises(ValueError, match="context does not match"):
-        tools["apply_patch"]("""*** Begin Patch
+        tools["apply_patch"](
+            """*** Begin Patch
 *** Update File: sample.txt
 @@
  wrong
 -two
 +TWO
 *** End Patch
-""")
+"""
+        )
 
     with pytest.raises(PermissionError):
-        tools["apply_patch"]("""*** Begin Patch
+        tools["apply_patch"](
+            """*** Begin Patch
 *** Add File: ../outside.txt
 +outside
 *** End Patch
-""")
+"""
+        )
 
 
 def test_files_toolkit_rejects_ambiguous_or_contextless_codex_patch(tmp_path):
@@ -289,21 +303,25 @@ def test_files_toolkit_rejects_ambiguous_or_contextless_codex_patch(tmp_path):
     }
 
     with pytest.raises(ValueError, match="ambiguous"):
-        tools["apply_patch"]("""*** Begin Patch
+        tools["apply_patch"](
+            """*** Begin Patch
 *** Update File: sample.txt
 @@
 -target
 +TARGET
 *** End Patch
-""")
+"""
+        )
 
     with pytest.raises(ValueError, match="context or removal"):
-        tools["apply_patch"]("""*** Begin Patch
+        tools["apply_patch"](
+            """*** Begin Patch
 *** Update File: sample.txt
 @@
 +inserted
 *** End Patch
-""")
+"""
+        )
 
 
 def test_files_toolkit_rejects_codex_patch_move_over_existing_file(tmp_path):
@@ -314,14 +332,16 @@ def test_files_toolkit_rejects_codex_patch_move_over_existing_file(tmp_path):
     }
 
     with pytest.raises(FileExistsError):
-        tools["apply_patch"]("""*** Begin Patch
+        tools["apply_patch"](
+            """*** Begin Patch
 *** Update File: old.txt
 *** Move to: existing.txt
 @@
 -old
 +new
 *** End Patch
-""")
+"""
+        )
     assert (tmp_path / "existing.txt").read_text(encoding="utf-8") == "existing\n"
     assert (tmp_path / "old.txt").read_text(encoding="utf-8") == "old\n"
 
@@ -333,20 +353,24 @@ def test_files_toolkit_rejects_bad_or_escaping_unified_diff(tmp_path):
     }
 
     with pytest.raises(ValueError, match="context does not match"):
-        tools["apply_unified_diff"]("""--- a/sample.txt
+        tools["apply_unified_diff"](
+            """--- a/sample.txt
 +++ b/sample.txt
 @@ -1,2 +1,2 @@
  wrong
 -two
 +TWO
-""")
+"""
+        )
 
     with pytest.raises(PermissionError):
-        tools["apply_unified_diff"]("""--- a/../outside.txt
+        tools["apply_unified_diff"](
+            """--- a/../outside.txt
 +++ b/../outside.txt
 @@ -0,0 +1,1 @@
 +outside
-""")
+"""
+        )
 
 
 def test_files_toolkit_replaces_exact_text(tmp_path):

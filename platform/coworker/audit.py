@@ -29,7 +29,8 @@ class AuditStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("""
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -46,7 +47,8 @@ class AuditStore:
                 reason TEXT,
                 resource TEXT
             )
-            """)
+            """
+        )
         self._conn.commit()
 
     def append(self, event: dict[str, Any]) -> None:

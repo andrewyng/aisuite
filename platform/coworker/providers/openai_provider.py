@@ -37,6 +37,34 @@ def resolve_api_key(secrets: Any = None) -> Optional[str]:
     return None
 
 
+def _strip_provider_extras(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop `extra_content` (Gemini thought signatures) from tool calls before sending to the
+    OpenAI API. A session run on Gemini then switched to OpenAI carries that metadata in its
+    history; the OpenAI SDK rejects unknown fields. Copies lazily — only messages that actually
+    carry the field are rewritten, so the engine's shared history is never mutated."""
+    cleaned: list[dict[str, Any]] = []
+    for message in messages:
+        tool_calls = message.get("tool_calls")
+        if not tool_calls or not any(
+            isinstance(tc, dict) and "extra_content" in tc for tc in tool_calls
+        ):
+            cleaned.append(message)
+            continue
+        new_message = dict(message)
+        new_message["tool_calls"] = [
+            (
+                {k: v for k, v in tc.items() if k != "extra_content"}
+                if isinstance(tc, dict)
+                else tc
+            )
+            for tc in tool_calls
+        ]
+        cleaned.append(new_message)
+    return cleaned
+
+
 class OpenAIProvider(ProviderClient):
     def __init__(
         self,
@@ -87,7 +115,11 @@ class OpenAIProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ) -> AssistantTurn:
-        kwargs: dict[str, Any] = {"model": model, "messages": messages, **settings}
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": _strip_provider_extras(messages),
+            **settings,
+        }
         if tools:
             kwargs["tools"] = tools
 
@@ -117,7 +149,7 @@ class OpenAIProvider(ProviderClient):
     ):
         kwargs: dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": _strip_provider_extras(messages),
             "stream": True,
             **settings,
         }

@@ -21,6 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
+from .providers.base import normalize_thought_signature
 from .tools import ToolRegistry
 
 
@@ -533,17 +534,25 @@ class TurnEngine:
         return out
 
 
+def _tool_call_message_entry(tc: ToolCall) -> dict[str, Any]:
+    """One OpenAI-shaped `tool_calls` entry. A Gemini thought signature (when present) rides as
+    `extra_content.google.thought_signature` so it survives the round-trip and can be replayed
+    on the next request — Gemini 3.x rejects multi-step tool turns without it."""
+    entry: dict[str, Any] = {
+        "id": tc.id,
+        "type": "function",
+        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+    }
+    signature = normalize_thought_signature(tc.thought_signature)
+    if signature:
+        entry["extra_content"] = {"google": {"thought_signature": signature}}
+    return entry
+
+
 def _assistant_message(turn: AssistantTurn) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": turn.text or ""}
     if turn.tool_calls:
-        message["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-            }
-            for tc in turn.tool_calls
-        ]
+        message["tool_calls"] = [_tool_call_message_entry(tc) for tc in turn.tool_calls]
     return message
 
 

@@ -7,9 +7,28 @@ slots in later (P12) without touching the engine, since aisuite is OpenAI-API-sh
 
 from __future__ import annotations
 
+import base64
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+
+def normalize_thought_signature(value: Any) -> Optional[str]:
+    """Gemini's SDK may return `thought_signature` as opaque bytes. Conversation history is
+    JSON-serialized, and the REST API expects a string — normalize at capture/persist time.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        try:
+            return raw.decode("utf-8") or None
+        except UnicodeDecodeError:
+            return base64.b64encode(raw).decode("ascii")
+    text = str(value)
+    return text or None
 
 
 @dataclass
@@ -19,6 +38,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    thought_signature: Optional[str] = None
 
 
 @dataclass
