@@ -452,7 +452,7 @@ export async function installPersona(
 export interface InboxItem {
   id: string;
   session_id: string;
-  kind: "approval" | "question" | "notification";
+  kind: "approval" | "question" | "notification" | "directory" | "plan";
   title: string;
   body: string;
   state: "pending" | "resolved";
@@ -460,10 +460,13 @@ export interface InboxItem {
   inbox: string;
   created_at: string;
   resolved_at: string | null;
+  visibility?: "inline" | "inbox";
   // Question metadata (ask_user): quick-reply choices + a free-text escape.
   options?: string[];
   allow_text?: boolean;
   multi?: boolean;
+  // Kind-specific payload (directory: {path, writable}; …).
+  data?: Record<string, any>;
   // Originating-session context (server-joined) so the Inbox is self-contained.
   session_title?: string;
   session_agent?: string | null;

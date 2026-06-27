@@ -20,14 +20,23 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 KIND_APPROVAL = "approval"
 KIND_QUESTION = "question"
 KIND_NOTIFICATION = "notification"
+KIND_DIRECTORY = "directory"  # agent asks to be granted a folder
+KIND_PLAN = "plan"  # agent presents a plan for approval
 
 STATE_PENDING = "pending"
 STATE_RESOLVED = "resolved"
+
+# Where a pending prompt surfaces. INLINE = an attended session answers it in the composer (parked
+# server-side, redelivered on reconnect, never in the cross-session list). INBOX = the user set the
+# session Unattended, so it joins the cross-session Inbox queue. Either way it's the same parked,
+# awaitable, resolve-from-anywhere record — only the visibility differs.
+VIS_INLINE = "inline"
+VIS_INBOX = "inbox"
 
 
 def _now() -> str:
@@ -46,11 +55,14 @@ class InboxItem:
     inbox: str = "default"  # named inbox / delivery binding (Phase 3 routing)
     created_at: str = field(default_factory=_now)
     resolved_at: Optional[str] = None
+    visibility: str = VIS_INBOX  # inline (attended) vs inbox (unattended)
     # Question metadata (ask_user): optional quick-reply choices + a free-text escape, mirroring
     # the structured-but-always-answerable shape of Claude Code's AskUserQuestion.
     options: list[str] = field(default_factory=list)
     allow_text: bool = True  # accept a typed answer even when options exist (the "Other" escape)
     multi: bool = False  # allow choosing more than one option
+    # Kind-specific payload (directory: suggested path/writable; plan: the plan text; …).
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 class InboxStore:
@@ -80,36 +92,40 @@ class InboxStore:
 
     # -- adding -----------------------------------------------------------------
     def add(
-        self, session_id: str, kind: str, title: str, *, body: str = "", inbox: str = "default"
+        self, session_id: str, kind: str, title: str, *, body: str = "", inbox: str = "default",
+        visibility: str = VIS_INBOX, data: Optional[dict[str, Any]] = None,
+        options=None, allow_text: bool = True, multi: bool = False,
     ) -> InboxItem:
         item = InboxItem(
             id=uuid.uuid4().hex, session_id=session_id, kind=kind, title=title,
-            body=body, inbox=inbox,
+            body=body, inbox=inbox, visibility=visibility, data=dict(data or {}),
+            options=list(options or []), allow_text=bool(allow_text), multi=bool(multi),
         )
         with self._lock:
             self._items[item.id] = item
             self._save()
         return item
 
-    def add_approval(self, session_id, title, *, body="", inbox="default") -> InboxItem:
-        return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox)
+    def add_approval(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX) -> InboxItem:
+        return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox, visibility=visibility)
 
     def add_question(
-        self, session_id, title, *, body="", inbox="default",
+        self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX,
         options=None, allow_text=True, multi=False,
     ) -> InboxItem:
-        item = InboxItem(
-            id=uuid.uuid4().hex, session_id=session_id, kind=KIND_QUESTION, title=title,
-            body=body, inbox=inbox, options=list(options or []),
-            allow_text=bool(allow_text), multi=bool(multi),
+        return self.add(
+            session_id, KIND_QUESTION, title, body=body, inbox=inbox, visibility=visibility,
+            options=options, allow_text=allow_text, multi=multi,
         )
-        with self._lock:
-            self._items[item.id] = item
-            self._save()
-        return item
 
-    def add_notification(self, session_id, title, *, body="", inbox="default") -> InboxItem:
-        return self.add(session_id, KIND_NOTIFICATION, title, body=body, inbox=inbox)
+    def add_directory(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None) -> InboxItem:
+        return self.add(session_id, KIND_DIRECTORY, title, body=body, inbox=inbox, visibility=visibility, data=data)
+
+    def add_plan(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None) -> InboxItem:
+        return self.add(session_id, KIND_PLAN, title, body=body, inbox=inbox, visibility=visibility, data=data)
+
+    def add_notification(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX) -> InboxItem:
+        return self.add(session_id, KIND_NOTIFICATION, title, body=body, inbox=inbox, visibility=visibility)
 
     # -- queries ----------------------------------------------------------------
     def get(self, item_id: str) -> Optional[InboxItem]:
@@ -117,7 +133,7 @@ class InboxStore:
 
     def list(
         self, *, session_id: Optional[str] = None, state: Optional[str] = None,
-        inbox: Optional[str] = None,
+        inbox: Optional[str] = None, visibility: Optional[str] = None,
     ) -> list[InboxItem]:
         out = list(self._items.values())
         if session_id is not None:
@@ -126,6 +142,8 @@ class InboxStore:
             out = [i for i in out if i.state == state]
         if inbox is not None:
             out = [i for i in out if i.inbox == inbox]
+        if visibility is not None:
+            out = [i for i in out if i.visibility == visibility]
         return sorted(out, key=lambda i: i.created_at)
 
     def pending(self, session_id: Optional[str] = None) -> list[InboxItem]:

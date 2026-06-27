@@ -10,6 +10,7 @@ import {
   getSuperagent,
   getPersonas,
   getInbox,
+  getUnattended,
   resolveInboxItem,
   deleteSession,
   renameSession,
@@ -180,6 +181,15 @@ export function App() {
   // unattended session's blocking question/approval can be answered in context (resolving the
   // same item the Inbox shows; first responder wins).
   const [sessionInbox, setSessionInbox] = useState<InboxItem[]>([]);
+  // Whether the active session is Unattended — when true, the agent's prompts route to the Inbox,
+  // so we suppress the inline live cards (the Inbox / answer-in-context path shows them instead).
+  // A ref too, because the WS event handler closes over stale state.
+  const [unattended, setUnattendedState] = useState(false);
+  const unattendedRef = useRef(false);
+  const markUnattended = useCallback((on: boolean) => {
+    unattendedRef.current = on;
+    setUnattendedState(on);
+  }, []);
   const resolveSessionInbox = async (id: string, resolution: string) => {
     await resolveInboxItem(id, resolution);
     getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
@@ -414,16 +424,23 @@ export function App() {
           ]);
           break;
         case "permission_required":
+          // Unattended → the backend parked it in the Inbox; don't also surface a live card.
+          if (unattendedRef.current) break;
           setItems((p) => [
             ...p,
             { kind: "approval", name: d.name, args: d.arguments, reason: d.reason, category: d.category },
           ]);
           break;
         case "directory_requested":
+          if (unattendedRef.current) break;
           setItems((p) => [
             ...p,
             { kind: "dirreq", reason: d.reason || "", path: d.path || "", writable: !!d.writable },
           ]);
+          break;
+        case "plan_proposed":
+          if (unattendedRef.current) break;
+          setItems((p) => [...p, { kind: "planreq", plan: d.plan || "" }]);
           break;
         case "question_requested":
           // ask_user in an attended session — answered inline (not routed to the Inbox).
@@ -437,9 +454,6 @@ export function App() {
               multi: !!d.multi,
             },
           ]);
-          break;
-        case "plan_proposed":
-          setItems((p) => [...p, { kind: "planreq", plan: d.plan || "" }]);
           break;
         case "tool_finished":
           setItems((p) => updateLastTool(p, d.name, d.status, d.result_preview || d.reason));
@@ -521,12 +535,14 @@ export function App() {
   // change + after each turn, plus a slow poll so an unattended agent's new question surfaces.
   useEffect(() => {
     if (surface !== "session") return;
-    const load = () =>
+    const load = () => {
       getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
+      getUnattended(sessionId).then(markUnattended).catch(() => markUnattended(false));
+    };
     load();
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
-  }, [surface, sessionId, browserRefreshKey]);
+  }, [surface, sessionId, browserRefreshKey, markUnattended]);
 
   const send = (text: string, attachments?: Attachment[]) => {
     setItems((p) => [...p, { kind: "user", text, attachments }]);
@@ -959,7 +975,7 @@ export function App() {
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
               rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
-              unattendedSlot={agent !== "chat" ? <UnattendedToggle sessionId={sessionId} /> : undefined}
+              unattendedSlot={agent !== "chat" ? <UnattendedToggle sessionId={sessionId} onChange={markUnattended} /> : undefined}
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={
@@ -970,13 +986,15 @@ export function App() {
                     : "Ask the coworker…  (drop or paste images)"
               }
               approvalSlot={
-                pendingPlan?.kind === "planreq" ? (
+                // Live inline cards are for ATTENDED sessions only; when Unattended the prompt is
+                // parked in the Inbox and surfaced via the answer-in-context card below.
+                !unattended && pendingPlan?.kind === "planreq" ? (
                   <PlanCard item={pendingPlan} onRespond={respondPlan} />
-                ) : pendingDirReq?.kind === "dirreq" ? (
+                ) : !unattended && pendingDirReq?.kind === "dirreq" ? (
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
-                ) : pendingApproval?.kind === "approval" ? (
+                ) : !unattended && pendingApproval?.kind === "approval" ? (
                   <ApprovalCard item={pendingApproval} onApprove={approve} compact />
-                ) : pendingQuestion?.kind === "question" ? (
+                ) : !unattended && pendingQuestion?.kind === "question" ? (
                   // Live ask_user in an attended session — answer inline (reuses the Inbox card UI).
                   <InboxItemCard
                     item={{

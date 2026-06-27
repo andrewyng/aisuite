@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..attachments import build_user_content
 from ..engine import ApprovalOutcome
+from ..inbox import VIS_INBOX, VIS_INLINE
 from ..permissions import Mode
 from ..providers import AssistantTurn
 from .manager import SessionManager
@@ -69,8 +70,12 @@ def create_app(manager: SessionManager) -> FastAPI:
     def inbox(session_id: str = "", state: str = "") -> dict[str, Any]:
         from dataclasses import asdict
 
+        # The cross-session Inbox list shows only Unattended (inbox-visibility) items; a per-session
+        # query returns inline ones too, so the answer-in-context card sees parked attended prompts.
         items = manager.inbox.list(
-            session_id=session_id or None, state=state or None
+            session_id=session_id or None,
+            state=state or None,
+            visibility=None if session_id else VIS_INBOX,
         )
         # Enrich with the originating session's context so the Inbox is self-contained — the
         # "go to session" chip needs title/agent/workspace without depending on a (possibly stale)
@@ -481,61 +486,92 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.websocket("/ws/session/{session_id}")
     async def ws_session(ws: WebSocket, session_id: str) -> None:
         await ws.accept()
-        approval_queue: asyncio.Queue[str] = asyncio.Queue()
-        directory_queue: asyncio.Queue[dict] = asyncio.Queue()
-        plan_queue: asyncio.Queue[dict] = asyncio.Queue()
-        question_queue: asyncio.Queue[dict] = asyncio.Queue()
+        agent = ws.query_params.get("agent") or "code"
+
+        # All four interactive prompts (approval / question / directory / plan) are parked as Inbox
+        # items and awaited via inbox.wait — so they survive a dropped socket (redelivered on
+        # reconnect) and can be resolved from any surface. `visibility` decides where they SHOW:
+        # Unattended → the cross-session Inbox; attended → inline in this session only. The agent
+        # stays blocked until the item is resolved (live WS response, REST, or a bound channel).
+        def _visibility() -> str:
+            return VIS_INBOX if manager.unattended.is_unattended(session_id) else VIS_INLINE
+
+        async def _mirror(item) -> None:
+            # Unattended items mirror to a bound channel (Slack/Telegram) with the id embedded.
+            binding = manager.inbox_routing.binding_for(item.inbox)
+            if binding.channel and manager.gateway is not None:
+                opts = "  ".join(f"[{o}]" for o in (item.options or []))
+                text = "\n".join(p for p in (item.title, item.body, opts, f"[ocw:{item.id}]") if p).strip()
+                try:
+                    await manager.gateway.deliver(f"{binding.channel}:{binding.target}", text)
+                except Exception:
+                    pass
+
+        def _route() -> str:
+            return manager.inbox_routing.route_for(session_id, agent)
 
         async def approver(_request) -> ApprovalOutcome:
-            # Unattended → don't prompt inline; park the request in the Inbox and suspend the
-            # agent until a human resolves it (from the in-app Inbox or, later, a bound channel).
-            if manager.unattended.is_unattended(session_id):
-                inbox_name = manager.inbox_routing.route_for(session_id, agent)
-                item = manager.inbox.add_approval(
-                    session_id,
-                    f"Run `{_request.tool_name}`?",
-                    body=getattr(_request, "reason", "") or "",
-                    inbox=inbox_name,
-                )
-                # Mirror to a bound channel (Slack/Telegram) with the item id embedded, so the
-                # user can approve/deny from there; the reply comes back via the gateway resolver.
-                binding = manager.inbox_routing.binding_for(inbox_name)
-                if binding.channel and manager.gateway is not None:
-                    text = f"{item.title}\n{item.body}\n[ocw:{item.id}]".strip()
-                    try:
-                        await manager.gateway.deliver(
-                            f"{binding.channel}:{binding.target}", text
-                        )
-                    except Exception:
-                        pass
-                resolution = await manager.inbox.wait(item.id)
-                if resolution == "always":
-                    return ApprovalOutcome.ALWAYS_TOOL
-                if resolution == "allow":
-                    return ApprovalOutcome.ONCE
-                return ApprovalOutcome.DENY
-            decision = await approval_queue.get()
+            # The engine has already emitted PERMISSION_REQUIRED (the live inline card). Park the
+            # item so the answer can also come from the Inbox / a reconnect.
+            item = manager.inbox.add_approval(
+                session_id,
+                f"Run `{_request.tool_name}`?",
+                body=getattr(_request, "reason", "") or "",
+                inbox=_route(),
+                visibility=_visibility(),
+            )
+            if item.visibility == VIS_INBOX:
+                await _mirror(item)
+            resolution = await manager.inbox.wait(item.id)
+            # Accept both vocabularies: the live card sends once/always_tool/always_command/deny;
+            # the Inbox / a channel send allow/always/deny.
             try:
-                return ApprovalOutcome(decision)
+                return ApprovalOutcome(resolution)
             except ValueError:
-                return ApprovalOutcome.DENY
+                pass
+            if resolution == "allow":
+                return ApprovalOutcome.ONCE
+            if resolution == "always":
+                return ApprovalOutcome.ALWAYS_TOOL
+            return ApprovalOutcome.DENY
 
-        async def plan_approver(_args: dict) -> dict:
-            # The engine has already emitted PLAN_PROPOSED; wait for the user's verdict.
-            # Approval carries the post-plan mode ("interactive" or "auto"); rejection
-            # carries feedback the agent uses to revise the plan.
-            resp = await plan_queue.get()
-            if not resp.get("approved"):
-                return {
-                    "approved": False,
-                    "feedback": resp.get("feedback") or "the user rejected the plan",
-                }
-            return {"approved": True, "mode": resp.get("mode") or "interactive"}
+        async def question_asker(args: dict) -> dict:
+            # ask_user (engine does NOT emit the event — we do, only when attended).
+            item = manager.inbox.add_question(
+                session_id,
+                str(args.get("question", "")),
+                inbox=_route(),
+                visibility=_visibility(),
+                options=list(args.get("options") or []),
+                allow_text=bool(args.get("allow_text", True)),
+                multi=bool(args.get("multi", False)),
+            )
+            if item.visibility == VIS_INBOX:
+                await _mirror(item)
+            else:
+                await ws.send_json({
+                    "type": "question_requested",
+                    "data": {
+                        "question": item.title, "options": item.options,
+                        "allow_text": item.allow_text, "multi": item.multi,
+                        "header": str(args.get("header", "")),
+                    },
+                })
+            return {"answer": await manager.inbox.wait(item.id)}
 
         async def directory_requester(args: dict) -> dict:
-            # The engine has already emitted DIRECTORY_REQUESTED; wait for the user's reply, then
-            # apply the grant to this live session so its tools/permissions/context pick it up.
-            resp = await directory_queue.get()
+            # The engine has already emitted DIRECTORY_REQUESTED. Park, await, then apply the grant.
+            item = manager.inbox.add_directory(
+                session_id,
+                "Grant access to a folder?",
+                body=str(args.get("reason", "")),
+                inbox=_route(),
+                visibility=_visibility(),
+                data={"path": str(args.get("path", "")), "writable": bool(args.get("writable", False))},
+            )
+            if item.visibility == VIS_INBOX:
+                await _mirror(item)
+            resp = _parse_json(await manager.inbox.wait(item.id))  # {granted, path, writable}
             if not resp.get("granted"):
                 return {"granted": False, "reason": "the user declined the request"}
             path = (resp.get("path") or args.get("path") or "").strip()
@@ -544,10 +580,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             writable = bool(resp.get("writable", args.get("writable", False)))
             res = manager.add_root(session_id, path, writable)
             if not res.get("ok"):
-                return {
-                    "granted": False,
-                    "error": res.get("error", "could not grant access"),
-                }
+                return {"granted": False, "error": res.get("error", "could not grant access")}
             primary = next(
                 (
                     r
@@ -558,34 +591,30 @@ def create_app(manager: SessionManager) -> FastAPI:
                 ),
                 None,
             )
-            return {
-                "granted": True,
-                "path": (primary or {}).get("path", path),
-                "writable": writable,
-            }
+            return {"granted": True, "path": (primary or {}).get("path", path), "writable": writable}
 
-        agent = ws.query_params.get("agent") or "code"
-
-        async def question_asker(args: dict) -> dict:
-            # ask_user. Unattended → park the question in the Inbox and suspend (same as approvals).
-            # Attended → prompt inline in the live session (a question event + the composer answer),
-            # NOT the Inbox. Either way the agent stays blocked until answered.
-            if manager.unattended.is_unattended(session_id):
-                return await manager.inbox_question_asker(session_id, agent)(args)
-            await ws.send_json(
-                {
-                    "type": "question_requested",
-                    "data": {
-                        "question": str(args.get("question", "")),
-                        "options": list(args.get("options") or []),
-                        "allow_text": bool(args.get("allow_text", True)),
-                        "multi": bool(args.get("multi", False)),
-                        "header": str(args.get("header", "")),
-                    },
-                }
+        async def plan_approver(_args: dict) -> dict:
+            # The engine has already emitted PLAN_PROPOSED. Park, await the verdict.
+            item = manager.inbox.add_plan(
+                session_id,
+                "Approve the plan?",
+                body=str(_args.get("plan", "")),
+                inbox=_route(),
+                visibility=_visibility(),
             )
-            resp = await question_queue.get()
-            return {"answer": str(resp.get("answer", ""))}
+            if item.visibility == VIS_INBOX:
+                await _mirror(item)
+            resp = _parse_json(await manager.inbox.wait(item.id))  # {approved, mode, feedback}
+            if not resp.get("approved"):
+                return {"approved": False, "feedback": resp.get("feedback") or "the user rejected the plan"}
+            return {"approved": True, "mode": resp.get("mode") or "interactive"}
+
+        def _resolve_pending(resolution: str) -> None:
+            # Live WS responses resolve THE session's single pending prompt (one at a time, since the
+            # agent blocks). Reconnect / Inbox resolve by id via REST instead.
+            pend = manager.inbox.pending(session_id)
+            if pend:
+                manager.inbox.resolve(pend[0].id, resolution)
 
         workspace = ws.query_params.get("workspace")
         mcp_tools = await manager.prepare_mcp_tools(
@@ -659,13 +688,21 @@ def create_app(manager: SessionManager) -> FastAPI:
                 message = await ws.receive_json()
                 kind = message.get("type")
                 if kind == "approval":
-                    approval_queue.put_nowait(message.get("decision", "deny"))
+                    _resolve_pending(message.get("decision", "deny"))
                 elif kind == "directory_response":
-                    directory_queue.put_nowait(message)
+                    _resolve_pending(json.dumps({
+                        "granted": bool(message.get("granted")),
+                        "path": message.get("path", ""),
+                        "writable": bool(message.get("writable", False)),
+                    }))
                 elif kind == "plan_response":
-                    plan_queue.put_nowait(message)
+                    _resolve_pending(json.dumps({
+                        "approved": bool(message.get("approved")),
+                        "mode": message.get("mode", "interactive"),
+                        "feedback": message.get("feedback", ""),
+                    }))
                 elif kind == "question_response":
-                    question_queue.put_nowait(message)
+                    _resolve_pending(str(message.get("answer", "")))
                 elif kind == "interrupt":
                     engine.request_interrupt()
                 elif kind == "set_mode":
@@ -687,6 +724,15 @@ def create_app(manager: SessionManager) -> FastAPI:
             pass
 
     return app
+
+
+def _parse_json(s: str) -> dict[str, Any]:
+    """Parse a structured Inbox resolution (directory/plan carry their reply as a JSON string)."""
+    try:
+        v = json.loads(s) if s else {}
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
 
 
 def _openai_response(model: str, turn: AssistantTurn) -> dict[str, Any]:

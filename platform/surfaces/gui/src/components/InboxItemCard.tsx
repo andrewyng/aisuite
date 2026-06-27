@@ -90,6 +90,40 @@ export function InboxItemCard({
           {(allowText || options.length === 0) &&
             textRow(options.length ? "Or type your own answer…" : "Your answer…")}
         </>
+      ) : item.kind === "directory" ? (
+        <div className="inbox-item-actions">
+          <button
+            className="btn-primary sm"
+            disabled={!item.data?.path}
+            title={item.data?.path || "No folder was suggested"}
+            onClick={() =>
+              onResolve(
+                item.id,
+                JSON.stringify({ granted: true, path: item.data?.path || "", writable: !!item.data?.writable }),
+              )
+            }
+          >
+            {item.data?.path ? "Grant" : "Grant (no folder)"}
+          </button>
+          <button className="btn sm" onClick={() => onResolve(item.id, JSON.stringify({ granted: false }))}>
+            Deny
+          </button>
+        </div>
+      ) : item.kind === "plan" ? (
+        <div className="inbox-item-actions">
+          <button
+            className="btn-primary sm"
+            onClick={() => onResolve(item.id, JSON.stringify({ approved: true, mode: "interactive" }))}
+          >
+            Approve
+          </button>
+          <button
+            className="btn sm"
+            onClick={() => onResolve(item.id, JSON.stringify({ approved: false, feedback: "" }))}
+          >
+            Reject
+          </button>
+        </div>
       ) : (
         <div className="inbox-item-actions">
           <button className="btn sm" onClick={() => onResolve(item.id, "seen")}>
