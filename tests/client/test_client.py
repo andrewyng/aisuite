@@ -50,6 +50,66 @@ def provider_configs():
     }
 
 
+def test_default_provider_configs_are_not_shared_between_clients():
+    client_a = Client()
+    client_b = Client()
+
+    client_a.configure({"openai": {"api_key": "client-a-key"}})
+
+    assert client_a.provider_configs == {"openai": {"api_key": "client-a-key"}}
+    assert client_b.provider_configs == {}
+
+
+def test_provider_configs_are_copied_on_init():
+    provider_configs = {"openai": {"api_key": "original"}}
+    openai_config = provider_configs["openai"]
+
+    client = Client(provider_configs)
+
+    assert client.provider_configs["openai"] is not openai_config
+
+    provider_configs["openai"]["api_key"] = "mutated"
+    provider_configs["anthropic"] = {"api_key": "new"}
+
+    assert client.provider_configs == {"openai": {"api_key": "original"}}
+
+
+def test_provider_configs_are_copied_on_configure():
+    provider_configs = {"openai": {"api_key": "original"}}
+    openai_config = provider_configs["openai"]
+    client = Client()
+
+    client.configure(provider_configs)
+
+    assert client.provider_configs["openai"] is not openai_config
+
+    provider_configs["openai"]["api_key"] = "mutated"
+    provider_configs["anthropic"] = {"api_key": "new"}
+
+    assert client.provider_configs == {"openai": {"api_key": "original"}}
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
+def test_provider_initialization_uses_config_copy(mock_create_provider):
+    provider = Mock()
+    provider.chat_completions_create.return_value = "response"
+
+    def create_provider(provider_key, config):
+        config["api_key"] = "mutated-by-factory"
+        return provider
+
+    mock_create_provider.side_effect = create_provider
+    client = Client({"openai": {"api_key": "original"}})
+
+    response = client.chat.completions.create(
+        model="openai:gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}],
+    )
+
+    assert response == "response"
+    assert client.provider_configs == {"openai": {"api_key": "original"}}
+
+
 @pytest.mark.parametrize(
     argnames=("provider", "model"),
     argvalues=[
