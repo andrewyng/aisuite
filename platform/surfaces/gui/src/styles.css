@@ -1352,8 +1352,18 @@ button.btn.ghost:hover { color: var(--ink); }
   margin-top: 8px;
 }
 .inbox-item-actions input { flex: 1; }
-/* Compact variant: rendered inline above the composer (answer-in-context), no outer card chrome. */
-.inbox-item.compact { border: 0; padding: 0; margin: 0; background: transparent; }
+/* Compact variant: docked inline above the composer (answer-in-context) — matches the native
+   ApprovalCard's `.approval-dock` panel so it doesn't feel cramped against the composer. */
+.inbox-item.compact {
+  max-width: 760px;
+  margin: 0 auto 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+.inbox-item.compact .inbox-item-kind { margin-bottom: 2px; }
 /* "Go to session" chip: persona icon + session title, links back for context. */
 .inbox-session-chip {
   display: inline-flex; align-items: center; gap: 7px; margin: 8px 0 2px;
