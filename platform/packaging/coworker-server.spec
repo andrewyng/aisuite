@@ -46,6 +46,18 @@ if not INCLUDE_EXPERIMENTAL:
     hiddenimports = [
         m for m in hiddenimports if not m.startswith("coworker.connectors.experimental")
     ]
+else:
+    # experimental builds also need the WhatsApp bridge sources as data files
+    _bridge = os.path.join(
+        PLATFORM, "coworker", "connectors", "experimental", "whatsapp_bridge"
+    )
+    for _f in ("bridge.js", "package.json"):
+        datas.append(
+            (
+                os.path.join(_bridge, _f),
+                "coworker/connectors/experimental/whatsapp_bridge",
+            )
+        )
 
 for pkg in ("uvicorn", "certifi", "anyio"):
     d, b, h = collect_all(pkg)

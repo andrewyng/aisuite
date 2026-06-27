@@ -174,10 +174,20 @@ class SlackAdapter(BasePlatformAdapter):
         return _send_slack(self.bot_token, chat_id, text, thread_id)
 
 
+ADAPTER_FACTORIES: dict[str, Any] = {}
+
+
+def register_adapter_factory(platform: str, factory: Any) -> None:
+    """Register a `profile -> Optional[BasePlatformAdapter]` factory for an extra
+    platform (used by the experimental package)."""
+    ADAPTER_FACTORIES[platform] = factory
+
+
 def make_adapter(platform: str, profile: dict) -> Optional[BasePlatformAdapter]:
     """Build the adapter for a connected platform from its SecretStore profile."""
     if platform == "telegram" and profile.get("bot_token"):
         return TelegramAdapter(profile["bot_token"])
     if platform == "slack" and profile.get("bot_token") and profile.get("app_token"):
         return SlackAdapter(profile["bot_token"], profile["app_token"])
-    return None
+    factory = ADAPTER_FACTORIES.get(platform)
+    return factory(profile) if factory is not None else None

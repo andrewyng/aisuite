@@ -1231,10 +1231,213 @@ def test_experimental_rest_roundtrip(tmp_path, monkeypatch, experimental_descrip
     assert r["ok"] is True
 
 
-def test_experimental_package_loads_cleanly():
-    """The experimental package import hook is a no-op when the package is empty or absent."""
+def test_experimental_package_contents():
+    """Only the experimental package contributes experimental descriptors."""
     from coworker.connectors.descriptors import DESCRIPTORS
     from coworker.connectors.experimental import EXPERIMENTAL_DESCRIPTORS
 
-    assert EXPERIMENTAL_DESCRIPTORS == []
-    assert all(d.experimental is False for d in DESCRIPTORS if d.name != "dangerzone")
+    exp_names = {d.name for d in EXPERIMENTAL_DESCRIPTORS}
+    assert exp_names == {"whatsapp_personal"}
+    assert all(d.experimental is True for d in EXPERIMENTAL_DESCRIPTORS)
+    assert all(
+        d.experimental is False
+        for d in DESCRIPTORS
+        if d.name not in exp_names and d.name != "dangerzone"
+    )
+
+
+# -- whatsapp personal (experimental two-way via local bridge) -------------------
+def test_whatsapp_personal_registered():
+    from coworker.connectors.adapters import make_adapter
+    from coworker.connectors.config import PLATFORMS
+    from coworker.connectors.experimental.whatsapp_personal import (
+        WhatsAppPersonalAdapter,
+    )
+    from coworker.connectors.senders import DEFAULT_SENDERS, SENDER_CREDENTIALS
+
+    assert "whatsapp_personal" in PLATFORMS
+    assert "whatsapp_personal" in DEFAULT_SENDERS
+    assert SENDER_CREDENTIALS["whatsapp_personal"] == ("bridge_port", False)
+    adapter = make_adapter("whatsapp_personal", {"bridge_port": "4001", "mode": "all"})
+    assert isinstance(adapter, WhatsAppPersonalAdapter)
+    assert adapter.port == 4001 and adapter.mode == "all"
+    assert make_adapter("whatsapp_personal", {}).mode == "self"  # default
+
+
+def test_whatsapp_personal_descriptor_gated(tmp_path):
+    from coworker.connectors import connector_list, set_experimental_enabled
+    from coworker.connectors.descriptors import get_descriptor
+
+    desc = get_descriptor("whatsapp_personal")
+    assert desc is not None and desc.experimental is True and desc.two_way is True
+    assert "ban" in desc.risk_notice.lower()  # the warning must be blunt
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    assert "whatsapp_personal" not in {c["name"] for c in connector_list(secrets)}
+    set_experimental_enabled(secrets, True)
+    assert "whatsapp_personal" in {c["name"] for c in connector_list(secrets)}
+
+
+def test_whatsapp_personal_load_settings(tmp_path):
+    from coworker.connectors.config import load_settings
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    settings = load_settings(secrets)
+    assert settings["whatsapp_personal"].enabled is False  # no profile yet
+
+    # a bare profile (QR pairing, no stored credential) is enough to enable listening
+    secrets.put(
+        "whatsapp_personal:default",
+        {"type": "token", "enabled": True, "allowed_users": ["14155550123"]},
+    )
+    settings = load_settings(secrets)
+    assert settings["whatsapp_personal"].enabled is True
+    assert settings["whatsapp_personal"].allowed_users == {"14155550123"}
+
+
+def test_bridge_event_mapper():
+    from coworker.connectors.experimental.whatsapp_personal import (
+        bridge_event_to_message,
+    )
+
+    ev = bridge_event_to_message(
+        {
+            "event": "message",
+            "id": "A1",
+            "chat": "1415@s.whatsapp.net",
+            "sender": "1415",
+            "name": "Ro",
+            "group": False,
+            "text": "hello",
+            "ts": 5,
+        }
+    )
+    assert ev.text == "hello" and ev.source.platform == "whatsapp_personal"
+    assert ev.source.target == "whatsapp_personal:1415@s.whatsapp.net"
+    assert ev.source.chat_type == "dm" and ev.message_id == "A1"
+
+    # non-message events and empty texts map to nothing
+    assert bridge_event_to_message({"event": "qr", "qr": "x"}) is None
+    assert (
+        bridge_event_to_message({"event": "message", "chat": "x", "text": ""}) is None
+    )
+    grp = bridge_event_to_message(
+        {"event": "message", "chat": "g1@g.us", "text": "t", "group": True}
+    )
+    assert grp.source.chat_type == "group"
+
+
+async def test_adapter_event_stream_handling():
+    """The adapter's stdout-event handler drives state, QR, readiness, and inbound."""
+    from coworker.connectors.experimental.whatsapp_personal import (
+        WhatsAppPersonalAdapter,
+    )
+
+    adapter = WhatsAppPersonalAdapter({})
+    received = []
+
+    async def handler(ev):
+        received.append(ev)
+
+    adapter.set_message_handler(handler)
+
+    await adapter.handle_event_line('{"event":"ready","port":3941}')
+    assert adapter._ready.is_set()
+
+    await adapter.handle_event_line('{"event":"qr","qr":"QRDATA"}')
+    assert adapter.state["qr"] == "QRDATA"
+
+    await adapter.handle_event_line('{"event":"state","state":"open","me":"1415"}')
+    assert adapter.state["state"] == "open" and adapter.state["me"] == "1415"
+    assert adapter.state["qr"] is None  # QR cleared once paired
+
+    await adapter.handle_event_line(
+        '{"event":"message","id":"M1","chat":"1415@s.whatsapp.net",'
+        '"sender":"1415","name":"Ro","group":false,"text":"hi","ts":1}'
+    )
+    assert len(received) == 1 and received[0].text == "hi"
+
+    await adapter.handle_event_line("not json at all")  # noise must not raise
+
+    status = await adapter.status()
+    assert status["running"] is False and status["state"] == "open"
+
+
+def test_whatsapp_personal_sender(monkeypatch):
+    import httpx
+
+    from coworker.connectors.experimental.whatsapp_personal import (
+        send_whatsapp_personal,
+    )
+
+    calls = {}
+
+    class _Resp:
+        def json(self):
+            return {"sent": True, "id": "M9"}
+
+    def fake_post(url, json=None, timeout=None):
+        calls["url"], calls["json"] = url, json
+        return _Resp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    res = send_whatsapp_personal("", "1415@s.whatsapp.net", "hi")
+    assert res.ok and res.message_id == "M9"
+    assert calls["url"] == "http://127.0.0.1:3941/send"  # default port when unset
+    assert calls["json"] == {"to": "1415@s.whatsapp.net", "body": "hi"}
+
+    send_whatsapp_personal("4567", "c", "t")
+    assert calls["url"] == "http://127.0.0.1:4567/send"
+
+
+def test_send_message_tool_no_credential_platform(tmp_path):
+    """send_message must not demand a bot token for credential-less platforms."""
+    from coworker.connectors import make_send_message_tool
+    from coworker.connectors.base import SendResult as SR
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put("whatsapp_personal:default", {"type": "token", "enabled": True})
+    record = []
+
+    def sender(token, chat_id, text, thread_id=None):
+        record.append((token, chat_id, text))
+        return SR(True, message_id="1")
+
+    tool = make_send_message_tool(secrets, senders={"whatsapp_personal": sender})
+    out = tool(target="whatsapp_personal:1415@s.whatsapp.net", text="yo")
+    assert out["ok"] is True
+    assert record == [("", "1415@s.whatsapp.net", "yo")]
+
+
+async def test_gateway_skips_experimental_until_opted_in(tmp_path, monkeypatch):
+    import coworker.server.manager as mgr
+    from coworker.connectors import FakeAdapter, set_experimental_enabled
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    m = mgr.SessionManager(data_dir=tmp_path / "data", provider=_StubProvider())
+    m.secrets.put("whatsapp_personal:default", {"type": "token", "enabled": True})
+    m.secrets.put("telegram:default", {"bot_token": "T", "enabled": True})
+
+    built = []
+
+    def fake_make_adapter(platform, profile):
+        built.append(platform)
+        fake = FakeAdapter()
+        fake.platform = platform
+        return fake
+
+    monkeypatch.setattr(mgr, "make_adapter", fake_make_adapter)
+
+    live = await m.start_gateway()
+    assert "telegram" in built and "telegram" in live
+    assert "whatsapp_personal" not in built  # experimental opt-in is off
+    await m.stop_gateway()
+    await m.scheduler.stop()
+
+    set_experimental_enabled(m.secrets, True)
+    built.clear()
+    live = await m.start_gateway()
+    assert "whatsapp_personal" in built and "whatsapp_personal" in live
+    await m.stop_gateway()
+    await m.scheduler.stop()

@@ -13,7 +13,7 @@ import aisuite as ai
 
 from ..secrets import SecretStore
 from .base import parse_target
-from .senders import DEFAULT_SENDERS, Sender
+from .senders import DEFAULT_SENDERS, SENDER_CREDENTIALS, Sender
 
 _SCHEMA = {
     "type": "function",
@@ -57,9 +57,10 @@ def make_send_message_tool(
         if sender is None:
             return {"error": f"unknown platform: {platform}"}
         creds = secrets.get(f"{platform}:default") or {}
-        token = creds.get("bot_token")
-        if not token:
-            return {"error": f"no bot token for {platform} — connect it first"}
+        cred_key, cred_required = SENDER_CREDENTIALS.get(platform, ("bot_token", True))
+        token = str(creds.get(cred_key) or "")
+        if cred_required and not token:
+            return {"error": f"no {cred_key} for {platform} — connect it first"}
         result = sender(token, chat_id, text, thread_id)
         if result.ok:
             return {"ok": True, "message_id": result.message_id, "target": target}

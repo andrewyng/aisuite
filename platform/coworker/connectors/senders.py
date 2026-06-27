@@ -75,3 +75,24 @@ DEFAULT_SENDERS: dict[str, Sender] = {
     "telegram": _send_telegram,
     "slack": _send_slack,
 }
+
+# Which SecretStore profile key is passed to the sender as its first argument, and whether
+# it must be present. ("bot_token", True) is the default; platforms whose sender needs no
+# stored credential (e.g. a localhost bridge) register (key, False) and receive "" when the
+# profile doesn't set the key.
+SENDER_CREDENTIALS: dict[str, tuple[str, bool]] = {
+    "telegram": ("bot_token", True),
+    "slack": ("bot_token", True),
+}
+
+
+def register_sender(
+    platform: str,
+    sender: Sender,
+    *,
+    credential_key: str = "bot_token",
+    credential_required: bool = True,
+) -> None:
+    """Register an outbound sender for an extra platform (used by the experimental package)."""
+    DEFAULT_SENDERS[platform] = sender
+    SENDER_CREDENTIALS[platform] = (credential_key, credential_required)

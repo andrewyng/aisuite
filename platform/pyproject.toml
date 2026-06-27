@@ -43,6 +43,11 @@ coworker-connectors = "coworker.connectors.cli:main"
 where = ["."]
 include = ["coworker*"]
 
+[tool.setuptools.package-data]
+# The experimental WhatsApp bridge sources (staged into the state dir at first connect;
+# npm dependencies are installed there, never vendored).
+"coworker.connectors.experimental" = ["whatsapp_bridge/bridge.js", "whatsapp_bridge/package.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
