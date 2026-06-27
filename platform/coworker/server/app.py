@@ -99,6 +99,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
         return {"ok": True, "bindings": manager.inbox_routing.bindings()}
 
+    @app.get("/v1/sessions/{session_id}/unattended")
+    def get_unattended(session_id: str) -> dict[str, Any]:
+        return {"unattended": manager.unattended.is_unattended(session_id)}
+
     @app.post("/v1/sessions/{session_id}/unattended")
     def set_unattended(session_id: str, body: dict) -> dict[str, Any]:
         # The GUI gates the on-transition behind a one-tap confirm.

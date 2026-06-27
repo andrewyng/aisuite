@@ -17,7 +17,6 @@ import {
   reloadMcp,
   setOnboarded,
   setProvider,
-  setSurfaces,
   setScratchBase,
   setSuperagentName,
   setSuperagentWorkspace,
@@ -405,10 +404,6 @@ function SettingsTab() {
     }
   }, []);
 
-  const toggleSurface = async (key: "chat" | "code", value: boolean) => {
-    const res = await setSurfaces({ [key]: value });
-    if (res.surfaces) setSettings((s) => (s ? { ...s, surfaces: res.surfaces } : s));
-  };
 
   const saveScratch = async () => {
     setScratchMsg(null);
@@ -483,30 +478,9 @@ function SettingsTab() {
 
       <div className="sa-sub" style={{ marginTop: 22 }}>Surfaces</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        OpenCoworker is always shown. Turn on Chat and Code to add them to the left panel.
+        Which coworkers appear in the left panel is now managed per persona in the{" "}
+        <strong>Personas</strong> tab (Enabled + In picker).
       </div>
-      <label className="ob-toggle">
-        <input
-          type="checkbox"
-          checked={!!settings.surfaces?.chat}
-          onChange={(e) => toggleSurface("chat", e.target.checked)}
-        />
-        <span>
-          <strong>Show Chat</strong>
-          <small>Quick Q&amp;A and brainstorming — no workspace.</small>
-        </span>
-      </label>
-      <label className="ob-toggle">
-        <input
-          type="checkbox"
-          checked={!!settings.surfaces?.code}
-          onChange={(e) => toggleSurface("code", e.target.checked)}
-        />
-        <span>
-          <strong>Show Code</strong>
-          <small>Work inside a codebase with git, diffs, and the shell.</small>
-        </span>
-      </label>
 
       {desktop && (
         <>

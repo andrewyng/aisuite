@@ -482,6 +482,13 @@ export async function resolveInboxItem(
   return res.json();
 }
 
+export async function getUnattended(sessionId: string): Promise<boolean> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/unattended`,
+  );
+  return (await res.json()).unattended;
+}
+
 export async function setUnattended(
   sessionId: string,
   unattended: boolean,

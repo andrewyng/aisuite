@@ -1,11 +1,23 @@
-import { useState } from "react";
-import { setUnattended } from "../api";
+import { useEffect, useState } from "react";
+import { getUnattended, setUnattended } from "../api";
 
 // Per-session Unattended toggle. Turning it on is a one-tap confirm (handing over control):
 // from then on the agent's approvals/questions route to the Inbox instead of prompting inline.
 export function UnattendedToggle({ sessionId }: { sessionId: string }) {
   const [on, setOn] = useState(false);
   const [confirming, setConfirming] = useState(false);
+
+  // Reflect the session's actual state (survives reloads / session switches).
+  useEffect(() => {
+    let alive = true;
+    setConfirming(false);
+    getUnattended(sessionId)
+      .then((v) => alive && setOn(v))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [sessionId]);
 
   const enable = async () => {
     await setUnattended(sessionId, true);
