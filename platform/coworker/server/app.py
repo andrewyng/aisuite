@@ -470,6 +470,22 @@ def create_app(manager: SessionManager) -> FastAPI:
         plan_queue: asyncio.Queue[dict] = asyncio.Queue()
 
         async def approver(_request) -> ApprovalOutcome:
+            # Unattended → don't prompt inline; park the request in the Inbox and suspend the
+            # agent until a human resolves it (from the in-app Inbox or, later, a bound channel).
+            if manager.unattended.is_unattended(session_id):
+                inbox_name = manager.inbox_routing.route_for(session_id, agent)
+                item = manager.inbox.add_approval(
+                    session_id,
+                    f"Run `{_request.tool_name}`?",
+                    body=getattr(_request, "reason", "") or "",
+                    inbox=inbox_name,
+                )
+                resolution = await manager.inbox.wait(item.id)
+                if resolution == "always":
+                    return ApprovalOutcome.ALWAYS_TOOL
+                if resolution == "allow":
+                    return ApprovalOutcome.ONCE
+                return ApprovalOutcome.DENY
             decision = await approval_queue.get()
             try:
                 return ApprovalOutcome(decision)
