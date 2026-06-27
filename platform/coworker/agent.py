@@ -12,6 +12,7 @@ from typing import Any, Optional
 from .agents import Agent, AgentContext, code_agent
 from .automation import scheduling_tools
 from .selfwake import selfwake_tools
+from .subscriptions import subscription_tools
 from .config import load_config
 from .connectors import (
     connector_list,
@@ -117,6 +118,9 @@ def build_engine(
     directory_requester: Optional[Any] = None,
     plan_approver: Optional[Any] = None,
     question_asker: Optional[Any] = None,
+    subscription_store: Optional[Any] = None,
+    channel_buffer: Optional[Any] = None,
+    routing_targets: Optional[list[str]] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
@@ -151,6 +155,17 @@ def build_engine(
     secrets = secrets or SecretStore()
     if agent.messaging and any(s.enabled for s in load_settings(secrets).values()):
         registry.register(make_send_message_tool(secrets))
+        # Channel subscriptions (inbound): listen to a channel, catch up, (un)subscribe. The agent
+        # obtains a channel via ask_user or from a channel message it's reacting to.
+        if subscription_store is not None and channel_buffer is not None and session_id:
+            registry.register_all(
+                subscription_tools(
+                    subscription_store,
+                    session_id,
+                    channel_buffer,
+                    routing_targets=routing_targets,
+                )
+            )
     # Knowledge surfaces with a multi-root workspace can ask the user mid-task for another folder.
     if agent.family == "knowledge" and root_list:
         registry.register(request_directory_tool())

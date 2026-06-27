@@ -21,6 +21,7 @@ from ..inbox_routing import InboxRouting
 from ..personas import PersonaRegistry
 from ..personas.registry import set_registry as set_persona_registry
 from ..selfwake import WakeStore
+from ..subscriptions import ChannelBuffer, SubscriptionStore
 from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
@@ -138,6 +139,10 @@ class SessionManager:
         self.inbox_routing = InboxRouting(base / "inbox_routing.json")
         self.unattended = UnattendedRegistry(base / "unattended.json")
         self.wakes = WakeStore(base / "wakes.json")
+        # Channel subscriptions (inbound): persisted (session_id, channel) records + a ring buffer
+        # of recently-seen channel messages for get_channel_messages.
+        self.subscriptions = SubscriptionStore(base / "subscriptions.json")
+        self.channel_buffer = ChannelBuffer()
 
     # -- workspaces -------------------------------------------------------------
     def open_workspace(self, path: str, *, create: bool = False) -> dict[str, Any]:
@@ -275,9 +280,18 @@ class SessionManager:
             # WS sessions pass a mode-aware asker (attended → live prompt, unattended → Inbox).
             # Background/self-wake runs have no live socket → default to the Inbox asker.
             question_asker=question_asker or self.inbox_question_asker(session_id, agent),
+            subscription_store=self.subscriptions,
+            channel_buffer=self.channel_buffer,
+            routing_targets=self._routing_targets(session_id, agent),
         )
         self._engines[session_id] = engine
         return engine
+
+    def _routing_targets(self, session_id: str, agent: str) -> list[str]:
+        """The channel address(es) this session's Inbox routes OUT to — used to warn when a
+        subscription (inbound) collides with Inbox routing (outbound) on the same channel."""
+        binding = self.inbox_routing.binding_for(self.inbox_routing.route_for(session_id, agent))
+        return [f"{binding.channel}:{binding.target}"] if binding.channel else []
 
     def inbox_question_asker(self, session_id: str, agent: str):
         """The Unattended `ask_user` handler: turn the agent's question into an Inbox item and
@@ -1087,7 +1101,7 @@ class SessionManager:
         self.gateway = Gateway(
             secrets=self.secrets,
             settings=settings,
-            handler=self.superagent.on_message,
+            handler=self._dispatch_inbound,
             reply_resolver=self._resolve_inbox_reply,
         )
         for platform, st in settings.items():
@@ -1246,25 +1260,56 @@ class SessionManager:
         return session_id in self._running_sessions
 
     async def _resume_wake(self, wake) -> None:
-        message = self._wake_message(wake)
-        # Busy (mid tool-loop): steer the wake into the live turn at its next loop step — don't
-        # start a colliding run. Idle: run a fresh background turn (results persist; if the
-        # session is Unattended, any approvals route to the Inbox).
-        if self.is_running(wake.session_id):
-            engine = self._engines.get(wake.session_id)
+        await self.deliver_to_session(wake.session_id, self._wake_message(wake))
+
+    async def deliver_to_session(self, session_id: str, message: str) -> None:
+        """Deliver an out-of-band message to a (durable) session — the agent stays resumable
+        forever, so this works with no live socket. Busy (mid tool-loop): steer it into the live
+        turn at its next step (don't start a colliding run). Idle: run a fresh background turn
+        (results persist; if the session is Unattended, any approvals route to the Inbox). Shared
+        by self-wake and channel-subscription delivery."""
+        if self.is_running(session_id):
+            engine = self._engines.get(session_id)
             if engine is not None:
                 engine.queue_steering(message)
             return
-        engine = self.get_engine(wake.session_id)
+        engine = self.get_engine(session_id)
         if engine is None:
             return
-        self.mark_running(wake.session_id)
+        self.mark_running(session_id)
         try:
             async for _event in engine.run(message):
                 pass
-            self.save(wake.session_id, engine)
+            self.save(session_id, engine)
         finally:
-            self.mark_idle(wake.session_id)
+            self.mark_idle(session_id)
+
+    # -- channel subscriptions (inbound messaging) ------------------------------
+    async def _dispatch_inbound(self, event) -> None:
+        """Route a non-token inbound message. Channel messages are buffered (for catch-up) and
+        fanned out to every subscribed session; a DM (or any non-channel) with no subscription
+        falls through to the default super-agent session."""
+        src = event.source
+        text = getattr(event, "text", "") or ""
+        who = src.user_name or src.user_id or "?"
+        channel = f"{src.platform}:{src.chat_id}"  # thread-agnostic channel address
+        if src.chat_type in ("channel", "group"):
+            self.channel_buffer.record(channel, who, text)  # buffer all, even unsubscribed
+            subs = self.subscriptions.for_channel(channel)
+            if subs:
+                msg = (
+                    f"💬 New message on {channel} from {who}: {text}\n"
+                    f"(You're subscribed to this channel. If it's relevant to your job, act on it "
+                    f'and reply with the send_message tool to target "{channel}"; otherwise ignore it.)'
+                )
+                for sub in subs:
+                    try:
+                        await self.deliver_to_session(sub.session_id, msg)
+                    except Exception:
+                        pass
+                return
+            return  # channel with no subscribers — nobody is listening
+        await self.superagent.on_message(event)  # DM / default → super-agent
 
     @staticmethod
     def _wake_message(wake) -> str:
@@ -1686,6 +1731,8 @@ class SessionManager:
             except Exception:
                 pass
         ok = self.session_store.delete(session_id)
+        # Deleting a session is the one implicit unsubscribe (otherwise subscriptions are permanent).
+        self.subscriptions.remove_session(session_id)
         return {"ok": ok, "session_id": session_id}
 
     # -- provider proxy ---------------------------------------------------------
