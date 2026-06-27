@@ -72,7 +72,19 @@ def create_app(manager: SessionManager) -> FastAPI:
         items = manager.inbox.list(
             session_id=session_id or None, state=state or None
         )
-        return {"items": [asdict(i) for i in items]}
+        # Enrich with the originating session's context so the Inbox is self-contained — the
+        # "go to session" chip needs title/agent/workspace without depending on a (possibly stale)
+        # client-side session list, and can link straight to it.
+        out: list[dict[str, Any]] = []
+        for i in items:
+            d = asdict(i)
+            rec = manager.session_store.load(i.session_id)
+            d["session_title"] = (rec.title if rec else None) or i.session_id
+            d["session_agent"] = rec.agent if rec else None
+            d["session_workspace"] = rec.workspace if rec else None
+            d["session_exists"] = rec is not None
+            out.append(d)
+        return {"items": out}
 
     @app.post("/v1/inbox/{item_id}/resolve")
     def resolve_inbox_item(item_id: str, body: dict) -> dict[str, Any]:

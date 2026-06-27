@@ -360,6 +360,13 @@ export function App() {
     getSuperagent().then((s) => s?.name && setHelperName(s.name)).catch(() => {});
   }, [refreshSessions]);
 
+  // Poll the session list so the attention/liveness badges stay live and sessions created
+  // out-of-band (unattended work, messaging, automations) appear without a manual refresh.
+  useEffect(() => {
+    const t = setInterval(refreshSessions, 5000);
+    return () => clearInterval(t);
+  }, [refreshSessions]);
+
   // If the active surface isn't visible (hidden in Settings, or a resumed session landed on a
   // hidden surface), fall back to Cowork (always visible). Watches both agent and surfaces so it
   // corrects regardless of which settled last.
@@ -556,11 +563,8 @@ export function App() {
     if (!gatesWorkspace(target)) setWorkspace(null);
     setSessionId(newId());
   };
-  // Inbox → session: resolve the item's session to its workspace/agent and open it.
-  const openSessionFromInbox = (sid: string) => {
-    const s = sessions.find((x) => x.session_id === sid);
-    if (s) selectSession(sid, s.workspace, s.agent);
-  };
+  // Inbox → session: the item carries its session's workspace/agent, so open it directly.
+  const openSessionFromInbox = (sid: string, ws: string, ag: string) => selectSession(sid, ws, ag);
   const selectSession = async (id: string, ws: string, ag: string) => {
     setSurface("session"); // selecting a conversation always returns to the conversation view
     setTodo([]);
@@ -778,7 +782,7 @@ export function App() {
       ) : surface === "audit" ? (
         <AuditView />
       ) : surface === "inbox" ? (
-        <InboxView sessions={sessions} onOpenSession={openSessionFromInbox} />
+        <InboxView onOpenSession={openSessionFromInbox} />
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">

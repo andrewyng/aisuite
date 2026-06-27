@@ -460,6 +460,11 @@ export interface InboxItem {
   inbox: string;
   created_at: string;
   resolved_at: string | null;
+  // Originating-session context (server-joined) so the Inbox is self-contained.
+  session_title?: string;
+  session_agent?: string | null;
+  session_workspace?: string | null;
+  session_exists?: boolean;
 }
 
 export async function getInbox(sessionId?: string, state?: string): Promise<InboxItem[]> {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { getInbox, getPersonas, resolveInboxItem, type InboxItem, type Persona } from "../api";
-import type { SessionInfo } from "../types";
 import { Icon } from "./Icon";
 import { InboxItemCard } from "./InboxItemCard";
 
@@ -12,13 +11,13 @@ const ICON_FOR: Record<string, "diamond" | "chat" | "code"> = {
 
 // The Inbox: pending approvals / questions / notifications from across sessions, including
 // unattended ones. Resolving here releases any agent suspended on the item. Each item links back
-// to its originating session so you can see the context before answering.
+// to its originating session so you can see the context before answering. Self-contained — the
+// item carries its session's title/agent/workspace (server-joined), so the chip never depends on
+// the sidebar's session list.
 export function InboxView({
-  sessions,
   onOpenSession,
 }: {
-  sessions: SessionInfo[];
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: (sessionId: string, workspace: string, agent: string) => void;
 }) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [personas, setPersonas] = useState<Persona[] | null>(null);
@@ -37,24 +36,26 @@ export function InboxView({
   };
 
   // The originating-session chip: persona icon + session title, clickable to open that session.
-  const sessionChip = (sessionId: string) => {
-    const s = sessions.find((x) => x.session_id === sessionId);
-    const p = personas?.find((x) => x.id === s?.agent);
-    const label = s?.title || sessionId;
+  const sessionChip = (it: InboxItem) => {
+    const exists = it.session_exists !== false;
+    const p = personas?.find((x) => x.id === it.session_agent);
+    const label = it.session_title || it.session_id;
     const icon = (p && ICON_FOR[p.icon]) || "diamond";
     const cls = `ico-${p?.icon || "cowork"}`;
     return (
       <button
         className="inbox-session-chip"
-        title={s ? `Open “${label}”` : "Session unavailable"}
-        disabled={!s}
-        onClick={() => s && onOpenSession(sessionId)}
+        title={exists ? `Open “${label}”` : "Session unavailable"}
+        disabled={!exists}
+        onClick={() =>
+          exists && onOpenSession(it.session_id, it.session_workspace || "", it.session_agent || "cowork")
+        }
       >
         <span className={"inbox-chip-ico " + cls}>
           <Icon name={icon} size={11} />
         </span>
         <span className="inbox-chip-label">{label}</span>
-        {s && <Icon name="chevronRight" size={13} className="inbox-chip-go" />}
+        {exists && <Icon name="chevronRight" size={13} className="inbox-chip-go" />}
       </button>
     );
   };
@@ -73,12 +74,7 @@ export function InboxView({
         {items.length === 0 ? <div className="manage-empty">Nothing pending.</div> : null}
 
         {items.map((it) => (
-          <InboxItemCard
-            key={it.id}
-            item={it}
-            onResolve={resolve}
-            chip={sessionChip(it.session_id)}
-          />
+          <InboxItemCard key={it.id} item={it} onResolve={resolve} chip={sessionChip(it)} />
         ))}
       </div>
     </div>
