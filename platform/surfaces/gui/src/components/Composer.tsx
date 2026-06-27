@@ -121,14 +121,42 @@ export function Composer(props: Props) {
     }
   };
 
-  const onPaste = (e: React.ClipboardEvent) => {
-    const imgs = Array.from(e.clipboardData.items)
+  const onPaste = async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imgs = items
       .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
       .map((it) => it.getAsFile())
       .filter(Boolean) as File[];
     if (imgs.length) {
       e.preventDefault();
       addFiles(imgs);
+      return;
+    }
+
+    // WebKit2GTK (Linux) doesn't expose clipboard images as clipboardData file items.
+    // Fall back to the native Tauri clipboard API when running inside the desktop app.
+    // Skip when plain text is present — let the textarea handle it normally.
+    const hasText = items.some((it) => it.kind === "string" && it.type === "text/plain");
+    if (hasText || !("__TAURI__" in window)) return;
+
+    e.preventDefault();
+    try {
+      const { readImage } = await import("@tauri-apps/plugin-clipboard-manager");
+      const img = await readImage();
+      const [rgba, { width, height }] = await Promise.all([img.rgba(), img.size()]);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+      const file = await new Promise<File | null>((resolve) =>
+        canvas.toBlob(
+          (blob) => resolve(blob ? new File([blob], "clipboard.png", { type: "image/png" }) : null),
+          "image/png"
+        )
+      );
+      if (file) addFiles([file]);
+    } catch {
+      // No image in clipboard or API unavailable — nothing to do.
     }
   };
 
