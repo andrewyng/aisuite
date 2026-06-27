@@ -134,6 +134,14 @@ body {
 .section-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 2px 6px; }
 .sessions { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; min-height: 0; }
 
+/* -- Shared zone (global capabilities, above the persona accordions) -------- */
+.shared-nav { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.shared-link { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 13.5px; color: var(--ink); user-select: none; }
+.shared-link .ico { flex: none; color: var(--muted); }
+.shared-link:hover { background: var(--paper); }
+.shared-link.active { background: var(--paper); }
+.shared-link.active .ico { color: var(--ink); }
+
 /* -- Surface accordions (Cowork / Chat / Code) ----------------------------- */
 .surfaces { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .surf-head { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; cursor: pointer; user-select: none; }

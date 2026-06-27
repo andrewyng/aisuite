@@ -203,7 +203,6 @@ export function Sidebar(props: Props) {
   // The expanded body for the active surface: action rows (New / Search / Integrations /
   // Automations) then the project-grouped (or flat) session list.
   const surfaceBody = () => {
-    const isCowork = browseKey === "cowork";
     return (
       <div className="surf-body">
         <div className="surf-actions">
@@ -241,22 +240,6 @@ export function Sidebar(props: Props) {
             <div className="surf-action" onClick={() => setSearchOpen(true)}>
               <Icon name="search" size={16} className="ico" /> Search
             </div>
-          )}
-          {isCowork && (
-            <>
-              <div
-                className={"surf-action" + (props.integrationsActive ? " active" : "")}
-                onClick={props.onOpenIntegrations}
-              >
-                <Icon name="plug" size={16} className="ico" /> Integrations
-              </div>
-              <div
-                className={"surf-action" + (props.scheduledActive ? " active" : "")}
-                onClick={props.onOpenScheduled}
-              >
-                <Icon name="clock" size={16} className="ico" /> Automations
-              </div>
-            </>
           )}
         </div>
 
@@ -329,6 +312,22 @@ export function Sidebar(props: Props) {
           />
         </svg>
         <span className="name">OpenCoworker</span>
+      </div>
+
+      {/* Shared zone: capabilities common to ALL coworkers, above the persona accordions. */}
+      <div className="shared-nav">
+        <div
+          className={"shared-link" + (props.integrationsActive ? " active" : "")}
+          onClick={props.onOpenIntegrations}
+        >
+          <Icon name="plug" size={16} className="ico" /> Integrations
+        </div>
+        <div
+          className={"shared-link" + (props.scheduledActive ? " active" : "")}
+          onClick={props.onOpenScheduled}
+        >
+          <Icon name="clock" size={16} className="ico" /> Automations
+        </div>
       </div>
 
       <div className="surfaces">
