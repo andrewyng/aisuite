@@ -143,6 +143,7 @@ body {
 .surf-ico.ico-cowork { background: #16a34a; }
 .surf-ico.ico-chat { background: var(--accent); }
 .surf-ico.ico-code { background: #7c3aed; }
+.surf-ico.ico-ops { background: #ea580c; }
 .surf-label { flex: 1; font-size: 14px; font-weight: 600; color: var(--ink); }
 .surf-chev { color: var(--faint); flex: none; }
 .surf-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 4px 12px 8px; }

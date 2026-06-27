@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import type { RecentWorkspace, SurfaceVisibility } from "../api";
+import { getPersonas, type Persona, type RecentWorkspace, type SurfaceVisibility } from "../api";
 import type { SessionInfo } from "../types";
 import { Icon } from "./Icon";
 
-// Session surfaces shown as accordions, in display order. Cowork is always visible; Chat/Code
-// are toggled via Settings. Each has a colored icon square.
+// Session surfaces shown as accordions, in display order. The surfaced personas drive this list
+// (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
 const SURFACES: { key: string; label: string; icon: "diamond" | "chat" | "code"; cls: string }[] = [
   { key: "cowork", label: "OpenCoworker", icon: "diamond", cls: "ico-cowork" },
   { key: "chat", label: "Chat", icon: "chat", cls: "ico-chat" },
   { key: "code", label: "Code", icon: "code", cls: "ico-code" },
 ];
+
+const ICON_FOR: Record<string, "diamond" | "chat" | "code"> = {
+  cowork: "diamond",
+  chat: "chat",
+  code: "code",
+};
+const surfaceFromPersona = (p: Persona) => ({
+  key: p.id,
+  label: p.id === "cowork" ? "OpenCoworker" : p.name,
+  icon: ICON_FOR[p.icon] ?? "diamond",
+  cls: `ico-${p.icon || "cowork"}`,
+});
 
 interface Props {
   agent: string;
@@ -150,9 +162,18 @@ export function Sidebar(props: Props) {
     }
   }
 
-  const visibleSurfaces = SURFACES.filter(
-    (s) => s.key === "cowork" || props.surfaces[s.key as keyof SurfaceVisibility],
-  );
+  // Surfaced + enabled personas drive the surface list; fall back to the static set until loaded.
+  const [personas, setPersonas] = useState<Persona[] | null>(null);
+  useEffect(() => {
+    getPersonas()
+      .then(setPersonas)
+      .catch(() => setPersonas(null));
+  }, []);
+  const visibleSurfaces = personas
+    ? personas.filter((p) => p.enabled && p.surfaced).map(surfaceFromPersona)
+    : SURFACES.filter(
+        (s) => s.key === "cowork" || props.surfaces[s.key as keyof SurfaceVisibility],
+      );
 
   // Which accordion body is expanded. Follows the active surface, but can be set to null so ALL
   // accordions collapse (clicking the active header toggles it shut without leaving the surface).
