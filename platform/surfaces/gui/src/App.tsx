@@ -22,6 +22,7 @@ import { Icon } from "./components/Icon";
 import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
+import { UnattendedToggle } from "./components/UnattendedToggle";
 import { Markdown } from "./components/Markdown";
 import { RootsBar } from "./components/RootsBar";
 import { SessionIntro } from "./components/SessionIntro";
@@ -879,6 +880,7 @@ export function App() {
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
               rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
+              unattendedSlot={agent !== "chat" ? <UnattendedToggle sessionId={sessionId} /> : undefined}
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={

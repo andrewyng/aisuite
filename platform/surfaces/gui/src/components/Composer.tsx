@@ -46,6 +46,8 @@ interface Props {
   // When set (orphan Cowork), replaces the single workspace chip with a directory manager.
   rootsSlot?: ReactNode;
   approvalSlot?: ReactNode;
+  // Per-session Unattended toggle, shown in the composer head (knowledge surfaces).
+  unattendedSlot?: ReactNode;
   // Push text + attachments into the composer (e.g. a start-panel task card). The `nonce` makes
   // repeated identical prefills re-apply; the user can still edit before sending.
   prefill?: { text: string; attachments?: Attachment[]; nonce: number };
@@ -156,20 +158,22 @@ export function Composer(props: Props) {
           if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
         }}
       >
-        {(props.rootsSlot || props.workspace !== undefined) && (
+        {(props.rootsSlot || props.workspace !== undefined || props.unattendedSlot) && (
           <div className="composer-head">
-            {props.rootsSlot ?? (
-              <button className="wschip" onClick={props.onPickWorkspace} title={props.workspace}>
-                <Icon name="folder" size={14} />
-                <span className="wsname">{wsName || "Choose folder"}</span>
-                <Icon name="pencil" size={12} className="edit" />
-              </button>
-            )}
+            {props.rootsSlot ??
+              (props.workspace !== undefined ? (
+                <button className="wschip" onClick={props.onPickWorkspace} title={props.workspace}>
+                  <Icon name="folder" size={14} />
+                  <span className="wsname">{wsName || "Choose folder"}</span>
+                  <Icon name="pencil" size={12} className="edit" />
+                </button>
+              ) : null)}
             {props.branch && (
               <span className="wsbranch">
                 <Icon name="branch" size={13} /> {props.branch}
               </span>
             )}
+            {props.unattendedSlot}
           </div>
         )}
 

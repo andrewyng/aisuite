@@ -1311,3 +1311,17 @@ button.btn.ghost:hover { color: var(--ink); }
   margin-top: 8px;
 }
 .inbox-item-actions input { flex: 1; }
+
+/* Unattended toggle (composer head) */
+.wschip.unattended-on {
+  background: var(--warn-ink, #b45309);
+  color: #fff;
+  border-color: transparent;
+}
+.unattended-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
