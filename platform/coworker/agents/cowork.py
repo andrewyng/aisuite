@@ -8,12 +8,12 @@ shared with MyHelper (the always-on helper runs the same toolset under a differe
 
 from __future__ import annotations
 
-import aisuite as ai
-
-from ..tools.search import search_tools
-from ..tools.shell import shell_tools
-from ..tools.todo import todo_tools
+from ..catalog import expand
 from .base import Agent, AgentContext
+
+# Capabilities the knowledge-work surface composes from the vetted catalog. `files` is the
+# multi-root variant (reads/writes across added folders), unlike Code's single-root `code_files`.
+COWORK_CAPABILITIES = ["files", "search", "shell", "todo"]
 
 COWORK_INSTRUCTIONS = (
     "You are a Cowork agent — a capable knowledge-work coworker spun up to solve one problem "
@@ -35,25 +35,10 @@ COWORK_INSTRUCTIONS = (
 
 
 def cowork_tool_factory(context: AgentContext) -> list:
-    """Workspace toolset shared by Cowork and MyHelper: files + grep + shell + todo."""
-    ws = str(context.workspace)
-    # Multi-root when the session carries a roots list (primary scratch + any added folders);
-    # otherwise the single workspace, writable. Our `grep` (ripgrep, .gitignore-aware) replaces
-    # the toolkit's slower search_files.
-    file_kwargs = (
-        {"roots": context.roots} if context.roots else {"root": ws, "allow_write": True}
-    )
-    files = [
-        t
-        for t in ai.toolkits.files(**file_kwargs)
-        if getattr(t, "__name__", "") != "search_files"
-    ]
-    tools = [*files, *search_tools(ws)]
-    if context.executor is not None:
-        tools += shell_tools(context.executor)
-    if context.todo is not None:
-        tools += todo_tools(context.todo)
-    return tools
+    """Workspace toolset shared by Cowork and MyHelper: files (multi-root) + grep + shell + todo.
+    Composed from the vetted catalog; capabilities lacking their context (no executor/todo) are
+    skipped, exactly as the old hand-written factory did."""
+    return expand(COWORK_CAPABILITIES, context)
 
 
 def cowork_agent() -> Agent:

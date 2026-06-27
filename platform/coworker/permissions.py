@@ -13,6 +13,15 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOOLS)
+    SHELL_TOOL,
+    WRITE_TOOLS,
+    RiskClass,
+    RiskOverrides,
+    classify,
+    is_consequential,
+)
+
 
 class Mode(str, Enum):
     DISCUSS = "discuss"  # read-only conversation: no edits, no planning workflow
@@ -36,11 +45,6 @@ class Decision:
     needs_user: bool = False  # True → surface should prompt the user for approval
 
 
-# Tools that mutate the workspace (used for path-scoping + plan-mode blocking).
-WRITE_TOOLS = {"write_file", "replace_in_file", "apply_patch", "apply_unified_diff"}
-SHELL_TOOL = "run_shell"
-
-
 @dataclass
 class PermissionEngine:
     workspace_root: Path
@@ -49,6 +53,8 @@ class PermissionEngine:
     auto_allow_tools: set[str] = field(default_factory=set)
     session_allow_tools: set[str] = field(default_factory=set)
     session_allow_commands: set[str] = field(default_factory=set)
+    # User-local risk override resolver (Phase 2). None → use the base classification.
+    risk_overrides: Optional[RiskOverrides] = None
     # Shared, possibly-mutable list of roots (RootDir-like / dicts). When omitted, the single
     # `workspace_root` is the sole writable root (back-compat). Kept by reference and re-read on
     # every check, so runtime add/remove of folders takes effect without rebuilding the engine.
@@ -76,11 +82,11 @@ class PermissionEngine:
         self, tool_name: str, arguments: dict[str, Any], metadata: Any = None
     ) -> Decision:
         arguments = arguments or {}
-        requires_approval = bool(getattr(metadata, "requires_approval", False))
         is_connector = getattr(metadata, "category", "") == "connector"
-        is_write = tool_name in WRITE_TOOLS
-        is_shell = tool_name == SHELL_TOOL
-        consequential = is_write or is_shell or requires_approval
+        risk = classify(tool_name, metadata, self.risk_overrides)
+        is_write = risk is RiskClass.WRITE_LOCAL
+        is_shell = risk is RiskClass.EXEC
+        consequential = is_consequential(risk)
 
         # Discuss / plan modes: read-only.
         if self.mode in READ_ONLY_MODES and consequential:

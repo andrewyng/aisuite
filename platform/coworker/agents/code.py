@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import aisuite as ai
+from ..catalog import expand
+from .base import Agent
 
-from ..tools.files import file_tools
-from ..tools.git import git_tools
-from ..tools.search import search_tools
-from ..tools.shell import shell_tools
-from ..tools.todo import todo_tools
-from .base import Agent, AgentContext
+# Capabilities this surface composes from the vetted catalog (was a hand-written factory).
+CODE_CAPABILITIES = ["code_files", "git", "search", "shell", "todo"]
 
 CODE_INSTRUCTIONS = """You are coworker's coding agent — a careful, senior software engineer working in the user's \
 workspace. Make correct, minimal, well-integrated changes and verify them.
@@ -67,33 +64,10 @@ the request is ambiguous rather than guessing."""
 
 
 def code_agent() -> Agent:
-    def factory(context: AgentContext) -> list:
-        ws = str(context.workspace)
-        # Our `grep` (ripgrep, .gitignore-aware) replaces the toolkit's slower search_files;
-        # our line-numbered, windowing `read_file` replaces its read_file/read_file_lines.
-        replaced = {"search_files", "read_file", "read_file_lines"}
-        files = [
-            t
-            for t in ai.toolkits.files(root=ws, allow_write=True)
-            if getattr(t, "__name__", "") not in replaced
-        ]
-        tools = [
-            *files,
-            *file_tools(ws),  # read_file (numbered lines, windowed)
-            *ai.toolkits.git(root=ws),  # git_status, git_diff
-            *git_tools(ws),  # git_log
-            *search_tools(ws),  # grep
-        ]
-        if context.executor is not None:
-            tools += shell_tools(context.executor)
-        if context.todo is not None:
-            tools += todo_tools(context.todo)
-        return tools
-
     return Agent(
         name="code",
         title="Code",
         system_prompt=CODE_INSTRUCTIONS,
         needs_workspace=True,
-        tool_factory=factory,
+        tool_factory=lambda context: expand(CODE_CAPABILITIES, context),
     )
