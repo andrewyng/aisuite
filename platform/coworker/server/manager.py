@@ -1047,7 +1047,10 @@ class SessionManager:
             on_event=self._sa_broadcast,
         )
         self.gateway = Gateway(
-            secrets=self.secrets, settings=settings, handler=self.superagent.on_message
+            secrets=self.secrets,
+            settings=settings,
+            handler=self.superagent.on_message,
+            reply_resolver=self._resolve_inbox_reply,
         )
         for platform, st in settings.items():
             if not st.enabled:
@@ -1168,6 +1171,16 @@ class SessionManager:
         for tool in task.always_allowed_tools:
             engine.permissions.allow_tool_for_session(tool)
         return engine
+
+    # -- inbox replies over messaging connectors --------------------------------
+    def _resolve_inbox_reply(self, event) -> bool:
+        """Try to handle an inbound Slack/Telegram message as an Inbox reply. Returns True if the
+        message carried an `[ocw:<id>]` token (so it's consumed here, not routed as a new turn) —
+        resolving the item also releases any agent suspended on it."""
+        from ..inbox_routing import resolve_from_reply
+
+        text = getattr(event, "text", "") or ""
+        return resolve_from_reply(text, self.inbox.resolve) is not None
 
     # -- self-wake resumption ---------------------------------------------------
     async def resume_due_wakes(self) -> int:

@@ -480,6 +480,17 @@ def create_app(manager: SessionManager) -> FastAPI:
                     body=getattr(_request, "reason", "") or "",
                     inbox=inbox_name,
                 )
+                # Mirror to a bound channel (Slack/Telegram) with the item id embedded, so the
+                # user can approve/deny from there; the reply comes back via the gateway resolver.
+                binding = manager.inbox_routing.binding_for(inbox_name)
+                if binding.channel and manager.gateway is not None:
+                    text = f"{item.title}\n{item.body}\n[ocw:{item.id}]".strip()
+                    try:
+                        await manager.gateway.deliver(
+                            f"{binding.channel}:{binding.target}", text
+                        )
+                    except Exception:
+                        pass
                 resolution = await manager.inbox.wait(item.id)
                 if resolution == "always":
                     return ApprovalOutcome.ALWAYS_TOOL

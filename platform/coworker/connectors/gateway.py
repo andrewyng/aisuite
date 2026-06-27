@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from typing import Optional
+from typing import Callable, Optional
 
 from ..secrets import SecretStore
 from .base import (
@@ -34,18 +34,27 @@ class Gateway:
         secrets: Optional[SecretStore] = None,
         settings: Optional[dict[str, ConnectorSettings]] = None,
         handler: Optional[MessageHandler] = None,
+        reply_resolver: Optional[Callable[[MessageEvent], bool]] = None,
     ) -> None:
         self.secrets = secrets or SecretStore()
         self.settings = (
             settings if settings is not None else load_settings(self.secrets)
         )
         self._handler = handler
+        # Tried before the handler: if an inbound message is an Inbox reply (carries an
+        # [ocw:<id>] token), it resolves the item and is consumed — not routed as a new turn.
+        self._reply_resolver = reply_resolver
         self._adapters: dict[str, BasePlatformAdapter] = {}
         # In-memory recent senders for chat-ID auto-capture (identity only, never persisted).
         self._recent: "OrderedDict[tuple[str, str], dict]" = OrderedDict()
 
     def set_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
+
+    def set_reply_resolver(
+        self, resolver: Optional[Callable[[MessageEvent], bool]]
+    ) -> None:
+        self._reply_resolver = resolver
 
     def register(self, adapter: BasePlatformAdapter) -> None:
         adapter.set_message_handler(self._on_inbound)
@@ -57,6 +66,15 @@ class Gateway:
         if settings is None or not is_authorized(settings, event.source):
             logger.info("dropping unauthorized inbound from %s", event.source.label())
             return
+        # An inbound reply that resolves an Inbox item (approval/answer) is consumed here, not
+        # routed to the super-agent as a new turn. The suspended agent awaiting that item is
+        # released automatically (InboxStore.resolve fires its waiter).
+        if self._reply_resolver is not None:
+            try:
+                if self._reply_resolver(event):
+                    return
+            except Exception:
+                logger.exception("inbox reply resolver failed")
         if self._handler is not None:
             await self._handler(event)
 
