@@ -35,6 +35,7 @@ class Gateway:
         settings: Optional[dict[str, ConnectorSettings]] = None,
         handler: Optional[MessageHandler] = None,
         reply_resolver: Optional[Callable[[MessageEvent], bool]] = None,
+        interaction_handler: Optional[Callable] = None,
     ) -> None:
         self.secrets = secrets or SecretStore()
         self.settings = (
@@ -44,6 +45,8 @@ class Gateway:
         # Tried before the handler: if an inbound message is an Inbox reply (carries an
         # [ocw:<id>] token), it resolves the item and is consumed — not routed as a new turn.
         self._reply_resolver = reply_resolver
+        # A button click on an interactive prompt (resolves an Inbox item by id).
+        self._interaction_handler = interaction_handler
         self._adapters: dict[str, BasePlatformAdapter] = {}
         # In-memory recent senders for chat-ID auto-capture (identity only, never persisted).
         self._recent: "OrderedDict[tuple[str, str], dict]" = OrderedDict()
@@ -58,7 +61,13 @@ class Gateway:
 
     def register(self, adapter: BasePlatformAdapter) -> None:
         adapter.set_message_handler(self._on_inbound)
+        if self._interaction_handler is not None:
+            adapter.set_interaction_handler(self._on_interaction)
         self._adapters[adapter.platform] = adapter
+
+    async def _on_interaction(self, event) -> None:
+        if self._interaction_handler is not None:
+            await self._interaction_handler(event)
 
     async def _on_inbound(self, event: MessageEvent) -> None:
         self._record_recent(event)  # capture identity even from unauthorized senders
@@ -130,6 +139,21 @@ class Gateway:
         if adapter is None:
             return SendResult(False, error=f"no adapter for {platform}")
         return await adapter.send(chat_id, text, thread_id=thread_id)
+
+    async def deliver_interactive(self, target: str, text: str, buttons) -> SendResult:
+        """Send a prompt with choice buttons (adapters without interactive support show text only)."""
+        platform, chat_id, thread_id = parse_target(target)
+        adapter = self._adapters.get(platform)
+        if adapter is None:
+            return SendResult(False, error=f"no adapter for {platform}")
+        return await adapter.send_interactive(chat_id, text, buttons, thread_id=thread_id)
+
+    async def update_message(self, platform: str, chat_id: str, message_id: str, text: str) -> None:
+        """Replace a resolved prompt's buttons with a plain-text outcome, if the adapter supports it."""
+        adapter = self._adapters.get(platform)
+        fn = getattr(adapter, "update_message", None)
+        if fn is not None:
+            await fn(chat_id, message_id, text)
 
     def status(self) -> list[dict]:
         out = []

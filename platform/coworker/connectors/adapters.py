@@ -11,8 +11,14 @@ import asyncio
 import logging
 from typing import Any, Optional
 
-from .base import BasePlatformAdapter, MessageEvent, SendResult, SessionSource
-from .senders import _send_slack, _send_telegram
+from .base import (
+    BasePlatformAdapter,
+    InteractionEvent,
+    MessageEvent,
+    SendResult,
+    SessionSource,
+)
+from .senders import _send_slack, _send_slack_interactive, _send_telegram
 
 logger = logging.getLogger("coworker.connectors")
 
@@ -153,6 +159,28 @@ class SlackAdapter(BasePlatformAdapter):
             if mapped is not None:
                 await self.handle_message(mapped)
 
+        # Button clicks on interactive prompts (action_id `ocw_*`). Socket mode delivers these over
+        # the same connection — no public endpoint, just "Interactivity" enabled in the Slack app.
+        import re as _re
+
+        @self._app.action(_re.compile(r"^ocw_"))
+        async def _on_action(ack, body):
+            await ack()
+            actions = body.get("actions") or [{}]
+            value = actions[0].get("value", "")
+            user = (body.get("user") or {})
+            channel = (body.get("channel") or {}).get("id", "")
+            ts = (body.get("message") or {}).get("ts")
+            await self.handle_interaction(
+                InteractionEvent(
+                    platform="slack",
+                    chat_id=str(channel),
+                    message_id=ts,
+                    value=str(value),
+                    user_name=user.get("username") or user.get("name"),
+                )
+            )
+
         self._socket = AsyncSocketModeHandler(self._app, self.app_token)
         self._task = asyncio.create_task(self._socket.start_async())
         logger.info("slack adapter connected (socket mode) as %s", self._bot_user_id)
@@ -172,6 +200,20 @@ class SlackAdapter(BasePlatformAdapter):
         self, chat_id: str, text: str, *, thread_id: Optional[str] = None
     ) -> SendResult:
         return _send_slack(self.bot_token, chat_id, text, thread_id)
+
+    async def send_interactive(
+        self, chat_id: str, text: str, buttons, *, thread_id: Optional[str] = None
+    ) -> SendResult:
+        return _send_slack_interactive(self.bot_token, chat_id, text, buttons, thread_id)
+
+    async def update_message(self, chat_id: str, message_id: str, text: str) -> None:
+        """Replace a resolved prompt's buttons with a plain-text outcome ("✅ Approved by …")."""
+        if self._app is None or not message_id:
+            return
+        try:
+            await self._app.client.chat_update(channel=chat_id, ts=message_id, text=text, blocks=[])
+        except Exception:
+            logger.debug("slack chat_update failed", exc_info=True)
 
 
 def make_adapter(platform: str, profile: dict) -> Optional[BasePlatformAdapter]:

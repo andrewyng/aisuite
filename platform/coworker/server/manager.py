@@ -312,14 +312,7 @@ class SessionManager:
                 allow_text=bool(args.get("allow_text", True)),
                 multi=bool(args.get("multi", False)),
             )
-            binding = self.inbox_routing.binding_for(inbox_name)
-            if binding.channel and self.gateway is not None:
-                opts = "  ".join(f"[{o}]" for o in (item.options or []))
-                text = f"{item.title}\n{opts}\n[ocw:{item.id}]".strip()
-                try:
-                    await self.gateway.deliver(f"{binding.channel}:{binding.target}", text)
-                except Exception:
-                    pass
+            await self.mirror_inbox_item(item)
             answer = await self.inbox.wait(item.id)
             return {"answer": answer}
 
@@ -1103,6 +1096,7 @@ class SessionManager:
             settings=settings,
             handler=self._dispatch_inbound,
             reply_resolver=self._resolve_inbox_reply,
+            interaction_handler=self._on_interaction,
         )
         for platform, st in settings.items():
             if not st.enabled:
@@ -1223,6 +1217,57 @@ class SessionManager:
         for tool in task.always_allowed_tools:
             engine.permissions.allow_tool_for_session(tool)
         return engine
+
+    # -- mirroring inbox items to a bound channel -------------------------------
+    async def mirror_inbox_item(self, item) -> None:
+        """Mirror an Inbox item to its bound channel. Discrete choices (approve/deny, ask_user
+        options) render as BUTTONS — the item id rides in each, so a click resolves it
+        unambiguously. Free-text answers aren't offered over messaging (open the app)."""
+        from ..interactions import buttons_for
+
+        binding = self.inbox_routing.binding_for(item.inbox)
+        if not (binding.channel and self.gateway is not None):
+            return
+        target = f"{binding.channel}:{binding.target}"
+        body = "\n".join(p for p in (item.title, item.body) if p).strip()
+        buttons = buttons_for(item)
+        try:
+            if buttons:
+                await self.gateway.deliver_interactive(target, body, buttons)
+            else:
+                await self.gateway.deliver(
+                    target, f"{body}\n(Open the app to respond.)\n[ocw:{item.id}]".strip()
+                )
+        except Exception:
+            pass
+
+    # -- interactive prompt buttons (Slack/Telegram) ----------------------------
+    async def _on_interaction(self, event) -> None:
+        """A button click on a mirrored Inbox prompt. The button value carries the item id + the
+        resolution, so this is unambiguous — resolve the item, then swap the buttons for the
+        outcome. Resolving releases any agent suspended on it (first-responder-wins)."""
+        from ..interactions import decode
+
+        decoded = decode(getattr(event, "value", "") or "")
+        if decoded is None:
+            return
+        item_id, resolution = decoded
+        item = self.inbox.get(item_id)
+        already = item is not None and item.state != "pending"
+        self.inbox.resolve(item_id, resolution)
+        who = getattr(event, "user_name", None) or "someone"
+        title = item.title if item is not None else "Prompt"
+        outcome = "already resolved" if already else f"“{resolution}” — by {who}"
+        if self.gateway is not None and getattr(event, "message_id", None):
+            try:
+                await self.gateway.update_message(
+                    getattr(event, "platform", "slack"),
+                    getattr(event, "chat_id", ""),
+                    event.message_id,
+                    f"{title}\n✅ {outcome}",
+                )
+            except Exception:
+                pass
 
     # -- inbox replies over messaging connectors --------------------------------
     def _resolve_inbox_reply(self, event) -> bool:

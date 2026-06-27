@@ -71,6 +71,49 @@ def _send_slack(
     return SendResult(False, error=data.get("error") or "slack send failed")
 
 
+def _slack_blocks(text: str, buttons) -> list[dict]:
+    """A Block Kit message: a text section + a row of action buttons (action_id `ocw_<i>`,
+    value = the encoded item id + resolution)."""
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    if buttons:
+        blocks.append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": b.label[:75]},
+                    "value": b.value,
+                    "action_id": f"ocw_{i}",
+                }
+                for i, b in enumerate(buttons)
+            ],
+        })
+    return blocks
+
+
+def _send_slack_interactive(
+    token: str, chat_id: str, text: str, buttons, thread_id: Optional[str] = None
+) -> SendResult:
+    import httpx
+
+    payload: dict = {"channel": chat_id, "text": text, "blocks": _slack_blocks(text, buttons)}
+    if thread_id:
+        payload["thread_ts"] = thread_id
+    try:
+        resp = httpx.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload,
+            timeout=_TIMEOUT,
+        )
+        data = resp.json()
+    except Exception as exc:
+        return SendResult(False, error=str(exc))
+    if data.get("ok"):
+        return SendResult(True, message_id=data.get("ts"))
+    return SendResult(False, error=data.get("error") or "slack send failed")
+
+
 DEFAULT_SENDERS: dict[str, Sender] = {
     "telegram": _send_telegram,
     "slack": _send_slack,

@@ -497,15 +497,8 @@ def create_app(manager: SessionManager) -> FastAPI:
             return VIS_INBOX if manager.unattended.is_unattended(session_id) else VIS_INLINE
 
         async def _mirror(item) -> None:
-            # Unattended items mirror to a bound channel (Slack/Telegram) with the id embedded.
-            binding = manager.inbox_routing.binding_for(item.inbox)
-            if binding.channel and manager.gateway is not None:
-                opts = "  ".join(f"[{o}]" for o in (item.options or []))
-                text = "\n".join(p for p in (item.title, item.body, opts, f"[ocw:{item.id}]") if p).strip()
-                try:
-                    await manager.gateway.deliver(f"{binding.channel}:{binding.target}", text)
-                except Exception:
-                    pass
+            # Unattended items mirror to a bound channel as buttons (see mirror_inbox_item).
+            await manager.mirror_inbox_item(item)
 
         def _route() -> str:
             return manager.inbox_routing.route_for(session_id, agent)

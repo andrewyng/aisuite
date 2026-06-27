@@ -89,6 +89,21 @@ class SendResult:
 MessageHandler = Callable[[MessageEvent], Awaitable[None]]
 
 
+@dataclass
+class InteractionEvent:
+    """A button click on an interactive prompt. `value` is the opaque button value (see
+    `interactions.decode`); `user_name` is who clicked, for the message update."""
+
+    platform: str
+    chat_id: str
+    message_id: Optional[str]  # the clicked message's id/ts (to update it)
+    value: str
+    user_name: Optional[str] = None
+
+
+InteractionHandler = Callable[[InteractionEvent], Awaitable[None]]
+
+
 class BasePlatformAdapter(ABC):
     """One messaging platform. Subclasses implement connect/disconnect/send and call
     `handle_message` for inbound events."""
@@ -97,9 +112,24 @@ class BasePlatformAdapter(ABC):
 
     def __init__(self) -> None:
         self._handler: Optional[MessageHandler] = None
+        self._interaction_handler: Optional[InteractionHandler] = None
 
     def set_message_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
+
+    def set_interaction_handler(self, handler: InteractionHandler) -> None:
+        self._interaction_handler = handler
+
+    async def send_interactive(
+        self, chat_id: str, text: str, buttons, *, thread_id: Optional[str] = None
+    ) -> SendResult:
+        """Send a prompt with choice buttons. Default: plain text (adapters without interactive
+        support just show the text — the user answers in the app)."""
+        return await self.send(chat_id, text, thread_id=thread_id)
+
+    async def handle_interaction(self, event: InteractionEvent) -> None:
+        if self._interaction_handler is not None:
+            await self._interaction_handler(event)
 
     @abstractmethod
     async def connect(self) -> bool:
