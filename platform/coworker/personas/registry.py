@@ -43,6 +43,7 @@ class PersonaEntry:
     builtin: bool = True
     family: str = "knowledge"
     tools: list[str] = field(default_factory=list)
+    default_surfaced: bool = True  # whether it shows in the picker before any user choice
     _builder: Optional[Callable[[], Agent]] = None
     manifest: Optional[PersonaManifest] = None
 
@@ -83,7 +84,8 @@ class PersonaRegistry:
 
     # -- loading ----------------------------------------------------------------
     def _register_builder(
-        self, id, name, icon, tagline, builder, needs_workspace, family, tools
+        self, id, name, icon, tagline, builder, needs_workspace, family, tools,
+        default_surfaced=True,
     ) -> None:
         self._entries[id] = PersonaEntry(
             id=id,
@@ -94,22 +96,25 @@ class PersonaRegistry:
             builtin=True,
             family=family,
             tools=list(tools),
+            default_surfaced=default_surfaced,
             _builder=builder,
         )
 
     def _load_builtin(self, builtin_dir: Optional[str | Path]) -> None:
-        # Core surfaces keep their exact prompts via the existing builders; order = sidebar order.
+        # Core surfaces keep their exact prompts via the existing builders. Cowork (the default)
+        # leads; Chat is hidden from the picker by default (Cowork covers quick Q&A) — recoverable
+        # from the Personas tab.
+        self._register_builder(
+            "cowork", "OpenCoworker", "cowork", "Produce a deliverable — research, analysis, scripts",
+            cowork_agent, True, "knowledge", COWORK_CAPABILITIES,
+        )
         self._register_builder(
             "code", "Code", "code", "Work in a codebase — files, git, shell",
             code_agent, True, "code", CODE_CAPABILITIES,
         )
         self._register_builder(
             "chat", "Chat", "chat", "Quick questions — no workspace",
-            chat_agent, False, "knowledge", [],
-        )
-        self._register_builder(
-            "cowork", "Coworker", "cowork", "Produce a deliverable — research, analysis, scripts",
-            cowork_agent, True, "knowledge", COWORK_CAPABILITIES,
+            chat_agent, False, "knowledge", [], default_surfaced=False,
         )
         # Markdown-backed built-ins (Ops, …) — dogfood the manifest path.
         d = Path(builtin_dir) if builtin_dir else Path(__file__).parent / "builtin"
@@ -176,7 +181,11 @@ class PersonaRegistry:
         return self._enabled.get(persona_id, True)
 
     def is_surfaced(self, persona_id: str) -> bool:
-        return self._surfaced.get(persona_id, True)
+        # User choice wins; otherwise the persona's default (Chat defaults hidden).
+        if persona_id in self._surfaced:
+            return self._surfaced[persona_id]
+        entry = self._entries.get(persona_id)
+        return entry.default_surfaced if entry else True
 
     def default_id(self) -> str:
         # The configured default if it's enabled, else cowork if present, else any enabled one.

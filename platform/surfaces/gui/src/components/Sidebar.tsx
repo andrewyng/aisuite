@@ -31,7 +31,7 @@ interface Props {
   projects: RecentWorkspace[];
   activeSession: string;
   onSwitchAgent: (agent: string) => void;
-  onNewSession: () => void;
+  onNewSession: (agent: string) => void;
   onSelectSession: (id: string, workspace: string, agent: string) => void;
   onNewProject: () => void;
   onRenameSession: (id: string, title: string) => void;
@@ -58,12 +58,30 @@ export function Sidebar(props: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const all = props.sessions.filter((s) => s.agent === props.agent && !s.session_id.startsWith("__"));
+  // Surfaced + enabled personas drive the surface list + family-aware behavior.
+  const [personas, setPersonas] = useState<Persona[] | null>(null);
+  useEffect(() => {
+    getPersonas()
+      .then(setPersonas)
+      .catch(() => setPersonas(null));
+  }, []);
+  const familyOf = (id: string) => personas?.find((p) => p.id === id)?.family;
+
+  // Which accordion body is expanded. Decoupled from the active session (props.agent): expanding
+  // a persona BROWSES its sessions without switching the chat area. Selecting a session or "New
+  // session" is what switches (and re-opens that persona). Falls back to the active persona.
+  const [openKey, setOpenKey] = useState<string | null>(props.agent);
+  useEffect(() => setOpenKey(props.agent), [props.agent]);
+  const browseKey = openKey ?? props.agent; // the persona whose sessions the body shows
+
+  // Body data is keyed to the BROWSED persona (only one body renders at a time).
+  const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
   const mine = all.filter((s) => !s.archived);
   const archived = all.filter((s) => s.archived);
-  // Only Code groups sessions by project folder. Cowork conversations are orphan (each has its
-  // own per-conversation scratch dir), so they list flat like Chat.
-  const workspaceSurface = props.agent === "code";
+  // Only the CODE FAMILY groups sessions by project (git-bound). Knowledge-family conversations
+  // are orphan (each has its own per-conversation scratch dir), so they list flat. Family-aware,
+  // not id-aware — so a DevOps/SecOps code-family persona also gets Projects.
+  const workspaceSurface = familyOf(browseKey) === "code";
 
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (s: SessionInfo) =>
@@ -153,7 +171,8 @@ export function Sidebar(props: Props) {
   // under Cowork only if it has Cowork sessions (+ the currently-open folder). No cross-bleed.
   const projectOrder: string[] = [];
   const seen = new Set<string>();
-  if (props.workspace) {
+  // Pin the active folder at top only when browsing the active persona (else it belongs elsewhere).
+  if (props.workspace && browseKey === props.agent) {
     projectOrder.push(props.workspace);
     seen.add(props.workspace);
   }
@@ -164,41 +183,32 @@ export function Sidebar(props: Props) {
     }
   }
 
-  // Surfaced + enabled personas drive the surface list; fall back to the static set until loaded.
-  const [personas, setPersonas] = useState<Persona[] | null>(null);
-  useEffect(() => {
-    getPersonas()
-      .then(setPersonas)
-      .catch(() => setPersonas(null));
-  }, []);
+  // Surfaced + enabled personas drive the surface list (default persona first); fall back to the
+  // static set until loaded.
   const visibleSurfaces = personas
-    ? personas.filter((p) => p.enabled && p.surfaced).map(surfaceFromPersona)
+    ? personas
+        .filter((p) => p.enabled && p.surfaced)
+        .sort((a, b) => Number(b.default) - Number(a.default)) // default leads
+        .map(surfaceFromPersona)
     : SURFACES.filter(
         (s) => s.key === "cowork" || props.surfaces[s.key as keyof SurfaceVisibility],
       );
 
-  // Which accordion body is expanded. Follows the active surface, but can be set to null so ALL
-  // accordions collapse (clicking the active header toggles it shut without leaving the surface).
-  // Decoupled from the main view: opening Integrations/Automations keeps the accordion open.
-  const [openKey, setOpenKey] = useState<string | null>(props.agent);
-  useEffect(() => setOpenKey(props.agent), [props.agent]);
-
-  const isCurrent = (key: string) => props.agent === key; // the surface you're in
+  const isCurrent = (key: string) => props.agent === key; // the active session's persona
   const isExpanded = (key: string) => openKey === key; // its body is open
-  const onHeaderClick = (key: string) => {
-    if (isCurrent(key)) setOpenKey((k) => (k === key ? null : key)); // collapse/expand in place
-    else props.onSwitchAgent(key); // switch surface (effect re-opens it)
-  };
+  // Expand ≠ switch: clicking a header only browses (toggles the accordion). The chat area
+  // changes only when a session is selected or "New session" is clicked.
+  const onHeaderClick = (key: string) => setOpenKey((k) => (k === key ? null : key));
 
   // The expanded body for the active surface: action rows (New / Search / Integrations /
   // Automations) then the project-grouped (or flat) session list.
   const surfaceBody = () => {
-    const isCowork = props.agent === "cowork";
+    const isCowork = browseKey === "cowork";
     return (
       <div className="surf-body">
         <div className="surf-actions">
-          <div className="surf-action" onClick={props.onNewSession}>
-            <Icon name="plus" size={16} className="ico" /> New {isCowork ? "session" : props.agent === "chat" ? "chat" : "session"}
+          <div className="surf-action" onClick={() => props.onNewSession(browseKey)}>
+            <Icon name="plus" size={16} className="ico" /> New {browseKey === "chat" ? "chat" : "session"}
           </div>
           {searchOpen ? (
             <div className="surf-search">

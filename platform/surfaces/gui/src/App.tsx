@@ -495,14 +495,23 @@ export function App() {
     sessionRef.current?.setModel(m);
   };
 
-  const startNewSession = () => {
+  const startNewSession = (forAgent?: string) => {
+    const target = forAgent || agent;
     setSurface("session"); // return to the conversation view if we were on a sub-view
     setItems([]);
     setStreaming("");
     setTodo([]);
-    // Cowork: a new conversation starts fresh (orphan) — clear the workspace so the server
-    // provisions a NEW scratch dir for the new session id. Code keeps its repo.
-    if (!gatesWorkspace(agent)) setWorkspace(null);
+    setRunning(false);
+    // "New session" under a browsed persona switches to it (expand≠switch: the header alone
+    // doesn't switch; this explicit action does).
+    if (target !== agent) {
+      setAgent(target);
+      if (gatesWorkspace(target)) setShowGate(true);
+      else setShowGate(false);
+    }
+    // Knowledge family: a new conversation starts fresh (orphan) — clear the workspace so the
+    // server provisions a NEW scratch dir for the new session id. Code keeps its repo.
+    if (!gatesWorkspace(target)) setWorkspace(null);
     setSessionId(newId());
   };
   const selectSession = async (id: string, ws: string, ag: string) => {

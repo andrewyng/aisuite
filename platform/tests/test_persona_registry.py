@@ -20,11 +20,25 @@ def test_builtins_present(tmp_path):
     assert reg.get("code").manifest is None
 
 
-def test_sidebar_lists_enabled_surfaced(tmp_path):
+def test_sidebar_default_first_and_chat_hidden(tmp_path):
     reg = _reg(tmp_path)
-    names = [e["name"] for e in reg.sidebar()]
-    assert names == ["code", "chat", "cowork", "ops"]
-    assert any(e["default"] for e in reg.sidebar())
+    sidebar = reg.sidebar()
+    ids = [e["name"] for e in sidebar]
+    # Default persona (Cowork) leads; Chat is hidden from the picker by default.
+    assert ids[0] == "cowork"
+    assert "chat" not in ids
+    assert set(ids) == {"cowork", "code", "ops"}
+    assert sidebar[0]["default"] is True
+
+
+def test_chat_hidden_but_enabled_and_resolvable(tmp_path):
+    reg = _reg(tmp_path)
+    assert reg.is_surfaced("chat") is False  # default-hidden
+    assert reg.is_enabled("chat") is True  # still usable / recoverable
+    assert reg.agent("chat").name == "chat"
+    # The user can surface it from the Personas tab.
+    reg.set_surfaced("chat", True)
+    assert "chat" in [e["name"] for e in reg.sidebar()]
 
 
 def test_surface_toggle_filters_picker_but_keeps_resolvable(tmp_path):
