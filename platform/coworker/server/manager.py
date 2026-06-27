@@ -218,6 +218,8 @@ class SessionManager:
                 engine.directory_requester = directory_requester
             if plan_approver is not None:
                 engine.plan_approver = plan_approver
+            if question_asker is not None:
+                engine.question_asker = question_asker
             return engine
 
         record = self.session_store.load(session_id)
