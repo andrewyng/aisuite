@@ -43,18 +43,24 @@ def test_persistence(tmp_path):
     assert any(x.id == w.id for x in reloaded.pending("s1"))
 
 
+def test_event_due_only_after_event_fires(tmp_path):
+    store = WakeStore(tmp_path / "wakes.json")
+    w = store.add_event("s1", event_key="pr-opened")
+    assert w.id not in {x.id for x in store.due()}
+    marked = store.fire_event("pr-opened")
+    assert [x.id for x in marked] == [w.id]
+    assert w.id in {x.id for x in store.due()}
+
+
 def test_selfwake_tools(tmp_path):
     store = WakeStore(tmp_path / "wakes.json")
-    sleep_for, sleep_until, wake_on = selfwake_tools(store, "s1")
+    sleep_for, sleep_until, wake_on, wake_on_event = selfwake_tools(store, "s1")
 
-    r1 = sleep_for(30)
-    assert r1["ok"] and r1["wake_id"]
-    r2 = wake_on("job-9")
-    assert r2["ok"] and r2["job_id"] == "job-9"
-    r3 = sleep_until((_now() + timedelta(minutes=5)).isoformat())
-    assert r3["ok"] and r3["fire_at"]
+    assert sleep_for(30)["ok"]
+    assert wake_on("job-9")["job_id"] == "job-9"
+    assert sleep_until((_now() + timedelta(minutes=5)).isoformat())["fire_at"]
+    assert wake_on_event("alert-fired")["event_key"] == "alert-fired"
 
-    # Two timers + one completion now pending for the session.
     pend = store.pending("s1")
-    assert len(pend) == 3
-    assert {w.kind for w in pend} == {"timer", "completion"}
+    assert len(pend) == 4
+    assert {w.kind for w in pend} == {"timer", "completion", "event"}

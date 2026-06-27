@@ -17,6 +17,7 @@ from typing import Any, Optional
 from ..agent import build_engine
 from ..agents import get_agent
 from ..inbox import InboxStore
+from ..inbox_routing import InboxRouting
 from ..personas import PersonaRegistry
 from ..personas.registry import set_registry as set_persona_registry
 from ..selfwake import WakeStore
@@ -127,8 +128,10 @@ class SessionManager:
         # process singleton so agents.get_agent resolves persona ids (incl. third-party) here.
         self.personas = PersonaRegistry(state_path=base / "personas.json")
         set_persona_registry(self.personas)
-        # Inbox (cross-session human-attention queue), the Unattended toggle, and self-wake records.
+        # Inbox (cross-session human-attention queue), routing (named inboxes + Slack/Telegram
+        # bindings), the Unattended toggle, and self-wake records.
         self.inbox = InboxStore(base / "inbox.json")
+        self.inbox_routing = InboxRouting(base / "inbox_routing.json")
         self.unattended = UnattendedRegistry(base / "unattended.json")
         self.wakes = WakeStore(base / "wakes.json")
 

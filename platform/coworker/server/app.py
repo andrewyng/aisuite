@@ -85,6 +85,20 @@ def create_app(manager: SessionManager) -> FastAPI:
         # Called when a session resumes attended control (surface pending + recap inline).
         return manager.inbox.reconcile_on_resume(session_id)
 
+    @app.get("/v1/inbox/routing")
+    def inbox_routing() -> dict[str, Any]:
+        return {"bindings": manager.inbox_routing.bindings()}
+
+    @app.post("/v1/inbox/routing/binding")
+    def set_inbox_binding(body: dict) -> dict[str, Any]:
+        name = str(body.get("name", "")).strip()
+        if not name:
+            return {"ok": False, "error": "binding needs a `name`"}
+        manager.inbox_routing.set_binding(
+            name, channel=body.get("channel") or None, target=str(body.get("target", ""))
+        )
+        return {"ok": True, "bindings": manager.inbox_routing.bindings()}
+
     @app.post("/v1/sessions/{session_id}/unattended")
     def set_unattended(session_id: str, body: dict) -> dict[str, Any]:
         # The GUI gates the on-transition behind a one-tap confirm.

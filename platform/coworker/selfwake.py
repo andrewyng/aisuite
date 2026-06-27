@@ -20,6 +20,7 @@ from typing import Optional
 
 KIND_TIMER = "timer"
 KIND_COMPLETION = "completion"
+KIND_EVENT = "event"  # wake when a named connector/webhook event fires (Phase 3)
 
 STATE_PENDING = "pending"
 STATE_DUE = "due"
@@ -38,6 +39,7 @@ class Wake:
     state: str = STATE_PENDING
     fire_at: Optional[str] = None  # ISO, for timer wakes
     job_id: Optional[str] = None  # for completion wakes
+    event_key: Optional[str] = None  # for on-event wakes
     note: str = ""
     created_at: str = field(default_factory=lambda: _now().isoformat())
 
@@ -75,8 +77,15 @@ class WakeStore:
             self._save()
         return w
 
+    def add_event(self, session_id: str, event_key: str, *, note: str = "") -> Wake:
+        w = Wake(uuid.uuid4().hex, session_id, KIND_EVENT, event_key=event_key, note=note)
+        with self._lock:
+            self._wakes[w.id] = w
+            self._save()
+        return w
+
     def due(self, now: Optional[datetime] = None) -> list[Wake]:
-        """Timer wakes whose fire time has passed (and completion wakes already marked due)."""
+        """Timer wakes whose fire time has passed, plus completion/event wakes marked due."""
         now = now or _now()
         out = []
         for w in self._wakes.values():
@@ -84,16 +93,23 @@ class WakeStore:
                 continue
             if w.kind == KIND_TIMER and w.fire_at and datetime.fromisoformat(w.fire_at) <= now:
                 out.append(w)
-            elif w.kind == KIND_COMPLETION and w.state == STATE_DUE:
+            elif w.kind in (KIND_COMPLETION, KIND_EVENT) and w.state == STATE_DUE:
                 out.append(w)
         return out
 
     def complete_job(self, job_id: str) -> list[Wake]:
         """Mark completion wakes for ``job_id`` as due (the job exited). Returns them."""
+        return self._mark_due(lambda w: w.kind == KIND_COMPLETION and w.job_id == job_id)
+
+    def fire_event(self, event_key: str) -> list[Wake]:
+        """Mark on-event wakes for ``event_key`` as due (a connector/webhook fired). Returns them."""
+        return self._mark_due(lambda w: w.kind == KIND_EVENT and w.event_key == event_key)
+
+    def _mark_due(self, pred) -> list[Wake]:
         fired = []
         with self._lock:
             for w in self._wakes.values():
-                if w.kind == KIND_COMPLETION and w.job_id == job_id and w.state == STATE_PENDING:
+                if w.state == STATE_PENDING and pred(w):
                     w.state = STATE_DUE
                     fired.append(w)
             if fired:
@@ -137,4 +153,10 @@ def selfwake_tools(store: WakeStore, session_id: str) -> list:
         w = store.add_completion(session_id, job_id, note=note)
         return {"ok": True, "wake_id": w.id, "job_id": job_id}
 
-    return [sleep_for, sleep_until, wake_on]
+    def wake_on_event(event_key: str, note: str = "") -> dict:
+        """Suspend and wake this session when a named event (`event_key`) fires — e.g. a
+        connector/webhook signal an Ops agent watches for."""
+        w = store.add_event(session_id, event_key, note=note)
+        return {"ok": True, "wake_id": w.id, "event_key": event_key}
+
+    return [sleep_for, sleep_until, wake_on, wake_on_event]
