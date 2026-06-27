@@ -33,6 +33,7 @@ import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { AuditView } from "./components/AuditView";
+import { InboxView } from "./components/InboxView";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 import { PlanCard } from "./components/PlanCard";
@@ -147,7 +148,7 @@ export function App() {
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
-  const [surface, setSurface] = useState<"session" | "superagent" | "scheduled" | "integrations" | "audit">("session");
+  const [surface, setSurface] = useState<"session" | "superagent" | "scheduled" | "integrations" | "audit" | "inbox">("session");
   const [helperName, setHelperName] = useState("MyHelper");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
@@ -702,10 +703,12 @@ export function App() {
         onOpenScheduled={() => setSurface("scheduled")}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
+        onOpenInbox={() => setSurface("inbox")}
         superagentActive={surface === "superagent"}
         scheduledActive={surface === "scheduled"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
+        inboxActive={surface === "inbox"}
         helperName={helperName}
       />
       {surface === "superagent" ? (
@@ -716,6 +719,8 @@ export function App() {
         <IntegrationsView />
       ) : surface === "audit" ? (
         <AuditView />
+      ) : surface === "inbox" ? (
+        <InboxView />
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">

@@ -1288,3 +1288,26 @@ button.btn.ghost:hover { color: var(--ink); }
   margin-bottom: 8px;
   background: var(--panel);
 }
+
+/* Inbox view */
+.inbox-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--panel);
+}
+.inbox-item-kind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inbox-item-title { font-weight: 600; margin: 2px 0; }
+.inbox-item-body { font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; }
+.inbox-item-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.inbox-item-actions input { flex: 1; }

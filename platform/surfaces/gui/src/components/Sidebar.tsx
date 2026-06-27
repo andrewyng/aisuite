@@ -41,10 +41,12 @@ interface Props {
   onOpenScheduled: () => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
+  onOpenInbox: () => void;
   superagentActive: boolean;
   scheduledActive: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
+  inboxActive: boolean;
   helperName?: string;
 }
 
@@ -341,6 +343,12 @@ export function Sidebar(props: Props) {
       </div>
 
       <div className="sidebar-foot">
+        <div
+          className={"manage-link" + (props.inboxActive ? " active" : "")}
+          onClick={props.onOpenInbox}
+        >
+          <Icon name="chat" size={15} className="ico" /> Inbox
+        </div>
         <div
           className={"manage-link" + (props.auditActive ? " active" : "")}
           onClick={props.onOpenAudit}
