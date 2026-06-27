@@ -70,4 +70,5 @@ def code_agent() -> Agent:
         system_prompt=CODE_INSTRUCTIONS,
         needs_workspace=True,
         tool_factory=lambda context: expand(CODE_CAPABILITIES, context),
+        family="code",
     )

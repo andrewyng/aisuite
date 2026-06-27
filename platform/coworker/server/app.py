@@ -61,6 +61,24 @@ def create_app(manager: SessionManager) -> FastAPI:
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}
 
+    @app.get("/v1/personas")
+    def personas() -> dict[str, Any]:
+        return {"personas": manager.personas.list_all()}
+
+    @app.post("/v1/personas/{persona_id}")
+    def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
+        reg = manager.personas
+        try:
+            if "enabled" in body:
+                reg.set_enabled(persona_id, bool(body["enabled"]))
+            if "surfaced" in body:
+                reg.set_surfaced(persona_id, bool(body["surfaced"]))
+            if body.get("default"):
+                reg.set_default(persona_id)
+        except KeyError:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        return {"ok": True, "personas": reg.list_all()}
+
     @app.get("/v1/skills")
     def skills() -> dict[str, Any]:
         return {"skills": manager.list_skills()}

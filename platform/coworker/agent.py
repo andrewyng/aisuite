@@ -141,17 +141,15 @@ def build_engine(
     # MCP / connector tools (supplied by the manager) carry their own metadata + schema.
     if extra_tools:
         registry.register_all(extra_tools)
-    # Connectors are Cowork-facing tools. MyHelper keeps the messaging reply path used by
-    # inbound Telegram/Slack super-agent sessions.
+    # Messaging personas (Cowork / Ops / MyHelper) expose send_message; MyHelper also uses it as
+    # the reply path for inbound Telegram/Slack super-agent sessions.
     secrets = secrets or SecretStore()
-    if agent.name in ("cowork", "myhelper") and any(
-        s.enabled for s in load_settings(secrets).values()
-    ):
+    if agent.messaging and any(s.enabled for s in load_settings(secrets).values()):
         registry.register(make_send_message_tool(secrets))
-    # Orphan surfaces can ask the user mid-task for access to another folder (read-only/-write).
-    if agent.name in ("cowork", "myhelper") and root_list:
+    # Knowledge surfaces with a multi-root workspace can ask the user mid-task for another folder.
+    if agent.family == "knowledge" and root_list:
         registry.register(request_directory_tool())
-    if agent.name == "cowork":
+    if agent.connectors:
         enabled_connectors, enabled_tools = _enabled_connector_tools(secrets)
         registry.register_all(
             make_integration_tools(
@@ -168,9 +166,9 @@ def build_engine(
     # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
     # Resolved here (not at engine construction) because the explorer subagent captures it.
     provider = provider or ProviderRouter(secrets, default_provider="openai")
-    # The Code agent can fan broad research out to read-only explorer subagents, keeping its
-    # own context for the actual change.
-    if agent.name == "code" and ws is not None:
+    # Code-family personas can fan broad research out to read-only explorer subagents, keeping
+    # their own context for the actual change.
+    if agent.family == "code" and ws is not None:
         registry.register_all(
             explorer_tools(
                 workspace=ws,
@@ -179,12 +177,9 @@ def build_engine(
                 model_settings=model_settings,
             )
         )
-    # Scheduling: Cowork + MyHelper can set up scheduled tasks (origin = this session).
-    if (
-        task_store is not None
-        and ws is not None
-        and agent.name in ("cowork", "myhelper")
-    ):
+    # Scheduling: knowledge surfaces with a workspace can set up scheduled tasks (origin = this
+    # session). Code stays out (it fans out to explorers instead).
+    if task_store is not None and ws is not None and agent.family == "knowledge":
         origin = {
             "surface": agent.name,
             "session_id": session_id or "",
@@ -238,7 +233,7 @@ def build_engine(
     # directory list (orphan Cowork can gain folders mid-session; Cowork/MyHelper only).
     roots_context = (
         (lambda: render_context(root_list))
-        if root_list and agent.name in ("cowork", "myhelper")
+        if root_list and agent.family == "knowledge"
         else None
     )
 

@@ -17,6 +17,7 @@ dependencies = [
     # aisuite (toolkits/tracing) is sourced from this worktree via a .pth in the venv,
     # not PyPI; these are aisuite's light base deps the toolkits need.
     "docstring_parser",
+    "pyyaml>=6",  # persona manifest frontmatter (YAML)
     "pydantic>=2",
     "mcp>=1.1",  # MCP client (stdio + streamable-http); we use our own async layer on it
     "httpx>=0.27",  # sync outbound senders for messaging connectors (send_message tool)
@@ -42,6 +43,9 @@ coworker-connectors = "coworker.connectors.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["coworker*"]
+
+[tool.setuptools.package-data]
+coworker = ["personas/builtin/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

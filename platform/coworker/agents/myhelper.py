@@ -34,4 +34,6 @@ def myhelper_agent(name: str = DEFAULT_HELPER_NAME) -> Agent:
         system_prompt=myhelper_instructions(name),
         needs_workspace=True,
         tool_factory=cowork_tool_factory,
+        family="knowledge",
+        messaging=True,
     )

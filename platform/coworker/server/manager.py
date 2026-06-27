@@ -16,6 +16,8 @@ from typing import Any, Optional
 
 from ..agent import build_engine
 from ..agents import get_agent
+from ..personas import PersonaRegistry
+from ..personas.registry import set_registry as set_persona_registry
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
 from ..engine import Approver, TurnEngine
@@ -118,6 +120,10 @@ class SessionManager:
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         self.task_store = TaskStore(base / "automation.db")
         self.scheduler = Scheduler(self.task_store, self._run_scheduled_task)
+        # Personas: registry + lifecycle state under this manager's data dir. Installed as the
+        # process singleton so agents.get_agent resolves persona ids (incl. third-party) here.
+        self.personas = PersonaRegistry(state_path=base / "personas.json")
+        set_persona_registry(self.personas)
 
     # -- workspaces -------------------------------------------------------------
     def open_workspace(self, path: str, *, create: bool = False) -> dict[str, Any]:
@@ -211,10 +217,10 @@ class SessionManager:
             model, mode, messages = self.model, self.mode, None
 
         if ag.needs_workspace and (not ws or not Path(ws).is_dir()):
-            # Cowork starts "orphan": no folder picked → auto-provision a per-conversation
-            # scratch directory (generalizes MyHelper's auto-workspace). Code still requires a
-            # real repo; Chat needs no workspace.
-            if agent_name == "cowork":
+            # Knowledge surfaces (Cowork, Ops, …) start "orphan": no folder picked →
+            # auto-provision a per-conversation scratch directory (generalizes MyHelper's
+            # auto-workspace). Code-family surfaces still require a real repo; Chat needs none.
+            if ag.family == "knowledge":
                 ws = self._provision_scratch(session_id)
             else:
                 return None
@@ -224,7 +230,7 @@ class SessionManager:
         # Orphan surfaces are multi-root: the scratch (ws) is the primary writable root, plus any
         # folders the user added (persisted per session). Code/Chat stay single-root (roots=None).
         roots = None
-        if agent_name in ("cowork", "myhelper") and ws:
+        if ag.family == "knowledge" and ws:
             extra = [
                 r
                 for r in ((record.extra_roots if record else []) or [])

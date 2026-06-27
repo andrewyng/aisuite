@@ -48,4 +48,7 @@ def cowork_agent() -> Agent:
         system_prompt=COWORK_INSTRUCTIONS,
         needs_workspace=True,
         tool_factory=cowork_tool_factory,
+        family="knowledge",
+        messaging=True,
+        connectors=True,
     )
