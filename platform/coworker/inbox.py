@@ -46,6 +46,11 @@ class InboxItem:
     inbox: str = "default"  # named inbox / delivery binding (Phase 3 routing)
     created_at: str = field(default_factory=_now)
     resolved_at: Optional[str] = None
+    # Question metadata (ask_user): optional quick-reply choices + a free-text escape, mirroring
+    # the structured-but-always-answerable shape of Claude Code's AskUserQuestion.
+    options: list[str] = field(default_factory=list)
+    allow_text: bool = True  # accept a typed answer even when options exist (the "Other" escape)
+    multi: bool = False  # allow choosing more than one option
 
 
 class InboxStore:
@@ -89,8 +94,19 @@ class InboxStore:
     def add_approval(self, session_id, title, *, body="", inbox="default") -> InboxItem:
         return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox)
 
-    def add_question(self, session_id, title, *, body="", inbox="default") -> InboxItem:
-        return self.add(session_id, KIND_QUESTION, title, body=body, inbox=inbox)
+    def add_question(
+        self, session_id, title, *, body="", inbox="default",
+        options=None, allow_text=True, multi=False,
+    ) -> InboxItem:
+        item = InboxItem(
+            id=uuid.uuid4().hex, session_id=session_id, kind=KIND_QUESTION, title=title,
+            body=body, inbox=inbox, options=list(options or []),
+            allow_text=bool(allow_text), multi=bool(multi),
+        )
+        with self._lock:
+            self._items[item.id] = item
+            self._save()
+        return item
 
     def add_notification(self, session_id, title, *, body="", inbox="default") -> InboxItem:
         return self.add(session_id, KIND_NOTIFICATION, title, body=body, inbox=inbox)

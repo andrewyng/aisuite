@@ -460,6 +460,10 @@ export interface InboxItem {
   inbox: string;
   created_at: string;
   resolved_at: string | null;
+  // Question metadata (ask_user): quick-reply choices + a free-text escape.
+  options?: string[];
+  allow_text?: boolean;
+  multi?: boolean;
   // Originating-session context (server-joined) so the Inbox is self-contained.
   session_title?: string;
   session_agent?: string | null;

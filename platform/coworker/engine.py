@@ -67,6 +67,9 @@ class TurnEngine:
         plan_approver: Optional[
             Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
         ] = None,
+        question_asker: Optional[
+            Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
+        ] = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -90,6 +93,10 @@ class TurnEngine:
         # An approving result flips the live PermissionEngine out of plan mode (same session,
         # context kept). None on surfaces that can't prompt (the tool then no-ops).
         self.plan_approver = plan_approver
+        # Handles the `ask_user` tool: turns a question into an Inbox item and waits for the answer
+        # (answerable inline in a live session or from the Inbox when unattended). None on surfaces
+        # that can't ask (the tool then no-ops).
+        self.question_asker = question_asker
         self.audit_context: dict[str, Any] = {}
         if instructions and not (
             self.messages and self.messages[0].get("role") == "system"
@@ -224,6 +231,10 @@ class TurnEngine:
                 continue
             if tool_call.name == "propose_plan":
                 async for event in self._handle_plan_proposal(tool_call):
+                    yield event
+                continue
+            if tool_call.name == "ask_user":
+                async for event in self._handle_ask_user(tool_call):
                     yield event
                 continue
             allowed = False
@@ -498,6 +509,47 @@ class TurnEngine:
                 "status": status,
                 "result_preview": _preview(result),
             },
+        )
+
+    async def _handle_ask_user(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+        """Emit the question, await the user's out-of-band answer (inline in the live session or
+        from the Inbox when unattended), and return it as the tool result."""
+        args = tool_call.arguments or {}
+        question = str(args.get("question", "")).strip()
+        if self.question_asker is None or not question:
+            result: dict[str, Any] = {
+                "answer": "",
+                "error": "no question was asked" if not question else "asking isn't available here",
+            }
+        else:
+            yield Event(
+                EventType.QUESTION_REQUESTED,
+                {
+                    "question": question,
+                    "options": list(args.get("options") or []),
+                    "allow_text": bool(args.get("allow_text", True)),
+                    "multi": bool(args.get("multi", False)),
+                    "header": str(args.get("header", "")),
+                },
+            )
+            self._audit(tool_call, stage="question_requested", reason=question)
+            result = await self.question_asker(dict(args)) or {
+                "answer": "",
+                "error": "no response",
+            }
+
+        status = "ok" if result.get("answer") else "denied"
+        self.messages.append(_tool_result_message(tool_call, result))
+        self._audit(
+            tool_call,
+            stage="finished",
+            status=status,
+            result=result,
+            result_preview=_preview(result),
+        )
+        yield Event(
+            EventType.TOOL_FINISHED,
+            {"name": tool_call.name, "status": status, "result_preview": _preview(result)},
         )
 
     def _inject_steering(self) -> None:

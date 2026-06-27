@@ -7,6 +7,7 @@ export type EventType =
   | "tool_proposed"
   | "permission_required"
   | "directory_requested"
+  | "question_requested"
   | "plan_proposed"
   | "tool_started"
   | "tool_finished"

@@ -425,6 +425,11 @@ export function App() {
             { kind: "dirreq", reason: d.reason || "", path: d.path || "", writable: !!d.writable },
           ]);
           break;
+        case "question_requested":
+          // ask_user — the question is now a pending Inbox item; pull it so the inline
+          // answer-in-context card shows immediately rather than after the next poll.
+          getInbox(sessionId, "pending").then(setSessionInbox).catch(() => {});
+          break;
         case "plan_proposed":
           setItems((p) => [...p, { kind: "planreq", plan: d.plan || "" }]);
           break;

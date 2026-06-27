@@ -30,6 +30,7 @@ from .overrides import RiskOverrideStore
 from .secrets import SecretStore, state_dir
 from .skills import SkillLoader, skill_catalog_text, skill_tools
 from .tools import ToolRegistry
+from .tools.ask import ask_user_tool
 from .tools.directories import request_directory_tool
 from .tools.plan import propose_plan_tool
 from .tools.subagent import explorer_tools
@@ -115,6 +116,7 @@ def build_engine(
     roots: Optional[list] = None,
     directory_requester: Optional[Any] = None,
     plan_approver: Optional[Any] = None,
+    question_asker: Optional[Any] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
@@ -165,6 +167,9 @@ def build_engine(
     # Web search + fetch: research tools for every agent (keyless DuckDuckGo default).
     registry.register(make_web_search_tool(secrets))
     registry.register(make_web_fetch_tool())
+    # ask_user: the universal human-in-the-loop Q&A primitive (every agent; engine-intercepted).
+    if question_asker is not None:
+        registry.register(ask_user_tool())
     # Route by the model's `provider:` prefix (OpenAI default, Ollama, …). The manager normally
     # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
     # Resolved here (not at engine construction) because the explorer subagent captures it.
@@ -276,6 +281,7 @@ def build_engine(
         context_provider=context_provider,
         directory_requester=directory_requester,
         plan_approver=plan_approver,
+        question_asker=question_asker,
     )
     engine.executor = executor  # type: ignore[attr-defined]
     engine.todo = todo  # type: ignore[attr-defined]

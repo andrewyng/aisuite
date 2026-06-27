@@ -269,9 +269,42 @@ class SessionManager:
             roots=roots,
             directory_requester=directory_requester,
             plan_approver=plan_approver,
+            question_asker=self._question_asker(session_id, agent),
         )
         self._engines[session_id] = engine
         return engine
+
+    def _question_asker(self, session_id: str, agent: str):
+        """The `ask_user` handler: turn the agent's question into an Inbox item and suspend until a
+        human answers — inline in the live session, or from the Inbox when unattended (uniform, so
+        it works for WS sessions AND background/self-wake resumes). Mirrors to a bound channel like
+        the approver does."""
+
+        async def ask(args: dict[str, Any]) -> dict[str, Any]:
+            question = str(args.get("question", "")).strip()
+            if not question:
+                return {"answer": "", "error": "no question"}
+            inbox_name = self.inbox_routing.route_for(session_id, agent)
+            item = self.inbox.add_question(
+                session_id,
+                title=question,
+                inbox=inbox_name,
+                options=list(args.get("options") or []),
+                allow_text=bool(args.get("allow_text", True)),
+                multi=bool(args.get("multi", False)),
+            )
+            binding = self.inbox_routing.binding_for(inbox_name)
+            if binding.channel and self.gateway is not None:
+                opts = "  ".join(f"[{o}]" for o in (item.options or []))
+                text = f"{item.title}\n{opts}\n[ocw:{item.id}]".strip()
+                try:
+                    await self.gateway.deliver(f"{binding.channel}:{binding.target}", text)
+                except Exception:
+                    pass
+            answer = await self.inbox.wait(item.id)
+            return {"answer": answer}
+
+        return ask
 
     # -- MCP --------------------------------------------------------------------
     async def prepare_mcp_tools(

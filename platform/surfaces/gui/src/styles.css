@@ -1364,6 +1364,16 @@ button.btn.ghost:hover { color: var(--ink); }
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 .inbox-item.compact .inbox-item-kind { margin-bottom: 2px; }
+/* ask_user quick-reply options (AskUserQuestion-style buttons + a free-text escape below). */
+.inbox-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.inbox-opt {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--paper);
+  color: var(--ink); font: inherit; font-size: 13px; cursor: pointer;
+}
+.inbox-opt:hover { border-color: var(--accent); background: var(--accent-soft); }
+.inbox-opt.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.inbox-opt-check { width: 11px; text-align: center; color: var(--accent); }
 /* "Go to session" chip: persona icon + session title, links back for context. */
 .inbox-session-chip {
   display: inline-flex; align-items: center; gap: 7px; margin: 8px 0 2px;
