@@ -442,7 +442,7 @@ class Completions:
     def _resolve_provider(self, model: str):
         """Validate the model string and return ``(provider, model_name)``."""
         # Check that correct format is used
-        if ":" not in model:
+        if not isinstance(model, str) or ":" not in model:
             raise ValueError(
                 f"Invalid model format. Expected 'provider:model', got '{model}'"
             )
