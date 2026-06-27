@@ -87,3 +87,17 @@ def test_invalid_third_party_manifest_fails_loud(tmp_path):
     reg = PersonaRegistry(state_path=tmp_path / "personas.json")
     with pytest.raises(ManifestError):
         reg.install_from_dir(_persona_dir(tmp_path, name="broken.md", text=bad))
+
+
+def test_install_snapshots_independently_of_source(tmp_path):
+    # The snapshot must survive the user deleting/moving their source dir.
+    import shutil
+
+    reg = PersonaRegistry(state_path=tmp_path / "personas.json")
+    src = _persona_dir(tmp_path)
+    reg.install_from_dir(src)
+    reg.set_enabled("acme-ops", True)
+    shutil.rmtree(src)  # source gone
+    reg2 = PersonaRegistry(state_path=tmp_path / "personas.json")
+    assert "acme-ops" in reg2.ids() and reg2.is_enabled("acme-ops")
+    assert reg2.agent("acme-ops").family == "knowledge"

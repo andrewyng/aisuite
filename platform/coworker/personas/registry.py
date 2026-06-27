@@ -13,6 +13,7 @@ working. Disable/surface only affect what the *new-session* picker offers.
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -59,20 +60,26 @@ class PersonaRegistry:
         builtin_dir: Optional[str | Path] = None,
         extra_dirs: Optional[list[str | Path]] = None,
         state_path: Optional[str | Path] = None,
+        installed_dir: Optional[str | Path] = None,
     ) -> None:
         self.state_path = Path(state_path) if state_path else None
+        # Managed area where installed personas are *snapshotted* (copied) at install time, so a
+        # persona's definition is stable and self-contained — independent of the user's source dir.
+        if installed_dir is not None:
+            self.installed_dir: Optional[Path] = Path(installed_dir)
+        elif self.state_path is not None:
+            self.installed_dir = self.state_path.parent / "personas-installed"
+        else:
+            self.installed_dir = None
         self._entries: dict[str, PersonaEntry] = {}
         self._enabled: dict[str, bool] = {}
         self._surfaced: dict[str, bool] = {}
-        self._sources: list[str] = []  # persisted user-installed dirs (local or cloned)
         self._default = DEFAULT_PERSONA_ID
         self._load_builtin(builtin_dir)
         for d in extra_dirs or []:
             self._load_dir(d, builtin=False)
         self._load_state()
-        # Re-load personas the user installed in prior sessions (persisted as sources).
-        for src in list(self._sources):
-            self._load_dir(src, builtin=False)
+        self._load_installed()  # re-load snapshots from prior installs
 
     # -- loading ----------------------------------------------------------------
     def _register_builder(
@@ -113,18 +120,27 @@ class PersonaRegistry:
         if not d.is_dir():
             return
         for md in sorted(d.glob("*.md")):
-            m = load_manifest_file(md, builtin=builtin)
-            self._entries[m.id] = PersonaEntry(
-                id=m.id,
-                name=m.name,
-                icon=m.icon,
-                tagline=m.tagline,
-                needs_workspace=m.needs_workspace,
-                builtin=builtin,
-                family=m.family,
-                tools=list(m.tools),
-                manifest=m,
-            )
+            self._register_manifest(load_manifest_file(md, builtin=builtin), builtin=builtin)
+
+    def _register_manifest(self, m, *, builtin: bool) -> None:
+        self._entries[m.id] = PersonaEntry(
+            id=m.id,
+            name=m.name,
+            icon=m.icon,
+            tagline=m.tagline,
+            needs_workspace=m.needs_workspace,
+            builtin=builtin,
+            family=m.family,
+            tools=list(m.tools),
+            manifest=m,
+        )
+
+    def _load_installed(self) -> None:
+        if not (self.installed_dir and self.installed_dir.is_dir()):
+            return
+        for sub in sorted(self.installed_dir.iterdir()):
+            if sub.is_dir():
+                self._load_dir(sub, builtin=False)
 
     def _load_state(self) -> None:
         if self.state_path and self.state_path.is_file():
@@ -132,7 +148,6 @@ class PersonaRegistry:
             self._enabled = dict(data.get("enabled", {}))
             self._surfaced = dict(data.get("surfaced", {}))
             self._default = data.get("default", DEFAULT_PERSONA_ID)
-            self._sources = list(data.get("sources", []))
 
     def save(self) -> None:
         if not self.state_path:
@@ -144,7 +159,6 @@ class PersonaRegistry:
                     "enabled": self._enabled,
                     "surfaced": self._surfaced,
                     "default": self._default,
-                    "sources": self._sources,
                 },
                 indent=2,
             ),
@@ -243,27 +257,44 @@ class PersonaRegistry:
 
     # -- install (third-party personas) -----------------------------------------
     def install_from_dir(self, directory: str | Path) -> list[dict]:
-        """Install persona(s) from a local directory. Returns a consent summary per persona.
-        Newly installed personas land **disabled + unsurfaced** (pending the user's consent);
-        the caller enables them only after the user approves the declared capabilities."""
+        """Install persona(s) from a local directory by **snapshotting** their manifests into our
+        managed area (so the definition is stable, independent of the source dir). Returns a
+        consent summary per persona; each lands **disabled + unsurfaced** pending the user's
+        consent — the caller enables them only after the user approves the declared capabilities.
+
+        NOTE: re-installing an updated persona overwrites the snapshot; live sessions on it simply
+        resume with the new prompt/tools. We accept that for now (see PERSONAS.md)."""
         from .loading import consent_summary
 
         d = Path(directory)
         if not d.is_dir():
             raise FileNotFoundError(f"not a directory: {d}")
-        before = set(self._entries)
-        self._load_dir(d, builtin=False)
+        mds = sorted(d.glob("*.md"))
+        if not mds:
+            raise FileNotFoundError(f"no persona manifests (*.md) in {d}")
+
         summaries: list[dict] = []
-        for pid, entry in self._entries.items():
-            if pid in before or entry.builtin or entry.manifest is None:
-                continue
-            self._enabled[pid] = False  # pending consent — never auto-enabled
-            self._surfaced[pid] = False
-            summaries.append(consent_summary(entry.manifest))
-        if str(d) not in self._sources:
-            self._sources.append(str(d))
+        for md in mds:
+            m = load_manifest_file(md, builtin=False)  # validate before snapshotting
+            snapshot = self._snapshot(md, m.id)
+            installed = load_manifest_file(snapshot, builtin=False) if snapshot else m
+            self._register_manifest(installed, builtin=False)
+            self._enabled[m.id] = False  # pending consent — never auto-enabled
+            self._surfaced[m.id] = False
+            summaries.append(consent_summary(installed))
         self.save()
         return summaries
+
+    def _snapshot(self, md: Path, persona_id: str) -> Optional[Path]:
+        """Copy a manifest into the managed install area; return the snapshot path (or None if no
+        managed area is configured, e.g. an ephemeral in-memory registry)."""
+        if self.installed_dir is None:
+            return None
+        dest_dir = self.installed_dir / persona_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "manifest.md"
+        shutil.copy2(md, dest)
+        return dest
 
     def install_from_git(
         self, url: str, *, cache_base: Optional[str | Path] = None, clone=None
