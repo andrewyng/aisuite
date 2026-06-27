@@ -522,16 +522,8 @@ class TurnEngine:
                 "error": "no question was asked" if not question else "asking isn't available here",
             }
         else:
-            yield Event(
-                EventType.QUESTION_REQUESTED,
-                {
-                    "question": question,
-                    "options": list(args.get("options") or []),
-                    "allow_text": bool(args.get("allow_text", True)),
-                    "multi": bool(args.get("multi", False)),
-                    "header": str(args.get("header", "")),
-                },
-            )
+            # The asker is mode-aware (attended → live inline prompt; unattended → Inbox), so it
+            # owns surfacing the question. The engine just awaits the answer.
             self._audit(tool_call, stage="question_requested", reason=question)
             result = await self.question_asker(dict(args)) or {
                 "answer": "",

@@ -208,6 +208,7 @@ class SessionManager:
         extra_tools: Optional[list[Any]] = None,
         directory_requester: Optional[Any] = None,
         plan_approver: Optional[Any] = None,
+        question_asker: Optional[Any] = None,
     ) -> Optional[TurnEngine]:
         engine = self._engines.get(session_id)
         if engine is not None:
@@ -269,16 +270,18 @@ class SessionManager:
             roots=roots,
             directory_requester=directory_requester,
             plan_approver=plan_approver,
-            question_asker=self._question_asker(session_id, agent),
+            # WS sessions pass a mode-aware asker (attended → live prompt, unattended → Inbox).
+            # Background/self-wake runs have no live socket → default to the Inbox asker.
+            question_asker=question_asker or self.inbox_question_asker(session_id, agent),
         )
         self._engines[session_id] = engine
         return engine
 
-    def _question_asker(self, session_id: str, agent: str):
-        """The `ask_user` handler: turn the agent's question into an Inbox item and suspend until a
-        human answers — inline in the live session, or from the Inbox when unattended (uniform, so
-        it works for WS sessions AND background/self-wake resumes). Mirrors to a bound channel like
-        the approver does."""
+    def inbox_question_asker(self, session_id: str, agent: str):
+        """The Unattended `ask_user` handler: turn the agent's question into an Inbox item and
+        suspend until a human answers it (from the Inbox, or inline when they open the session).
+        Also the default for background/self-wake runs (no live socket). Mirrors to a bound channel
+        like the approver does."""
 
         async def ask(args: dict[str, Any]) -> dict[str, Any]:
             question = str(args.get("question", "")).strip()

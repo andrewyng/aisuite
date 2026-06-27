@@ -484,6 +484,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         approval_queue: asyncio.Queue[str] = asyncio.Queue()
         directory_queue: asyncio.Queue[dict] = asyncio.Queue()
         plan_queue: asyncio.Queue[dict] = asyncio.Queue()
+        question_queue: asyncio.Queue[dict] = asyncio.Queue()
 
         async def approver(_request) -> ApprovalOutcome:
             # Unattended → don't prompt inline; park the request in the Inbox and suspend the
@@ -563,8 +564,30 @@ def create_app(manager: SessionManager) -> FastAPI:
                 "writable": writable,
             }
 
-        workspace = ws.query_params.get("workspace")
         agent = ws.query_params.get("agent") or "code"
+
+        async def question_asker(args: dict) -> dict:
+            # ask_user. Unattended → park the question in the Inbox and suspend (same as approvals).
+            # Attended → prompt inline in the live session (a question event + the composer answer),
+            # NOT the Inbox. Either way the agent stays blocked until answered.
+            if manager.unattended.is_unattended(session_id):
+                return await manager.inbox_question_asker(session_id, agent)(args)
+            await ws.send_json(
+                {
+                    "type": "question_requested",
+                    "data": {
+                        "question": str(args.get("question", "")),
+                        "options": list(args.get("options") or []),
+                        "allow_text": bool(args.get("allow_text", True)),
+                        "multi": bool(args.get("multi", False)),
+                        "header": str(args.get("header", "")),
+                    },
+                }
+            )
+            resp = await question_queue.get()
+            return {"answer": str(resp.get("answer", ""))}
+
+        workspace = ws.query_params.get("workspace")
         mcp_tools = await manager.prepare_mcp_tools(
             session_id, workspace=workspace, agent=agent
         )
@@ -576,6 +599,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             extra_tools=mcp_tools,
             directory_requester=directory_requester,
             plan_approver=plan_approver,
+            question_asker=question_asker,
         )
         if engine is None:
             await ws.send_json(
@@ -640,6 +664,8 @@ def create_app(manager: SessionManager) -> FastAPI:
                     directory_queue.put_nowait(message)
                 elif kind == "plan_response":
                     plan_queue.put_nowait(message)
+                elif kind == "question_response":
+                    question_queue.put_nowait(message)
                 elif kind == "interrupt":
                     engine.request_interrupt()
                 elif kind == "set_mode":

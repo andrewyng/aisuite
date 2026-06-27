@@ -80,4 +80,13 @@ export type Item =
       plan: string;
       resolved?: "approved" | "rejected";
     }
+  | {
+      // A live ask_user prompt (attended sessions answer inline; unattended ones route to the Inbox).
+      kind: "question";
+      question: string;
+      options?: string[];
+      allow_text?: boolean;
+      multi?: boolean;
+      resolved?: string;
+    }
   | { kind: "notice"; tone: "info" | "warn"; text: string };

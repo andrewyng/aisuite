@@ -848,6 +848,11 @@ export class Session {
     });
   }
 
+  // Answer a live `ask_user` prompt (attended sessions; unattended ones answer via the Inbox).
+  respondQuestion(answer: string) {
+    this.send({ type: "question_response", answer });
+  }
+
   interrupt() {
     this.send({ type: "interrupt" });
   }

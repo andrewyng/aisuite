@@ -426,9 +426,17 @@ export function App() {
           ]);
           break;
         case "question_requested":
-          // ask_user — the question is now a pending Inbox item; pull it so the inline
-          // answer-in-context card shows immediately rather than after the next poll.
-          getInbox(sessionId, "pending").then(setSessionInbox).catch(() => {});
+          // ask_user in an attended session — answered inline (not routed to the Inbox).
+          setItems((p) => [
+            ...p,
+            {
+              kind: "question",
+              question: d.question || "",
+              options: d.options || [],
+              allow_text: d.allow_text !== false,
+              multi: !!d.multi,
+            },
+          ]);
           break;
         case "plan_proposed":
           setItems((p) => [...p, { kind: "planreq", plan: d.plan || "" }]);
@@ -536,6 +544,10 @@ export function App() {
   const respondDirectory = (granted: boolean, path?: string, writable?: boolean) => {
     setItems((p) => resolveLastDirReq(p, granted ? "granted" : "denied"));
     sessionRef.current?.respondDirectory(granted, path, writable);
+  };
+  const answerQuestion = (answer: string) => {
+    setItems((p) => resolveLastQuestion(p, answer));
+    sessionRef.current?.respondQuestion(answer);
   };
   const prefillComposer = (text: string, attachments?: Attachment[]) =>
     setComposerPrefill((p) => ({ text, attachments, nonce: (p?.nonce ?? 0) + 1 }));
@@ -709,6 +721,7 @@ export function App() {
   const pendingApproval = [...items].reverse().find((i) => i.kind === "approval" && !i.resolved);
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
   const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
+  const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New chat";
   const commitTitleRename = () => {
@@ -963,6 +976,27 @@ export function App() {
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
                 ) : pendingApproval?.kind === "approval" ? (
                   <ApprovalCard item={pendingApproval} onApprove={approve} compact />
+                ) : pendingQuestion?.kind === "question" ? (
+                  // Live ask_user in an attended session — answer inline (reuses the Inbox card UI).
+                  <InboxItemCard
+                    item={{
+                      id: "live-question",
+                      session_id: sessionId,
+                      kind: "question",
+                      title: pendingQuestion.question,
+                      body: "",
+                      state: "pending",
+                      resolution: null,
+                      inbox: "default",
+                      created_at: "",
+                      resolved_at: null,
+                      options: pendingQuestion.options,
+                      allow_text: pendingQuestion.allow_text,
+                      multi: pendingQuestion.multi,
+                    }}
+                    onResolve={(_id, answer) => answerQuestion(answer)}
+                    compact
+                  />
                 ) : sessionInbox[0] ? (
                   // Unattended session blocked on an Inbox item — answer it in context.
                   <InboxItemCard item={sessionInbox[0]} onResolve={resolveSessionInbox} compact />
@@ -1127,6 +1161,18 @@ function resolveLastPlan(items: Item[], resolved: "approved" | "rejected"): Item
     const it = copy[i];
     if (it.kind === "planreq" && !it.resolved) {
       copy[i] = { ...it, resolved };
+      break;
+    }
+  }
+  return copy;
+}
+
+function resolveLastQuestion(items: Item[], answer: string): Item[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i >= 0; i--) {
+    const it = copy[i];
+    if (it.kind === "question" && !it.resolved) {
+      copy[i] = { ...it, resolved: answer };
       break;
     }
   }
