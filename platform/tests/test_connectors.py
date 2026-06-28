@@ -388,6 +388,34 @@ def test_connect_disconnect_no_validate(tmp_path):
     assert secrets.get("telegram:default") is None
 
 
+def test_reconnect_does_not_clobber_secret_or_allowlist(tmp_path):
+    # Regression: a re-submit carrying the masked placeholder (or a blank allow-list) must not
+    # overwrite a stored real token / wipe the live allow-list.
+    from coworker.connectors import connect_connector
+    from coworker.connectors.descriptors import get_descriptor
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    placeholder = next(
+        f.placeholder for f in get_descriptor("telegram").fields if f.key == "bot_token"
+    )
+    connect_connector(
+        secrets, "telegram", {"bot_token": "REAL-TOKEN-123", "allowed_users": "u1, u2"}, validate=False
+    )
+
+    # Re-submit with the field's mask + an empty allow-list → both must be preserved.
+    connect_connector(
+        secrets, "telegram", {"bot_token": placeholder, "allowed_users": ""}, validate=False
+    )
+    prof = secrets.get("telegram:default")
+    assert prof["bot_token"] == "REAL-TOKEN-123"  # not reset to the placeholder
+    assert prof["allowed_users"] == ["u1", "u2"]  # not wiped
+
+    # A genuinely new token still updates.
+    connect_connector(secrets, "telegram", {"bot_token": "NEW-TOKEN-999"}, validate=False)
+    assert secrets.get("telegram:default")["bot_token"] == "NEW-TOKEN-999"
+    assert secrets.get("telegram:default")["allowed_users"] == ["u1", "u2"]  # still preserved
+
+
 def test_connect_missing_required_field(tmp_path):
     from coworker.connectors import connect_connector
 
