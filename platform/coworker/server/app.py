@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..attachments import build_user_content
 from ..engine import ApprovalOutcome
-from ..inbox import VIS_INBOX, VIS_INLINE
+from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
 from ..permissions import Mode
 from ..providers import AssistantTurn
 from .manager import SessionManager
@@ -464,6 +465,26 @@ def create_app(manager: SessionManager) -> FastAPI:
         # A falsy session_id clears the designation (DMs then park as unrouted).
         return manager.set_dm_session((body or {}).get("session_id", ""))
 
+    if os.environ.get("COWORKER_DEBUG_INJECT") == "1":
+        # Dev-only (env-gated, localhost): feed a message through the real inbound path so the
+        # messaging stack can be exercised without a live bot connection. Not registered otherwise.
+        @app.post("/v1/_debug/inject_inbound")
+        async def debug_inject_inbound(body: dict) -> dict[str, Any]:
+            from ..connectors.base import MessageEvent, SessionSource
+
+            event = MessageEvent(
+                text=str((body or {}).get("text", "")),
+                source=SessionSource(
+                    platform=str(body.get("platform", "slack")),
+                    chat_id=str(body.get("chat_id", "C0BD7KZ1AH5")),
+                    user_id=str(body.get("user_id", "U07JK68S4BH")),
+                    user_name=str(body.get("user_name", "tester")),
+                    chat_type=str(body.get("chat_type", "channel")),
+                ),
+            )
+            await manager._dispatch_inbound(event)
+            return {"ok": True}
+
     # -- automations (scheduled tasks) ------------------------------------------
     @app.get("/v1/automations")
     def automations_list() -> dict[str, Any]:
@@ -520,7 +541,14 @@ def create_app(manager: SessionManager) -> FastAPI:
             item = manager.inbox.add_approval(
                 session_id,
                 f"Run `{_request.tool_name}`?",
-                body=getattr(_request, "reason", "") or "",
+                body="\n".join(
+                    p
+                    for p in (
+                        (getattr(_request, "reason", "") or "").strip(),
+                        args_preview(getattr(_request, "arguments", None)),
+                    )
+                    if p
+                ),
                 inbox=_route(),
                 visibility=_visibility(),
                 tool_call_id=getattr(_request, "tool_call_id", None),

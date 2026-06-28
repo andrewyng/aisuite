@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from ..agent import build_engine
 from ..agents import get_agent
-from ..inbox import InboxStore
+from ..inbox import InboxStore, args_preview
 from ..inbox_routing import InboxRouting
 from ..personas import PersonaRegistry
 from ..personas.registry import set_registry as set_persona_registry
@@ -72,6 +72,14 @@ from ..skills import SkillLoader
 _SCOPES = {s.value for s in Scope}
 
 logger = logging.getLogger("coworker.manager")
+
+
+def _approval_body(request) -> str:
+    """Approval card body: the tool's reason (if any) plus a compact preview of its args, so a
+    mirrored 'Run `write_file`?' shows the path/content rather than just the tool name."""
+    reason = (getattr(request, "reason", "") or "").strip()
+    preview = args_preview(getattr(request, "arguments", None))
+    return "\n".join(p for p in (reason, preview) if p)
 
 
 class SessionManager:
@@ -334,7 +342,7 @@ class SessionManager:
         async def approve(request):
             item = self.inbox.add_approval(
                 session_id, f"Run `{request.tool_name}`?",
-                body=getattr(request, "reason", "") or "",
+                body=_approval_body(request),
                 inbox=self.inbox_routing.route_for(session_id, agent),
                 tool_call_id=getattr(request, "tool_call_id", None),
             )

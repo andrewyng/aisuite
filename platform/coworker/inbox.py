@@ -43,6 +43,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def args_preview(arguments: Optional[dict], *, limit: int = 240) -> str:
+    """A compact one-line summary of a tool call's arguments, for an approval card body (so a
+    mirrored 'Run `write_file`?' shows *what* — path/content — not just the tool name)."""
+    parts: list[str] = []
+    for k, v in (arguments or {}).items():
+        s = v if isinstance(v, str) else json.dumps(v, default=str, ensure_ascii=False)
+        s = " ".join(str(s).split())  # collapse whitespace/newlines
+        if len(s) > 80:
+            s = s[:79] + "…"
+        parts.append(f"{k}: {s}")
+    out = " · ".join(parts)
+    return out[: limit - 1] + "…" if len(out) > limit else out
+
+
 @dataclass
 class InboxItem:
     id: str

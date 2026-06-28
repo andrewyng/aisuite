@@ -101,3 +101,24 @@ def test_inbox_approver_deny(tmp_path):
         assert outcome is ApprovalOutcome.DENY
 
     asyncio.run(run())
+
+
+def test_args_preview():
+    from coworker.inbox import args_preview
+
+    assert args_preview({"path": "g.txt", "content": "buy milk"}) == "path: g.txt · content: buy milk"
+    assert args_preview(None) == "" and args_preview({}) == ""
+    assert "\n" not in args_preview({"x": "a\nb\nc"})  # newlines collapsed
+    assert args_preview({"content": "z" * 300}).endswith("…")  # long values truncated
+
+
+def test_approval_body_includes_tool_args():
+    from coworker.engine import PermissionRequest
+    from coworker.server.manager import _approval_body
+
+    req = PermissionRequest("write_file", {"path": "groceries.txt", "content": "buy milk"}, None, "")
+    body = _approval_body(req)
+    assert "groceries.txt" in body and "buy milk" in body  # the card now shows *what*
+
+    req2 = PermissionRequest("rm", {"path": "/x"}, None, "destructive")
+    assert _approval_body(req2).startswith("destructive")  # reason leads when present
