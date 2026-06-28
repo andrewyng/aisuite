@@ -30,6 +30,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
 import { UnattendedToggle } from "./components/UnattendedToggle";
+import { SubscriptionsChip } from "./components/SubscriptionsChip";
 import { Markdown } from "./components/Markdown";
 import { RootsBar } from "./components/RootsBar";
 import { SessionIntro } from "./components/SessionIntro";
@@ -979,14 +980,11 @@ export function App() {
                 agent !== "chat" ? (
                   <>
                     <UnattendedToggle sessionId={sessionId} onChange={markUnattended} />
-                    {activeInfo?.subscriptions && activeInfo.subscriptions.length > 0 && (
-                      <span
-                        className="wschip sub-chip"
-                        title={"Listening to: " + activeInfo.subscriptions.join(", ")}
-                      >
-                        <Icon name="plug" size={12} /> {activeInfo.subscriptions.length}
-                      </span>
-                    )}
+                    <SubscriptionsChip
+                      sessionId={sessionId}
+                      channels={activeInfo?.subscriptions || []}
+                      onChanged={refreshSessions}
+                    />
                   </>
                 ) : undefined
               }

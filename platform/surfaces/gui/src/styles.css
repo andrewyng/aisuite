@@ -220,7 +220,7 @@ body {
 /* -- Channel subscriptions (Integrations panel, read-only) ----------------- */
 .sub-empty { font-size: 13px; padding: 8px 2px; }
 .sub-table { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; }
-.sub-row { display: grid; grid-template-columns: 1.2fr 1.4fr 1fr; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.sub-row { display: grid; grid-template-columns: 1.2fr 1.4fr 1fr auto; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
 .sub-row:nth-child(even) { background: var(--paper); }
 .sub-head { font-weight: 600; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; background: none; }
 .sub-session { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -228,6 +228,22 @@ body {
 .sub-route { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-warn { color: #d97706; font-size: 11.5px; }
 .sub-chip { display: inline-flex; align-items: center; gap: 4px; }
+
+/* add form + the per-session popover */
+.sub-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.sub-add-session, .chan-input { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.chan-input { min-width: 220px; }
+.sub-chip-wrap { position: relative; display: inline-flex; }
+.wschip.sub-chip.active { border-color: var(--accent); color: var(--accent); }
+.sub-pop { position: absolute; bottom: calc(100% + 8px); right: 0; width: 300px; z-index: 40; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14); padding: 12px; }
+.sub-pop-head { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 8px; }
+.sub-pop-empty { font-size: 12.5px; padding: 2px 0 8px; }
+.sub-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
+.sub-pop-chan { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-pop-x { border: 0; background: none; color: var(--faint); font-size: 17px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.sub-pop-x:hover { color: var(--ink); }
+.sub-pop-add { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.sub-pop-add .chan-input { min-width: 0; flex: 1; }
 
 /* -- Pinned band (cross-persona, manual pins) ------------------------------ */
 .pinned-band { display: flex; flex-direction: column; gap: 1px; padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }

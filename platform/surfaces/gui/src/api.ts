@@ -504,9 +504,44 @@ export interface Subscription {
   collision: boolean; // inbound subscription == outbound Inbox routing on the same channel
 }
 
+export interface RecentChannel {
+  channel: string;
+  last_from: string | null;
+  last_text: string | null;
+}
+
 export async function getSubscriptions(): Promise<Subscription[]> {
   const res = await fetch(`${httpBase()}/v1/subscriptions`);
   return (await res.json()).subscriptions ?? [];
+}
+
+export async function getRecentChannels(): Promise<RecentChannel[]> {
+  const res = await fetch(`${httpBase()}/v1/channels/recent`);
+  return (await res.json()).channels ?? [];
+}
+
+export async function subscribeChannel(
+  sessionId: string,
+  channel: string,
+): Promise<{ ok: boolean; channel?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/subscriptions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, channel }),
+  });
+  return res.json();
+}
+
+export async function unsubscribeChannel(
+  sessionId: string,
+  channel: string,
+): Promise<{ ok: boolean; removed?: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/subscriptions/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, channel }),
+  });
+  return res.json();
 }
 
 export async function getUnattended(sessionId: string): Promise<boolean> {

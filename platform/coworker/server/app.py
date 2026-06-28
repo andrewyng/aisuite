@@ -118,6 +118,31 @@ def create_app(manager: SessionManager) -> FastAPI:
             })
         return {"subscriptions": out}
 
+    @app.get("/v1/channels/recent")
+    def recent_channels() -> dict[str, Any]:
+        # The picker's "recently-seen" source: channels the bot has received messages from.
+        return {"channels": manager.channel_buffer.channels()}
+
+    @app.post("/v1/subscriptions")
+    def subscribe(body: dict) -> dict[str, Any]:
+        from ..subscriptions import resolve_channel
+
+        session_id = str(body.get("session_id", "")).strip()
+        addr = resolve_channel(str(body.get("channel", "")))
+        if not session_id or not addr or ":" not in addr:
+            return {"ok": False, "error": "need a session_id and a channel"}
+        manager.subscriptions.subscribe(session_id, addr)
+        return {"ok": True, "channel": addr}
+
+    @app.post("/v1/subscriptions/remove")
+    def unsubscribe(body: dict) -> dict[str, Any]:
+        from ..subscriptions import resolve_channel
+
+        session_id = str(body.get("session_id", "")).strip()
+        addr = resolve_channel(str(body.get("channel", "")))
+        removed = manager.subscriptions.unsubscribe(session_id, addr)
+        return {"ok": True, "removed": removed}
+
     @app.get("/v1/inbox/reconcile")
     def reconcile_inbox(session_id: str) -> dict[str, Any]:
         # Called when a session resumes attended control (surface pending + recap inline).

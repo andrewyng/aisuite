@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
-import { getSubscriptions, type Subscription } from "../api";
+import {
+  getRecentChannels,
+  getSessions,
+  getSubscriptions,
+  subscribeChannel,
+  unsubscribeChannel,
+  type RecentChannel,
+  type Subscription,
+} from "../api";
+import type { SessionInfo } from "../types";
 import { ConnectorsTab, McpTab } from "./ManageModal";
+import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
 
 // Combined "Integrations" surface: messaging connectors + MCP servers + channel subscriptions.
@@ -33,47 +43,84 @@ export function IntegrationsView() {
   );
 }
 
-// Read-only: which sessions listen to which channels (inbound), and where each routes its Inbox
-// (outbound). Subscriptions are created by the agent (it asks you via ask_user); GUI-managed
-// subscribe/unsubscribe comes later.
+// Which sessions listen to which channels (inbound), and where each routes its Inbox (outbound).
+// Subscriptions can be created by the agent (it asks you via ask_user) or added here directly.
 function SubscriptionsTab() {
   const [subs, setSubs] = useState<Subscription[] | null>(null);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [recent, setRecent] = useState<RecentChannel[]>([]);
+  const [addSession, setAddSession] = useState("");
+  const [addChannel, setAddChannel] = useState("");
+
+  const load = () => {
+    getSubscriptions().then(setSubs).catch(() => setSubs([]));
+    getSessions().then(setSessions).catch(() => setSessions([]));
+    getRecentChannels().then(setRecent).catch(() => setRecent([]));
+  };
   useEffect(() => {
-    const load = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, []);
 
-  if (subs === null) return <div className="dim sub-empty">Loading…</div>;
-  if (subs.length === 0)
-    return (
-      <div className="dim sub-empty">
-        No channel subscriptions yet. Ask a coworker to watch a channel and it'll appear here.
-      </div>
-    );
+  const real = sessions.filter((s) => !s.session_id.startsWith("__"));
+  const add = async () => {
+    if (!addSession || !addChannel.trim()) return;
+    await subscribeChannel(addSession, addChannel.trim());
+    setAddChannel("");
+    load();
+  };
+  const remove = async (sessionId: string, channel: string) => {
+    await unsubscribeChannel(sessionId, channel);
+    load();
+  };
 
   return (
-    <div className="sub-table">
-      <div className="sub-row sub-head">
-        <span>Session</span>
-        <span>Listens to (inbound)</span>
-        <span>Inbox routes to (outbound)</span>
-      </div>
-      {subs.map((s, i) => (
-        <div className="sub-row" key={i}>
-          <span className="sub-session" title={s.session_title}>{s.session_title}</span>
-          <span className="sub-chan">
-            <Icon name="plug" size={12} /> {s.channel}
-            {s.collision && (
-              <span className="sub-warn" title="This channel is also your Inbox-routing target — inbound and outbound on one channel conflate broadcast with request/reply.">
-                ⚠ collides with Inbox routing
+    <div>
+      {subs && subs.length > 0 ? (
+        <div className="sub-table">
+          <div className="sub-row sub-head">
+            <span>Session</span>
+            <span>Listens to (inbound)</span>
+            <span>Inbox routes to (outbound)</span>
+            <span />
+          </div>
+          {subs.map((s, i) => (
+            <div className="sub-row" key={i}>
+              <span className="sub-session" title={s.session_title}>{s.session_title}</span>
+              <span className="sub-chan">
+                <Icon name="plug" size={12} /> {s.channel}
+                {s.collision && (
+                  <span className="sub-warn" title="This channel is also your Inbox-routing target — inbound and outbound on one channel conflate broadcast with request/reply.">
+                    ⚠ collides with Inbox routing
+                  </span>
+                )}
               </span>
-            )}
-          </span>
-          <span className="sub-route dim">{s.routing_target || "—"}</span>
+              <span className="sub-route dim">{s.routing_target || "—"}</span>
+              <button className="sub-pop-x" title="Unsubscribe" onClick={() => remove(s.session_id, s.channel)}>
+                ×
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
+      ) : (
+        <div className="dim sub-empty">No channel subscriptions yet — add one below or ask a coworker to watch a channel.</div>
+      )}
+
+      <div className="sub-add">
+        <select className="sub-add-session" value={addSession} onChange={(e) => setAddSession(e.target.value)}>
+          <option value="">Choose a session…</option>
+          {real.map((s) => (
+            <option key={s.session_id} value={s.session_id}>
+              {s.title || s.session_id}
+            </option>
+          ))}
+        </select>
+        <ChannelPicker value={addChannel} onChange={setAddChannel} recent={recent} onSubmit={add} />
+        <button className="btn-primary sm" disabled={!addSession || !addChannel.trim()} onClick={add}>
+          Subscribe
+        </button>
+      </div>
     </div>
   );
 }

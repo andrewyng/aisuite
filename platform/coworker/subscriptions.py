@@ -134,6 +134,14 @@ class ChannelBuffer:
         msgs = list(self._by_channel.get(channel, ()))
         return msgs[-max(1, min(n, self._cap)):]
 
+    def channels(self) -> list[dict]:
+        """Channels seen so far (the picker's 'recently-seen' list), newest message last."""
+        out: list[dict] = []
+        for chan, msgs in self._by_channel.items():
+            last = msgs[-1] if msgs else {}
+            out.append({"channel": chan, "last_from": last.get("from"), "last_text": last.get("text")})
+        return out
+
 
 def subscription_tools(
     store: SubscriptionStore,

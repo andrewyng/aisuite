@@ -131,3 +131,24 @@ def test_subscriptions_endpoint_and_collision(tmp_path):
     # the per-session list field is present too
     sessions = client.get("/v1/sessions").json()["sessions"]
     assert all("subscriptions" in s for s in sessions)
+
+
+def test_subscribe_unsubscribe_and_recent_endpoints(tmp_path):
+    from fastapi.testclient import TestClient
+    from coworker.server import create_app
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr.channel_buffer.record("slack:C9", "bob", "deploy failed")  # seeds the picker
+    client = TestClient(create_app(mgr))
+
+    assert [c["channel"] for c in client.get("/v1/channels/recent").json()["channels"]] == ["slack:C9"]
+
+    # subscribe via a Slack #mention token → resolved to the id
+    r = client.post("/v1/subscriptions", json={"session_id": "sZ", "channel": "<#C9|alerts>"}).json()
+    assert r["ok"] and r["channel"] == "slack:C9"
+    assert [s.channel for s in mgr.subscriptions.for_session("sZ")] == ["slack:C9"]
+
+    # unsubscribe
+    r = client.post("/v1/subscriptions/remove", json={"session_id": "sZ", "channel": "slack:C9"}).json()
+    assert r["ok"] and r["removed"] is True
+    assert mgr.subscriptions.for_session("sZ") == []
