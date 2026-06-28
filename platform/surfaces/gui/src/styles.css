@@ -221,6 +221,8 @@ body {
 .sub-empty { font-size: 13px; padding: 8px 2px; }
 .sub-table { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; }
 .sub-row { display: grid; grid-template-columns: 1.2fr 1.4fr 1fr auto; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.sub-row.unrouted-row { grid-template-columns: 1.3fr 1fr 1.2fr 2fr; }
+.sub-row.unrouted-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-row:nth-child(even) { background: var(--paper); }
 .sub-head { font-weight: 600; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; background: none; }
 .sub-session { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

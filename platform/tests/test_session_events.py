@@ -92,3 +92,33 @@ def test_broadcast_is_scoped_per_session(tmp_path):
 
     asyncio.run(mgr.deliver_to_session("S", "hi"))
     assert other == []  # OTHER's socket sees nothing
+
+
+def test_failed_background_turn_is_parked_not_swallowed(tmp_path):
+    # A dead model would emit an ERROR event in a background turn (no user to read it) — it must be
+    # recorded in the dead-letter store, not vanish.
+    mgr = SessionManager(workspace=tmp_path, provider=RaisingProvider())
+    mgr.get_engine("S", agent="chat")
+    events, cb = _collector()
+    mgr.register_session_client("S", cb)
+
+    asyncio.run(mgr.deliver_to_session("S", "do the thing"))  # must not raise
+
+    assert "error" in _types(events)
+    parked = mgr.unrouted.list()
+    assert len(parked) == 1
+    assert parked[0]["source"] == "S"
+    assert parked[0]["text"] == "do the thing"
+    assert "dead" in parked[0]["reason"] or "401" in parked[0]["reason"]
+
+
+def test_unrouted_endpoint(tmp_path):
+    from fastapi.testclient import TestClient
+    from coworker.server import create_app
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr.unrouted.record("slack:D1", "bob", "hey", reason="no DM session designated")
+    client = TestClient(create_app(mgr))
+    items = client.get("/v1/unrouted").json()["items"]
+    assert len(items) == 1
+    assert items[0]["source"] == "slack:D1" and items[0]["reason"] == "no DM session designated"

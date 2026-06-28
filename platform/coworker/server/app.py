@@ -123,6 +123,11 @@ def create_app(manager: SessionManager) -> FastAPI:
         # The picker's "recently-seen" source: channels the bot has received messages from.
         return {"channels": manager.channel_buffer.channels()}
 
+    @app.get("/v1/unrouted")
+    def unrouted() -> dict[str, Any]:
+        # Dead-letter view: inbound messages with no destination + background-turn failures.
+        return {"items": manager.unrouted.list()}
+
     @app.post("/v1/subscriptions")
     def subscribe(body: dict) -> dict[str, Any]:
         from ..subscriptions import resolve_channel

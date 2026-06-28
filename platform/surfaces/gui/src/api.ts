@@ -515,6 +515,19 @@ export async function getSubscriptions(): Promise<Subscription[]> {
   return (await res.json()).subscriptions ?? [];
 }
 
+export interface UnroutedItem {
+  source: string;
+  sender: string;
+  text: string;
+  reason: string;
+  ts: number;
+}
+
+export async function getUnrouted(): Promise<UnroutedItem[]> {
+  const res = await fetch(`${httpBase()}/v1/unrouted`);
+  return (await res.json()).items ?? [];
+}
+
 export async function getRecentChannels(): Promise<RecentChannel[]> {
   const res = await fetch(`${httpBase()}/v1/channels/recent`);
   return (await res.json()).channels ?? [];

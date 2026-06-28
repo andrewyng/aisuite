@@ -3,10 +3,12 @@ import {
   getRecentChannels,
   getSessions,
   getSubscriptions,
+  getUnrouted,
   subscribeChannel,
   unsubscribeChannel,
   type RecentChannel,
   type Subscription,
+  type UnroutedItem,
 } from "../api";
 import type { SessionInfo } from "../types";
 import { ConnectorsTab, McpTab } from "./ManageModal";
@@ -36,6 +38,10 @@ export function IntegrationsView() {
               Channel subscriptions
             </div>
             <SubscriptionsTab />
+            <div className="sa-sub" style={{ marginTop: 26 }}>
+              Unrouted &amp; failed messages
+            </div>
+            <UnroutedTab />
           </div>
         </div>
       </div>
@@ -121,6 +127,41 @@ function SubscriptionsTab() {
           Subscribe
         </button>
       </div>
+    </div>
+  );
+}
+
+// Dead-letter view: inbound messages that had no destination (e.g. a DM with no session designated)
+// and background turns that failed (e.g. a dead model). Read-only — for visibility/debugging.
+function UnroutedTab() {
+  const [items, setItems] = useState<UnroutedItem[] | null>(null);
+
+  useEffect(() => {
+    const load = () => getUnrouted().then(setItems).catch(() => setItems([]));
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (items && items.length === 0)
+    return <div className="dim sub-empty">Nothing here — no dropped messages or failed turns.</div>;
+
+  return (
+    <div className="sub-table">
+      <div className="sub-row sub-head unrouted-row">
+        <span>When</span>
+        <span>Source</span>
+        <span>Reason</span>
+        <span>Message</span>
+      </div>
+      {(items ?? []).map((it, i) => (
+        <div className="sub-row unrouted-row" key={i}>
+          <span className="dim">{new Date(it.ts * 1000).toLocaleString()}</span>
+          <span className="sub-chan" title={it.sender}>{it.source}</span>
+          <span className="sub-warn" title={it.reason}>{it.reason}</span>
+          <span className="dim" title={it.text}>{it.text}</span>
+        </div>
+      ))}
     </div>
   );
 }

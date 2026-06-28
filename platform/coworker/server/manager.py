@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -22,6 +23,7 @@ from ..personas import PersonaRegistry
 from ..personas.registry import set_registry as set_persona_registry
 from ..selfwake import WakeStore
 from ..subscriptions import ChannelBuffer, SubscriptionStore
+from ..unrouted import UnroutedStore
 from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
@@ -71,6 +73,8 @@ from ..sessions import SessionRecord
 from ..skills import SkillLoader
 
 _SCOPES = {s.value for s in Scope}
+
+logger = logging.getLogger("coworker.manager")
 
 
 class SessionManager:
@@ -147,6 +151,9 @@ class SessionManager:
         # of recently-seen channel messages for get_channel_messages.
         self.subscriptions = SubscriptionStore(base / "subscriptions.json")
         self.channel_buffer = ChannelBuffer()
+        # Dead-letter: inbound messages with no destination + background-turn failures, so neither
+        # vanishes silently (a debugging/visibility surface, not a redelivery queue).
+        self.unrouted = UnroutedStore(base / "unrouted.json")
 
     # -- workspaces -------------------------------------------------------------
     def open_workspace(self, path: str, *, create: bool = False) -> dict[str, Any]:
@@ -1456,7 +1463,19 @@ class SessionManager:
                 await self.broadcast_session(
                     session_id, {"type": event.type.value, "data": event.data}
                 )
+                # A background turn has no user watching to read an inline error: a dead model or
+                # tool failure would otherwise vanish. Log it and park it in the dead-letter store.
+                if event.type.value == "error":
+                    reason = (event.data or {}).get("error", "unknown error")
+                    logger.warning("background turn failed for %s: %s", session_id, reason)
+                    self.unrouted.record(session_id, "-", message, reason=reason)
             self.save(session_id, engine)
+        except Exception as exc:  # an unexpected raise out of the turn must not be swallowed
+            logger.warning("background turn crashed for %s: %s", session_id, exc)
+            self.unrouted.record(session_id, "-", message, reason=str(exc))
+            await self.broadcast_session(
+                session_id, {"type": "error", "data": {"error": str(exc)}}
+            )
         finally:
             self.mark_idle(session_id)
             await self.broadcast_session(session_id, {"type": "turn_done", "data": {}})
