@@ -132,6 +132,7 @@ class SlackAdapter(BasePlatformAdapter):
         self._socket = None
         self._task: Optional[asyncio.Task] = None
         self._bot_user_id: Optional[str] = None
+        self._name_cache: dict[str, str] = {}  # user_id → display name (resolved once via users.info)
 
     async def connect(self) -> bool:
         try:
@@ -157,6 +158,10 @@ class SlackAdapter(BasePlatformAdapter):
         async def _on_message(event, _say):
             mapped = slack_event_to_event(event, self._bot_user_id)
             if mapped is not None:
+                # Slack message events carry only the user id; resolve a friendly name so recent
+                # senders / the allow-list don't read "unknown".
+                if not mapped.source.user_name:
+                    mapped.source.user_name = await self._display_name(mapped.source.user_id)
                 await self.handle_message(mapped)
 
         # Button clicks on interactive prompts (action_id `ocw_*`). Socket mode delivers these over
@@ -185,6 +190,29 @@ class SlackAdapter(BasePlatformAdapter):
         self._task = asyncio.create_task(self._socket.start_async())
         logger.info("slack adapter connected (socket mode) as %s", self._bot_user_id)
         return True
+
+    async def _display_name(self, uid: Optional[str]) -> Optional[str]:
+        """Resolve a user id to a display name via users.info, cached. Best-effort: None on failure
+        (the caller falls back to the id)."""
+        if not uid:
+            return None
+        if uid in self._name_cache:
+            return self._name_cache[uid]
+        try:
+            info = await self._app.client.users_info(user=uid)
+            u = info.get("user") or {}
+            prof = u.get("profile") or {}
+            name = (
+                prof.get("display_name")
+                or prof.get("real_name")
+                or u.get("real_name")
+                or u.get("name")
+            )
+        except Exception:
+            name = None
+        if name:
+            self._name_cache[uid] = name
+        return name
 
     async def disconnect(self) -> None:
         if self._socket is not None:

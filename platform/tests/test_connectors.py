@@ -543,6 +543,34 @@ def test_make_adapter():
     assert make_adapter("telegram", {}) is None
 
 
+async def test_slack_resolves_and_caches_display_name():
+    from coworker.connectors import SlackAdapter
+
+    calls: list[str] = []
+
+    class _Client:
+        async def users_info(self, user):
+            calls.append(user)
+            return {"user": {"name": "ann", "profile": {"display_name": "Ann"}}}
+
+    class _App:
+        client = _Client()
+
+    a = SlackAdapter("b", "x")
+    a._app = _App()
+    assert await a._display_name("U1") == "Ann"
+    assert await a._display_name("U1") == "Ann"  # served from cache
+    assert calls == ["U1"]  # only one API round-trip
+
+    class _BadClient:
+        async def users_info(self, user):
+            raise RuntimeError("nope")
+
+    a._app.client = _BadClient()
+    assert await a._display_name("U2") is None  # failure → None (caller falls back to the id)
+    assert await a._display_name("") is None  # no id → no call
+
+
 # -- chat-ID auto-capture + connector allow-list -------------------------------
 async def test_gateway_records_recent_senders():
     gw = Gateway(
