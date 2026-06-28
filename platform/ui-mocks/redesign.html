@@ -49,12 +49,25 @@
   [data-brand="salesforce"] { --brand:#00a1e0; --brand-soft:#e6f6fd; }
   [data-brand="hubspot"]    { --brand:#ff7a59; --brand-soft:#fff0ec; }
   [data-brand="telegram"]   { --brand:#229ed9; --brand-soft:#e6f4fb; }
+  [data-brand="github"]     { --brand:#1f2328; --brand-soft:#eef0f2; }
+  [data-brand="datadog"]    { --brand:#632ca6; --brand-soft:#f0eafa; }
   [data-brand="mcp"]        { --brand:#6b7280; --brand-soft:#eef0f2; }
+  [data-brand="default"]    { --brand:#6b7280; --brand-soft:#eef0f2; }   /* fallback connector */
   html[data-theme="dark"] [data-brand="slack"]      { --brand-soft:#2a1430; }
   html[data-theme="dark"] [data-brand="salesforce"] { --brand-soft:#0a2433; }
   html[data-theme="dark"] [data-brand="hubspot"]    { --brand-soft:#331a12; }
   html[data-theme="dark"] [data-brand="telegram"]   { --brand-soft:#0c2533; }
+  html[data-theme="dark"] [data-brand="github"]     { --brand:#e6e8eb; --brand-soft:#26282d; }
+  html[data-theme="dark"] [data-brand="datadog"]    { --brand-soft:#241634; }
   html[data-theme="dark"] [data-brand="mcp"]        { --brand-soft:#26282d; }
+  html[data-theme="dark"] [data-brand="default"]    { --brand-soft:#26282d; }
+  /* native <details> disclosure for collapsed steps */
+  details > summary{ list-style:none; }
+  details > summary::-webkit-details-marker{ display:none; }
+  details[open] .chev{ transform:rotate(90deg); }
+  details[open] .when-closed{ display:none; }
+  .src-ava{ width:24px; height:24px; padding:4px; border-radius:9999px; background:var(--panel); border:1px solid var(--line); box-shadow:0 0 0 2px var(--paper); display:grid; place-items:center; }
+  .src-badge{ width:32px; height:32px; padding:6px; border-radius:9px; background:var(--brand-soft); display:grid; place-items:center; flex:none; }
   .hairline-scroll::-webkit-scrollbar{ width:9px; height:9px; }
   .hairline-scroll::-webkit-scrollbar-thumb{ background:var(--line-strong); border-radius:9px; border:2px solid var(--paper); }
   .id-reveal .id-hidden{ display:none; }
@@ -181,9 +194,9 @@
     <!-- topbar -->
     <div class="h-12 shrink-0 px-5 flex items-center gap-3 border-b border-line bg-panel/70 backdrop-blur">
       <div class="font-semibold text-[13.5px] flex items-center gap-2 min-w-0">
-        <span class="truncate">hi</span>
+        <span class="truncate">Ops · incident watch</span>
         <span class="text-faint font-normal">·</span>
-        <span class="text-muted font-normal truncate">Cowork</span>
+        <span class="text-muted font-normal truncate">SRE persona</span>
       </div>
       <div class="ml-auto flex items-center gap-1.5 text-[12px]">
         <span class="px-2.5 py-1 rounded-md border border-line bg-paper text-muted">anthropic:claude-opus-4-8</span>
@@ -191,34 +204,18 @@
       </div>
     </div>
 
-    <!-- connected sources strip (ask #2 — and connector-agnostic for the future) -->
-    <div class="px-5 py-2.5 border-b border-line bg-panel/40 flex items-center gap-2 flex-wrap">
-      <span class="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold mr-1">Sources</span>
-
-      <!-- subscribed Slack channel -->
-      <span class="id-reveal group inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border border-line bg-paper hover:border-lineStrong cursor-default" data-brand="slack" title="Subscribed channel">
-        <span class="w-4 h-4 grid place-items-center">{{SLACK_ICON}}</span>
-        <span class="text-[12px] font-medium">#ocw-test</span>
-        <span class="text-[11px] text-faint id-name">listening</span>
-        <span class="text-[11px] text-faint id-hidden font-mono">C0BD7KZ1AH5</span>
-      </span>
-
-      <!-- DM routing into this session -->
-      <span class="id-reveal inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border border-line bg-paper hover:border-lineStrong cursor-default" data-brand="slack" title="Direct messages route here">
-        <span class="w-4 h-4 grid place-items-center">{{SLACK_ICON}}</span>
-        <span class="text-[12px] font-medium">DMs</span>
-        <span class="text-[11px] text-faint">→ this session</span>
-      </span>
-
-      <!-- a future connector, to show the pattern generalizes -->
-      <span class="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border border-dashed border-line bg-paper/60 text-muted cursor-default" data-brand="salesforce" title="Available — not yet linked">
-        <span class="w-4 h-4 grid place-items-center">{{SF_ICON}}</span>
-        <span class="text-[12px]">Salesforce</span>
-      </span>
-
-      <button class="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-line text-muted hover:text-ink hover:border-lineStrong text-[12px]">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        Add source
+    <!-- Sources: icons only; click opens the per-session connections panel (ask #2) -->
+    <div class="px-5 py-2 border-b border-line bg-panel/40 flex items-center">
+      <button id="openSources" class="group inline-flex items-center gap-2.5 -ml-2 px-2 py-1 rounded-lg hover:bg-paper" title="Manage this session's connections">
+        <span class="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold">Sources</span>
+        <span class="flex items-center">
+          <span class="src-ava" data-brand="slack" title="Slack · #ocw-test, DMs">{{SLACK_ICON}}</span>
+          <span class="src-ava -ml-1.5" data-brand="github" title="GitHub · deeplearning-ai/platform">{{GH_ICON}}</span>
+        </span>
+        <span class="inline-flex items-center gap-1.5 text-[11px] text-faint group-hover:text-muted">
+          <span class="px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15 font-medium">2 recommended</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </span>
       </button>
     </div>
 
@@ -250,31 +247,40 @@
           </div>
         </div>
 
-        <!-- tool call with args (ask: card now shows what) -->
-        <div class="rounded-lg border border-line bg-panel">
-          <div class="flex items-center gap-2 px-3 py-2">
-            <span class="w-5 h-5 rounded grid place-items-center bg-tealSoft text-tealInk">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
-            </span>
-            <span class="font-mono text-[12.5px]">send_message</span>
-            <span class="font-mono text-[11.5px] text-faint truncate">target: slack:#ocw-test · text: "staging v2.4.1 is live (2:09 PM)…"</span>
-            <span class="ml-auto text-[11px] px-1.5 py-0.5 rounded bg-okSoft text-ok border border-okLine">done</span>
+        <!-- tool actions + approvals collapsed by default — cleaner thread, expand for detail -->
+        <details class="rounded-lg border border-line bg-panel/50">
+          <summary class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none">
+            <svg class="chev transition-transform text-faint" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+            <span class="text-[12.5px] text-muted">2 actions · <span class="text-ok font-medium">1 approval ✓</span></span>
+            <span class="ml-auto text-[11px] text-faint when-closed">show details</span>
+          </summary>
+          <div class="px-2 pb-2 pt-1 space-y-2 border-t border-line">
+            <!-- tool call with args (card now shows what) -->
+            <div class="rounded-lg border border-line bg-panel">
+              <div class="flex items-center gap-2 px-3 py-2">
+                <span class="w-5 h-5 rounded grid place-items-center bg-tealSoft text-tealInk">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+                </span>
+                <span class="font-mono text-[12.5px]">send_message</span>
+                <span class="font-mono text-[11.5px] text-faint truncate">target: slack:#ocw-test · text: "staging v2.4.1 is live (2:09 PM)…"</span>
+                <span class="ml-auto text-[11px] px-1.5 py-0.5 rounded bg-okSoft text-ok border border-okLine">done</span>
+              </div>
+            </div>
+            <!-- approval mirrored to Slack (resolved) -->
+            <div class="rounded-lg border border-tealLine bg-tealSoft/50">
+              <div class="flex items-center gap-2 px-3 py-2">
+                <span class="w-5 h-5 grid place-items-center" data-brand="slack">{{SLACK_ICON}}</span>
+                <span class="text-[13px]"><span class="font-mono">write_file</span> approval</span>
+                <span class="text-[11.5px] text-muted">· sent to <span class="font-medium">#ocw-approvals</span></span>
+                <span class="ml-auto inline-flex items-center gap-1 text-[11.5px] text-ok font-medium">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>
+                  Approved by Alex Rivera in Slack
+                </span>
+              </div>
+              <div class="px-3 pb-2 -mt-0.5 font-mono text-[11.5px] text-muted">path: runbook-notes.md · content: cache TTL 5m; pin v2.4.1 notes…</div>
+            </div>
           </div>
-        </div>
-
-        <!-- approval mirrored to Slack (resolved) -->
-        <div class="rounded-lg border border-tealLine bg-tealSoft/50">
-          <div class="flex items-center gap-2 px-3 py-2">
-            <span class="w-5 h-5 grid place-items-center" data-brand="slack">{{SLACK_ICON}}</span>
-            <span class="text-[13px]"><span class="font-mono">write_file</span> approval</span>
-            <span class="text-[11.5px] text-muted">· sent to <span class="font-medium">#ocw-approvals</span></span>
-            <span class="ml-auto inline-flex items-center gap-1 text-[11.5px] text-ok font-medium">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>
-              Approved by Alex Rivera in Slack
-            </span>
-          </div>
-          <div class="px-3 pb-2 -mt-0.5 font-mono text-[11.5px] text-muted">path: groceries.txt · content: buy milk, eggs, bread</div>
-        </div>
+        </details>
 
         <!-- ===== a DIFFERENT connector inbound (Salesforce) — shows the pattern scales ===== -->
         <article class="id-reveal rounded-xl2 border border-line bg-panel overflow-hidden" data-brand="salesforce">
@@ -525,6 +531,100 @@
 
 </div>
 
+<!-- ============ per-session Sources drawer (persona-aware connections) ============ -->
+<div id="sourcesDrawer" class="fixed inset-0 z-40 hidden">
+  <div class="absolute inset-0 bg-black/30 backdrop-blur-[1px]" data-close></div>
+  <aside class="absolute right-0 top-0 h-full w-[420px] max-w-[92vw] bg-panel border-l border-line shadow-2xl flex flex-col">
+    <header class="px-4 h-12 shrink-0 flex items-center gap-2 border-b border-line">
+      <span class="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-[13px]">🛠️</span>
+      <div class="min-w-0">
+        <div class="text-[13px] font-semibold leading-tight truncate">Ops · incident watch</div>
+        <div class="text-[11px] text-faint leading-tight">Session connections</div>
+      </div>
+      <button data-close class="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper">✕</button>
+    </header>
+
+    <div class="flex-1 overflow-y-auto hairline-scroll px-4 py-4 space-y-5">
+
+      <!-- persona blurb: what to connect & why -->
+      <div class="rounded-xl2 border border-accent/25 bg-accentSoft/50 p-3.5">
+        <div class="flex items-center gap-2 text-[13px] font-semibold"><span>⚡</span> Get the most out of Ops</div>
+        <p class="text-[12.5px] text-muted mt-1.5 leading-relaxed">
+          The <b>SRE</b> persona is built to triage incidents end-to-end. Wire it into <b>GitHub</b>,
+          <b>Slack</b>, and a <b>monitoring dashboard</b> so it can confirm deploys, pull firing alerts,
+          and reply in-channel — without you relaying. Add what you can now; finish the rest later.
+        </p>
+        <div class="mt-2 h-1.5 rounded-full bg-panel overflow-hidden"><div class="h-full bg-accent" style="width:50%"></div></div>
+        <div class="mt-1 text-[11px] text-faint">2 of 4 recommended connected</div>
+      </div>
+
+      <!-- connected for this session -->
+      <section>
+        <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-2">Connected · 2</div>
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-paper">
+            <span class="src-badge" data-brand="slack">{{SLACK_ICON}}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-medium">Slack</div>
+              <div class="text-[12px] text-muted truncate">#ocw-test · DMs → this session</div>
+            </div>
+            <span class="inline-flex items-center gap-1 text-[11.5px] text-ok"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>active</span>
+          </div>
+          <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-paper">
+            <span class="src-badge" data-brand="github">{{GH_ICON}}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-medium">GitHub</div>
+              <div class="text-[12px] text-muted truncate">deeplearning-ai/platform</div>
+            </div>
+            <span class="inline-flex items-center gap-1 text-[11.5px] text-ok"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>active</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- recommended connectors -->
+      <section>
+        <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-2">Recommended connectors</div>
+        <div class="space-y-1.5">
+          <div class="flex items-start gap-3 p-2.5 rounded-xl2 border border-line">
+            <span class="src-badge" data-brand="datadog">{{DD_ICON}}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2"><span class="text-[13px] font-medium">Datadog</span><span class="text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15">core</span></div>
+              <div class="text-[12px] text-muted">so I can pull the firing alerts &amp; incident timeline</div>
+            </div>
+            <button class="text-[12px] px-2.5 py-1.5 rounded-lg bg-accent text-white shrink-0">Connect</button>
+          </div>
+          <!-- a connector with NO custom logo → fallback plug + neutral brand -->
+          <div class="flex items-start gap-3 p-2.5 rounded-xl2 border border-line">
+            <span class="src-badge" data-brand="default">{{PLUG_ICON}}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-medium">PagerDuty</div>
+              <div class="text-[12px] text-muted">so I can see who's on-call before paging</div>
+            </div>
+            <button class="text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0">Connect</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- recommended MCP -->
+      <section>
+        <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-2">Recommended MCP servers</div>
+        <div class="flex items-start gap-3 p-2.5 rounded-xl2 border border-line">
+          <span class="src-badge" data-brand="mcp">{{PLUG_ICON}}</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[13px] font-medium">Filesystem</div>
+            <div class="text-[12px] text-muted">read runbooks &amp; postmortems from a local folder</div>
+          </div>
+          <button class="text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0">Add</button>
+        </div>
+      </section>
+    </div>
+
+    <footer class="px-4 py-3 border-t border-line">
+      <button id="toGlobalInt" class="w-full text-[12.5px] text-accent font-medium hover:underline text-left">Manage all connectors (global) →</button>
+    </footer>
+  </aside>
+</div>
+
 <script>
   // brand icon SVGs, injected into the double-brace placeholders so the markup above stays readable
   const ICONS = {
@@ -540,6 +640,21 @@
     SF_ICON: `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="#00A1E0"><path d="M10 7.5a3.2 3.2 0 015.7-1 3.6 3.6 0 014.8 3.4 3.4 3.4 0 01-1.2 6.6H6.5A3.5 3.5 0 016 9.6 3.2 3.2 0 0110 7.5z"/></svg>`,
     HS_ICON: `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="#FF7A59" stroke-width="2"><circle cx="8" cy="16" r="2.4"/><circle cx="17" cy="9" r="2.4"/><path d="M17 11.4V14M9.7 14.6l5.6-3.8M17 6.6V4"/></svg>`,
     TG_ICON: `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="#229ED9"><path d="M21 4L3 11l5 2 2 5 3-3 4 3 4-14z"/></svg>`,
+    GH_ICON: `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="var(--brand)"><path d="M12 1.5A10.5 10.5 0 001.5 12c0 4.6 3 8.6 7.2 10 .5.1.7-.2.7-.5v-1.7c-2.9.6-3.5-1.4-3.5-1.4-.5-1.2-1.2-1.5-1.2-1.5-.9-.6.1-.6.1-.6 1 .1 1.6 1 1.6 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.7-1.4-2.3-.3-4.8-1.2-4.8-5.2 0-1.1.4-2.1 1-2.8-.1-.3-.5-1.4.1-2.8 0 0 .9-.3 2.8 1.1a9.6 9.6 0 015 0c1.9-1.3 2.8-1.1 2.8-1.1.6 1.4.2 2.5.1 2.8.7.7 1 1.7 1 2.8 0 4-2.5 4.9-4.8 5.2.4.3.7 1 .7 2v3c0 .3.2.6.7.5 4.2-1.4 7.2-5.4 7.2-10A10.5 10.5 0 0012 1.5z"/></svg>`,
+    DD_ICON: `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="#632ca6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2 6 4-14 2 8 2-3h5"/></svg>`,
+    PLUG_ICON: `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="var(--brand)" stroke-width="1.8" stroke-linecap="round"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 01-10 0V7zM12 16v5"/></svg>`,
+  };
+  // Connector registry — single source of truth for brand color + logo, with a fallback so an
+  // unknown/custom connector still renders cleanly. (In the app this lives in the connector
+  // descriptor; the mock mirrors the shape.)
+  window.CONNECTORS = {
+    slack:      { label: 'Slack',      icon: 'SLACK_ICON' },
+    salesforce: { label: 'Salesforce', icon: 'SF_ICON' },
+    hubspot:    { label: 'HubSpot',    icon: 'HS_ICON' },
+    telegram:   { label: 'Telegram',   icon: 'TG_ICON' },
+    github:     { label: 'GitHub',     icon: 'GH_ICON' },
+    datadog:    { label: 'Datadog',    icon: 'DD_ICON' },
+    default:    { label: 'Connector',  icon: 'PLUG_ICON' },   // fallback
   };
   document.body.innerHTML = document.body.innerHTML.replace(/\{\{(\w+)\}\}/g, (m, k) => ICONS[k] || m);
 
@@ -572,6 +687,12 @@
     const html = document.documentElement;
     html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
   });
+
+  // per-session Sources drawer (persona-aware connections)
+  const drawer = document.getElementById('sourcesDrawer');
+  document.getElementById('openSources').addEventListener('click', () => drawer.classList.remove('hidden'));
+  drawer.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => drawer.classList.add('hidden')));
+  document.getElementById('toGlobalInt').addEventListener('click', () => { drawer.classList.add('hidden'); setView('integrations'); });
 
   setView('session');
   setTab('connectors');
