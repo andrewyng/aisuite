@@ -516,6 +516,31 @@ export async function getSubscriptions(): Promise<Subscription[]> {
   return (await res.json()).subscriptions ?? [];
 }
 
+// -- inbox routing (where Unattended approvals/questions get mirrored) ---------
+export interface InboxBinding {
+  name: string;
+  channel: string | null; // platform, e.g. "slack" (null = in-app Inbox only)
+  target: string; // chat_id, e.g. "C0BEJNCQQ8Y"
+}
+
+export async function getInboxRouting(): Promise<InboxBinding[]> {
+  const res = await fetch(`${httpBase()}/v1/inbox/routing`);
+  return (await res.json()).bindings ?? [];
+}
+
+export async function setInboxBinding(
+  name: string,
+  channel: string | null,
+  target: string,
+): Promise<{ ok: boolean; bindings?: InboxBinding[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/inbox/routing/binding`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, channel, target }),
+  });
+  return res.json();
+}
+
 export interface UnroutedItem {
   source: string;
   sender: string;

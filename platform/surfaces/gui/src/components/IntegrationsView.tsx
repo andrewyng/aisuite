@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   getDmRoute,
+  getInboxRouting,
   getRecentChannels,
   getSessions,
   getSubscriptions,
   getUnrouted,
   setDmRoute,
+  setInboxBinding,
   subscribeChannel,
   unsubscribeChannel,
   type RecentChannel,
@@ -40,6 +42,10 @@ export function IntegrationsView() {
               Direct messages
             </div>
             <DmRouteTab />
+            <div className="sa-sub" style={{ marginTop: 26 }}>
+              Unattended approvals → channel
+            </div>
+            <InboxRoutingTab />
             <div className="sa-sub" style={{ marginTop: 26 }}>
               Channel subscriptions
             </div>
@@ -174,6 +180,63 @@ function DmRouteTab() {
             </option>
           ))}
         </select>
+      </div>
+    </div>
+  );
+}
+
+// Where an Unattended session's approvals/questions get mirrored as interactive buttons. Targets
+// the "default" route (sessions fall back to it); pick a channel separate from any you subscribe to.
+function InboxRoutingTab() {
+  const [recent, setRecent] = useState<RecentChannel[]>([]);
+  const [target, setTarget] = useState(""); // current default-binding address, e.g. "slack:C0123"
+  const [draft, setDraft] = useState("");
+
+  const load = () => {
+    getRecentChannels().then(setRecent).catch(() => setRecent([]));
+    getInboxRouting()
+      .then((bs) => {
+        const def = bs.find((b) => b.name === "default");
+        setTarget(def?.channel ? `${def.channel}:${def.target}` : "");
+      })
+      .catch(() => setTarget(""));
+  };
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  const save = async () => {
+    const addr = draft.trim();
+    if (!addr) return;
+    // "slack:C0123" → channel="slack", target="C0123"; a bare id assumes slack.
+    const [platform, id] = addr.includes(":") ? addr.split(":", 2) : ["slack", addr];
+    await setInboxBinding("default", platform, id);
+    setDraft("");
+    load();
+  };
+  const clear = async () => {
+    await setInboxBinding("default", null, "");
+    load();
+  };
+
+  return (
+    <div>
+      <div className="dim sub-empty" style={{ marginBottom: 8 }}>
+        Currently mirroring to: <strong>{target || "in-app Inbox only"}</strong>. Pick a channel the
+        bot is in (and that you don't subscribe to) — approvals post there as Approve/Deny buttons.
+      </div>
+      <div className="sub-add">
+        <ChannelPicker value={draft} onChange={setDraft} recent={recent} onSubmit={save} />
+        <button className="btn-primary sm" disabled={!draft.trim()} onClick={save}>
+          Set
+        </button>
+        {target && (
+          <button className="link danger" onClick={clear}>
+            clear
+          </button>
+        )}
       </div>
     </div>
   );
