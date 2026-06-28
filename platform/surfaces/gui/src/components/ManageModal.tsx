@@ -698,6 +698,9 @@ export function ConnectorsTab() {
   const refresh = () => getConnectors().then(setConnectors).catch(() => setConnectors([]));
   useEffect(() => {
     refresh();
+    // Recent senders arrive over time (someone DMs the bot) — poll so they surface to Allow.
+    const t = setInterval(refresh, 5000);
+    return () => clearInterval(t);
   }, []);
 
   return (
@@ -717,6 +720,7 @@ export function ConnectorsTab() {
               setOpenName(null);
               refresh();
             }}
+            onRefresh={refresh}
           />
         ))}
       </div>
@@ -729,11 +733,13 @@ function ConnectorRow({
   open,
   onToggleOpen,
   onChanged,
+  onRefresh,
 }: {
   c: Connector;
   open: boolean;
   onToggleOpen: () => void;
   onChanged: () => void;
+  onRefresh: () => void;
 }) {
   const status = !c.available
     ? "soon"
@@ -753,7 +759,7 @@ function ConnectorRow({
           <div className="conn-meta">
             {c.connected ? <span className="conn-dot" /> : null}
             {status}
-            {c.connected && c.allowed_users > 0 ? ` · ${c.allowed_users} allowed` : ""}
+            {c.connected && c.allowed_users.length > 0 ? ` · ${c.allowed_users.length} allowed` : ""}
           </div>
         </div>
         {!c.available ? (
@@ -785,6 +791,64 @@ function ConnectorRow({
       </div>
       {open && !c.connected && <ConnectSetup c={c} onConnected={onChanged} />}
       {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
+      {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
+    </div>
+  );
+}
+
+// Who may message this two-way bot. Recent senders surface here once they DM/mention the bot, so you
+// can Allow them; allowed users are chips you can remove. (Was orphaned in the super-agent view.)
+function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
+  const recent = c.recent ?? [];
+  const unknownRecent = recent.filter((r) => !r.authorized);
+
+  return (
+    <div className="conn-setup">
+      <div className="sa-sub">Allowed to message ({c.allowed_users.length})</div>
+      <div className="sa-chips">
+        {c.allowed_users.length === 0 && <span className="dim">nobody yet — add a recent sender below</span>}
+        {c.allowed_users.map((u) => (
+          <span className="sa-chip" key={u}>
+            {u}
+            <button
+              className="sa-chip-x"
+              title="remove"
+              onClick={async () => {
+                await disallowUser(c.name, u);
+                onChanged();
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+      </div>
+
+      <div className="sa-sub">
+        Recent senders <span className="dim">— message the bot, then Allow</span>
+      </div>
+      {unknownRecent.length === 0 ? (
+        <div className="dim sa-recent-empty">None yet. Message the bot once and it'll show here.</div>
+      ) : (
+        <div className="sa-recent">
+          {unknownRecent.map((r) => (
+            <div className="sa-recent-row" key={r.user_id}>
+              <span>
+                {r.user_name || "unknown"} <span className="dim">· {r.chat_type} · id {r.user_id}</span>
+              </span>
+              <button
+                className="btn-primary sm"
+                onClick={async () => {
+                  await allowUser(c.name, r.user_id);
+                  onChanged();
+                }}
+              >
+                Allow
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

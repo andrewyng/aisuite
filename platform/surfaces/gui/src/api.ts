@@ -239,7 +239,8 @@ export interface Connector {
   connected: boolean;
   account: string | null;
   enabled: boolean;
-  allowed_users: number;
+  allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
+  recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   tools: ConnectorTool[];
 }
 

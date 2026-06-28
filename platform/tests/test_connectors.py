@@ -381,7 +381,7 @@ def test_connect_disconnect_no_validate(tmp_path):
     assert (
         listed["connected"] is True
         and listed["enabled"] is True
-        and listed["allowed_users"] == 2
+        and listed["allowed_users"] == ["u1", "u2"]
     )
 
     assert disconnect_connector(secrets, "telegram")["ok"] is True

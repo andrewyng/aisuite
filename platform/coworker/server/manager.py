@@ -538,7 +538,18 @@ class SessionManager:
 
     # -- connectors -------------------------------------------------------------
     def list_connectors(self) -> list[dict[str, Any]]:
-        return connector_list(self.secrets)
+        # Enrich two-way connectors with the live gateway's recently-seen senders, so the Connectors
+        # tab can manage the allow-list inline (each recent sender flagged authorized or not).
+        connectors = connector_list(self.secrets)
+        for c in connectors:
+            if not (c.get("two_way") and c.get("connected")):
+                continue
+            allowed = set(c.get("allowed_users") or [])
+            recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
+            for r in recent:
+                r["authorized"] = r.get("user_id") in allowed
+            c["recent"] = recent
+        return connectors
 
     def connect_connector(
         self, name: str, fields: dict[str, Any], *, acknowledged: bool = False

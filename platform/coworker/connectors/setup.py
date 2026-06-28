@@ -62,7 +62,8 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "connected": connected,
                 "account": profile.get("account"),
                 "enabled": bool(profile.get("enabled", True)) and connected,
-                "allowed_users": len(profile.get("allowed_users") or []),
+                # The actual allow-list (the GUI manages it inline); was a bare count.
+                "allowed_users": list(profile.get("allowed_users") or []),
                 "tools": tool_dicts(secrets, d.name),
                 "experimental": d.experimental,
                 "risk_notice": d.risk_notice,
