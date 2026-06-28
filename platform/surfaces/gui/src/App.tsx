@@ -409,6 +409,17 @@ export function App() {
         case "turn_start":
           setRunning(true);
           setStreaming("");
+          // Background-delivered turns (channel message, self-wake, durable resume) have no local
+          // send(), so the triggering message isn't in `items` yet — surface it as a user item.
+          // Foreground turns already appended it in send(); skip the duplicate.
+          if (typeof d.input === "string" && d.input) {
+            setItems((p) => {
+              const last = p[p.length - 1];
+              return last && last.kind === "user" && last.text === d.input
+                ? p
+                : [...p, { kind: "user", text: d.input as string }];
+            });
+          }
           break;
         case "assistant_delta":
           setStreaming((s) => s + (d.text || ""));

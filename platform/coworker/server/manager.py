@@ -123,6 +123,10 @@ class SessionManager:
         # GUI super-agent surface: connected clients (send callbacks) + pending approval.
         self._sa_clients: set[Any] = set()
         self._sa_pending: Optional[asyncio.Future] = None
+        # Per-session live-view registry: every socket open on a session id gets the turn's events,
+        # whoever drives the turn (foreground user_message, channel delivery, self-wake, resume).
+        # Delivery itself is socket-independent — this only governs *live visibility*.
+        self._session_clients: dict[str, set[Any]] = {}
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
@@ -1220,6 +1224,26 @@ class SessionManager:
             await self.superagent.stop()
             self.superagent = None
 
+    # -- per-session live view --------------------------------------------------
+    def register_session_client(self, session_id: str, send_cb: Any) -> None:
+        self._session_clients.setdefault(session_id, set()).add(send_cb)
+
+    def unregister_session_client(self, session_id: str, send_cb: Any) -> None:
+        clients = self._session_clients.get(session_id)
+        if clients is not None:
+            clients.discard(send_cb)
+            if not clients:
+                self._session_clients.pop(session_id, None)
+
+    async def broadcast_session(self, session_id: str, message: dict) -> None:
+        """Fan a turn event out to every socket viewing this session. Best-effort: a dead socket
+        is dropped, never fatal to the turn (delivery is socket-independent)."""
+        for cb in list(self._session_clients.get(session_id, ())):
+            try:
+                await cb(message)
+            except Exception:
+                self.unregister_session_client(session_id, cb)
+
     # -- GUI super-agent surface ------------------------------------------------
     def sa_register(self, send_cb: Any) -> None:
         self._sa_clients.add(send_cb)
@@ -1426,11 +1450,16 @@ class SessionManager:
             return
         self.mark_running(session_id)
         try:
-            async for _event in engine.run(message):
-                pass
+            async for event in engine.run(message):
+                # Stream every event to any socket viewing this session, so a background turn
+                # (channel delivery, self-wake, durable resume) is seen live — not just on reselect.
+                await self.broadcast_session(
+                    session_id, {"type": event.type.value, "data": event.data}
+                )
             self.save(session_id, engine)
         finally:
             self.mark_idle(session_id)
+            await self.broadcast_session(session_id, {"type": "turn_done", "data": {}})
 
     # -- channel subscriptions (inbound messaging) ------------------------------
     async def _dispatch_inbound(self, event) -> None:

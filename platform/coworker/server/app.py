@@ -726,14 +726,21 @@ def create_app(manager: SessionManager) -> FastAPI:
             manager.mark_running(session_id)  # busy → self-wakes steer instead of colliding
             try:
                 async for event in engine.run(content):
-                    await ws.send_json({"type": event.type.value, "data": event.data})
+                    # Broadcast to every socket viewing this session (this socket included — it's a
+                    # registered client), so a second view of the same session stays in sync too.
+                    await manager.broadcast_session(
+                        session_id, {"type": event.type.value, "data": event.data}
+                    )
                     if event.type.value in _CHECKPOINTS:
                         manager.save(session_id, engine)
             finally:
                 manager.mark_idle(session_id)
                 manager.save(session_id, engine)
-                await ws.send_json({"type": "turn_done", "data": {}})
+                await manager.broadcast_session(session_id, {"type": "turn_done", "data": {}})
 
+        # This socket is now a live view of the session; background turns (channel delivery,
+        # self-wake, durable resume) broadcast here too, not just locally driven run_turns.
+        manager.register_session_client(session_id, ws.send_json)
         try:
             while True:
                 message = await ws.receive_json()
@@ -773,6 +780,8 @@ def create_app(manager: SessionManager) -> FastAPI:
                         asyncio.create_task(run_turn(content))
         except WebSocketDisconnect:
             pass
+        finally:
+            manager.unregister_session_client(session_id, ws.send_json)
 
     return app
 
