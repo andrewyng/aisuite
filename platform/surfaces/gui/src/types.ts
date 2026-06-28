@@ -44,6 +44,8 @@ export interface SessionInfo {
   attention?: number;
   // working = in-flight turn; sleeping = a self-wake is pending; idle = neither. A count-less dot.
   liveness?: "working" | "sleeping" | "idle";
+  // Channels this session listens to (inbound subscriptions).
+  subscriptions?: string[];
 }
 
 // Attachments (images, text files) sent with a user message.

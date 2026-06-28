@@ -98,6 +98,26 @@ def create_app(manager: SessionManager) -> FastAPI:
         ok = await manager.resolve_inbox(item_id, str(body.get("resolution", "deny")))
         return {"ok": ok}
 
+    @app.get("/v1/subscriptions")
+    def subscriptions() -> dict[str, Any]:
+        # Global view-only list: each (session → channel) subscription, enriched with the session's
+        # title/agent and the channel its Inbox routes OUT to (so an inbound/outbound collision on
+        # the same channel is visible).
+        out: list[dict[str, Any]] = []
+        for sub in manager.subscriptions.all():
+            rec = manager.session_store.load(sub.session_id)
+            agent = rec.agent if rec else ""
+            routing = manager._routing_targets(sub.session_id, agent or "cowork")
+            out.append({
+                "session_id": sub.session_id,
+                "session_title": (rec.title if rec else None) or sub.session_id,
+                "agent": agent,
+                "channel": sub.channel,
+                "routing_target": routing[0] if routing else None,
+                "collision": bool(routing and sub.channel in routing),
+            })
+        return {"subscriptions": out}
+
     @app.get("/v1/inbox/reconcile")
     def reconcile_inbox(session_id: str) -> dict[str, Any]:
         # Called when a session resumes attended control (surface pending + recap inline).

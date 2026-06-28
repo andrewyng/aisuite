@@ -114,3 +114,20 @@ def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
     # a DM → falls through to the super-agent, not a subscription
     asyncio.run(mgr._dispatch_inbound(_event("hi there", chat_type="dm", chat_id="D1")))
     assert len(sa_calls) == 1
+
+
+def test_subscriptions_endpoint_and_collision(tmp_path):
+    from fastapi.testclient import TestClient
+    from coworker.server import create_app
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr.subscriptions.subscribe("s1", "slack:C1")
+    client = TestClient(create_app(mgr))
+    subs = client.get("/v1/subscriptions").json()["subscriptions"]
+    assert len(subs) == 1
+    row = subs[0]
+    assert row["session_id"] == "s1" and row["channel"] == "slack:C1"
+    assert row["collision"] is False  # no Inbox routing bound → no collision
+    # the per-session list field is present too
+    sessions = client.get("/v1/sessions").json()["sessions"]
+    assert all("subscriptions" in s for s in sessions)

@@ -494,6 +494,21 @@ export async function resolveInboxItem(
   return res.json();
 }
 
+// -- channel subscriptions (view-only) ----------------------------------------
+export interface Subscription {
+  session_id: string;
+  session_title: string;
+  agent: string;
+  channel: string;
+  routing_target: string | null;
+  collision: boolean; // inbound subscription == outbound Inbox routing on the same channel
+}
+
+export async function getSubscriptions(): Promise<Subscription[]> {
+  const res = await fetch(`${httpBase()}/v1/subscriptions`);
+  return (await res.json()).subscriptions ?? [];
+}
+
 export async function getUnattended(sessionId: string): Promise<boolean> {
   const res = await fetch(
     `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/unattended`,

@@ -975,7 +975,21 @@ export function App() {
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
               rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
-              unattendedSlot={agent !== "chat" ? <UnattendedToggle sessionId={sessionId} onChange={markUnattended} /> : undefined}
+              unattendedSlot={
+                agent !== "chat" ? (
+                  <>
+                    <UnattendedToggle sessionId={sessionId} onChange={markUnattended} />
+                    {activeInfo?.subscriptions && activeInfo.subscriptions.length > 0 && (
+                      <span
+                        className="wschip sub-chip"
+                        title={"Listening to: " + activeInfo.subscriptions.join(", ")}
+                      >
+                        <Icon name="plug" size={12} /> {activeInfo.subscriptions.length}
+                      </span>
+                    )}
+                  </>
+                ) : undefined
+              }
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={

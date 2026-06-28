@@ -1914,6 +1914,9 @@ class SessionManager:
                 # sleeping (a self-wake is pending) / idle — a count-less dot that never bubbles.
                 "attention": len(self.inbox.pending(session_id=r.session_id)),
                 "liveness": self._session_liveness(r.session_id),
+                # Channels this session listens to (inbound subscriptions) — drives the per-session
+                # "connections" indicator.
+                "subscriptions": [s.channel for s in self.subscriptions.for_session(r.session_id)],
             }
             for r in self.session_store.list(workspace=ws)
             if not r.session_id.startswith(
