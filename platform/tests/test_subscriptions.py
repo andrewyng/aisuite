@@ -88,22 +88,14 @@ def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
         delivered.append((session_id, message))
 
     monkeypatch.setattr(mgr, "deliver_to_session", fake_deliver)
-    sa_calls: list = []
-
-    class _SA:
-        async def on_message(self, ev):
-            sa_calls.append(ev)
-
-    mgr.superagent = _SA()
 
     mgr.subscriptions.subscribe("sA", "slack:C1")
     mgr.subscriptions.subscribe("sB", "slack:C1")
 
-    # a CHANNEL message → fan out to both subscribers, buffered, no super-agent
+    # a CHANNEL message → fan out to both subscribers, buffered
     asyncio.run(mgr._dispatch_inbound(_event("deploy failed", chat_type="channel")))
     assert {sid for sid, _ in delivered} == {"sA", "sB"}
     assert mgr.channel_buffer.recent("slack:C1")[-1]["text"] == "deploy failed"
-    assert sa_calls == []
 
     # a CHANNEL with no subscribers → buffered, nobody delivered
     delivered.clear()
@@ -111,9 +103,15 @@ def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
     assert delivered == []
     assert mgr.channel_buffer.recent("slack:C2")[-1]["text"] == "noise"
 
-    # a DM → falls through to the super-agent, not a subscription
+    # a DM with no designated session → parked as unrouted, nobody delivered
     asyncio.run(mgr._dispatch_inbound(_event("hi there", chat_type="dm", chat_id="D1")))
-    assert len(sa_calls) == 1
+    assert delivered == []
+    assert mgr.unrouted.list()[0]["reason"] == "no DM session designated"
+
+    # a DM with a designated session → delivered to it
+    mgr.set_dm_session("sDM")
+    asyncio.run(mgr._dispatch_inbound(_event("hello", chat_type="dm", chat_id="D1")))
+    assert delivered[-1][0] == "sDM"
 
 
 def test_subscriptions_endpoint_and_collision(tmp_path):

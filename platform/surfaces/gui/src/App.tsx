@@ -7,7 +7,6 @@ import {
   getSessionMessages,
   getSessions,
   getSettings,
-  getSuperagent,
   getPersonas,
   getInbox,
   getUnattended,
@@ -37,7 +36,6 @@ import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { ManageModal } from "./components/ManageModal";
 import { Onboarding } from "./components/Onboarding";
-import { SuperAgentView } from "./components/SuperAgentView";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
@@ -156,8 +154,7 @@ export function App() {
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
-  const [surface, setSurface] = useState<"session" | "superagent" | "scheduled" | "integrations" | "audit" | "inbox">("session");
-  const [helperName, setHelperName] = useState("MyHelper");
+  const [surface, setSurface] = useState<"session" | "scheduled" | "integrations" | "audit" | "inbox">("session");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
@@ -368,7 +365,6 @@ export function App() {
   useEffect(() => {
     refreshSessions();
     loadSettings(); // selectable models + which session surfaces are visible
-    getSuperagent().then((s) => s?.name && setHelperName(s.name)).catch(() => {});
   }, [refreshSessions]);
 
   // Poll the session list so the attention/liveness badges stay live and sessions created
@@ -787,7 +783,6 @@ export function App() {
           onDone={() => {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
-            getSuperagent().then((s) => s?.name && setHelperName(s.name)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
           }}
         />
@@ -807,21 +802,16 @@ export function App() {
         onDeleteSession={deleteConversation}
         onTogglePin={togglePinned}
         onManage={() => setShowManage(true)}
-        onOpenSuperagent={() => setSurface("superagent")}
         onOpenScheduled={() => setSurface("scheduled")}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
-        superagentActive={surface === "superagent"}
         scheduledActive={surface === "scheduled"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
-        helperName={helperName}
       />
-      {surface === "superagent" ? (
-        <SuperAgentView />
-      ) : surface === "scheduled" ? (
+      {surface === "scheduled" ? (
         <ScheduledView onOpenRun={openRunSession} onRunNow={runTaskNow} />
       ) : surface === "integrations" ? (
         <IntegrationsView />

@@ -31,7 +31,6 @@ from .setup import (
     set_experimental_enabled,
     update_connector_tools,
 )
-from .superagent import SUPERAGENT_MESSAGING_NOTE, SuperAgent
 from .integration_tools import make_integration_tools
 from .tools import make_send_message_tool
 from .tool_defs import connector_for_tool
@@ -67,6 +66,4 @@ __all__ = [
     "make_adapter",
     "slack_event_to_event",
     "telegram_message_to_event",
-    "SuperAgent",
-    "SUPERAGENT_MESSAGING_NOTE",
 ]

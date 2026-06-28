@@ -454,21 +454,15 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_set_scratch_base(body: dict) -> dict[str, Any]:
         return manager.set_scratch_base(str((body or {}).get("path", "")))
 
-    # -- super-agent (always-on inbound assistant) ------------------------------
-    @app.get("/v1/superagent")
-    def superagent_status() -> dict[str, Any]:
-        return manager.superagent_status()
+    # -- direct-message routing -------------------------------------------------
+    @app.get("/v1/messaging/dm-route")
+    def dm_route_get() -> dict[str, Any]:
+        return {"dm_session": manager.dm_session()}
 
-    @app.post("/v1/superagent/workspace")
-    def superagent_set_workspace(body: dict) -> dict[str, Any]:
-        path = (body or {}).get("path", "")
-        if not path:
-            return {"ok": False, "error": "path required"}
-        return manager.set_superagent_workspace(path)
-
-    @app.post("/v1/superagent/name")
-    def superagent_set_name(body: dict) -> dict[str, Any]:
-        return manager.set_superagent_name((body or {}).get("name", ""))
+    @app.post("/v1/messaging/dm-route")
+    def dm_route_set(body: dict) -> dict[str, Any]:
+        # A falsy session_id clears the designation (DMs then park as unrouted).
+        return manager.set_dm_session((body or {}).get("session_id", ""))
 
     # -- automations (scheduled tasks) ------------------------------------------
     @app.get("/v1/automations")
@@ -499,40 +493,6 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/automations/{task_id}/runs/{run_id}/finalize")
     def automation_run_finalize(task_id: str, run_id: str) -> dict[str, Any]:
         return manager.finalize_manual_run(task_id, run_id)
-
-    @app.websocket("/ws/superagent")
-    async def ws_superagent(ws: WebSocket) -> None:
-        await ws.accept()
-
-        async def send(message: dict) -> None:
-            await ws.send_json(message)
-
-        manager.sa_register(send)
-        await ws.send_json(
-            {
-                "type": "ready",
-                "data": {
-                    "running": manager.gateway is not None,
-                    "transcript": manager.sa_transcript(),
-                },
-            }
-        )
-        try:
-            while True:
-                message = await ws.receive_json()
-                kind = message.get("type")
-                if kind == "user_message":
-                    text = (message.get("text") or "").strip()
-                    if text:
-                        await manager.sa_user_message(text)
-                elif kind == "approval":
-                    manager.sa_resolve_approval(message.get("decision", "deny"))
-                elif kind == "interrupt" and manager.superagent is not None:
-                    manager.superagent.engine.request_interrupt()
-        except WebSocketDisconnect:
-            pass
-        finally:
-            manager.sa_unregister(send)
 
     @app.websocket("/ws/session/{session_id}")
     async def ws_session(ws: WebSocket, session_id: str) -> None:

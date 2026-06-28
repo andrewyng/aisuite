@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  getDmRoute,
   getRecentChannels,
   getSessions,
   getSubscriptions,
   getUnrouted,
+  setDmRoute,
   subscribeChannel,
   unsubscribeChannel,
   type RecentChannel,
@@ -34,6 +36,10 @@ export function IntegrationsView() {
               MCP servers
             </div>
             <McpTab />
+            <div className="sa-sub" style={{ marginTop: 26 }}>
+              Direct messages
+            </div>
+            <DmRouteTab />
             <div className="sa-sub" style={{ marginTop: 26 }}>
               Channel subscriptions
             </div>
@@ -126,6 +132,48 @@ function SubscriptionsTab() {
         <button className="btn-primary sm" disabled={!addSession || !addChannel.trim()} onClick={add}>
           Subscribe
         </button>
+      </div>
+    </div>
+  );
+}
+
+// Which session handles incoming DMs to the bot. None → DMs are parked in the Unrouted panel.
+function DmRouteTab() {
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [dm, setDm] = useState<string>("");
+
+  const load = () => {
+    getSessions().then(setSessions).catch(() => setSessions([]));
+    getDmRoute().then((s) => setDm(s || "")).catch(() => setDm(""));
+  };
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  const real = sessions.filter((s) => !s.session_id.startsWith("__"));
+  const choose = async (sessionId: string) => {
+    setDm(sessionId);
+    await setDmRoute(sessionId);
+    load();
+  };
+
+  return (
+    <div>
+      <div className="dim sub-empty" style={{ marginBottom: 8 }}>
+        Pick the session that handles direct messages to the bot. With none chosen, DMs are parked
+        under “Unrouted &amp; failed messages” below.
+      </div>
+      <div className="sub-add">
+        <select className="sub-add-session" value={dm} onChange={(e) => choose(e.target.value)}>
+          <option value="">No session — park DMs</option>
+          {real.map((s) => (
+            <option key={s.session_id} value={s.session_id}>
+              {s.title || s.session_id}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

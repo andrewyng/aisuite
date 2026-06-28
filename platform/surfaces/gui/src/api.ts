@@ -705,26 +705,17 @@ export interface RecentSender {
   authorized: boolean;
 }
 
-export interface SuperagentConnector {
-  name: string;
-  account: string | null;
-  listening: boolean;
-  allowed_users: string[];
-  recent: RecentSender[];
+// -- direct-message routing ---------------------------------------------------
+export async function getDmRoute(): Promise<string | null> {
+  const res = await fetch(`${httpBase()}/v1/messaging/dm-route`);
+  return (await res.json()).dm_session ?? null;
 }
 
-export interface SuperagentStatus {
-  name: string;
-  workspace: string;
-  running: boolean;
-  connectors: SuperagentConnector[];
-}
-
-export async function setSuperagentName(name: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${httpBase()}/v1/superagent/name`, {
+export async function setDmRoute(sessionId: string): Promise<{ ok: boolean; dm_session: string | null }> {
+  const res = await fetch(`${httpBase()}/v1/messaging/dm-route`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ session_id: sessionId }),
   });
   return res.json();
 }
@@ -821,20 +812,6 @@ export async function finalizeAutomationRun(id: string, runId: string) {
     `${httpBase()}/v1/automations/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/finalize`,
     { method: "POST" },
   );
-  return res.json();
-}
-
-export async function getSuperagent(): Promise<SuperagentStatus> {
-  const res = await fetch(`${httpBase()}/v1/superagent`);
-  return res.json();
-}
-
-export async function setSuperagentWorkspace(path: string): Promise<{ ok: boolean; error?: string; restart_required?: boolean }> {
-  const res = await fetch(`${httpBase()}/v1/superagent/workspace`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  });
   return res.json();
 }
 
@@ -937,45 +914,3 @@ export class Session {
   }
 }
 
-export class SuperagentSession {
-  private ws: WebSocket;
-  private outbox: object[] = [];
-
-  constructor(handlers: Handlers) {
-    this.ws = new WebSocket(`${wsBase()}/ws/superagent`);
-    this.ws.onmessage = (e) => handlers.onEvent(JSON.parse(e.data));
-    this.ws.onopen = () => {
-      this.flush();
-      handlers.onOpen?.();
-    };
-    this.ws.onclose = () => handlers.onClose?.();
-  }
-
-  private flush() {
-    if (this.ws.readyState !== WebSocket.OPEN) return;
-    const pending = this.outbox;
-    this.outbox = [];
-    for (const p of pending) this.ws.send(JSON.stringify(p));
-  }
-
-  private send(payload: object) {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(payload));
-    else if (this.ws.readyState === WebSocket.CONNECTING) this.outbox.push(payload);
-  }
-
-  userMessage(text: string, attachments?: unknown[]) {
-    this.send({ type: "user_message", text, ...(attachments?.length ? { attachments } : {}) });
-  }
-
-  approve(decision: string) {
-    this.send({ type: "approval", decision });
-  }
-
-  interrupt() {
-    this.send({ type: "interrupt" });
-  }
-
-  close() {
-    this.ws.close();
-  }
-}

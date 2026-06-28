@@ -49,8 +49,6 @@ class Config:
     auto_allow: list[str] = field(default_factory=list)
     host: str = "127.0.0.1"
     port: int = 8765
-    # Always-on super-agent (inbound messaging): its workspace (default: <state>/superagent).
-    superagent_workspace: Optional[str] = None
     # Web search provider: "duckduckgo" (keyless default) | "tavily" | "brave" (need a key).
     web_search_provider: str = "duckduckgo"
 
@@ -63,7 +61,6 @@ _FIELDS = {
     "auto_allow",
     "host",
     "port",
-    "superagent_workspace",
     "web_search_provider",
 }
 

@@ -29,12 +29,9 @@ from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
 from ..engine import ApprovalOutcome, Approver, TurnEngine
 from ..roots import RootDir
-from ..agents import myhelper_agent
 from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
 from ..connectors import (
     Gateway,
-    SUPERAGENT_MESSAGING_NOTE,
-    SuperAgent,
     connect_connector,
     connector_list,
     disconnect_connector,
@@ -118,15 +115,11 @@ class SessionManager:
             self.provider = ProviderRouter(self.secrets, default_provider="openai")
         self.mcp = MCPManager()
         self.gateway: Optional[Gateway] = None
-        self.superagent: Optional[SuperAgent] = None
         self._data_base = base
         # Desktop/UI prefs (default model, onboarding state) — not secrets; a plain JSON file.
         self._prefs = self._load_prefs()
         if self._prefs.get("default_model"):
             self.model = self._prefs["default_model"]
-        # GUI super-agent surface: connected clients (send callbacks) + pending approval.
-        self._sa_clients: set[Any] = set()
-        self._sa_pending: Optional[asyncio.Future] = None
         # Per-session live-view registry: every socket open on a session id gets the turn's events,
         # whoever drives the turn (foreground user_message, channel delivery, self-wake, resume).
         # Delivery itself is socket-independent — this only governs *live visibility*.
@@ -929,6 +922,22 @@ class SessionManager:
             json.dumps(self._prefs, indent=2), encoding="utf-8"
         )
 
+    # -- direct-message routing -------------------------------------------------
+    def dm_session(self) -> Optional[str]:
+        """The session a DM to the bot is routed to (user-designated). None → DMs are parked."""
+        sid = self._prefs.get("dm_session")
+        return sid or None
+
+    def set_dm_session(self, session_id: Optional[str]) -> dict[str, Any]:
+        """Designate (or clear, with a falsy id) the session that handles incoming DMs."""
+        sid = (session_id or "").strip()
+        if sid:
+            self._prefs["dm_session"] = sid
+        else:
+            self._prefs.pop("dm_session", None)
+        self._save_prefs()
+        return {"ok": True, "dm_session": self.dm_session()}
+
     def _ollama_models(self) -> list[str]:
         """Live list of models pulled into the configured Ollama server (via its native
         `/api/tags`), as `ollama:<name>` so they're directly selectable. Empty if Ollama isn't
@@ -1082,81 +1091,7 @@ class SessionManager:
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
-    # -- gateway / super-agent (inbound messaging) ------------------------------
-    SUPERAGENT_SESSION_ID = "__superagent__"
-
-    def _superagent_config_path(self) -> Path:
-        return self._data_base / "superagent.json"
-
-    def get_superagent_config(self) -> dict[str, Any]:
-        try:
-            return json.loads(
-                self._superagent_config_path().read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _superagent_workspace(self) -> Path:
-        cfg = self.get_superagent_config()
-        if cfg.get("workspace"):
-            ws = Path(cfg["workspace"]).expanduser()
-        else:
-            ws = self._data_base / "superagent"
-        ws.mkdir(parents=True, exist_ok=True)
-        return ws.resolve()
-
-    def set_superagent_workspace(self, path: str) -> dict[str, Any]:
-        resolved = Path(path).expanduser()
-        try:
-            resolved.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            return {"ok": False, "error": str(exc)}
-        return self._update_superagent_config(workspace=str(resolved.resolve()))
-
-    def set_superagent_name(self, name: str) -> dict[str, Any]:
-        name = (name or "").strip()
-        if not name:
-            return {"ok": False, "error": "name required"}
-        return self._update_superagent_config(name=name)
-
-    def _update_superagent_config(self, **changes: Any) -> dict[str, Any]:
-        cfg = self.get_superagent_config()
-        cfg.update(changes)
-        self._superagent_config_path().write_text(
-            json.dumps(cfg, indent=2), encoding="utf-8"
-        )
-        return {"ok": True, **changes, "restart_required": self.gateway is not None}
-
-    def superagent_status(self) -> dict[str, Any]:
-        from ..connectors import is_authorized as _is_auth
-        from ..connectors.base import SessionSource
-
-        connectors = []
-        for name in ("telegram", "slack"):
-            profile = self.secrets.get(f"{name}:default") or {}
-            if not profile.get("bot_token"):
-                continue
-            allowed = list(profile.get("allowed_users") or [])
-            allowed_set = set(allowed)
-            recent = self.gateway.recent_senders(name) if self.gateway else []
-            for r in recent:
-                r["authorized"] = r.get("user_id") in allowed_set
-            connectors.append(
-                {
-                    "name": name,
-                    "account": profile.get("account"),
-                    "listening": bool(self.gateway and name in self.gateway._adapters),
-                    "allowed_users": allowed,
-                    "recent": recent,
-                }
-            )
-        return {
-            "name": self.get_superagent_config().get("name") or "MyHelper",
-            "workspace": str(self._superagent_workspace()),
-            "running": self.gateway is not None,
-            "connectors": connectors,
-        }
-
+    # -- gateway + connector allow-list (inbound messaging) ---------------------
     def allow_user(self, name: str, user_id: str) -> dict[str, Any]:
         return self._set_allowed(name, user_id, add=True)
 
@@ -1179,43 +1114,11 @@ class SessionManager:
             self.gateway.settings[name].allowed_users = set(allowed)
         return {"ok": True, "allowed_users": sorted(allowed)}
 
-    def _build_superagent_engine(self) -> TurnEngine:
-        ws = self._superagent_workspace()
-        record = self.session_store.load(self.SUPERAGENT_SESSION_ID)
-        name = self.get_superagent_config().get("name") or "MyHelper"
-        engine = build_engine(
-            agent=myhelper_agent(name),
-            workspace=ws,
-            model=self.model,
-            mode=self.mode,
-            approver=self._sa_approver,  # risky tools prompt the GUI surface (if watching)
-            provider=self.provider,
-            memory_store=self.memory_store,
-            messages=record.messages if record else None,
-            secrets=self.secrets,
-            task_store=self.task_store,
-            session_id=self.SUPERAGENT_SESSION_ID,
-            audit_sink=self.audit_store.append,
-        )
-        engine.permissions.allow_tool_for_session(
-            "send_message"
-        )  # replies always go through
-        engine.messages[0]["content"] += SUPERAGENT_MESSAGING_NOTE
-        return engine
-
     async def start_gateway(self) -> list[str]:
-        """Build the always-on super-agent (always) + gateway, and start enabled listeners.
-
-        The super-agent runs even with no connector so the GUI surface can use it; adapters
-        connect only for enabled connectors. Returns the platforms whose listeners came up.
-        """
+        """Build the messaging gateway and start enabled listeners. Inbound messages route to
+        durable sessions: a channel message to its subscribers, a DM to the designated DM session
+        (else parked). Returns the platforms whose listeners came up."""
         settings = load_settings(self.secrets)
-        engine = self._build_superagent_engine()
-        self.superagent = SuperAgent(
-            engine,
-            on_saved=lambda: self.save(self.SUPERAGENT_SESSION_ID, engine),
-            on_event=self._sa_broadcast,
-        )
         self.gateway = Gateway(
             secrets=self.secrets,
             settings=settings,
@@ -1230,7 +1133,6 @@ class SessionManager:
             adapter = make_adapter(platform, profile)
             if adapter is not None:
                 self.gateway.register(adapter)
-        self.superagent.start()
         self.scheduler.start()  # tick scheduler for automations (independent of connectors)
         return await self.gateway.start()
 
@@ -1238,9 +1140,6 @@ class SessionManager:
         if self.gateway is not None:
             await self.gateway.stop()
             self.gateway = None
-        if self.superagent is not None:
-            await self.superagent.stop()
-            self.superagent = None
 
     # -- per-session live view --------------------------------------------------
     def register_session_client(self, session_id: str, send_cb: Any) -> None:
@@ -1261,62 +1160,6 @@ class SessionManager:
                 await cb(message)
             except Exception:
                 self.unregister_session_client(session_id, cb)
-
-    # -- GUI super-agent surface ------------------------------------------------
-    def sa_register(self, send_cb: Any) -> None:
-        self._sa_clients.add(send_cb)
-
-    def sa_unregister(self, send_cb: Any) -> None:
-        self._sa_clients.discard(send_cb)
-
-    async def _sa_broadcast(self, message: dict) -> None:
-        for cb in list(self._sa_clients):
-            try:
-                await cb(message)
-            except Exception:
-                self._sa_clients.discard(cb)
-
-    async def _sa_approver(self, request) -> Any:
-        from ..engine import ApprovalOutcome
-
-        if not self._sa_clients:  # nobody watching → stay safe (deny writes/shell)
-            return ApprovalOutcome.DENY
-        self._sa_pending = asyncio.get_running_loop().create_future()
-        try:
-            decision = await asyncio.wait_for(self._sa_pending, timeout=300)
-        except asyncio.TimeoutError:
-            return ApprovalOutcome.DENY
-        finally:
-            self._sa_pending = None
-        try:
-            return ApprovalOutcome(decision)
-        except ValueError:
-            return ApprovalOutcome.DENY
-
-    def sa_resolve_approval(self, decision: str) -> None:
-        if self._sa_pending is not None and not self._sa_pending.done():
-            self._sa_pending.set_result(decision)
-
-    def sa_transcript(self) -> list[dict[str, Any]]:
-        if self.superagent is not None:
-            return self.superagent.engine.messages
-        record = self.session_store.load(self.SUPERAGENT_SESSION_ID)
-        return record.messages if record else []
-
-    async def sa_user_message(self, text: str) -> bool:
-        """Inject a message from the local GUI owner into the super-agent's thread."""
-        if self.superagent is None:
-            return False
-        from ..connectors.base import MessageEvent, SessionSource
-
-        event = MessageEvent(
-            text=text,
-            source=SessionSource(
-                platform="gui", chat_id="gui", user_id="owner", user_name="you"
-            ),
-        )
-        await self.superagent.on_message(event)
-        return True
 
     async def aclose(self) -> None:
         await self.scheduler.stop()
@@ -1494,8 +1337,8 @@ class SessionManager:
     # -- channel subscriptions (inbound messaging) ------------------------------
     async def _dispatch_inbound(self, event) -> None:
         """Route a non-token inbound message. Channel messages are buffered (for catch-up) and
-        fanned out to every subscribed session; a DM (or any non-channel) with no subscription
-        falls through to the default super-agent session."""
+        fanned out to every subscribed session; a DM (or any non-channel) goes to the user-designated
+        DM session (delivered like any background turn) or, if none is set, is parked as unrouted."""
         src = event.source
         text = getattr(event, "text", "") or ""
         who = src.user_name or src.user_id or "?"
@@ -1516,7 +1359,14 @@ class SessionManager:
                         pass
                 return
             return  # channel with no subscribers — nobody is listening
-        await self.superagent.on_message(event)  # DM / default → super-agent
+        # DM (or any non-channel): route to the designated session, else park it for visibility.
+        dm = self.dm_session()
+        if dm:
+            await self.deliver_to_session(dm, event.tagged_text())
+        else:
+            self.unrouted.record(
+                src.target, who, text, reason="no DM session designated"
+            )
 
     @staticmethod
     def _wake_message(wake) -> str:
@@ -1575,7 +1425,9 @@ class SessionManager:
 
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
-        await self._sa_broadcast(
+        # Notify any socket viewing this scheduled run's session (it's a durable session of its own).
+        await self.broadcast_session(
+            run.session_id,
             {
                 "type": "task_done",
                 "data": {
@@ -1584,7 +1436,7 @@ class SessionManager:
                     "text": summary,
                     "run_id": run.run_id,
                 },
-            }
+            },
         )
         if task.notify_target:
             from ..connectors.base import parse_target
@@ -1978,9 +1830,7 @@ class SessionManager:
                 "subscriptions": [s.channel for s in self.subscriptions.for_session(r.session_id)],
             }
             for r in self.session_store.list(workspace=ws)
-            if not r.session_id.startswith(
-                "__"
-            )  # hide superagent/task-run internal threads
+            if not r.session_id.startswith("__")  # hide internal threads
         ]
 
     def _session_liveness(self, session_id: str) -> str:

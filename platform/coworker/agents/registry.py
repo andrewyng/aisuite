@@ -1,8 +1,8 @@
 """Agent registry — resolves a persona id to its runtime Agent.
 
 Delegates to the persona registry (``coworker.personas``) so built-in surfaces and
-markdown/third-party personas resolve through one path. MyHelper is the persistent
-super-agent (its own always-on surface), not a session persona, so it's resolved directly.
+markdown/third-party personas resolve through one path. MyHelper is a legacy personal-helper
+persona resolved directly (kept for sessions that still reference it).
 Imports of the persona registry are lazy to avoid an import cycle (personas → agents builders).
 """
 

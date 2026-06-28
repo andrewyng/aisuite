@@ -12,14 +12,11 @@ import {
   getMcpTools,
   getProviders,
   getSettings,
-  getSuperagent,
   patchMcpServer,
   reloadMcp,
   setOnboarded,
   setProvider,
   setScratchBase,
-  setSuperagentName,
-  setSuperagentWorkspace,
   updateConnectorTools,
   verifyProvider,
   type AuditEvent,
@@ -27,14 +24,13 @@ import {
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
-  type SuperagentStatus,
 } from "../api";
 import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
 import { useThemePref } from "../theme";
 import { ModelChecklist } from "./ModelChecklist";
 import { PersonasTab } from "./PersonasTab";
 
-type Tab = "settings" | "models" | "personas" | "superagent" | "mcps" | "skills";
+type Tab = "settings" | "models" | "personas" | "mcps" | "skills";
 
 const EXAMPLE = `{
   "filesystem": {
@@ -44,14 +40,12 @@ const EXAMPLE = `{
   }
 }`;
 
-// Super-agent isn't shipping in this release: kept visible (last) but disabled.
 const TABS: { key: Tab; label: string; disabled?: boolean }[] = [
   { key: "settings", label: "Settings" },
   { key: "models", label: "Configure Models" },
   { key: "personas", label: "Personas" },
   { key: "mcps", label: "MCPs" },
   { key: "skills", label: "Skills" },
-  { key: "superagent", label: "Super-agent", disabled: true },
 ];
 
 export function ManageModal({
@@ -93,8 +87,6 @@ export function ManageModal({
             <ModelsTab />
           ) : tab === "personas" ? (
             <PersonasTab />
-          ) : tab === "superagent" ? (
-            <SuperagentTab />
           ) : tab === "mcps" ? (
             <McpTab />
           ) : (
@@ -998,151 +990,4 @@ function formatAuditArgs(args: Record<string, any>) {
   return Object.entries(args)
     .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
     .join("  ");
-}
-
-// -- Super-agent tab ---------------------------------------------------------
-function SuperagentTab() {
-  const [status, setStatus] = useState<SuperagentStatus | null>(null);
-  const [wsDraft, setWsDraft] = useState("");
-  const [wsMsg, setWsMsg] = useState<string | null>(null);
-  const [nameDraft, setNameDraft] = useState("");
-  const [nameMsg, setNameMsg] = useState<string | null>(null);
-
-  const refresh = () =>
-    getSuperagent()
-      .then((s) => {
-        setStatus(s);
-        setWsDraft((d) => (d === "" ? s.workspace : d));
-        setNameDraft((d) => (d === "" ? s.name : d));
-      })
-      .catch(() => setStatus(null));
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  if (!status) return <div className="manage-empty">Loading…</div>;
-
-  const saveWs = async () => {
-    setWsMsg(null);
-    const res = await setSuperagentWorkspace(wsDraft.trim());
-    if (res.ok) setWsMsg(res.restart_required ? "Saved — restart the server to apply." : "Saved.");
-    else setWsMsg(res.error || "could not save");
-    refresh();
-  };
-
-  const saveName = async () => {
-    setNameMsg(null);
-    const res = await setSuperagentName(nameDraft.trim());
-    if (res.ok) setNameMsg("Saved — restart the server to apply.");
-    else setNameMsg(res.error || "could not save");
-    refresh();
-  };
-
-  return (
-    <div className="sa-tab">
-      <div className="mcp-intro">
-        Your always-on personal helper. It runs on one continuous thread and replies in the app
-        and over any connected chat. {status.running ? <span className="conn-dot" /> : null}
-        {status.running ? " listening" : " not running"}.
-      </div>
-
-      <div className="sa-field">
-        <span className="conn-field-label">Name (make it yours)</span>
-        <div className="sa-ws-row">
-          <input value={nameDraft} spellCheck={false} placeholder="MyHelper" onChange={(e) => setNameDraft(e.target.value)} />
-          <button className="btn-primary sm" onClick={saveName}>
-            Save
-          </button>
-        </div>
-        {nameMsg && <span className="conn-field-help">{nameMsg}</span>}
-      </div>
-
-      <div className="sa-field">
-        <span className="conn-field-label">Workspace (where it reads/writes files)</span>
-        <div className="sa-ws-row">
-          <input value={wsDraft} spellCheck={false} onChange={(e) => setWsDraft(e.target.value)} />
-          <button className="btn-primary sm" onClick={saveWs}>
-            Save
-          </button>
-        </div>
-        {wsMsg && <span className="conn-field-help">{wsMsg}</span>}
-      </div>
-
-      {status.connectors.length === 0 ? (
-        <div className="manage-empty">No two-way bot connected yet — add one in Connectors.</div>
-      ) : (
-        status.connectors.map((c) => (
-          <SuperagentConnectorBlock key={c.name} c={c} onChanged={refresh} />
-        ))
-      )}
-    </div>
-  );
-}
-
-function SuperagentConnectorBlock({
-  c,
-  onChanged,
-}: {
-  c: import("../api").SuperagentConnector;
-  onChanged: () => void;
-}) {
-  const unknownRecent = c.recent.filter((r) => !r.authorized);
-
-  return (
-    <div className="sa-conn">
-      <div className="sa-conn-head">
-        <span className="conn-name">{c.name}</span>
-        <span className="conn-meta">
-          {c.account || ""} {c.listening ? "· listening" : "· idle"}
-        </span>
-      </div>
-
-      <div className="sa-sub">Allowed to message ({c.allowed_users.length})</div>
-      <div className="sa-chips">
-        {c.allowed_users.length === 0 && <span className="dim">nobody yet — add yourself below</span>}
-        {c.allowed_users.map((u) => (
-          <span className="sa-chip" key={u}>
-            {u}
-            <button
-              className="sa-chip-x"
-              title="remove"
-              onClick={async () => {
-                await disallowUser(c.name, u);
-                onChanged();
-              }}
-            >
-              ✕
-            </button>
-          </span>
-        ))}
-      </div>
-
-      <div className="sa-sub">
-        Recent senders{" "}
-        <span className="dim">— DM the bot, then add yourself</span>
-      </div>
-      {unknownRecent.length === 0 ? (
-        <div className="dim sa-recent-empty">None yet. Message the bot once and it'll show here.</div>
-      ) : (
-        <div className="sa-recent">
-          {unknownRecent.map((r) => (
-            <div className="sa-recent-row" key={r.user_id}>
-              <span>
-                {r.user_name || "unknown"} <span className="dim">· {r.chat_type} · id {r.user_id}</span>
-              </span>
-              <button
-                className="btn-primary sm"
-                onClick={async () => {
-                  await allowUser(c.name, r.user_id);
-                  onChanged();
-                }}
-              >
-                Allow
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }

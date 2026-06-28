@@ -61,17 +61,14 @@ interface Props {
   onDeleteSession: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
   onManage: () => void;
-  onOpenSuperagent: () => void;
   onOpenScheduled: () => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
-  superagentActive: boolean;
   scheduledActive: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
   inboxActive: boolean;
-  helperName?: string;
 }
 
 const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
