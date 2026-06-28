@@ -92,9 +92,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         return {"items": out}
 
     @app.post("/v1/inbox/{item_id}/resolve")
-    def resolve_inbox_item(item_id: str, body: dict) -> dict[str, Any]:
+    async def resolve_inbox_item(item_id: str, body: dict) -> dict[str, Any]:
         # Idempotent + first-responder-wins: ok=False means it was already resolved elsewhere.
-        ok = manager.inbox.resolve(item_id, str(body.get("resolution", "deny")))
+        # Routes through resolve_inbox so a restart-orphaned prompt durably resumes its turn.
+        ok = await manager.resolve_inbox(item_id, str(body.get("resolution", "deny")))
         return {"ok": ok}
 
     @app.get("/v1/inbox/reconcile")
@@ -505,16 +506,19 @@ def create_app(manager: SessionManager) -> FastAPI:
 
         async def approver(_request) -> ApprovalOutcome:
             # The engine has already emitted PERMISSION_REQUIRED (the live inline card). Park the
-            # item so the answer can also come from the Inbox / a reconnect.
+            # item so the answer can also come from the Inbox / a reconnect / after a restart.
             item = manager.inbox.add_approval(
                 session_id,
                 f"Run `{_request.tool_name}`?",
                 body=getattr(_request, "reason", "") or "",
                 inbox=_route(),
                 visibility=_visibility(),
+                tool_call_id=getattr(_request, "tool_call_id", None),
             )
-            if item.visibility == VIS_INBOX:
-                await _mirror(item)
+            if item.state == "pending":  # freshly raised (not a durable-resume re-raise)
+                manager.persist_session(session_id)  # the pending tool call is now on disk
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
             resolution = await manager.inbox.wait(item.id)
             # Accept both vocabularies: the live card sends once/always_tool/always_command/deny;
             # the Inbox / a channel send allow/always/deny.
@@ -528,7 +532,7 @@ def create_app(manager: SessionManager) -> FastAPI:
                 return ApprovalOutcome.ALWAYS_TOOL
             return ApprovalOutcome.DENY
 
-        async def question_asker(args: dict) -> dict:
+        async def question_asker(args: dict, tool_call_id=None) -> dict:
             # ask_user (engine does NOT emit the event — we do, only when attended).
             item = manager.inbox.add_question(
                 session_id,
@@ -538,21 +542,24 @@ def create_app(manager: SessionManager) -> FastAPI:
                 options=list(args.get("options") or []),
                 allow_text=bool(args.get("allow_text", True)),
                 multi=bool(args.get("multi", False)),
+                tool_call_id=tool_call_id,
             )
-            if item.visibility == VIS_INBOX:
-                await _mirror(item)
-            else:
-                await ws.send_json({
-                    "type": "question_requested",
-                    "data": {
-                        "question": item.title, "options": item.options,
-                        "allow_text": item.allow_text, "multi": item.multi,
-                        "header": str(args.get("header", "")),
-                    },
-                })
+            if item.state == "pending":
+                manager.persist_session(session_id)
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
+                else:
+                    await ws.send_json({
+                        "type": "question_requested",
+                        "data": {
+                            "question": item.title, "options": item.options,
+                            "allow_text": item.allow_text, "multi": item.multi,
+                            "header": str(args.get("header", "")),
+                        },
+                    })
             return {"answer": await manager.inbox.wait(item.id)}
 
-        async def directory_requester(args: dict) -> dict:
+        async def directory_requester(args: dict, tool_call_id=None) -> dict:
             # The engine has already emitted DIRECTORY_REQUESTED. Park, await, then apply the grant.
             item = manager.inbox.add_directory(
                 session_id,
@@ -561,9 +568,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 inbox=_route(),
                 visibility=_visibility(),
                 data={"path": str(args.get("path", "")), "writable": bool(args.get("writable", False))},
+                tool_call_id=tool_call_id,
             )
-            if item.visibility == VIS_INBOX:
-                await _mirror(item)
+            if item.state == "pending":
+                manager.persist_session(session_id)
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
             resp = _parse_json(await manager.inbox.wait(item.id))  # {granted, path, writable}
             if not resp.get("granted"):
                 return {"granted": False, "reason": "the user declined the request"}
@@ -586,7 +596,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             )
             return {"granted": True, "path": (primary or {}).get("path", path), "writable": writable}
 
-        async def plan_approver(_args: dict) -> dict:
+        async def plan_approver(_args: dict, tool_call_id=None) -> dict:
             # The engine has already emitted PLAN_PROPOSED. Park, await the verdict.
             item = manager.inbox.add_plan(
                 session_id,
@@ -594,9 +604,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 body=str(_args.get("plan", "")),
                 inbox=_route(),
                 visibility=_visibility(),
+                tool_call_id=tool_call_id,
             )
-            if item.visibility == VIS_INBOX:
-                await _mirror(item)
+            if item.state == "pending":
+                manager.persist_session(session_id)
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
             resp = _parse_json(await manager.inbox.wait(item.id))  # {approved, mode, feedback}
             if not resp.get("approved"):
                 return {"approved": False, "feedback": resp.get("feedback") or "the user rejected the plan"}

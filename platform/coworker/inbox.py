@@ -56,6 +56,9 @@ class InboxItem:
     created_at: str = field(default_factory=_now)
     resolved_at: Optional[str] = None
     visibility: str = VIS_INBOX  # inline (attended) vs inbox (unattended)
+    # The tool call this prompt is blocking (durable resume: persisted so a restart can rebuild the
+    # suspension and continue the turn). Makes an item idempotent by (session_id, tool_call_id).
+    tool_call_id: Optional[str] = None
     # Question metadata (ask_user): optional quick-reply choices + a free-text escape, mirroring
     # the structured-but-always-answerable shape of Claude Code's AskUserQuestion.
     options: list[str] = field(default_factory=list)
@@ -95,34 +98,48 @@ class InboxStore:
         self, session_id: str, kind: str, title: str, *, body: str = "", inbox: str = "default",
         visibility: str = VIS_INBOX, data: Optional[dict[str, Any]] = None,
         options=None, allow_text: bool = True, multi: bool = False,
+        tool_call_id: Optional[str] = None,
     ) -> InboxItem:
+        # Idempotent by (session_id, tool_call_id): a durable resume re-raises the same prompt, and
+        # must reuse the existing (possibly already-resolved) item rather than re-prompt.
+        if tool_call_id:
+            existing = self.for_tool_call(session_id, tool_call_id)
+            if existing is not None:
+                return existing
         item = InboxItem(
             id=uuid.uuid4().hex, session_id=session_id, kind=kind, title=title,
             body=body, inbox=inbox, visibility=visibility, data=dict(data or {}),
             options=list(options or []), allow_text=bool(allow_text), multi=bool(multi),
+            tool_call_id=tool_call_id,
         )
         with self._lock:
             self._items[item.id] = item
             self._save()
         return item
 
-    def add_approval(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX) -> InboxItem:
-        return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox, visibility=visibility)
+    def for_tool_call(self, session_id: str, tool_call_id: str) -> Optional[InboxItem]:
+        for i in self._items.values():
+            if i.session_id == session_id and i.tool_call_id == tool_call_id:
+                return i
+        return None
+
+    def add_approval(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, tool_call_id=None) -> InboxItem:
+        return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox, visibility=visibility, tool_call_id=tool_call_id)
 
     def add_question(
         self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX,
-        options=None, allow_text=True, multi=False,
+        options=None, allow_text=True, multi=False, tool_call_id=None,
     ) -> InboxItem:
         return self.add(
             session_id, KIND_QUESTION, title, body=body, inbox=inbox, visibility=visibility,
-            options=options, allow_text=allow_text, multi=multi,
+            options=options, allow_text=allow_text, multi=multi, tool_call_id=tool_call_id,
         )
 
-    def add_directory(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None) -> InboxItem:
-        return self.add(session_id, KIND_DIRECTORY, title, body=body, inbox=inbox, visibility=visibility, data=data)
+    def add_directory(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None, tool_call_id=None) -> InboxItem:
+        return self.add(session_id, KIND_DIRECTORY, title, body=body, inbox=inbox, visibility=visibility, data=data, tool_call_id=tool_call_id)
 
-    def add_plan(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None) -> InboxItem:
-        return self.add(session_id, KIND_PLAN, title, body=body, inbox=inbox, visibility=visibility, data=data)
+    def add_plan(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None, tool_call_id=None) -> InboxItem:
+        return self.add(session_id, KIND_PLAN, title, body=body, inbox=inbox, visibility=visibility, data=data, tool_call_id=tool_call_id)
 
     def add_notification(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX) -> InboxItem:
         return self.add(session_id, KIND_NOTIFICATION, title, body=body, inbox=inbox, visibility=visibility)

@@ -25,7 +25,7 @@ from ..subscriptions import ChannelBuffer, SubscriptionStore
 from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
-from ..engine import Approver, TurnEngine
+from ..engine import ApprovalOutcome, Approver, TurnEngine
 from ..roots import RootDir
 from ..agents import myhelper_agent
 from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
@@ -264,7 +264,6 @@ class SessionManager:
             workspace=ws,
             model=model,
             mode=mode,
-            approver=approver,
             provider=self.provider,
             memory_store=self.memory_store,
             messages=messages,
@@ -275,10 +274,13 @@ class SessionManager:
             session_id=session_id,
             audit_sink=self.audit_store.append,
             roots=roots,
-            directory_requester=directory_requester,
-            plan_approver=plan_approver,
-            # WS sessions pass a mode-aware asker (attended → live prompt, unattended → Inbox).
-            # Background/self-wake runs have no live socket → default to the Inbox asker.
+            # WS sessions pass mode-aware callbacks (attended → live prompt, unattended → Inbox).
+            # Background / self-wake / durable-resume runs have no live socket → default to the
+            # Inbox-based callbacks so a rebuilt engine can still get approvals/answers (and, on
+            # resume, the already-resolved item returns immediately).
+            approver=approver or self.inbox_approver(session_id, agent),
+            directory_requester=directory_requester or self.inbox_directory_requester(session_id, agent),
+            plan_approver=plan_approver or self.inbox_plan_approver(session_id, agent),
             question_asker=question_asker or self.inbox_question_asker(session_id, agent),
             subscription_store=self.subscriptions,
             channel_buffer=self.channel_buffer,
@@ -299,7 +301,7 @@ class SessionManager:
         Also the default for background/self-wake runs (no live socket). Mirrors to a bound channel
         like the approver does."""
 
-        async def ask(args: dict[str, Any]) -> dict[str, Any]:
+        async def ask(args: dict[str, Any], tool_call_id: Optional[str] = None) -> dict[str, Any]:
             question = str(args.get("question", "")).strip()
             if not question:
                 return {"answer": "", "error": "no question"}
@@ -311,12 +313,113 @@ class SessionManager:
                 options=list(args.get("options") or []),
                 allow_text=bool(args.get("allow_text", True)),
                 multi=bool(args.get("multi", False)),
+                tool_call_id=tool_call_id,
             )
+            if item.state != "pending":  # durable resume re-raised an already-answered prompt
+                return {"answer": item.resolution or ""}
+            self.persist_session(session_id)  # the pending tool call is now on disk
             await self.mirror_inbox_item(item)
             answer = await self.inbox.wait(item.id)
             return {"answer": answer}
 
         return ask
+
+    def inbox_approver(self, session_id: str, agent: str):
+        """Inbox-based approver — the default for no-socket runs (background, self-wake, durable
+        resume). On resume the item already exists + is resolved, so wait returns at once."""
+        async def approve(request):
+            item = self.inbox.add_approval(
+                session_id, f"Run `{request.tool_name}`?",
+                body=getattr(request, "reason", "") or "",
+                inbox=self.inbox_routing.route_for(session_id, agent),
+                tool_call_id=getattr(request, "tool_call_id", None),
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resolution = await self.inbox.wait(item.id)
+            try:
+                return ApprovalOutcome(resolution)
+            except ValueError:
+                pass
+            if resolution == "allow":
+                return ApprovalOutcome.ONCE
+            if resolution == "always":
+                return ApprovalOutcome.ALWAYS_TOOL
+            return ApprovalOutcome.DENY
+        return approve
+
+    def inbox_directory_requester(self, session_id: str, agent: str):
+        async def request(args, tool_call_id=None):
+            item = self.inbox.add_directory(
+                session_id, "Grant access to a folder?", body=str(args.get("reason", "")),
+                inbox=self.inbox_routing.route_for(session_id, agent),
+                data={"path": str(args.get("path", "")), "writable": bool(args.get("writable", False))},
+                tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resp = _parse_inbox_json(await self.inbox.wait(item.id))
+            if not resp.get("granted"):
+                return {"granted": False, "reason": "the user declined the request"}
+            path = (resp.get("path") or args.get("path") or "").strip()
+            if not path:
+                return {"granted": False, "error": "no directory was provided"}
+            writable = bool(resp.get("writable", args.get("writable", False)))
+            res = self.add_root(session_id, path, writable)
+            if not res.get("ok"):
+                return {"granted": False, "error": res.get("error", "could not grant access")}
+            return {"granted": True, "path": path, "writable": writable}
+        return request
+
+    def inbox_plan_approver(self, session_id: str, agent: str):
+        async def approve(args, tool_call_id=None):
+            item = self.inbox.add_plan(
+                session_id, "Approve the plan?", body=str(args.get("plan", "")),
+                inbox=self.inbox_routing.route_for(session_id, agent), tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resp = _parse_inbox_json(await self.inbox.wait(item.id))
+            if not resp.get("approved"):
+                return {"approved": False, "feedback": resp.get("feedback") or "the user rejected the plan"}
+            return {"approved": True, "mode": resp.get("mode") or "interactive"}
+        return approve
+
+    def persist_session(self, session_id: str) -> None:
+        """Save the cached engine's thread (so a prompt's pending tool call survives a crash)."""
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            self.save(session_id, engine)
+
+    async def resolve_inbox(self, item_id: str, resolution: str) -> bool:
+        """Resolve an Inbox item from any surface (REST / Slack button / channel reply). If the
+        asking agent is still suspended live, that await handles it. Otherwise the process restarted
+        (or the engine was evicted) while blocked → durably resume: rebuild the engine from the
+        saved thread and continue the turn."""
+        item = self.inbox.get(item_id)
+        ok = self.inbox.resolve(item_id, resolution)
+        if not ok or item is None:
+            return ok
+        if not self.is_running(item.session_id):
+            await self._durable_resume(item)
+        return ok
+
+    async def _durable_resume(self, item) -> None:
+        if not getattr(item, "tool_call_id", None):
+            return  # nothing to reconstruct (legacy item) — best-effort: leave it
+        engine = self.get_engine(item.session_id)
+        if engine is None or not hasattr(engine, "resume"):
+            return
+        self.mark_running(item.session_id)
+        try:
+            async for _event in engine.resume():
+                pass
+            self.save(item.session_id, engine)
+        finally:
+            self.mark_idle(item.session_id)
 
     # -- MCP --------------------------------------------------------------------
     async def prepare_mcp_tools(
@@ -1254,7 +1357,7 @@ class SessionManager:
         item_id, resolution = decoded
         item = self.inbox.get(item_id)
         already = item is not None and item.state != "pending"
-        self.inbox.resolve(item_id, resolution)
+        await self.resolve_inbox(item_id, resolution)
         who = getattr(event, "user_name", None) or "someone"
         title = item.title if item is not None else "Prompt"
         outcome = "already resolved" if already else f"“{resolution}” — by {who}"
@@ -1845,6 +1948,17 @@ class SessionManager:
         ws = self.resolve_workspace(workspace) if chosen is Scope.WORKSPACE else None
         item = self.memory_store.add(content, scope=chosen, workspace=ws)
         return {"id": item.id, "scope": item.scope.value, "content": item.content}
+
+
+def _parse_inbox_json(s: str) -> dict[str, Any]:
+    """Parse a structured Inbox resolution (directory/plan carry their reply as a JSON string)."""
+    import json as _json
+
+    try:
+        v = _json.loads(s) if s else {}
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
 
 
 def _epoch() -> float:

@@ -37,6 +37,7 @@ class PermissionRequest:
     arguments: dict[str, Any]
     metadata: Any
     reason: str
+    tool_call_id: Optional[str] = None  # for durable resume (idempotent inbox item)
 
 
 Approver = Callable[[PermissionRequest], Awaitable[ApprovalOutcome]]
@@ -118,7 +119,49 @@ class TurnEngine:
         self.messages.append({"role": "user", "content": user_input})
         self._cancel.clear()
         yield Event(EventType.TURN_START, {"input": user_input})
+        async for event in self._loop():
+            yield event
 
+    async def resume(self) -> AsyncIterator[Event]:
+        """Continue a turn that was suspended at a prompt and persisted — durable resume after a
+        restart (or engine eviction). Re-process the trailing assistant message's UNANSWERED
+        tool-calls (the prompt callbacks find the already-resolved Inbox item and return without
+        re-prompting; answered calls are skipped, so nothing double-executes), then run the model
+        loop to finish the turn."""
+        pending = self._unanswered_trailing_tool_calls()
+        if not pending:
+            return
+        self._cancel.clear()
+        yield Event(EventType.TURN_START, {"input": "(resumed)"})
+        async for event in self._handle_tool_calls(pending):
+            yield event
+        yield Event(EventType.ITERATION_END, {"iteration": 0})
+        if not self._cancel.is_set():
+            async for event in self._loop():
+                yield event
+
+    def _unanswered_trailing_tool_calls(self) -> list[ToolCall]:
+        """The tool-calls of the last assistant message that don't yet have a tool result —
+        i.e. the prompt we suspended on (+ any after it). Reconstructed from the persisted thread."""
+        answered = {m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"}
+        for msg in reversed(self.messages):
+            if msg.get("role") == "user":
+                return []
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                out: list[ToolCall] = []
+                for tc in msg["tool_calls"]:
+                    if tc.get("id") in answered:
+                        continue
+                    fn = tc.get("function") or {}
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except Exception:
+                        args = {}
+                    out.append(ToolCall(id=tc.get("id"), name=fn.get("name"), arguments=args))
+                return out
+        return []
+
+    async def _loop(self) -> AsyncIterator[Event]:
         iterations = 0
         while True:
             if iterations >= self.max_iterations:
@@ -308,6 +351,7 @@ class TurnEngine:
                     arguments=tool_call.arguments,
                     metadata=metadata,
                     reason=decision.reason,
+                    tool_call_id=tool_call.id,
                 )
             )
             if outcome is ApprovalOutcome.DENY:
@@ -427,7 +471,7 @@ class TurnEngine:
         else:
             yield Event(EventType.PLAN_PROPOSED, {"plan": plan})
             self._audit(tool_call, stage="plan_proposed")
-            result = await self.plan_approver(dict(args)) or {
+            result = await self.plan_approver(dict(args), tool_call.id) or {
                 "approved": False,
                 "error": "no response",
             }
@@ -488,7 +532,7 @@ class TurnEngine:
                 stage="directory_requested",
                 reason=str(args.get("reason", "")),
             )
-            result = await self.directory_requester(dict(args)) or {
+            result = await self.directory_requester(dict(args), tool_call.id) or {
                 "granted": False,
                 "error": "no response",
             }
@@ -525,7 +569,7 @@ class TurnEngine:
             # The asker is mode-aware (attended → live inline prompt; unattended → Inbox), so it
             # owns surfacing the question. The engine just awaits the answer.
             self._audit(tool_call, stage="question_requested", reason=question)
-            result = await self.question_asker(dict(args)) or {
+            result = await self.question_asker(dict(args), tool_call.id) or {
                 "answer": "",
                 "error": "no response",
             }

@@ -264,7 +264,7 @@ def test_add_root_before_first_turn_persists(tmp_path):
 def test_request_directory_emits_prompt_and_returns_grant():
     captured = {}
 
-    async def requester(args):
+    async def requester(args, tool_call_id=None):
         captured.update(args)
         return {"granted": True, "path": "/tmp/granted", "writable": True}
 
@@ -294,7 +294,7 @@ def test_request_directory_emits_prompt_and_returns_grant():
 
 
 def test_request_directory_denied_returns_denied_status():
-    async def requester(_args):
+    async def requester(_args, tool_call_id=None):
         return {"granted": False, "reason": "user declined"}
 
     eng = _bare_engine(directory_requester=requester)
