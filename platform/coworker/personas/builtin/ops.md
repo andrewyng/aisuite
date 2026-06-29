@@ -1,7 +1,7 @@
 ---
 id: ops
 name: Ops Coworker
-icon: ops
+icon: wrench
 tagline: Operate and investigate — runbooks, logs, infrastructure
 family: knowledge
 workspace: deliverable

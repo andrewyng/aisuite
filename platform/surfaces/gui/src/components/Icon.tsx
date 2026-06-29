@@ -1,7 +1,7 @@
 // A small set of clean, single-weight line icons (SF-Symbols-ish): 24px grid, 1.7 stroke,
 // currentColor, rounded caps/joins. Replaces emoji in the chrome for a crisp, consistent look.
 
-type IconName =
+export type IconName =
   | "sparkle"
   | "chat"
   | "diamond"
@@ -12,6 +12,7 @@ type IconName =
   | "clock"
   | "sliders"
   | "code"
+  | "wrench"
   | "pencil"
   | "branch"
   | "arrowLeft"
@@ -149,6 +150,12 @@ export function Icon({
       return (
         <svg {...s}>
           <path d="M5 5.5h14c.8 0 1.5.7 1.5 1.5v7c0 .8-.7 1.5-1.5 1.5H9.5L5.5 19v-3H5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z" />
+        </svg>
+      );
+    case "wrench":
+      return (
+        <svg {...s}>
+          <path d="M14.6 6.4a3.8 3.8 0 0 0-5 4.9l-6 6a1.6 1.6 0 0 0 2.3 2.3l6-6a3.8 3.8 0 0 0 4.9-5l-2.4 2.4-2-.5-.5-2 2.7-2.1z" />
         </svg>
       );
     case "search":

@@ -18,6 +18,7 @@ import {
 } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { Icon } from "./Icon";
+import { PersonaGlyph } from "./personaIcon";
 import { Toggle } from "./Toggle";
 import { indexConnectors, labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
 
@@ -74,7 +75,7 @@ export function PersonaView({
   };
 
   const header = (
-    <div className="h-12 shrink-0 px-5 flex items-center gap-3 border-b border-line bg-panel/70 backdrop-blur">
+    <div className="h-12 shrink-0 px-5 flex items-center gap-3 border-b border-line bg-paper">
       {onBack && (
         <>
           <button
@@ -107,20 +108,7 @@ export function PersonaView({
           {/* identity + enable */}
           <header className="flex items-start gap-3.5">
             <span className="w-12 h-12 rounded-xl2 bg-panel border border-line grid place-items-center text-[22px]">
-              {detail.icon && /[^\x00-\x7F]/.test(detail.icon) ? (
-                // an emoji icon (markdown personas) renders as-is…
-                detail.icon
-              ) : (
-                // …a built-in's logo-id (e.g. "cowork"/"code") maps to a line glyph (mirrors the sidebar).
-                <Icon
-                  name={
-                    ({ cowork: "diamond", chat: "chat", code: "code" } as const)[
-                      detail.icon as "cowork" | "chat" | "code"
-                    ] ?? "diamond"
-                  }
-                  size={22}
-                />
-              )}
+              <PersonaGlyph icon={detail.icon} size={22} />
             </span>
             <div className="min-w-0">
               <h1 className="text-[20px] font-semibold tracking-tight">{detail.name}</h1>

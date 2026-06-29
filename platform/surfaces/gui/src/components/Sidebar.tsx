@@ -8,25 +8,21 @@ import {
   type SurfaceVisibility,
 } from "../api";
 import type { SessionInfo } from "../types";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
+import { PersonaGlyph, personaGlyph } from "./personaIcon";
 
 // Session surfaces shown as accordions, in display order. The surfaced personas drive this list
 // (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
-const SURFACES: { key: string; label: string; icon: "diamond" | "chat" | "code"; cls: string }[] = [
+const SURFACES: { key: string; label: string; icon: IconName; cls: string }[] = [
   { key: "cowork", label: "OpenCoworker", icon: "diamond", cls: "ico-cowork" },
   { key: "chat", label: "Chat", icon: "chat", cls: "ico-chat" },
   { key: "code", label: "Code", icon: "code", cls: "ico-code" },
 ];
 
-const ICON_FOR: Record<string, "diamond" | "chat" | "code"> = {
-  cowork: "diamond",
-  chat: "chat",
-  code: "code",
-};
 const surfaceFromPersona = (p: Persona) => ({
   key: p.id,
   label: p.id === "cowork" ? "OpenCoworker" : p.name,
-  icon: ICON_FOR[p.icon] ?? "diamond",
+  icon: personaGlyph(p.icon, p.family),
   cls: `ico-${p.icon || "cowork"}`,
 });
 
@@ -143,21 +139,21 @@ export function Sidebar(props: Props) {
   const pinnedSessions = props.sessions.filter(
     (s) => s.pinned && !s.session_id.startsWith("__") && !s.archived,
   );
-  const personaIcon = (agentId: string) => {
-    const p = personas?.find((x) => x.id === agentId);
-    return { icon: (p && ICON_FOR[p.icon]) || "diamond", cls: `ico-${p?.icon || "cowork"}` } as const;
-  };
   const personaLabel = (agentId: string) => {
     const p = personas?.find((x) => x.id === agentId);
     return p ? (p.id === "cowork" ? "OpenCoworker" : p.name) : agentId;
   };
 
-  // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the line glyph.
-  const iconTile = (agentId: string, size = 13) => (
-    <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-muted shrink-0">
-      <Icon name={personaIcon(agentId).icon} size={size} />
-    </span>
-  );
+  // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the persona's
+  // resolved glyph (manifest icon → family default; emoji rendered as-is).
+  const iconTile = (agentId: string, size = 13) => {
+    const p = personas?.find((x) => x.id === agentId);
+    return (
+      <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-muted shrink-0">
+        <PersonaGlyph icon={p?.icon} family={p?.family} size={size} />
+      </span>
+    );
+  };
 
   // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
   // accent count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
@@ -581,7 +577,8 @@ export function Sidebar(props: Props) {
                         title={title}
                         onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
                       >
-                        {iconTile(s.agent)}
+                        {/* No persona icon on pinned rows (deliberate): the persona shows in the
+                            subtitle, and it avoids stacking the same glyph as the group header below. */}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-medium">{title}</span>
                           <span className="block truncate text-[11px] text-muted">
@@ -762,7 +759,7 @@ function NewSessionSplit({
                 }}
               >
                 <span className="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-muted shrink-0">
-                  <Icon name={ICON_FOR[p.icon] ?? "diamond"} size={12} />
+                  <PersonaGlyph icon={p.icon} family={p.family} size={12} />
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[13px] font-medium truncate">
