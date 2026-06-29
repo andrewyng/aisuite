@@ -613,15 +613,14 @@ export function Sidebar(props: Props) {
         onManage={props.onManagePersonas}
       />
 
-      {/* Search: a paper chip that opens the command-palette SearchModal (over the whole app),
-          rather than filtering the sidebar in place (which collapsed the grouped list). */}
-      <div className="px-3 mt-1 flex items-center gap-2">
+      {/* Search: a borderless nav-style entry (not a boxed input) that opens the command-palette
+          SearchModal over the whole app. Matches the bottom-nav rows to reduce the boxy look. */}
+      <div className="px-2.5 mt-1">
         <button
-          className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-paper border border-line text-faint hover:border-lineStrong text-left"
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left text-muted hover:bg-paper hover:text-ink"
           onClick={() => setSearchModalOpen(true)}
         >
-          <Icon name="search" size={14} className="shrink-0" />
-          <span className="text-[12.5px]">Search</span>
+          <Icon name="search" size={15} className="shrink-0" /> Search
         </button>
       </div>
 
