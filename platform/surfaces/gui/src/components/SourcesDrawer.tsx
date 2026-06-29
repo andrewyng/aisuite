@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { getPersonaDetail, setSessionConnection, type PersonaDetail, type SessionConnections } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
 import { labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
 
@@ -73,7 +74,18 @@ export function SourcesDrawer({
       >
         <header className="px-4 h-12 shrink-0 flex items-center gap-2 border-b border-line">
           <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-[13px]">
-            {persona?.icon || "🔌"}
+            {persona?.icon && /[^\x00-\x7F]/.test(persona.icon) ? (
+              persona.icon
+            ) : (
+              <Icon
+                name={
+                  ({ cowork: "diamond", chat: "chat", code: "code" } as const)[
+                    persona?.icon as "cowork" | "chat" | "code"
+                  ] ?? "diamond"
+                }
+                size={13}
+              />
+            )}
           </span>
           <div className="min-w-0">
             <div className="text-[13px] font-semibold leading-tight truncate">

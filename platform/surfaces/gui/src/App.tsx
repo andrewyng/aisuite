@@ -980,19 +980,21 @@ export function App() {
             )}
           </div>
         </div>
-        {agent !== "chat" && (
-          <SourcesBar
-            sessionId={sessionId}
-            personaId={agent}
-            onOpenIntegrations={() => setSurface("integrations")}
-            onOpenPersona={(id) => {
-              setPersonaViewId(id);
-              setSurface("persona");
-            }}
-          />
-        )}
         <div className={"main-workspace" + (railHidden ? " rail-hidden" : "")}>
           <div className="main-chat">
+            {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute
+                glass topbar), as a fixed sub-header above the scrolling conversation — mock §6. */}
+            {agent !== "chat" && (
+              <SourcesBar
+                sessionId={sessionId}
+                personaId={agent}
+                onOpenIntegrations={() => setSurface("integrations")}
+                onOpenPersona={(id) => {
+                  setPersonaViewId(id);
+                  setSurface("persona");
+                }}
+              />
+            )}
             <div className="main-scroll" ref={scrollRef}>
               {idle ? (
                 agent === "cowork" ? (
