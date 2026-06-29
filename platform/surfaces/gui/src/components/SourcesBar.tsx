@@ -55,7 +55,7 @@ export function SourcesBar({
   if (!conns || (connected.length === 0 && attention === 0)) return null;
 
   return (
-    <div className="px-5 py-2 border-b border-line flex items-center">
+    <div className="px-5 py-2 flex items-center">
       <button
         className="sources-bar group inline-flex items-center gap-2.5 -ml-2 px-2 py-1 rounded-lg hover:bg-paper"
         onClick={() => setOpen(true)}

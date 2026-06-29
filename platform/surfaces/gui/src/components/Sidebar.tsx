@@ -34,7 +34,7 @@ function AttnBadge({ n }: { n: number }) {
   if (!n) return null;
   return (
     <span
-      className="text-[10px] font-semibold text-white bg-accent rounded-full px-1.5 leading-[15px] shrink-0"
+      className="text-[10px] font-semibold text-ink bg-faint/30 rounded-full px-1.5 leading-[15px] shrink-0"
       title={`${n} awaiting your attention`}
     >
       {n > 99 ? "99+" : n}

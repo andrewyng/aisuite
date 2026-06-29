@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { getUnattended, setUnattended } from "../api";
+import { Toggle } from "./Toggle";
 
-// Per-session Unattended toggle. Turning it on is a one-tap confirm (handing over control):
-// from then on the agent's approvals/questions route to the Inbox instead of prompting inline.
+// Per-session Unattended toggle: a labeled switch (only the switch carries the accent), not a filled
+// pill. Turning it on is a one-tap confirm (handing over control): from then on the agent's
+// approvals/questions route to the Inbox instead of prompting inline. Turning it off is immediate.
 export function UnattendedToggle({
   sessionId,
   onChange,
@@ -40,37 +42,34 @@ export function UnattendedToggle({
     report(false);
   };
 
-  if (on) {
-    return (
-      <button
-        className="wschip unattended-on"
-        title="Approvals and questions are going to the Inbox — tap to take back control"
-        onClick={disable}
-      >
-        ● Unattended
-      </button>
-    );
-  }
   if (confirming) {
     return (
-      <span className="unattended-confirm">
-        Run unattended? Approvals go to the Inbox.
-        <button className="btn-primary sm" onClick={enable}>
+      <span className="inline-flex items-center gap-2 text-[12px] text-muted">
+        Run unattended? Approvals route to the Inbox.
+        <button className="text-accent font-medium hover:underline" onClick={enable}>
           Confirm
         </button>
-        <button className="btn sm" onClick={() => setConfirming(false)}>
+        <button className="text-faint hover:text-ink" onClick={() => setConfirming(false)}>
           Cancel
         </button>
       </span>
     );
   }
   return (
-    <button
-      className="wschip"
-      title="Step away — route approvals/questions to the Inbox"
-      onClick={() => setConfirming(true)}
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={
+        on
+          ? "Approvals and questions are going to the Inbox — tap to take back control"
+          : "Step away — route approvals/questions to the Inbox"
+      }
     >
-      Unattended
-    </button>
+      <Toggle
+        checked={on}
+        onChange={(next) => (next ? setConfirming(true) : disable())}
+        title="Unattended"
+      />
+      <span className="text-[12px] text-muted">Unattended</span>
+    </span>
   );
 }
