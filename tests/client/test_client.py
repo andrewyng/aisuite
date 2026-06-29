@@ -110,6 +110,16 @@ def test_invalid_provider_in_client_config():
         client.chat.completions.create("invalid_provider:some-model", messages=messages)
 
 
+def test_default_provider_configs_are_not_shared():
+    first_client = Client()
+    second_client = Client()
+
+    first_client.configure({"openai": {"api_key": "first-key"}})
+
+    assert first_client.provider_configs == {"openai": {"api_key": "first-key"}}
+    assert second_client.provider_configs == {}
+
+
 def test_invalid_model_format_in_create():
     # Valid provider configurations
     provider_configs = {

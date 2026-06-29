@@ -23,7 +23,7 @@ except ImportError:
 class Client:
     def __init__(
         self,
-        provider_configs: dict = {},
+        provider_configs: dict | None = None,
         extra_param_mode: Literal["strict", "warn", "permissive"] = "warn",
     ):
         """
@@ -49,7 +49,7 @@ class Client:
                 - "permissive": Allow all params without validation (testing)
         """
         self.providers = {}
-        self.provider_configs = provider_configs
+        self.provider_configs = dict(provider_configs or {})
         self.extra_param_mode = extra_param_mode
         self.param_validator = ParamValidator(extra_param_mode)
         self._chat = None
