@@ -30,12 +30,15 @@ const surfaceFromPersona = (p: Persona) => ({
   cls: `ico-${p.icon || "cowork"}`,
 });
 
-// Attention = Inbox items awaiting a session (an amber count that bubbles session → persona →
+// Attention = Inbox items awaiting a session (an accent count that bubbles session → persona →
 // footer Inbox — all views of the one Inbox queue, never a second list).
 function AttnBadge({ n }: { n: number }) {
   if (!n) return null;
   return (
-    <span className="attn-badge" title={`${n} awaiting your attention`}>
+    <span
+      className="text-[10px] font-semibold text-white bg-accent rounded-full px-1.5 leading-[15px] shrink-0"
+      title={`${n} awaiting your attention`}
+    >
       {n > 99 ? "99+" : n}
     </span>
   );
@@ -45,10 +48,25 @@ function AttnBadge({ n }: { n: number }) {
 // never bubbles — it says "this is alive", not "this needs you".
 function LiveDot({ state }: { state?: "working" | "sleeping" | "idle" }) {
   if (state !== "working" && state !== "sleeping") return null;
+  return state === "working" ? (
+    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" title="Working now" />
+  ) : (
+    <span
+      className="w-1.5 h-1.5 rounded-full bg-faint/60 shrink-0"
+      title="Sleeping (will wake itself)"
+    />
+  );
+}
+
+// A subscribed-connector presence dot (right edge of a row). Brand-colorless here — the sidebar
+// isn't passed the connector registry — so it reads as a neutral "listening on a channel" dot.
+function ConnectorDot({ subs }: { subs?: string[] }) {
+  if (!subs || subs.length === 0) return null;
   return (
     <span
-      className={"live-dot live-" + state}
-      title={state === "working" ? "Working now" : "Sleeping (will wake itself)"}
+      className="w-1.5 h-1.5 rounded-full bg-faint shrink-0"
+      data-brand={subs[0]}
+      title={subs.join(", ")}
     />
   );
 }
@@ -129,9 +147,20 @@ export function Sidebar(props: Props) {
     const p = personas?.find((x) => x.id === agentId);
     return { icon: (p && ICON_FOR[p.icon]) || "diamond", cls: `ico-${p?.icon || "cowork"}` } as const;
   };
+  const personaLabel = (agentId: string) => {
+    const p = personas?.find((x) => x.id === agentId);
+    return p ? (p.id === "cowork" ? "OpenCoworker" : p.name) : agentId;
+  };
+
+  // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the line glyph.
+  const iconTile = (agentId: string, size = 13) => (
+    <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-muted shrink-0">
+      <Icon name={personaIcon(agentId).icon} size={size} />
+    </span>
+  );
 
   // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
-  // amber count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
+  // accent count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
   const attnByPersona = new Map<string, number>();
   const liveByPersona = new Map<string, "working" | "sleeping">();
   let totalAttention = 0;
@@ -162,9 +191,12 @@ export function Sidebar(props: Props) {
     (s.title || s.session_id).toLowerCase().includes(normalizedQuery) ||
     s.session_id.toLowerCase().includes(normalizedQuery);
 
+  // A compact session row (mock §141 grouped/recent rows): one-line title + right-side indicators,
+  // with the pin/rename/delete actions revealed on hover. Used in accordion bodies + grouped cards.
   const sessionRow = (s: SessionInfo) => {
     const title = s.title || s.session_id;
     const editing = editingId === s.session_id;
+    const active = s.session_id === props.activeSession;
     const commitRename = () => {
       const next = editValue.trim();
       if (next && next !== title) props.onRenameSession(s.session_id, next);
@@ -173,7 +205,10 @@ export function Sidebar(props: Props) {
     return (
       <div
         key={s.session_id}
-        className={"session" + (s.session_id === props.activeSession ? " active" : "")}
+        className={
+          "group flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
+          (active ? "bg-accentSoft/70 border border-accent/30" : "hover:bg-panel")
+        }
         onClick={() => {
           if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
         }}
@@ -181,7 +216,7 @@ export function Sidebar(props: Props) {
       >
         {editing ? (
           <input
-            className="session-edit"
+            className="flex-1 min-w-0 px-1.5 py-0.5 rounded-md bg-panel border border-accent text-[13px] text-ink outline-none"
             value={editValue}
             autoFocus
             onClick={(e) => e.stopPropagation()}
@@ -195,24 +230,36 @@ export function Sidebar(props: Props) {
           />
         ) : (
           <>
-            <span className="session-title">
-              {s.pinned && <Icon name="pin" size={11} className="session-pin" />}
-              {title}
+            <span
+              className={
+                "min-w-0 flex-1 flex items-center gap-1.5 truncate text-[13px] " +
+                (active ? "font-medium text-ink" : "text-ink")
+              }
+            >
+              {s.pinned && <Icon name="pin" size={11} className="text-faint shrink-0" />}
+              <span className="truncate">{title}</span>
             </span>
-            <span className="session-meta">
+            <span className="flex items-center gap-1.5 shrink-0 group-hover:hidden">
               <LiveDot state={s.liveness} />
               <AttnBadge n={s.attention || 0} />
             </span>
-            <span className="session-actions" onClick={(e) => e.stopPropagation()}>
+            <span
+              className="hidden group-hover:flex items-center gap-0.5 shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 title={s.pinned ? "Unpin" : "Pin to top"}
-                className={s.pinned ? "pinned" : undefined}
+                className={
+                  "w-5 h-5 grid place-items-center rounded hover:bg-paper " +
+                  (s.pinned ? "text-accent" : "text-faint hover:text-ink")
+                }
                 onClick={() => props.onTogglePin(s.session_id, !s.pinned)}
               >
                 <Icon name="pin" size={12} />
               </button>
               <button
                 title="Rename"
+                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
                 onClick={() => {
                   setEditingId(s.session_id);
                   setEditValue(title);
@@ -222,6 +269,7 @@ export function Sidebar(props: Props) {
               </button>
               <button
                 title="Delete"
+                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper leading-none"
                 onClick={() => {
                   if (window.confirm(`Delete "${title}"?`)) props.onDeleteSession(s.session_id);
                 }}
@@ -284,34 +332,46 @@ export function Sidebar(props: Props) {
   // changes only when a session is selected or "New session" is clicked.
   const onHeaderClick = (key: string) => setOpenKey((k) => (k === key ? null : key));
 
-  // The expanded body for the active surface: action rows (New / Search / Integrations /
-  // Automations) then the project-grouped (or flat) session list.
+  // The expanded body for the active surface: a "New session" action, then the project-grouped
+  // (or flat) session list, then the archived disclosure.
   const surfaceBody = () => {
     return (
-      <div className="surf-body">
-        <div className="surf-actions">
-          <div className="surf-action" onClick={() => props.onNewSession(browseKey)}>
-            <Icon name="plus" size={16} className="ico" /> New {browseKey === "chat" ? "chat" : "session"}
-          </div>
-        </div>
+      <div className="mt-0.5 space-y-1 pl-1">
+        <button
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[13px] text-muted hover:text-ink"
+          onClick={() => props.onNewSession(browseKey)}
+        >
+          <Icon name="plus" size={14} className="shrink-0" /> New {browseKey === "chat" ? "chat" : "session"}
+        </button>
 
         {workspaceSurface ? (
           <>
-            <div className="section-label">Projects</div>
-            <div className="sessions">
-              <div className="newbtn newbtn-secondary" onClick={props.onNewProject}>
-                <Icon name="folderPlus" size={18} className="ico" /> New project
-              </div>
+            <div className="px-1.5 pt-1 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+              Projects
+            </div>
+            <div className="space-y-0.5">
+              <button
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[13px] text-muted hover:text-ink"
+                onClick={props.onNewProject}
+              >
+                <Icon name="folderPlus" size={15} className="shrink-0" /> New project
+              </button>
               {projectOrder.map((proj) => (
-                <div className="proj-group" key={proj}>
-                  <div className={"proj-head" + (proj === props.workspace ? " current" : "")} title={proj}>
-                    <Icon name="folder" size={18} className="ico" />
-                    <span className="pname">{baseName(proj)}</span>
+                <div className="space-y-0.5" key={proj}>
+                  <div
+                    className={
+                      "flex items-center gap-2 px-1.5 pt-2 pb-1 text-[12px] " +
+                      (proj === props.workspace ? "text-ink font-semibold" : "text-muted font-medium")
+                    }
+                    title={proj}
+                  >
+                    <Icon name="folder" size={15} className="shrink-0" />
+                    <span className="truncate">{baseName(proj)}</span>
                   </div>
                   {(filteredByProject.get(proj) || []).length > 0 ? (
                     (filteredByProject.get(proj) || []).map(sessionRow)
                   ) : (
-                    <div className="session-empty">
+                    <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
                       {normalizedQuery ? "No matching conversations." : "No conversations in this project yet."}
                     </div>
                   )}
@@ -321,10 +381,12 @@ export function Sidebar(props: Props) {
           </>
         ) : (
           <>
-            <div className="section-label">Recents</div>
-            <div className="sessions">
+            <div className="px-1.5 pt-1 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+              Recents
+            </div>
+            <div className="space-y-0.5">
               {mine.filter(matches).length === 0 ? (
-                <div className="session-empty">
+                <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
                   {normalizedQuery ? "No matching conversations." : "No conversations yet."}
                 </div>
               ) : (
@@ -335,12 +397,17 @@ export function Sidebar(props: Props) {
         )}
 
         {archived.length > 0 && (
-          <div className="archived-block">
-            <div className="archived-head" onClick={() => setShowArchived((v) => !v)}>
-              <Icon name={showArchived ? "chevronDown" : "chevronRight"} size={14} />
+          <div className="mt-2 pt-1.5 border-t border-line">
+            <button
+              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-faint hover:text-muted"
+              onClick={() => setShowArchived((v) => !v)}
+            >
+              <Icon name={showArchived ? "chevronDown" : "chevronRight"} size={13} className="shrink-0" />
               Archived ({archived.length})
-            </div>
-            {showArchived && <div className="sessions">{archived.filter(matches).map(sessionRow)}</div>}
+            </button>
+            {showArchived && (
+              <div className="space-y-0.5 mt-0.5">{archived.filter(matches).map(sessionRow)}</div>
+            )}
           </div>
         )}
       </div>
@@ -350,68 +417,77 @@ export function Sidebar(props: Props) {
   // Grouped layout: one bounded card per persona (sessions grouped by their `agent`), each with a
   // gear → PersonaView and an inline "New session". A flat alternative to the accordion surfaces.
   const groupedList = () => (
-    <>
+    <div className="space-y-2.5">
       {visibleSurfaces.map((s) => {
         const list = props.sessions
           .filter((x) => x.agent === s.key && !x.session_id.startsWith("__") && !x.archived)
           .filter(matches);
         return (
-          <div className="persona-group" key={s.key}>
-            <div className="persona-group-head">
-              <span className={"persona-group-ico " + s.cls}>
-                <Icon name={s.icon} size={12} />
+          <div className="rounded-xl border border-line bg-paper/50 p-1.5" key={s.key}>
+            <div className="flex items-center gap-2 px-1.5 py-0.5">
+              <span className="text-muted">
+                <Icon name={s.icon} size={14} />
               </span>
-              <span className="persona-group-name">{s.label}</span>
-              <span className="persona-group-count">{list.length}</span>
-              <LiveDot state={liveByPersona.get(s.key)} />
-              <AttnBadge n={attnByPersona.get(s.key) || 0} />
-              <button
-                className="persona-gear"
-                title={`About the ${s.label} persona`}
-                aria-label={`About the ${s.label} persona`}
-                onClick={() => props.onOpenPersona(s.key)}
-              >
-                <Icon name="sliders" size={13} />
-              </button>
+              <span className="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold">
+                {s.label}
+              </span>
+              <span className="text-[10px] text-faint">{list.length}</span>
+              <span className="ml-auto flex items-center gap-1.5">
+                <LiveDot state={liveByPersona.get(s.key)} />
+                <AttnBadge n={attnByPersona.get(s.key) || 0} />
+                <button
+                  className="persona-gear w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-panel"
+                  title={`About the ${s.label} persona`}
+                  aria-label={`About the ${s.label} persona`}
+                  onClick={() => props.onOpenPersona(s.key)}
+                >
+                  <Icon name="sliders" size={14} />
+                </button>
+              </span>
             </div>
-            <div className="persona-group-body">
-              <div className="surf-action" onClick={() => props.onNewSession(s.key)}>
-                <Icon name="plus" size={14} className="ico" /> New {s.key === "chat" ? "chat" : "session"}
-              </div>
+            <div className="space-y-0.5 mt-0.5">
               {list.length === 0 ? (
-                <div className="session-empty">
+                <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
                   {normalizedQuery ? "No matching conversations." : "No conversations yet."}
                 </div>
               ) : (
                 list.map(sessionRow)
               )}
+              <button
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[12.5px] text-muted hover:text-ink"
+                onClick={() => props.onNewSession(s.key)}
+              >
+                <Icon name="plus" size={13} className="shrink-0" /> New {s.key === "chat" ? "chat" : "session"}
+              </button>
             </div>
           </div>
         );
       })}
-    </>
+    </div>
   );
 
   return (
-    <div className="sidebar">
-      <div className="brand">
-        {/* Multi-color mark: a green → purple gradient tying the surface palette together. */}
-        <svg className="mark" width={17} height={17} viewBox="0 0 24 24" aria-hidden="true">
-          <defs>
-            <linearGradient id="ow-mark" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stopColor="#16a34a" />
-              <stop offset="1" stopColor="#7c3aed" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M12 2.4c.5 4.7 2.5 6.7 7.2 7.2-4.7.5-6.7 2.5-7.2 7.2-.5-4.7-2.5-6.7-7.2-7.2 4.7-.5 6.7-2.5 7.2-7.2z"
-            fill="url(#ow-mark)"
-          />
-        </svg>
-        <span className="name">OpenCoworker</span>
+    <div className="sidebar flex flex-col min-h-0 bg-panel border-r border-line">
+      {/* Header: accent check-logo tile + wordmark + flat↔grouped layout toggle (mock §102). */}
+      <div className="brand px-3.5 pt-3.5 pb-2 flex items-center gap-2">
+        <div className="w-6 h-6 rounded-md bg-accent/15 grid place-items-center text-accent shrink-0">
+          <svg
+            width={14}
+            height={14}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.2}
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <div className="font-semibold tracking-tight">OpenCoworker</div>
         {/* Layout toggle by the wordmark: flat (persona accordions) ↔ grouped (per-persona cards). */}
         <button
-          className="layout-toggle"
+          className="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper"
           title={
             layout === "grouped"
               ? "Grouped by persona — tap for flat"
@@ -441,13 +517,13 @@ export function Sidebar(props: Props) {
         onManage={props.onManagePersonas}
       />
 
-      {/* Shared zone: capabilities common to ALL coworkers, above the persona accordions. */}
-      <div className="shared-nav">
+      {/* Search (mock §133): a paper chip; opening it swaps in the live filter input. */}
+      <div className="px-3 mt-1 flex items-center gap-2">
         {searchOpen ? (
-          <div className="surf-search">
-            <Icon name="search" size={15} className="ico" />
+          <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-paper border border-line text-faint focus-within:border-lineStrong">
+            <Icon name="search" size={14} className="shrink-0" />
             <input
-              className="surf-search-input"
+              className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-ink placeholder:text-faint"
               placeholder="Search conversations"
               value={query}
               autoFocus
@@ -460,7 +536,7 @@ export function Sidebar(props: Props) {
               }}
             />
             <button
-              className="surf-search-x"
+              className="text-faint hover:text-ink text-[15px] leading-none shrink-0"
               title="Close search"
               onClick={() => {
                 setSearchOpen(false);
@@ -471,105 +547,176 @@ export function Sidebar(props: Props) {
             </button>
           </div>
         ) : (
-          <div className="shared-link" onClick={() => setSearchOpen(true)}>
-            <Icon name="search" size={16} className="ico" /> Search
+          <button
+            className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-paper border border-line text-faint hover:border-lineStrong text-left"
+            onClick={() => setSearchOpen(true)}
+          >
+            <Icon name="search" size={14} className="shrink-0" />
+            <span className="text-[12.5px]">Search</span>
+          </button>
+        )}
+      </div>
+
+      {/* Scroll area: flat (Pinned band + persona accordions) or grouped (per-persona cards). */}
+      <div className="flex-1 overflow-y-auto px-2.5 mt-3 pb-2">
+        {layout === "grouped" ? (
+          groupedList()
+        ) : (
+          <div className="space-y-4">
+            {pinnedSessions.length > 0 && (
+              <div>
+                <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
+                  Pinned
+                </div>
+                <div className="space-y-0.5">
+                  {pinnedSessions.map((s) => {
+                    const active = s.session_id === props.activeSession;
+                    const title = s.title || s.session_id;
+                    const subParts = [personaLabel(s.agent)];
+                    if (s.subscriptions?.length)
+                      subParts.push(
+                        s.subscriptions.length === 1
+                          ? s.subscriptions[0]
+                          : `${s.subscriptions.length} channels`,
+                      );
+                    else if (s.workspace) subParts.push(baseName(s.workspace));
+                    return (
+                      <div
+                        key={s.session_id}
+                        className={
+                          "group w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
+                          (active
+                            ? "bg-accentSoft/60 border border-accent/30"
+                            : "hover:bg-paper")
+                        }
+                        title={title}
+                        onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
+                      >
+                        {iconTile(s.agent)}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium">{title}</span>
+                          <span className="block truncate text-[11px] text-muted">
+                            {subParts.join(" · ")}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          <ConnectorDot subs={s.subscriptions} />
+                          <LiveDot state={s.liveness} />
+                          <AttnBadge n={s.attention || 0} />
+                          <button
+                            className="hidden group-hover:grid w-5 h-5 place-items-center rounded text-accent hover:bg-paper"
+                            title="Unpin"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              props.onTogglePin(s.session_id, false);
+                            }}
+                          >
+                            <Icon name="pin" size={11} />
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-0.5">
+              {visibleSurfaces.map((s) => {
+                const expanded = isExpanded(s.key);
+                return (
+                  <div key={s.key}>
+                    <div
+                      className={
+                        "flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer select-none " +
+                        (isCurrent(s.key) ? "bg-paper" : "hover:bg-paper")
+                      }
+                      onClick={() => onHeaderClick(s.key)}
+                    >
+                      {iconTile(s.key)}
+                      <span
+                        className={
+                          "min-w-0 flex-1 truncate text-[13px] " +
+                          (isCurrent(s.key) ? "font-semibold text-ink" : "font-medium text-ink")
+                        }
+                      >
+                        {s.label}
+                      </span>
+                      <LiveDot state={liveByPersona.get(s.key)} />
+                      <AttnBadge n={attnByPersona.get(s.key) || 0} />
+                      <Icon
+                        name={expanded ? "chevronDown" : "chevronRight"}
+                        size={15}
+                        className="text-faint shrink-0"
+                      />
+                    </div>
+                    {expanded && surfaceBody()}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
-        <div
-          className={"shared-link" + (props.integrationsActive ? " active" : "")}
+      </div>
+
+      {/* Bottom nav (mock §239): shared destinations. Keeps the app's existing routes. */}
+      <div className="px-2.5 py-2 border-t border-line space-y-0.5">
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
+            (props.integrationsActive ? "bg-paper text-ink" : "hover:bg-paper")
+          }
           onClick={props.onOpenIntegrations}
         >
-          <Icon name="plug" size={16} className="ico" /> Integrations
-        </div>
-        <div
-          className={"shared-link" + (props.scheduledActive ? " active" : "")}
+          <Icon name="plug" size={15} className="shrink-0 text-muted" /> Integrations
+        </button>
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
+            (props.scheduledActive ? "bg-paper text-ink" : "hover:bg-paper")
+          }
           onClick={props.onOpenScheduled}
         >
-          <Icon name="clock" size={16} className="ico" /> Automations
-        </div>
-      </div>
-
-      {layout === "flat" && pinnedSessions.length > 0 && (
-        <div className="pinned-band">
-          <div className="pinned-label">Pinned</div>
-          {pinnedSessions.map((s) => {
-            const pi = personaIcon(s.agent);
-            return (
-              <div
-                key={s.session_id}
-                className={"pinned-row" + (s.session_id === props.activeSession ? " active" : "")}
-                title={s.title || s.session_id}
-                onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
-              >
-                <span className={"pinned-ico " + pi.cls}>
-                  <Icon name={pi.icon} size={11} />
-                </span>
-                <span className="pinned-title">{s.title || s.session_id}</span>
-                <button
-                  className="pinned-unpin"
-                  title="Unpin"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onTogglePin(s.session_id, false);
-                  }}
-                >
-                  <Icon name="pin" size={11} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {layout === "grouped" ? (
-        <div className="surfaces persona-groups">{groupedList()}</div>
-      ) : (
-      <div className="surfaces">
-        {visibleSurfaces.map((s) => {
-          const expanded = isExpanded(s.key);
-          return (
-            <div className={"surf" + (expanded ? " open" : "")} key={s.key}>
-              <div
-                className={"surf-head" + (isCurrent(s.key) ? " active" : "")}
-                onClick={() => onHeaderClick(s.key)}
-              >
-                <span className={"surf-ico " + s.cls}>
-                  <Icon name={s.icon} size={13} />
-                </span>
-                <span className="surf-label">{s.label}</span>
-                <LiveDot state={liveByPersona.get(s.key)} />
-                <AttnBadge n={attnByPersona.get(s.key) || 0} />
-                <Icon name={expanded ? "chevronDown" : "chevronRight"} size={16} className="surf-chev" />
-              </div>
-              {expanded && surfaceBody()}
-            </div>
-          );
-        })}
-      </div>
-      )}
-
-      <div className="sidebar-foot">
-        <div
-          className={"manage-link" + (props.inboxActive ? " active" : "")}
+          <Icon name="clock" size={15} className="shrink-0 text-muted" /> Automations
+        </button>
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
+            (props.inboxActive ? "bg-paper text-ink" : "hover:bg-paper")
+          }
           onClick={props.onOpenInbox}
         >
-          <Icon name="chat" size={15} className="ico" /> Inbox
+          <Icon name="chat" size={15} className="shrink-0 text-muted" />
+          <span className="flex-1">Inbox</span>
           <AttnBadge n={totalAttention} />
-        </div>
-        <div
-          className={"manage-link" + (props.auditActive ? " active" : "")}
+        </button>
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
+            (props.auditActive ? "bg-paper text-ink" : "hover:bg-paper")
+          }
           onClick={props.onOpenAudit}
         >
-          <Icon name="audit" size={15} className="ico" /> Audit
-        </div>
-        <div className="manage-link" onClick={props.onManage}>
-          <Icon name="sliders" size={15} className="ico" /> Manage
-        </div>
-        {workspaceSurface && (
-          <div className="ws" title={props.workspace}>
-            {props.workspace || "—"}
-          </div>
-        )}
+          <Icon name="audit" size={15} className="shrink-0 text-muted" /> Activity
+        </button>
+      </div>
+
+      {/* Footer (mock §254): the cwd path + a settings gear (→ Manage). */}
+      <div className="px-3.5 py-2.5 border-t border-line text-[11.5px] text-muted flex items-center justify-between gap-2">
+        <span className="truncate" title={props.workspace || undefined}>
+          {props.workspace || ""}
+        </span>
+        <button
+          className="text-faint hover:text-ink shrink-0"
+          title="Manage"
+          aria-label="Manage"
+          onClick={props.onManage}
+        >
+          <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1L16.5 3h-4l-.4 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.4h4l.4-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6c.1-.3.1-.7.1-1z" />
+          </svg>
+        </button>
       </div>
     </div>
   );
@@ -592,13 +739,16 @@ function NewSessionSplit({
   const [open, setOpen] = useState(false);
   const enabled = (personas || []).filter((p) => p.enabled);
   return (
-    <div className="newsplit">
-      <div className="newsplit-row">
-        <button className="newsplit-primary" onClick={() => onNew(current)}>
-          <Icon name="plus" size={15} /> New session
+    <div className="px-3 pt-2 relative">
+      <div className="flex">
+        <button
+          className="newsplit-primary flex-1 text-left px-3 py-2 rounded-l-lg bg-accent text-white text-[13px] font-medium hover:opacity-95 flex items-center gap-2"
+          onClick={() => onNew(current)}
+        >
+          <Icon name="plus" size={15} className="shrink-0" /> New session
         </button>
         <button
-          className="newsplit-caret"
+          className="px-2.5 rounded-r-lg bg-accent text-white border-l border-white/25 hover:opacity-95 flex items-center"
           title="Start with a specific persona"
           aria-label="Choose a persona"
           onClick={() => setOpen((v) => !v)}
@@ -608,30 +758,36 @@ function NewSessionSplit({
       </div>
       {open && (
         <>
-          <div className="newsplit-backdrop" onClick={() => setOpen(false)} />
-          <div className="newsplit-menu">
-            <div className="newsplit-menu-label">Start a session as</div>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="newsplit-menu absolute left-3 right-3 mt-1 z-30 bg-panel border border-line rounded-xl2 shadow-xl p-1">
+            <div className="px-2 py-1 text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">
+              Start a session as
+            </div>
             {enabled.map((p) => (
               <button
                 key={p.id}
-                className="newsplit-item"
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"
                 onClick={() => {
                   setOpen(false);
                   onNew(p.id);
                 }}
               >
-                <span className={"newsplit-item-ico ico-" + (p.icon || "cowork")}>
+                <span className="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-muted shrink-0">
                   <Icon name={ICON_FOR[p.icon] ?? "diamond"} size={12} />
                 </span>
-                <span className="newsplit-item-text">
-                  <span className="newsplit-item-name">{p.id === "cowork" ? "OpenCoworker" : p.name}</span>
-                  {p.tagline && <span className="newsplit-item-tag">{p.tagline}</span>}
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium truncate">
+                    {p.id === "cowork" ? "OpenCoworker" : p.name}
+                  </span>
+                  {p.tagline && (
+                    <span className="block text-[11px] text-muted truncate">{p.tagline}</span>
+                  )}
                 </span>
               </button>
             ))}
-            <div className="newsplit-menu-sep">
+            <div className="border-t border-line mt-1 pt-1">
               <button
-                className="newsplit-manage"
+                className="w-full px-2 py-1.5 rounded-lg hover:bg-paper text-left text-[12.5px] text-muted"
                 onClick={() => {
                   setOpen(false);
                   onManage();
