@@ -60,32 +60,39 @@ export function ConnectorMessageCard({
   const hide = () => setShowIds(false);
 
   return (
-    <article className="connector-card" data-brand={key} style={styleVars}>
+    <article
+      className="connector-card rounded-xl2 border border-line bg-panel overflow-hidden"
+      data-brand={key}
+      style={styleVars}
+    >
       <header
-        className="connector-card-head"
+        className="connector-card-head flex items-center gap-2 px-3.5 py-2 border-b border-line outline-none"
         tabIndex={0}
         onMouseEnter={reveal}
         onMouseLeave={hide}
         onFocus={reveal}
         onBlur={hide}
         title={ids}
+        style={{ background: "var(--brand-soft)" }}
       >
-        <ConnectorBadge connector={{ logo: source.connector, brand_color: color }} size={26} title={entry.label} />
+        <ConnectorBadge connector={{ logo: source.connector, brand_color: color }} size={20} title={entry.label} />
         {showIds ? (
-          <span className="connector-card-ids">{ids}</span>
+          <span className="font-mono text-[11.5px] text-faint">{ids}</span>
         ) : (
           <>
-            <span className="connector-card-channel">{source.channel_name}</span>
-            <span className="connector-card-dot">·</span>
-            <span className="connector-card-sender">{source.sender_name}</span>
-            <span className="connector-card-via">via {entry.label}</span>
+            <span className="text-[12.5px] font-semibold" style={{ color: "var(--brand)" }}>
+              {source.channel_name}
+            </span>
+            <span className="text-faint">·</span>
+            <span className="text-[12.5px] font-medium">{source.sender_name}</span>
+            <span className="text-[11px] text-faint ml-0.5">via {entry.label}</span>
           </>
         )}
-        <time className="connector-card-time" title={clockTime(source.ts)}>
+        <time className="ml-auto text-[11px] text-faint whitespace-nowrap" title={clockTime(source.ts)}>
           {relativeTime(source.ts)}
         </time>
       </header>
-      <div className="connector-card-body">{source.text}</div>
+      <div className="px-3.5 py-2.5 text-[14.5px] leading-relaxed whitespace-pre-wrap">{source.text}</div>
     </article>
   );
 }

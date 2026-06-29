@@ -143,10 +143,13 @@ export function Composer(props: Props) {
   const wsName = props.workspace ? props.workspace.split("/").filter(Boolean).pop() : "";
 
   return (
-    <div className="composer-wrap">
+    <div className="composer-wrap px-6 pb-5 pt-1">
       {props.approvalSlot}
       <div
-        className={"composer" + (dragging ? " dragging" : "")}
+        className={
+          "composer max-w-3xl mx-auto rounded-2xl border border-line bg-panel shadow-sm" +
+          (dragging ? " dragging" : "")
+        }
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
@@ -158,24 +161,37 @@ export function Composer(props: Props) {
           if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
         }}
       >
-        {(props.rootsSlot || props.workspace !== undefined || props.unattendedSlot) && (
-          <div className="composer-head">
-            {props.rootsSlot ??
-              (props.workspace !== undefined ? (
-                <button className="wschip" onClick={props.onPickWorkspace} title={props.workspace}>
-                  <Icon name="folder" size={14} />
-                  <span className="wsname">{wsName || "Choose folder"}</span>
-                  <Icon name="pencil" size={12} className="edit" />
-                </button>
-              ) : null)}
-            {props.branch && (
-              <span className="wsbranch">
-                <Icon name="branch" size={13} /> {props.branch}
-              </span>
-            )}
-            {props.unattendedSlot}
-          </div>
-        )}
+        <div className="composer-head px-3 pt-2.5 flex items-center gap-2">
+          {props.rootsSlot ??
+            (props.workspace !== undefined ? (
+              <button className="wschip" onClick={props.onPickWorkspace} title={props.workspace}>
+                <Icon name="folder" size={14} />
+                <span className="wsname">{wsName || "Choose folder"}</span>
+                <Icon name="pencil" size={12} className="edit" />
+              </button>
+            ) : null)}
+          {props.branch && (
+            <span className="wsbranch">
+              <Icon name="branch" size={13} /> {props.branch}
+            </span>
+          )}
+          {props.unattendedSlot}
+          <span className="ml-auto" />
+          {/* No model connected: don't imply a usable model — show "No model ⚠" that opens setup. */}
+          {needsModel ? (
+            <button
+              className="pill model-warn chip"
+              onClick={() => props.onConnectModel?.()}
+              title="Connect a model"
+              aria-label="No model connected — connect a model"
+            >
+              <span className="pill-label">No model</span>
+              <span className="model-warn-ico" aria-hidden>⚠</span>
+            </button>
+          ) : (
+            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" className="chip" />
+          )}
+        </div>
 
         {attachments.length > 0 && (
           <div className="attach-row">
@@ -187,6 +203,7 @@ export function Composer(props: Props) {
 
         <textarea
           ref={textareaRef}
+          className="w-full block px-3.5 py-3 text-[14.5px]"
           placeholder={props.placeholder || "Ask the coworker…  (drop or paste images)"}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -194,7 +211,7 @@ export function Composer(props: Props) {
           onPaste={onPaste}
           rows={1}
         />
-        <div className="composer-bar">
+        <div className="composer-bar px-3 pb-2.5 flex items-center gap-2">
           <button className="icon-btn" title="Attach image or file" onClick={() => fileInput.current?.click()}>
             <Icon name="plus" size={16} />
           </button>
@@ -213,21 +230,7 @@ export function Composer(props: Props) {
           {props.workspace !== undefined && (
             <Dropdown value={props.mode} options={PERMISSION_OPTIONS} onChange={props.onModeChange} />
           )}
-          {/* No model connected: don't imply a usable model — show "No model ⚠" that opens setup. */}
-          {needsModel ? (
-            <button
-              className="pill model-warn"
-              onClick={() => props.onConnectModel?.()}
-              title="Connect a model"
-              aria-label="No model connected — connect a model"
-            >
-              <span className="pill-label">No model</span>
-              <span className="model-warn-ico" aria-hidden>⚠</span>
-            </button>
-          ) : (
-            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} />
-          )}
-          <span className="spacer" />
+          <span className="ml-auto" />
           {props.running ? (
             <button className="btn danger" onClick={props.onInterrupt}>
               ⏹ Stop

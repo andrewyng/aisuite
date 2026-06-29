@@ -277,17 +277,20 @@ body {
 .main {
   position: relative; display: flex; flex-direction: column;
   min-height: 0; overflow: hidden;
-  background-image: radial-gradient(var(--line-strong) 0.7px, transparent 0.7px);
-  background-size: 22px 22px;
+  background: var(--paper);   /* plain paper, matching the mock (was a dotted graph texture) */
 }
 .main-topbar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 48px; display: flex; align-items: center;
-  padding: 0 14px 0 22px; color: var(--ink); user-select: none;
-  background: transparent;
+  height: 48px; display: flex; align-items: center; gap: 12px;
+  padding: 0 14px 0 20px; color: var(--ink); user-select: none;
+  /* mock's `border-b border-line bg-panel/70 backdrop-blur` */
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 6;
 }
 .main.rail-open .main-topbar { right: 332px; }
@@ -358,8 +361,9 @@ body {
 }
 
 /* transcript */
-.transcript { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
-.bubble-user { align-self: flex-end; max-width: 78%; background: var(--solid); color: var(--on-solid); padding: 10px 14px; border-radius: 14px 14px 4px 14px; font-size: 14.5px; white-space: pre-wrap; }
+/* Conversation column — mock's `max-w-3xl mx-auto space-y-5` (the px-6/py-6 gutter is supplied by
+   .main-scroll). The user bubble is restyled inline with Tailwind utilities on the element. */
+.transcript { max-width: 768px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 .bubble-assistant { font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
 .bubble-assistant .who { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
 
@@ -461,20 +465,13 @@ button.btn:hover { background: var(--paper); }
 button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.btn.danger { color: var(--accent); }
 
-/* composer */
-.composer-wrap { padding: 12px 8% 22px; }
-.composer {
-  max-width: 760px; margin: 0 auto; background: var(--panel);
-  border: 1px solid var(--line-strong); border-radius: 16px; padding: 12px 14px;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.05);
-}
+/* composer — the wrap/card/head/bar layout is supplied by Tailwind utilities on the elements
+   (Composer.tsx); only the textarea reset + drag-ring remain in CSS. */
 .composer textarea {
-  width: 100%; border: none; outline: none; resize: none; font: inherit; font-size: 15px; line-height: 1.45;
+  width: 100%; border: none; outline: none; resize: none; font: inherit; font-size: 14.5px; line-height: 1.45;
   background: transparent; color: var(--ink); min-height: 24px; max-height: 88px; overflow: hidden;
 }
 .composer textarea::placeholder { color: var(--faint); }
-.composer-bar { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
-.composer-bar .spacer { flex: 1; }
 /* Quiet text trigger — the send button stays the composer's only loud element. inline-flex keeps
    the chevron glued to the label (the old inline pill let it wrap onto its own line). */
 .pill {
@@ -491,6 +488,9 @@ button.btn.danger { color: var(--accent); }
 .model-warn-ico { color: var(--warn-ink); font-size: 12px; line-height: 1; }
 .pill .caret { color: var(--faint); flex: none; }
 .pill:hover .caret { color: var(--muted); }
+/* Bordered chip variant (composer-head model selector) — mock's `bg-paper border border-line`. */
+.pill.chip { background: var(--paper); border: 1px solid var(--line); }
+.pill.chip:hover { border-color: var(--line-strong); background: var(--paper); }
 
 /* dropdown popover */
 .dd { position: relative; }
@@ -671,8 +671,7 @@ button.btn.danger { color: var(--accent); }
 .artifact-md .md h2 { font-size: 19px; margin-top: 22px; }
 
 /* working-directory bar */
-/* Workspace chip lives INSIDE the composer card (top-left), so it's aligned + integrated. */
-.composer-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+/* Workspace chip lives INSIDE the composer card's head row (top chip row, Tailwind-laid-out). */
 .wschip {
   display: inline-flex; align-items: center; gap: 6px;
   font: inherit; font-size: 12.5px; color: var(--ink);
@@ -1421,11 +1420,12 @@ button.btn.ghost:hover { color: var(--ink); }
 .inbox-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-chip-go { flex: none; color: var(--faint); }
 
-/* Unattended toggle (composer head) */
+/* Unattended toggle (composer head) — mock's `bg-accentSoft border-accent/30 text-accent`. */
 .wschip.unattended-on {
-  background: var(--warn-ink, #b45309);
-  color: #fff;
-  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 500;
 }
 .unattended-confirm {
   display: inline-flex;
@@ -1457,65 +1457,9 @@ button.btn.ghost:hover { color: var(--ink); }
   background: var(--brand-soft, rgba(107, 114, 128, 0.12));
 }
 
-/* Connector inbound message card (§3.3). Brand-tinted header + brand-colored left edge; the
-   --brand / --brand-soft custom props are set inline from the connector's color (ConnectorMessageCard).
-   The header swaps names → `channel_id · sender_id` on hover/focus (React state, not CSS :hover). */
-.connector-card {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--brand, #6b7280);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--panel);
-}
-.connector-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--brand-soft, rgba(107, 114, 128, 0.12));
-  cursor: default;
-  outline: none;
-}
-.connector-card-head:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--brand, #6b7280);
-}
-.connector-card-channel {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--brand, #6b7280);
-}
-.connector-card-dot {
-  color: var(--faint);
-}
-.connector-card-sender {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink);
-}
-.connector-card-via {
-  font-size: 11px;
-  color: var(--faint);
-  margin-left: 2px;
-}
-.connector-card-ids {
-  font-size: 11.5px;
-  color: var(--faint);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.connector-card-time {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--faint);
-  white-space: nowrap;
-}
-.connector-card-body {
-  padding: 8px 12px 10px;
-  font-size: 14.5px;
-  line-height: 1.55;
-  color: var(--ink);
-  white-space: pre-wrap;
-}
+/* Connector inbound message card (§3.3) — restyled inline with Tailwind utilities on the elements
+   (ConnectorMessageCard.tsx). The header background pulls var(--brand-soft) (set inline from the
+   connector's color); the header swaps names → `channel_id · sender_id` on hover/focus (React state). */
 
 /* ============ Phase 4: persona detail page + per-session Sources bar/drawer ============ */
 
@@ -1586,49 +1530,8 @@ button.btn.sm.reco-connect-primary:hover {
   color: #fff;
 }
 
-/* ---- Sources bar (under the session title) ---- */
-.sources-row {
-  padding: 8px 8% 0;
-}
-.sources-bar {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 8px;
-  margin-left: -8px;
-  border-radius: 8px;
-}
-.sources-bar:hover {
-  background: var(--paper);
-}
-.sources-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-  font-weight: 600;
-}
-.src-stack {
-  display: inline-flex;
-  align-items: center;
-}
-.src-ava {
-  width: 24px;
-  height: 24px;
-  padding: 4px;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 0 0 2px var(--paper);
-}
-.src-ava + .src-ava {
-  margin-left: -6px;
-}
+/* ---- Sources bar (under the session title) — restyled inline with Tailwind utilities
+   (SourcesBar.tsx). Only the `⚠ N` attention pill keeps a shared .attn-badge rule below. ---- */
 .attn-badge {
   display: inline-flex;
   align-items: center;
@@ -2175,18 +2078,7 @@ button.btn.sm.reco-connect-primary:hover {
 .newsplit-item-ico.ico-code, .persona-group-ico.ico-code { background: #7c3aed; }
 .newsplit-item-ico.ico-ops, .persona-group-ico.ico-ops { background: #ea580c; }
 
-/* -- StepGroup (collapsed tool/approval disclosure) ------------------------- */
-.stepgroup {
-  align-self: stretch; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
-  overflow: hidden;
-}
-.stepgroup-head {
-  display: flex; align-items: center; gap: 8px; padding: 8px 11px; cursor: pointer; user-select: none;
-  list-style: none; font-size: 12.5px; color: var(--muted);
-}
+/* -- StepGroup (collapsed tool/approval disclosure) — restyled inline with Tailwind utilities
+   (Transcript.tsx); only the <summary> disclosure-marker reset stays in CSS. ---- */
+.stepgroup-head { list-style: none; }
 .stepgroup-head::-webkit-details-marker { display: none; }
-.stepgroup-head .chev { display: inline-block; color: var(--faint); transition: transform 0.12s ease; }
-.stepgroup-head .chev.open { transform: rotate(90deg); }
-.stepgroup-summary .step-approvals { color: var(--ok); font-weight: 500; }
-.stepgroup-toggle { margin-left: auto; font-size: 11px; color: var(--faint); }
-.stepgroup-body { border-top: 1px solid var(--line); padding: 4px 11px 8px; }

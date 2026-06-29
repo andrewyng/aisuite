@@ -24,48 +24,67 @@ function StepGroup({ items }: { items: ActivityItem[] }) {
     mApprovals > 0 ? `${mApprovals} approval${mApprovals === 1 ? "" : "s"} ✓` : "";
 
   return (
-    <details className="stepgroup" open={open}>
+    <details className="stepgroup rounded-lg border border-line bg-panel overflow-hidden" open={open}>
       <summary
-        className="stepgroup-head"
+        className="stepgroup-head flex items-center gap-2 px-3 py-2 cursor-pointer select-none text-[12.5px] text-muted"
         onClick={(e) => {
           e.preventDefault(); // drive open/closed from state, not the native toggle
           setOpen((v) => !v);
         }}
       >
-        <span className={"chev" + (open ? " open" : "")}>›</span>
-        <span className="stepgroup-summary">
-          <span className="step-actions">{running ? `Running ${actionsLabel}…` : actionsLabel}</span>
+        <span className={"chev inline-block text-faint transition-transform" + (open ? " rotate-90" : "")}>›</span>
+        <span>
+          <span>{running ? `Running ${actionsLabel}…` : actionsLabel}</span>
           {approvalsLabel && (
             <>
               {" · "}
-              <span className="ok step-approvals">{approvalsLabel}</span>
+              <span className="text-ok font-medium">{approvalsLabel}</span>
             </>
           )}
         </span>
-        <span className="stepgroup-toggle">{open ? "hide details" : "show details"}</span>
+        <span className="ml-auto text-[11px] text-faint">{open ? "hide details" : "show details"}</span>
       </summary>
       {open && (
-        <div className="stepgroup-body">
+        <div className="px-2 pb-2 pt-1 space-y-2 border-t border-line">
           {items.map((item, i) =>
             item.kind === "approval" ? (
-              <div className="toolrow approval-row" key={i}>
-                <span className="status ok">✓</span>
-                <span className="name">approved</span>
-                <span className="rowargs">
-                  {item.name} · {item.resolved?.replace("_", " ")}
-                </span>
+              <div className="rounded-lg border border-tealLine bg-tealSoft" key={i}>
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <span className="inline-flex items-center gap-1 text-[11.5px] text-ok font-medium">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                    approved
+                  </span>
+                  <span className="text-[13px]">
+                    <span className="font-mono">{item.name}</span> approval
+                  </span>
+                  <span className="text-[11.5px] text-muted">· {item.resolved?.replace("_", " ")}</span>
+                </div>
               </div>
             ) : (
-              <div className="toolrow" key={i}>
-                <div className="toolrow-head">
-                  <span className={"status " + item.status}>
-                    {item.status === "ok" ? "✓" : item.status === "…" ? "…" : "•"}
+              <div className="rounded-lg border border-line bg-panel" key={i}>
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <span className="w-5 h-5 rounded grid place-items-center bg-tealSoft text-tealInk">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M4 7h16M4 12h16M4 17h10" />
+                    </svg>
                   </span>
-                  <span className="name">{item.name}</span>
-                  <span className="rowargs">{shortArgs(item.args)}</span>
+                  <span className="font-mono text-[12.5px]">{item.name}</span>
+                  <span className="font-mono text-[11.5px] text-faint truncate">{shortArgs(item.args)}</span>
+                  <span
+                    className={
+                      "ml-auto text-[11px] px-1.5 py-0.5 rounded border " +
+                      (item.status === "ok"
+                        ? "bg-okSoft text-ok border-okLine"
+                        : "bg-paper text-faint border-line")
+                    }
+                  >
+                    {item.status === "ok" ? "done" : item.status === "…" ? "running…" : item.status}
+                  </span>
                 </div>
                 {item.preview && (
-                  <pre className="toolresult">
+                  <pre className="mx-3 mb-2 px-2.5 py-1.5 rounded border border-line bg-paper font-mono text-[11.5px] leading-relaxed text-muted whitespace-pre-wrap break-words max-h-56 overflow-auto">
                     {item.preview.length > 1500 ? item.preview.slice(0, 1500) + "\n…" : item.preview}
                   </pre>
                 )}
@@ -122,7 +141,10 @@ export function Transcript({ items }: Props) {
             return <ConnectorMessageCard source={item.source} key={bi} />;
           case "user":
             return (
-              <div className="bubble-user" key={bi}>
+              <div
+                className="bubble-user self-end max-w-[78%] px-3.5 py-2.5 rounded-[14px_14px_4px_14px] bg-solid text-onSolid text-[14.5px] leading-relaxed whitespace-pre-wrap"
+                key={bi}
+              >
                 {item.attachments && item.attachments.length > 0 && (
                   <div className="bubble-attachments">
                     {item.attachments.map((a, i) =>

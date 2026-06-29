@@ -1,6 +1,14 @@
 /** Tailwind config — mirrors platform/ui-mocks/redesign.html so the app can use the mock's
  *  exact utility classes. Colors map to the CSS custom properties already defined in styles.css
  *  (so light/dark theming flows through one source of truth). */
+// Tokens are hex CSS vars (shared with styles.css), which Tailwind can't alpha-multiply for
+// `/NN` opacity utilities. Wrap each in color-mix so `bg-panel/70` etc. work, while bare
+// `var(--x)` usage in styles.css stays intact. (color-mix is supported in the Chromium webview.)
+const tok = (name) => ({ opacityValue }) =>
+  opacityValue === undefined
+    ? `var(${name})`
+    : `color-mix(in srgb, var(${name}) calc(${opacityValue} * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["selector", '[data-theme="dark"]'],
@@ -8,26 +16,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        paper: "var(--paper)",
-        panel: "var(--panel)",
-        ink: "var(--ink)",
-        muted: "var(--muted)",
-        faint: "var(--faint)",
-        line: "var(--line)",
-        lineStrong: "var(--line-strong)",
-        accent: "var(--accent)",
-        accentSoft: "var(--accent-soft)",
-        ok: "var(--ok)",
-        okSoft: "var(--ok-soft)",
-        okLine: "var(--ok-line)",
-        warnInk: "var(--warn-ink)",
-        warnSoft: "var(--warn-soft)",
-        danger: "var(--danger)",
-        tealInk: "var(--teal-ink)",
-        tealSoft: "var(--teal-soft)",
-        tealLine: "var(--teal-line)",
-        solid: "var(--solid)",
-        onSolid: "var(--on-solid)",
+        paper: tok("--paper"),
+        panel: tok("--panel"),
+        ink: tok("--ink"),
+        muted: tok("--muted"),
+        faint: tok("--faint"),
+        line: tok("--line"),
+        lineStrong: tok("--line-strong"),
+        accent: tok("--accent"),
+        accentSoft: tok("--accent-soft"),
+        ok: tok("--ok"),
+        okSoft: tok("--ok-soft"),
+        okLine: tok("--ok-line"),
+        warnInk: tok("--warn-ink"),
+        warnSoft: tok("--warn-soft"),
+        danger: tok("--danger"),
+        tealInk: tok("--teal-ink"),
+        tealSoft: tok("--teal-soft"),
+        tealLine: tok("--teal-line"),
+        solid: tok("--solid"),
+        onSolid: tok("--on-solid"),
       },
       fontFamily: {
         sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Inter", "system-ui", "sans-serif"],
