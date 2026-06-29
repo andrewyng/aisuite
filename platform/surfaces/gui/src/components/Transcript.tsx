@@ -8,18 +8,44 @@ type ToolItem = Extract<Item, { kind: "tool" }>;
 type ApprovalItem = Extract<Item, { kind: "approval" }>;
 type ActivityItem = ToolItem | ApprovalItem;
 
-function ToolGroup({ items }: { items: ActivityItem[] }) {
+// StepGroup (§7 / UX §2b): a collapsed, expandable disclosure that wraps a run of consecutive
+// tool/approval items into one summary line — "N actions · M approvals ✓". Pure frontend grouping of
+// EXISTING items (no data change); a <details>-style disclosure driven by controlled state so the
+// open/closed render is deterministic (jsdom's native <details> toggle is unreliable in tests).
+function StepGroup({ items }: { items: ActivityItem[] }) {
   const [open, setOpen] = useState(false);
   const tools = items.filter((item): item is ToolItem => item.kind === "tool");
+  const approvals = items.filter((item): item is ApprovalItem => item.kind === "approval");
   const running = tools.some((t) => t.status === "…");
-  const label = running ? `Running ${tools.length} tool${tools.length > 1 ? "s" : ""}…` : `Ran ${tools.length} tool${tools.length > 1 ? "s" : ""}`;
+  const nActions = tools.length;
+  const mApprovals = approvals.length;
+  const actionsLabel = `${nActions} action${nActions === 1 ? "" : "s"}`;
+  const approvalsLabel =
+    mApprovals > 0 ? `${mApprovals} approval${mApprovals === 1 ? "" : "s"} ✓` : "";
+
   return (
-    <div className="toolgroup">
-      <div className="toolgroup-head" onClick={() => setOpen(!open)}>
-        <span className="chev">{open ? "⌄" : "›"}</span> {label}
-      </div>
+    <details className="stepgroup" open={open}>
+      <summary
+        className="stepgroup-head"
+        onClick={(e) => {
+          e.preventDefault(); // drive open/closed from state, not the native toggle
+          setOpen((v) => !v);
+        }}
+      >
+        <span className={"chev" + (open ? " open" : "")}>›</span>
+        <span className="stepgroup-summary">
+          <span className="step-actions">{running ? `Running ${actionsLabel}…` : actionsLabel}</span>
+          {approvalsLabel && (
+            <>
+              {" · "}
+              <span className="ok step-approvals">{approvalsLabel}</span>
+            </>
+          )}
+        </span>
+        <span className="stepgroup-toggle">{open ? "hide details" : "show details"}</span>
+      </summary>
       {open && (
-        <div className="toolgroup-body">
+        <div className="stepgroup-body">
           {items.map((item, i) =>
             item.kind === "approval" ? (
               <div className="toolrow approval-row" key={i}>
@@ -48,7 +74,7 @@ function ToolGroup({ items }: { items: ActivityItem[] }) {
           )}
         </div>
       )}
-    </div>
+    </details>
   );
 }
 
@@ -89,7 +115,7 @@ export function Transcript({ items }: Props) {
   return (
     <div className="transcript">
       {blocks.map((block, bi) => {
-        if ("activities" in block) return <ToolGroup items={block.activities} key={bi} />;
+        if ("activities" in block) return <StepGroup items={block.activities} key={bi} />;
         const { item } = block;
         switch (item.kind) {
           case "connector":

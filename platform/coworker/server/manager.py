@@ -1262,6 +1262,7 @@ class SessionManager:
             "onboarded": bool(self._prefs.get("onboarded")),
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
+            "nav_layout": self._nav_layout(),
             "scratch_base": self._prefs.get("scratch_base")
             or self.DEFAULT_SCRATCH_BASE,
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
@@ -1288,6 +1289,18 @@ class SessionManager:
             self._prefs["show_code"] = bool(code)
         self._save_prefs()
         return {"ok": True, "surfaces": self._surfaces()}
+
+    def _nav_layout(self) -> str:
+        """Sidebar layout: ``"flat"`` (default) or ``"grouped"`` (by persona). Persisted in
+        prefs (UI-REFRESH §7)."""
+        return "grouped" if self._prefs.get("nav_layout") == "grouped" else "flat"
+
+    def set_nav_layout(self, nav_layout: str) -> dict[str, Any]:
+        """Set + persist the sidebar layout. Unknown values fall back to ``"flat"``."""
+        value = "grouped" if (nav_layout or "").strip() == "grouped" else "flat"
+        self._prefs["nav_layout"] = value
+        self._save_prefs()
+        return {"ok": True, "nav_layout": value}
 
     def set_model_key(self, api_key: str) -> dict[str, Any]:
         """Persist the model API key to the SecretStore (0600). The new provider client is

@@ -393,6 +393,10 @@ export interface ModelSettings {
   surfaces: SurfaceVisibility;
   scratch_base: string;
   secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)
+  // Sidebar layout preference (§7): "flat" = the persona accordions / today's list; "grouped" =
+  // bounded per-persona cards. Defaults to "flat" (absent → flat) so the GUI is robust to an older
+  // backend that hasn't shipped the field yet.
+  nav_layout?: "flat" | "grouped";
 }
 
 export async function setScratchBase(
@@ -413,6 +417,18 @@ export async function setSurfaces(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(flags),
+  });
+  return res.json();
+}
+
+/** Persist the sidebar layout preference (flat ↔ grouped-by-persona); read back from getSettings. */
+export async function setNavLayout(
+  layout: "flat" | "grouped",
+): Promise<{ ok: boolean; nav_layout?: "flat" | "grouped"; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/settings/nav-layout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nav_layout: layout }),
   });
   return res.json();
 }

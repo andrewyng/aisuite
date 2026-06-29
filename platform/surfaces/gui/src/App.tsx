@@ -153,7 +153,7 @@ export function App() {
   const [sessionId, setSessionId] = useState<string>(newId());
   const [gateCreate, setGateCreate] = useState(false);
   const [showManage, setShowManage] = useState(false);
-  const [manageTab, setManageTab] = useState<"settings" | "models" | undefined>(undefined);
+  const [manageTab, setManageTab] = useState<"settings" | "models" | "personas" | undefined>(undefined);
   // Whether the default model's provider is actually configured (any provider). Drives the
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
@@ -820,6 +820,14 @@ export function App() {
         onDeleteSession={deleteConversation}
         onTogglePin={togglePinned}
         onManage={() => setShowManage(true)}
+        onOpenPersona={(id) => {
+          setPersonaViewId(id);
+          setSurface("persona");
+        }}
+        onManagePersonas={() => {
+          setManageTab("personas");
+          setShowManage(true);
+        }}
         onOpenScheduled={() => setSurface("scheduled")}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}

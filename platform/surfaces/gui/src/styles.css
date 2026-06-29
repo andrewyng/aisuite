@@ -2054,3 +2054,139 @@ button.btn.sm.reco-connect-primary:hover {
 .drawer-global-link:hover {
   text-decoration: underline;
 }
+
+/* ============================================================================
+   Phase 5 — frontend polish: Integrations sub-nav, dual sidebar (split button +
+   grouped-by-persona cards), and the StepGroup transcript disclosure.
+   ========================================================================== */
+
+/* -- Integrations sub-nav (Connectors · Messaging routing · Activity · MCP) -- */
+.integrations-view { flex-direction: row; }
+.int-subnav {
+  width: 208px; flex: none; border-right: 1px solid var(--line); background: var(--panel);
+  padding: 16px 12px; display: flex; flex-direction: column; gap: 3px; overflow-y: auto;
+}
+.int-subnav-title {
+  display: flex; align-items: center; gap: 8px; padding: 2px 8px 12px;
+  font-size: 13.5px; font-weight: 600; color: var(--ink);
+}
+.int-subnav-title svg { color: var(--muted); flex: none; }
+.int-tab {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; font: inherit;
+  font-size: 13px; color: var(--muted); cursor: pointer; text-align: left;
+}
+.int-tab:hover { background: var(--paper); color: var(--ink); }
+.int-tab.active { background: var(--accent-soft); color: var(--accent); }
+.int-tab-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.int-tab-label svg { flex: none; }
+.int-tab-count { font-size: 11px; color: var(--faint); flex: none; }
+.int-tab.active .int-tab-count { color: var(--accent); }
+.int-tab-count.warn {
+  color: #fff; background: var(--warn-ink); border-radius: 999px; padding: 0 6px;
+  line-height: 16px; font-weight: 600;
+}
+.int-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.int-main .main-scroll { padding: 8px 36px 44px; }
+.int-panel { max-width: 860px; margin: 0 auto; width: 100%; }
+.int-panel-head { margin: 18px 0; }
+.int-panel-title { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--ink); }
+.int-panel-sub { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+.int-sec-note { font-size: 12.5px; margin: 2px 0 8px; }
+
+/* -- Sidebar layout toggle (by the wordmark) -------------------------------- */
+.layout-toggle {
+  margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--faint); cursor: pointer;
+}
+.layout-toggle:hover { background: var(--paper); color: var(--ink); }
+
+/* -- New-session split button ----------------------------------------------- */
+.newsplit { position: relative; padding: 0 2px 4px; }
+.newsplit-row { display: flex; }
+.newsplit-primary {
+  flex: 1; display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 0;
+  border-radius: 9px 0 0 9px; background: var(--accent); color: #fff; font: inherit;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.newsplit-primary:hover { filter: brightness(1.05); }
+.newsplit-primary svg { flex: none; }
+.newsplit-caret {
+  display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.28); border-radius: 0 9px 9px 0;
+  background: var(--accent); color: #fff; cursor: pointer;
+}
+.newsplit-caret:hover { filter: brightness(1.05); }
+.newsplit-backdrop { position: fixed; inset: 0; z-index: 20; }
+.newsplit-menu {
+  position: absolute; left: 2px; right: 2px; top: calc(100% + 2px); z-index: 30;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14); padding: 5px;
+}
+.newsplit-menu-label {
+  padding: 5px 8px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--faint); font-weight: 600;
+}
+.newsplit-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0;
+  border-radius: 8px; background: transparent; cursor: pointer; text-align: left; font: inherit;
+}
+.newsplit-item:hover { background: var(--paper); }
+.newsplit-item-ico {
+  width: 24px; height: 24px; flex: none; border-radius: 7px; color: #fff; background: var(--faint);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.newsplit-item-text { display: flex; flex-direction: column; min-width: 0; }
+.newsplit-item-name { font-size: 13px; font-weight: 500; color: var(--ink); }
+.newsplit-item-tag {
+  font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.newsplit-menu-sep { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.newsplit-manage {
+  width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; font: inherit;
+  font-size: 12.5px; color: var(--muted); cursor: pointer; text-align: left;
+}
+.newsplit-manage:hover { background: var(--paper); color: var(--ink); }
+
+/* -- Grouped-by-persona sidebar cards --------------------------------------- */
+.persona-groups { gap: 10px; padding: 4px 2px; }
+.persona-group { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 6px; }
+.persona-group-head { display: flex; align-items: center; gap: 8px; padding: 3px 4px; }
+.persona-group-ico {
+  width: 20px; height: 20px; flex: none; border-radius: 6px; color: #fff; background: var(--faint);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.persona-group-name {
+  font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); font-weight: 600;
+}
+.persona-group-count { font-size: 10.5px; color: var(--faint); }
+.persona-gear {
+  margin-left: auto; width: 24px; height: 24px; display: inline-flex; align-items: center;
+  justify-content: center; border: 0; border-radius: 7px; background: transparent; color: var(--faint);
+  cursor: pointer;
+}
+.persona-gear:hover { background: var(--panel); color: var(--ink); }
+.persona-group-body { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+
+/* Shared persona-icon tints (mirrors the .surf-ico.ico-* palette). */
+.newsplit-item-ico.ico-cowork, .persona-group-ico.ico-cowork { background: #16a34a; }
+.newsplit-item-ico.ico-chat, .persona-group-ico.ico-chat { background: var(--accent); }
+.newsplit-item-ico.ico-code, .persona-group-ico.ico-code { background: #7c3aed; }
+.newsplit-item-ico.ico-ops, .persona-group-ico.ico-ops { background: #ea580c; }
+
+/* -- StepGroup (collapsed tool/approval disclosure) ------------------------- */
+.stepgroup {
+  align-self: stretch; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  overflow: hidden;
+}
+.stepgroup-head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 11px; cursor: pointer; user-select: none;
+  list-style: none; font-size: 12.5px; color: var(--muted);
+}
+.stepgroup-head::-webkit-details-marker { display: none; }
+.stepgroup-head .chev { display: inline-block; color: var(--faint); transition: transform 0.12s ease; }
+.stepgroup-head .chev.open { transform: rotate(90deg); }
+.stepgroup-summary .step-approvals { color: var(--ok); font-weight: 500; }
+.stepgroup-toggle { margin-left: auto; font-size: 11px; color: var(--faint); }
+.stepgroup-body { border-top: 1px solid var(--line); padding: 4px 11px 8px; }

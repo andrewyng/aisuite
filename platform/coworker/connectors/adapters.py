@@ -272,13 +272,18 @@ class SlackAdapter(BasePlatformAdapter):
     async def send(
         self, chat_id: str, text: str, *, thread_id: Optional[str] = None
     ) -> SendResult:
-        return _send_slack(self.bot_token, chat_id, text, thread_id)
+        # The stateless senders use blocking httpx; offload so an outbound from the event loop
+        # (e.g. mirror_inbox_item / _on_interaction, which await this directly) never blocks the
+        # server loop on the Slack round-trip.
+        return await asyncio.to_thread(
+            _send_slack, self.bot_token, chat_id, text, thread_id
+        )
 
     async def send_interactive(
         self, chat_id: str, text: str, buttons, *, thread_id: Optional[str] = None
     ) -> SendResult:
-        return _send_slack_interactive(
-            self.bot_token, chat_id, text, buttons, thread_id
+        return await asyncio.to_thread(
+            _send_slack_interactive, self.bot_token, chat_id, text, buttons, thread_id
         )
 
     async def update_message(self, chat_id: str, message_id: str, text: str) -> None:

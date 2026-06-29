@@ -29,6 +29,7 @@ import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepA
 import { useThemePref } from "../theme";
 import { ModelChecklist } from "./ModelChecklist";
 import { PersonasTab } from "./PersonasTab";
+import { ConnectorBadge } from "../connectors/ConnectorIcon";
 
 type Tab = "settings" | "models" | "personas" | "mcps" | "skills";
 
@@ -742,7 +743,9 @@ function ConnectorRow({
   return (
     <div className="conn-row">
       <div className="conn-main">
-        <span className="conn-icon">{c.icon}</span>
+        {/* Real brand color + logo from the API descriptor (Phase 1) via ConnectorBadge; unknown
+            logo ids fall back to the neutral plug glyph. */}
+        <ConnectorBadge connector={c} size={34} title={c.title} />
         <div className="conn-id">
           <div className="conn-name">
             {c.title}

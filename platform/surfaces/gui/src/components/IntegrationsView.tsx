@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  getConnectors,
   getDmRoute,
   getInboxRouting,
   getRecentChannels,
@@ -19,44 +20,122 @@ import { ConnectorsTab, McpTab } from "./ManageModal";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
 
-// Combined "Integrations" surface: messaging connectors + MCP servers + channel subscriptions.
+// The Integrations surface restructured (§7 / UX §6) into a left sub-nav so it's no longer one long
+// scroll: Connectors · Messaging routing · Activity · MCP. The connector cards (with the Slack
+// allow-list inline) live under Connectors; the DM-route / channel-subscriptions / approvals-routing
+// controls move under Messaging routing; the Unrouted/dead-letter panel under Activity; MCP servers
+// under MCP. No functionality is lost — the existing tab components are just regrouped.
+type IntTab = "connectors" | "messaging" | "activity" | "mcp";
+
+const INT_TABS: { key: IntTab; label: string; icon: "plug" | "chat" | "audit" | "code" }[] = [
+  { key: "connectors", label: "Connectors", icon: "plug" },
+  { key: "messaging", label: "Messaging routing", icon: "chat" },
+  { key: "activity", label: "Activity", icon: "audit" },
+  { key: "mcp", label: "MCP servers", icon: "code" },
+];
+
 export function IntegrationsView() {
+  const [tab, setTab] = useState<IntTab>("connectors");
+  // Sub-nav counts: how many connectors exist, and how many unrouted/failed items are parked (the
+  // ⚠ N on Activity). Polled like the panels so the badges stay live.
+  const [connCount, setConnCount] = useState<number | null>(null);
+  const [activityCount, setActivityCount] = useState(0);
+
+  useEffect(() => {
+    const load = () => {
+      getConnectors().then((cs) => setConnCount(cs.length)).catch(() => {});
+      getUnrouted().then((u) => setActivityCount(u.length)).catch(() => setActivityCount(0));
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
-    <div className="main page-view">
-      <div className="page-col">
-        <div className="sa-view-head">
-          <div className="sa-view-heading">
-            <div className="sa-view-title"><Icon name="plug" size={21} /> Integrations</div>
-            <div className="sa-view-sub">Connect the apps and tools OpenCoworker can use.</div>
-          </div>
+    <div className="main page-view integrations-view">
+      <nav className="int-subnav">
+        <div className="int-subnav-title">
+          <Icon name="plug" size={16} /> Integrations
         </div>
+        {INT_TABS.map((t) => (
+          <button
+            key={t.key}
+            className={"int-tab" + (tab === t.key ? " active" : "")}
+            onClick={() => setTab(t.key)}
+          >
+            <span className="int-tab-label">
+              <Icon name={t.icon} size={15} /> {t.label}
+            </span>
+            {t.key === "connectors" && connCount != null && (
+              <span className="int-tab-count">{connCount}</span>
+            )}
+            {t.key === "activity" && activityCount > 0 && (
+              <span className="int-tab-count warn">{activityCount}</span>
+            )}
+          </button>
+        ))}
+      </nav>
+
+      <div className="int-main">
         <div className="main-scroll">
-          <div className="page-panel">
-            <div className="sa-sub">Connectors</div>
-            <ConnectorsTab />
-            <div className="sa-sub" style={{ marginTop: 26 }}>
-              MCP servers
-            </div>
-            <McpTab />
-            <div className="sa-sub" style={{ marginTop: 26 }}>
-              Direct messages
-            </div>
-            <DmRouteTab />
-            <div className="sa-sub" style={{ marginTop: 26 }}>
-              Unattended approvals → channel
-            </div>
-            <InboxRoutingTab />
-            <div className="sa-sub" style={{ marginTop: 26 }}>
-              Channel subscriptions
-            </div>
-            <SubscriptionsTab />
-            <div className="sa-sub" style={{ marginTop: 26 }}>
-              Unrouted &amp; failed messages
-            </div>
-            <UnroutedTab />
+          <div className="int-panel">
+            {tab === "connectors" ? (
+              <>
+                <PanelHead
+                  title="Connectors"
+                  sub="Apps and tools OpenCoworker can use. You bring the credentials for this local build."
+                />
+                <ConnectorsTab />
+              </>
+            ) : tab === "messaging" ? (
+              <>
+                <PanelHead
+                  title="Messaging routing"
+                  sub="How inbound messages reach sessions, and where Unattended approvals go out."
+                />
+                <div className="sa-sub">Channel subscriptions</div>
+                <div className="dim int-sec-note">
+                  Sessions that listen to a channel (inbound) and where each routes its Inbox (outbound).
+                </div>
+                <SubscriptionsTab />
+                <div className="sa-sub" style={{ marginTop: 26 }}>
+                  Direct messages
+                </div>
+                <DmRouteTab />
+                <div className="sa-sub" style={{ marginTop: 26 }}>
+                  Unattended approvals → channel
+                </div>
+                <InboxRoutingTab />
+              </>
+            ) : tab === "activity" ? (
+              <>
+                <PanelHead
+                  title="Activity"
+                  sub="Unrouted inbound and background-turn failures — nothing vanishes silently."
+                />
+                <UnroutedTab />
+              </>
+            ) : (
+              <>
+                <PanelHead
+                  title="MCP servers"
+                  sub="External tool servers (stdio or HTTP), shared across all agents."
+                />
+                <McpTab />
+              </>
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PanelHead({ title, sub }: { title: string; sub: string }) {
+  return (
+    <div className="int-panel-head">
+      <h2 className="int-panel-title">{title}</h2>
+      <p className="int-panel-sub">{sub}</p>
     </div>
   );
 }

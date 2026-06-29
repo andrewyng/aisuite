@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { getPersonas, type Persona, type RecentWorkspace, type SurfaceVisibility } from "../api";
+import {
+  getPersonas,
+  getSettings,
+  setNavLayout,
+  type Persona,
+  type RecentWorkspace,
+  type SurfaceVisibility,
+} from "../api";
 import type { SessionInfo } from "../types";
 import { Icon } from "./Icon";
 
@@ -61,6 +68,9 @@ interface Props {
   onDeleteSession: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
   onManage: () => void;
+  // Grouped-nav gear + New-session menu's "Manage personas…" entry points (§7).
+  onOpenPersona: (id: string) => void;
+  onManagePersonas: () => void;
   onOpenScheduled: () => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
@@ -87,6 +97,22 @@ export function Sidebar(props: Props) {
       .catch(() => setPersonas(null));
   }, []);
   const familyOf = (id: string) => personas?.find((p) => p.id === id)?.family;
+
+  // Sidebar layout (§7): "flat" = the persona accordions; "grouped" = bounded per-persona cards.
+  // Read the persisted preference on load (absent → flat), write via setNavLayout when toggled.
+  const [layout, setLayout] = useState<"flat" | "grouped">("flat");
+  useEffect(() => {
+    getSettings()
+      .then((s) => setLayout(s.nav_layout === "grouped" ? "grouped" : "flat"))
+      .catch(() => {});
+  }, []);
+  const toggleLayout = () => {
+    setLayout((cur) => {
+      const next = cur === "grouped" ? "flat" : "grouped";
+      setNavLayout(next).catch(() => {});
+      return next;
+    });
+  };
 
   // Which accordion body is expanded. Decoupled from the active session (props.agent): expanding
   // a persona BROWSES its sessions without switching the chat area. Selecting a session or "New
@@ -321,6 +347,51 @@ export function Sidebar(props: Props) {
     );
   };
 
+  // Grouped layout: one bounded card per persona (sessions grouped by their `agent`), each with a
+  // gear → PersonaView and an inline "New session". A flat alternative to the accordion surfaces.
+  const groupedList = () => (
+    <>
+      {visibleSurfaces.map((s) => {
+        const list = props.sessions
+          .filter((x) => x.agent === s.key && !x.session_id.startsWith("__") && !x.archived)
+          .filter(matches);
+        return (
+          <div className="persona-group" key={s.key}>
+            <div className="persona-group-head">
+              <span className={"persona-group-ico " + s.cls}>
+                <Icon name={s.icon} size={12} />
+              </span>
+              <span className="persona-group-name">{s.label}</span>
+              <span className="persona-group-count">{list.length}</span>
+              <LiveDot state={liveByPersona.get(s.key)} />
+              <AttnBadge n={attnByPersona.get(s.key) || 0} />
+              <button
+                className="persona-gear"
+                title={`About the ${s.label} persona`}
+                aria-label={`About the ${s.label} persona`}
+                onClick={() => props.onOpenPersona(s.key)}
+              >
+                <Icon name="sliders" size={13} />
+              </button>
+            </div>
+            <div className="persona-group-body">
+              <div className="surf-action" onClick={() => props.onNewSession(s.key)}>
+                <Icon name="plus" size={14} className="ico" /> New {s.key === "chat" ? "chat" : "session"}
+              </div>
+              {list.length === 0 ? (
+                <div className="session-empty">
+                  {normalizedQuery ? "No matching conversations." : "No conversations yet."}
+                </div>
+              ) : (
+                list.map(sessionRow)
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+
   return (
     <div className="sidebar">
       <div className="brand">
@@ -338,7 +409,37 @@ export function Sidebar(props: Props) {
           />
         </svg>
         <span className="name">OpenCoworker</span>
+        {/* Layout toggle by the wordmark: flat (persona accordions) ↔ grouped (per-persona cards). */}
+        <button
+          className="layout-toggle"
+          title={
+            layout === "grouped"
+              ? "Grouped by persona — tap for flat"
+              : "Flat — tap to group by persona"
+          }
+          aria-label="Toggle sidebar layout"
+          onClick={toggleLayout}
+        >
+          {layout === "grouped" ? (
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+              <rect x="3" y="4" width="18" height="6" rx="1.5" />
+              <rect x="3" y="14" width="18" height="6" rx="1.5" />
+            </svg>
+          ) : (
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
+              <path d="M3 5h18M3 12h18M3 19h18" />
+            </svg>
+          )}
+        </button>
       </div>
+
+      {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
+      <NewSessionSplit
+        personas={personas}
+        current={props.agent}
+        onNew={props.onNewSession}
+        onManage={props.onManagePersonas}
+      />
 
       {/* Shared zone: capabilities common to ALL coworkers, above the persona accordions. */}
       <div className="shared-nav">
@@ -388,7 +489,7 @@ export function Sidebar(props: Props) {
         </div>
       </div>
 
-      {pinnedSessions.length > 0 && (
+      {layout === "flat" && pinnedSessions.length > 0 && (
         <div className="pinned-band">
           <div className="pinned-label">Pinned</div>
           {pinnedSessions.map((s) => {
@@ -420,6 +521,9 @@ export function Sidebar(props: Props) {
         </div>
       )}
 
+      {layout === "grouped" ? (
+        <div className="surfaces persona-groups">{groupedList()}</div>
+      ) : (
       <div className="surfaces">
         {visibleSurfaces.map((s) => {
           const expanded = isExpanded(s.key);
@@ -442,6 +546,7 @@ export function Sidebar(props: Props) {
           );
         })}
       </div>
+      )}
 
       <div className="sidebar-foot">
         <div
@@ -466,6 +571,78 @@ export function Sidebar(props: Props) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// New-session split button (§8): the primary action starts a session with the last-used persona
+// (`current`); the ▾ opens a menu of the enabled personas (from /v1/personas) plus a "Manage
+// personas…" entry. A plain custom split control — the pill-shaped Dropdown doesn't fit this shape.
+function NewSessionSplit({
+  personas,
+  current,
+  onNew,
+  onManage,
+}: {
+  personas: Persona[] | null;
+  current: string;
+  onNew: (agent: string) => void;
+  onManage: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const enabled = (personas || []).filter((p) => p.enabled);
+  return (
+    <div className="newsplit">
+      <div className="newsplit-row">
+        <button className="newsplit-primary" onClick={() => onNew(current)}>
+          <Icon name="plus" size={15} /> New session
+        </button>
+        <button
+          className="newsplit-caret"
+          title="Start with a specific persona"
+          aria-label="Choose a persona"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Icon name="chevronDown" size={13} />
+        </button>
+      </div>
+      {open && (
+        <>
+          <div className="newsplit-backdrop" onClick={() => setOpen(false)} />
+          <div className="newsplit-menu">
+            <div className="newsplit-menu-label">Start a session as</div>
+            {enabled.map((p) => (
+              <button
+                key={p.id}
+                className="newsplit-item"
+                onClick={() => {
+                  setOpen(false);
+                  onNew(p.id);
+                }}
+              >
+                <span className={"newsplit-item-ico ico-" + (p.icon || "cowork")}>
+                  <Icon name={ICON_FOR[p.icon] ?? "diamond"} size={12} />
+                </span>
+                <span className="newsplit-item-text">
+                  <span className="newsplit-item-name">{p.id === "cowork" ? "OpenCoworker" : p.name}</span>
+                  {p.tagline && <span className="newsplit-item-tag">{p.tagline}</span>}
+                </span>
+              </button>
+            ))}
+            <div className="newsplit-menu-sep">
+              <button
+                className="newsplit-manage"
+                onClick={() => {
+                  setOpen(false);
+                  onManage();
+                }}
+              >
+                Manage personas…
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

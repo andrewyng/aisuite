@@ -510,6 +510,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_set_scratch_base(body: dict) -> dict[str, Any]:
         return manager.set_scratch_base(str((body or {}).get("path", "")))
 
+    @app.post("/v1/settings/nav-layout")
+    def settings_set_nav_layout(body: dict) -> dict[str, Any]:
+        return manager.set_nav_layout(str((body or {}).get("nav_layout", "")))
+
     # -- direct-message routing -------------------------------------------------
     @app.get("/v1/messaging/dm-route")
     def dm_route_get() -> dict[str, Any]:
