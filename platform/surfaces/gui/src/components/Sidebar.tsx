@@ -98,6 +98,28 @@ interface Props {
 
 const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
 
+// Codex-style compact age for project session rows: "now" / "5m" / "6h" / "3d" / "2w" / "4mo" / "2y".
+const compactAge = (iso?: string | null): string => {
+  if (!iso) return "";
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (secs < 60) return "now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (days < 30) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  if (days < 365) return `${months}mo`;
+  return `${Math.floor(days / 365)}y`;
+};
+
+const PROJECT_PEEK = 5; // sessions shown per project before "Show more"
+
 export function Sidebar(props: Props) {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -136,6 +158,16 @@ export function Sidebar(props: Props) {
   const [openKey, setOpenKey] = useState<string | null>(props.agent);
   useEffect(() => setOpenKey(props.agent), [props.agent]);
   const browseKey = openKey ?? props.agent; // the persona whose sessions the body shows
+
+  // Per-project collapse + "Show more". The active workspace's folder is open by default; toggling
+  // any folder flips it (XOR). `projShowAll` lifts the PROJECT_PEEK cap for a given folder.
+  const [projToggled, setProjToggled] = useState<Set<string>>(new Set());
+  const [projShowAll, setProjShowAll] = useState<Set<string>>(new Set());
+  const toggleSet = (set: Set<string>, key: string) => {
+    const next = new Set(set);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  };
 
   // Pinned sessions across ALL personas — the cross-persona band at the top (manual pins only).
   const pinnedSessions = props.sessions.filter(
@@ -198,7 +230,7 @@ export function Sidebar(props: Props) {
 
   // A compact session row (mock §141 grouped/recent rows): one-line title + right-side indicators,
   // with the pin/rename/delete actions revealed on hover. Used in accordion bodies + grouped cards.
-  const sessionRow = (s: SessionInfo) => {
+  const sessionRow = (s: SessionInfo, opts: { showTime?: boolean } = {}) => {
     const title = s.title || s.session_id;
     const editing = editingId === s.session_id;
     const active = s.session_id === props.activeSession;
@@ -245,6 +277,9 @@ export function Sidebar(props: Props) {
               <span className="truncate">{title}</span>
             </span>
             <span className="flex items-center gap-1.5 shrink-0 group-hover:hidden">
+              {opts.showTime && compactAge(s.updated_at) && (
+                <span className="text-[11px] text-faint tabular-nums">{compactAge(s.updated_at)}</span>
+              )}
               <LiveDot state={s.liveness} />
               <AttnBadge n={s.attention || 0} />
             </span>
@@ -414,37 +449,83 @@ export function Sidebar(props: Props) {
             in any persona (it was redundant + the mock's grouped cards don't have it). */}
         {workspaceSurface ? (
           <>
-            <div className="px-1.5 pt-1 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
-              Projects
-            </div>
-            <div className="space-y-0.5">
+            {/* Codex-style Projects: a "+" header affordance, then collapsible folders whose
+                rows carry a right-aligned compact age and truncate to PROJECT_PEEK + "Show more". */}
+            <div className="flex items-center justify-between px-1.5 pt-1">
+              <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+                Projects
+              </span>
               <button
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[13px] text-muted hover:text-ink"
+                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-panel"
+                title="New project"
+                aria-label="New project"
                 onClick={() => props.onNewProject(browseKey)}
               >
-                <Icon name="folderPlus" size={15} className="shrink-0" /> New project
+                <Icon name="folderPlus" size={14} />
               </button>
-              {projectOrder.map((proj) => (
-                <div className="space-y-0.5" key={proj}>
-                  <div
-                    className={
-                      "flex items-center gap-2 px-1.5 pt-2 pb-1 text-[12px] " +
-                      (proj === props.workspace ? "text-ink font-semibold" : "text-muted font-medium")
-                    }
-                    title={proj}
-                  >
-                    <Icon name="folder" size={15} className="shrink-0" />
-                    <span className="truncate">{baseName(proj)}</span>
-                  </div>
-                  {(filteredByProject.get(proj) || []).length > 0 ? (
-                    (filteredByProject.get(proj) || []).map(sessionRow)
-                  ) : (
-                    <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
-                      {normalizedQuery ? "No matching conversations." : "No conversations in this project yet."}
-                    </div>
-                  )}
+            </div>
+            <div className="space-y-0.5">
+              {projectOrder.length === 0 && (
+                <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
+                  No projects yet — start one with the + above.
                 </div>
-              ))}
+              )}
+              {projectOrder.map((proj) => {
+                const list = filteredByProject.get(proj) || [];
+                if (normalizedQuery && list.length === 0) return null; // hide non-matching folders while searching
+                const isActive = proj === props.workspace;
+                // Open the active project by default; if none is active (browsing from another
+                // persona), open the most-recent folder so the accordion isn't all-collapsed.
+                const activeInOrder = !!props.workspace && projectOrder.includes(props.workspace);
+                const defaultOpen = isActive || (!activeInOrder && proj === projectOrder[0]);
+                const open = !!normalizedQuery || defaultOpen !== projToggled.has(proj);
+                const showAll = !!normalizedQuery || projShowAll.has(proj);
+                const shown = showAll ? list : list.slice(0, PROJECT_PEEK);
+                return (
+                  <div key={proj}>
+                    <div
+                      className={
+                        "flex items-center gap-1.5 px-1.5 py-1 rounded-lg cursor-pointer select-none hover:bg-panel " +
+                        (isActive ? "text-ink" : "text-muted hover:text-ink")
+                      }
+                      onClick={() => setProjToggled((s) => toggleSet(s, proj))}
+                      title={proj}
+                    >
+                      <Icon
+                        name={open ? "chevronDown" : "chevronRight"}
+                        size={13}
+                        className="text-faint shrink-0"
+                      />
+                      <Icon name="folder" size={15} className="shrink-0" />
+                      <span
+                        className={
+                          "truncate flex-1 text-[12.5px] " + (isActive ? "font-semibold" : "font-medium")
+                        }
+                      >
+                        {baseName(proj)}
+                      </span>
+                    </div>
+                    {open &&
+                      (list.length > 0 ? (
+                        <div className="space-y-0.5 pl-3">
+                          {shown.map((s) => sessionRow(s, { showTime: true }))}
+                          {!showAll && list.length > PROJECT_PEEK && (
+                            <button
+                              className="px-2 py-1 text-[12px] text-faint hover:text-muted"
+                              onClick={() => setProjShowAll((s) => toggleSet(s, proj))}
+                            >
+                              Show more ({list.length - PROJECT_PEEK})
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="px-2 py-1.5 pl-3 text-[12px] text-faint leading-snug">
+                          No conversations in this project yet.
+                        </div>
+                      ))}
+                  </div>
+                );
+              })}
             </div>
           </>
         ) : (
@@ -454,7 +535,7 @@ export function Sidebar(props: Props) {
                 {normalizedQuery ? "No matching conversations." : "No conversations yet."}
               </div>
             ) : (
-              mine.filter(matches).map(sessionRow)
+              mine.filter(matches).map((s) => sessionRow(s))
             )}
           </div>
         )}
@@ -469,7 +550,7 @@ export function Sidebar(props: Props) {
               Archived ({archived.length})
             </button>
             {showArchived && (
-              <div className="space-y-0.5 mt-0.5">{archived.filter(matches).map(sessionRow)}</div>
+              <div className="space-y-0.5 mt-0.5">{archived.filter(matches).map((s) => sessionRow(s))}</div>
             )}
           </div>
         )}
