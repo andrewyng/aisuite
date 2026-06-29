@@ -17,6 +17,7 @@ import {
   type PersonaDetail,
 } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { fullPersonaName, shortPersonaName } from "../personaScope";
 import { Icon } from "./Icon";
 import { PersonaGlyph } from "./personaIcon";
 import { Toggle } from "./Toggle";
@@ -111,7 +112,9 @@ export function PersonaView({
               <PersonaGlyph icon={detail.icon} size={22} />
             </span>
             <div className="min-w-0">
-              <h1 className="text-[20px] font-semibold tracking-tight">{detail.name}</h1>
+              <h1 className="text-[20px] font-semibold tracking-tight">
+                {fullPersonaName(detail.name, personaId)}
+              </h1>
               <p className="text-[13px] text-muted mt-0.5">{detail.tagline}</p>
             </div>
             <div className="ml-auto flex items-center gap-2">
@@ -150,7 +153,8 @@ export function PersonaView({
             <section>
               <div className={`${SEC_H} mb-1`}>Connections for full benefit</div>
               <p className="text-[12.5px] text-muted mb-2.5">
-                Declared by the persona — wire {detail.name} into these to unlock its full workflow.
+                Declared by the persona — wire {shortPersonaName(detail.name, personaId)} into these
+                to unlock its full workflow.
               </p>
               <div className="rounded-xl2 border border-line overflow-hidden">
                 {detail.recommends.map((r, i) => {
@@ -199,8 +203,8 @@ export function PersonaView({
             <section>
               <div className={`${SEC_H} mb-1`}>New sessions get by default</div>
               <p className="text-[12.5px] text-muted mb-2.5">
-                When you start a {detail.name} session these are enabled automatically. You can still
-                mute any of them per session.
+                When you start a {shortPersonaName(detail.name, personaId)} session these are enabled
+                automatically. You can still mute any of them per session.
               </p>
               <div className="space-y-1.5">
                 {detail.default_connections.map((c) => (

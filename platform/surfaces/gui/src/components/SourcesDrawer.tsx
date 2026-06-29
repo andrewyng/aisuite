@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { getPersonaDetail, setSessionConnection, type PersonaDetail, type SessionConnections } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { shortPersonaName } from "../personaScope";
 import { PersonaGlyph } from "./personaIcon";
 import { Toggle } from "./Toggle";
 import { labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
@@ -78,7 +79,7 @@ export function SourcesDrawer({
           </span>
           <div className="min-w-0">
             <div className="text-[13px] font-semibold leading-tight truncate">
-              {persona?.name || "Sources"}
+              {persona ? shortPersonaName(persona.name, personaId) : "Sources"}
             </div>
             <div className="text-[11px] text-faint leading-tight">Session connections</div>
           </div>
@@ -96,7 +97,7 @@ export function SourcesDrawer({
           {persona && (
             <div className="rounded-xl2 border border-accent/25 bg-accentSoft/50 p-3.5">
               <div className="flex items-center gap-2 text-[13px] font-semibold">
-                <span>⚡</span> Get the most out of {persona.name}
+                <span>⚡</span> Get the most out of {shortPersonaName(persona.name, personaId)}
               </div>
               {persona.description && (
                 <p className="text-[12.5px] text-muted mt-1.5 leading-relaxed">{persona.description}</p>

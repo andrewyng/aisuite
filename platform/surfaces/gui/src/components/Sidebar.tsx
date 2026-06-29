@@ -8,21 +8,21 @@ import {
   type SurfaceVisibility,
 } from "../api";
 import type { SessionInfo } from "../types";
-import { isProjectScoped } from "../personaScope";
+import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 
 // Session surfaces shown as accordions, in display order. The surfaced personas drive this list
 // (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
 const SURFACES: { key: string; label: string; icon: IconName; cls: string }[] = [
-  { key: "cowork", label: "OpenCoworker", icon: "diamond", cls: "ico-cowork" },
+  { key: "cowork", label: "Coworker", icon: "diamond", cls: "ico-cowork" },
   { key: "chat", label: "Chat", icon: "chat", cls: "ico-chat" },
   { key: "code", label: "Code", icon: "code", cls: "ico-code" },
 ];
 
 const surfaceFromPersona = (p: Persona) => ({
   key: p.id,
-  label: p.id === "cowork" ? "OpenCoworker" : p.name,
+  label: shortPersonaName(p.name, p.id),
   icon: personaGlyph(p.icon, p.family),
   cls: `ico-${p.icon || "cowork"}`,
 });
@@ -175,7 +175,7 @@ export function Sidebar(props: Props) {
   );
   const personaLabel = (agentId: string) => {
     const p = personas?.find((x) => x.id === agentId);
-    return p ? (p.id === "cowork" ? "OpenCoworker" : p.name) : agentId;
+    return shortPersonaName(p?.name, agentId);
   };
 
   // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the persona's
@@ -329,15 +329,12 @@ export function Sidebar(props: Props) {
   const cardRow = (s: SessionInfo, { showIcon }: { showIcon: boolean }) => {
     const active = s.session_id === props.activeSession;
     const title = s.title || s.session_id;
-    // Subtitle: persona label, then channels if subscribed; otherwise the workspace basename ONLY
-    // for project-scoped personas (a real folder). Scratch/orphan personas (Cowork, or an orphaned
-    // persona) would otherwise show an ugly per-conversation scratch-dir hash, so we omit it.
+    // Subtitle (deliberately quiet): just the persona label + the workspace basename for
+    // project-scoped personas (a real folder). No channel/subscription detail — connectors show as
+    // the dot indicator on the right, so the subtitle stays clean. Scratch/orphan personas omit the
+    // workspace (it's an ugly per-conversation hash).
     const subParts = [personaLabel(s.agent)];
-    if (s.subscriptions?.length)
-      subParts.push(
-        s.subscriptions.length === 1 ? s.subscriptions[0] : `${s.subscriptions.length} channels`,
-      );
-    else if (s.workspace && isProjectScoped(personaOf(s.agent))) subParts.push(baseName(s.workspace));
+    if (s.workspace && isProjectScoped(personaOf(s.agent))) subParts.push(baseName(s.workspace));
     return (
       <div
         key={s.session_id}
@@ -353,7 +350,7 @@ export function Sidebar(props: Props) {
         {showIcon && iconTile(s.agent)}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium">{title}</span>
-          <span className="block truncate text-[11px] text-muted">{subParts.join(" · ")}</span>
+          <span className="block truncate text-[11px] text-faint">{subParts.join(" · ")}</span>
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
           <ConnectorDot subs={s.subscriptions} />
@@ -444,7 +441,9 @@ export function Sidebar(props: Props) {
   // (or flat) session list, then the archived disclosure.
   const surfaceBody = () => {
     return (
-      <div className="mt-0.5 space-y-1 pl-1">
+      <div className="mt-1 mb-2 space-y-1 px-1.5 py-1.5 rounded-xl bg-paper/50">
+        {/* The expanded body sits on a soft recessed fill so it reads as one group — you can see
+            where a persona's sessions end and the next header begins (no hard bordered box). */}
         {/* No per-persona "New session" here — the top split button's ▾ already starts a session
             in any persona (it was redundant + the mock's grouped cards don't have it). */}
         {workspaceSurface ? (
@@ -657,7 +656,7 @@ export function Sidebar(props: Props) {
         {layout === "grouped" ? (
           <div className="space-y-4">
             {pinnedBand()}
-            <div className="space-y-0.5">
+            <div className="space-y-1.5">
               {visibleSurfaces.map((s) => {
                 const expanded = isExpanded(s.key);
                 return (
@@ -844,7 +843,7 @@ function NewSessionSplit({
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[13px] font-medium truncate">
-                    {p.id === "cowork" ? "OpenCoworker" : p.name}
+                    {shortPersonaName(p.name, p.id)}
                   </span>
                   {p.tagline && (
                     <span className="block text-[11px] text-muted truncate">{p.tagline}</span>

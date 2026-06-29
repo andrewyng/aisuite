@@ -23,7 +23,7 @@ import {
   type SurfaceVisibility,
 } from "./api";
 import type { ApprovalDecision, Attachment, Item, SessionInfo, TodoItem, WsEvent } from "./types";
-import { isProjectScoped } from "./personaScope";
+import { isProjectScoped, shortPersonaName } from "./personaScope";
 import { itemsFromMessages } from "./itemsFromMessages";
 import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, startWindowDrag } from "./tauri";
@@ -781,8 +781,8 @@ export function App() {
   const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New chat";
-  // Topbar trim: the active persona's display name (mock's "· SRE persona").
-  const personaName = agent === "cowork" ? "OpenCoworker" : personaOf(agent)?.name || "";
+  // Topbar trim: the active persona's short display name (mock's "· SRE persona").
+  const personaName = shortPersonaName(personaOf(agent)?.name, agent);
   const commitTitleRename = () => {
     const next = renameDraft.trim();
     if (next && next !== activeTitle) renameConversation(sessionId, next);
