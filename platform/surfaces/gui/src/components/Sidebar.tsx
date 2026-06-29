@@ -441,9 +441,9 @@ export function Sidebar(props: Props) {
   // (or flat) session list, then the archived disclosure.
   const surfaceBody = () => {
     return (
-      <div className="mt-1 mb-2 space-y-1 px-1.5 py-1.5 rounded-xl bg-paper/50">
-        {/* The expanded body sits on a soft recessed fill so it reads as one group — you can see
-            where a persona's sessions end and the next header begins (no hard bordered box). */}
+      <div className="space-y-1 px-1.5 pb-2 pt-0.5">
+        {/* Body is flush inside the expanded group's fill (provided by the wrapper) so the header +
+            its sessions read as one connected block — clear where a group ends and the next begins. */}
         {/* No per-persona "New session" here — the top split button's ▾ already starts a session
             in any persona (it was redundant + the mock's grouped cards don't have it). */}
         {workspaceSurface ? (
@@ -660,11 +660,20 @@ export function Sidebar(props: Props) {
               {visibleSurfaces.map((s) => {
                 const expanded = isExpanded(s.key);
                 return (
-                  <div key={s.key}>
+                  // When expanded, the wrapper carries the recessed fill so the header sits INSIDE
+                  // the block with its sessions (one connected group). Collapsed = a plain row.
+                  <div
+                    key={s.key}
+                    className={expanded ? "rounded-xl bg-paper/70 overflow-hidden" : ""}
+                  >
                     <div
                       className={
-                        "flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer select-none " +
-                        (isCurrent(s.key) ? "bg-paper" : "hover:bg-paper")
+                        "flex items-center gap-2.5 px-2 py-2 cursor-pointer select-none " +
+                        (expanded
+                          ? ""
+                          : isCurrent(s.key)
+                            ? "rounded-lg bg-paper"
+                            : "rounded-lg hover:bg-paper")
                       }
                       onClick={() => onHeaderClick(s.key)}
                     >
