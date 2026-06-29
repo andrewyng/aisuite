@@ -85,3 +85,46 @@ def test_invalid_manifests_rejected(text, needle):
 def test_fallback_id_from_filename():
     m = parse_manifest("---\nname: X\ntools: []\n---\nbody", fallback_id="ops")
     assert m.id == "ops"
+
+
+REC = """---
+id: ops
+tools: []
+recommends:
+  - connector: github
+    reason: confirm deploys
+    tier: core
+  - mcp: filesystem
+    reason: read runbooks
+---
+body
+"""
+
+
+def test_recommends_parsed():
+    recs = parse_manifest(REC).recommends
+    assert [(r.kind, r.ref, r.tier) for r in recs] == [
+        ("connector", "github", "core"),
+        ("mcp", "filesystem", "optional"),  # tier defaults to optional
+    ]
+    assert recs[0].reason == "confirm deploys"
+
+
+def test_recommends_not_validated_against_shipped_connectors():
+    # A persona may recommend a connector we don't ship yet — structure only, no catalog check.
+    recs = parse_manifest("---\nid: x\ntools: []\nrecommends:\n  - connector: not_a_real_connector\n---\nbody").recommends
+    assert recs[0].ref == "not_a_real_connector"
+
+
+@pytest.mark.parametrize(
+    "text,needle",
+    [
+        ("---\nid: x\ntools: []\nrecommends: nope\n---\nbody", "must be a list"),
+        ("---\nid: x\ntools: []\nrecommends:\n  - reason: hi\n---\nbody", "connector"),
+        ("---\nid: x\ntools: []\nrecommends:\n  - connector: gh\n    tier: maybe\n---\nbody", "tier"),
+    ],
+)
+def test_invalid_recommends_rejected(text, needle):
+    with pytest.raises(ManifestError) as e:
+        parse_manifest(text)
+    assert needle in str(e.value).lower()

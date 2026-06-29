@@ -17,10 +17,24 @@ import yaml
 VALID_FAMILIES = {"code", "knowledge"}
 VALID_WORKSPACES = {"git", "deliverable", "none"}
 VALID_MODES = {"discuss", "plan", "interactive", "custom", "auto"}
+VALID_REC_KINDS = {"connector", "mcp"}
+VALID_REC_TIERS = {"core", "optional"}
 
 
 class ManifestError(ValueError):
     """A persona manifest is malformed or references unknown capabilities/values."""
+
+
+@dataclass
+class Recommendation:
+    """A connection a persona recommends, surfaced in the per-session connections drawer. ``ref`` is a
+    connector id or an MCP server name; ``reason`` is the value it unlocks; ``tier`` ranks it. Not
+    validated against shipped connectors — a persona may recommend one we don't ship yet."""
+
+    kind: str  # "connector" | "mcp"
+    ref: str
+    reason: str = ""
+    tier: str = "optional"  # "core" | "optional"
 
 
 @dataclass
@@ -40,6 +54,7 @@ class PersonaManifest:
     recommended_models: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     mcp: list[str] = field(default_factory=list)
+    recommends: list[Recommendation] = field(default_factory=list)
     builtin: bool = False
     source: Optional[str] = None  # where it was loaded from (path / url), for provenance
 
@@ -94,6 +109,35 @@ def _strlist(meta: dict, key: str) -> list[str]:
     raise ManifestError(f"`{key}` must be a list or comma-separated string")
 
 
+def _recommends(persona_id: str, meta: dict) -> list[Recommendation]:
+    raw = meta.get("recommends")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ManifestError(f"persona {persona_id!r}: `recommends` must be a list")
+    out: list[Recommendation] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ManifestError(f"persona {persona_id!r}: each `recommends` item must be a mapping")
+        if "connector" in item:
+            kind, ref = "connector", str(item.get("connector") or "").strip()
+        elif "mcp" in item:
+            kind, ref = "mcp", str(item.get("mcp") or "").strip()
+        else:
+            raise ManifestError(
+                f"persona {persona_id!r}: each `recommends` item needs a `connector:` or `mcp:` key"
+            )
+        if not ref:
+            raise ManifestError(f"persona {persona_id!r}: a `recommends` item has an empty {kind}")
+        tier = str(item.get("tier", "optional")).strip().lower()
+        if tier not in VALID_REC_TIERS:
+            raise ManifestError(
+                f"persona {persona_id!r}: recommend tier must be one of {sorted(VALID_REC_TIERS)}"
+            )
+        out.append(Recommendation(kind=kind, ref=ref, reason=str(item.get("reason", "")).strip(), tier=tier))
+    return out
+
+
 def parse_manifest(
     text: str, *, fallback_id: Optional[str] = None, builtin: bool = False, source: Optional[str] = None
 ) -> PersonaManifest:
@@ -140,6 +184,7 @@ def parse_manifest(
         recommended_models=_strlist(meta, "recommended_models"),
         skills=_strlist(meta, "skills"),
         mcp=_strlist(meta, "mcp"),
+        recommends=_recommends(persona_id, meta),
         builtin=builtin,
         source=source,
     )

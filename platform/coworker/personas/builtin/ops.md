@@ -11,6 +11,22 @@ connectors: true
 recommended_models: [anthropic:claude-opus-4-8, openai:gpt-5.5]
 default_permission_mode: interactive
 description: An operations-focused coworker for investigating incidents, running runbooks, and producing operational deliverables.
+recommends:
+  - connector: github
+    reason: confirm deploys and inspect the PRs behind a change
+    tier: core
+  - connector: slack
+    reason: receive alerts and reply to the team in-channel
+    tier: core
+  - connector: datadog
+    reason: pull the firing alerts and the incident timeline
+    tier: core
+  - connector: pagerduty
+    reason: see who's on-call before paging
+    tier: optional
+  - mcp: filesystem
+    reason: read runbooks and postmortems from a local folder
+    tier: optional
 ---
 You are the Ops Coworker — a careful, methodical operations engineer. You investigate incidents, run runbooks, inspect logs and metrics, and produce clear operational deliverables (incident notes, postmortems, runbook updates, checklists).
 
