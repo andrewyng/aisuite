@@ -11,6 +11,7 @@ import type { SessionInfo } from "../types";
 import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
+import { SearchModal } from "./SearchModal";
 
 // Session surfaces shown as accordions, in display order. The surfaced personas drive this list
 // (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
@@ -121,8 +122,7 @@ const compactAge = (iso?: string | null): string => {
 const PROJECT_PEEK = 5; // sessions shown per project before "Show more"
 
 export function Sidebar(props: Props) {
-  const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -217,11 +217,11 @@ export function Sidebar(props: Props) {
   // so they list flat. Workspace-aware (not id-aware) — any git/project persona gets Projects.
   const workspaceSurface = isProjectScoped(personaOf(browseKey));
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const matches = (s: SessionInfo) =>
-    !normalizedQuery ||
-    (s.title || s.session_id).toLowerCase().includes(normalizedQuery) ||
-    s.session_id.toLowerCase().includes(normalizedQuery);
+  // Search now lives in the SearchModal (Codex-style overlay), so the sidebar lists never filter
+  // in place — these stay constant and the `.filter(matches)` / `normalizedQuery ? …` call sites
+  // below are intentional no-ops kept to avoid churn.
+  const normalizedQuery = "";
+  const matches = (_s: SessionInfo) => true;
 
   // Recent = every non-pinned, non-archived, real session across ALL personas, newest first
   // (by updated_at; missing timestamps keep store order), search-filtered. Drives the flat layout.
@@ -613,44 +613,16 @@ export function Sidebar(props: Props) {
         onManage={props.onManagePersonas}
       />
 
-      {/* Search (mock §133): a paper chip; opening it swaps in the live filter input. */}
+      {/* Search: a paper chip that opens the command-palette SearchModal (over the whole app),
+          rather than filtering the sidebar in place (which collapsed the grouped list). */}
       <div className="px-3 mt-1 flex items-center gap-2">
-        {searchOpen ? (
-          <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-paper border border-line text-faint focus-within:border-lineStrong">
-            <Icon name="search" size={14} className="shrink-0" />
-            <input
-              className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-ink placeholder:text-faint"
-              placeholder="Search conversations"
-              value={query}
-              autoFocus
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setSearchOpen(false);
-                  setQuery("");
-                }
-              }}
-            />
-            <button
-              className="text-faint hover:text-ink text-[15px] leading-none shrink-0"
-              title="Close search"
-              onClick={() => {
-                setSearchOpen(false);
-                setQuery("");
-              }}
-            >
-              ×
-            </button>
-          </div>
-        ) : (
-          <button
-            className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-paper border border-line text-faint hover:border-lineStrong text-left"
-            onClick={() => setSearchOpen(true)}
-          >
-            <Icon name="search" size={14} className="shrink-0" />
-            <span className="text-[12.5px]">Search</span>
-          </button>
-        )}
+        <button
+          className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-paper border border-line text-faint hover:border-lineStrong text-left"
+          onClick={() => setSearchModalOpen(true)}
+        >
+          <Icon name="search" size={14} className="shrink-0" />
+          <span className="text-[12.5px]">Search</span>
+        </button>
       </div>
 
       {/* Scroll area: grouped (Pinned band + per-persona accordion) or flat (Pinned + Recent list). */}
@@ -795,6 +767,18 @@ export function Sidebar(props: Props) {
           </svg>
         </button>
       </div>
+
+      {searchModalOpen && (
+        <SearchModal
+          sessions={props.sessions}
+          personas={personas ?? undefined}
+          onSelect={(id, ws, ag) => {
+            setSearchModalOpen(false);
+            props.onSelectSession(id, ws, ag);
+          }}
+          onClose={() => setSearchModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
