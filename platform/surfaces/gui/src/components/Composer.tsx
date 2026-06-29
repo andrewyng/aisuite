@@ -237,12 +237,15 @@ export function Composer(props: Props) {
             </button>
           ) : (
             <button
-              className="send"
+              className="w-8 h-8 rounded-full bg-accent text-white grid place-items-center hover:brightness-105 disabled:opacity-40 disabled:hover:brightness-100"
               onClick={submit}
               disabled={!props.connected}
               title={needsModel ? "Connect a model to send" : undefined}
+              aria-label="Send"
             >
-              ↑
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
             </button>
           )}
         </div>
