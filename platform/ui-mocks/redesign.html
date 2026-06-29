@@ -126,7 +126,7 @@
         <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">💬</span><span><span class="block text-[13px] font-medium">Cowork</span><span class="block text-[11px] text-muted">general assistant</span></span></button>
         <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">🧰</span><span><span class="block text-[13px] font-medium">Code</span><span class="block text-[11px] text-muted">repository work</span></span></button>
         <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">📊</span><span><span class="block text-[13px] font-medium">Analyst</span><span class="block text-[11px] text-muted">data & reporting</span></span></button>
-        <div class="border-t border-line mt-1 pt-1"><button class="w-full px-2 py-1.5 rounded-lg hover:bg-paper text-left text-[12.5px] text-muted">Manage personas…</button></div>
+        <div class="border-t border-line mt-1 pt-1"><button id="managePersonas" class="w-full px-2 py-1.5 rounded-lg hover:bg-paper text-left text-[12.5px] text-muted">Manage personas…</button></div>
       </div>
     </div>
 
@@ -189,38 +189,47 @@
       </div>
       </div><!-- /list-flat -->
 
-      <!-- grouped-by-persona layout (toggled) -->
-      <div id="list-grouped" class="hidden space-y-3">
-        <div>
-          <div class="flex items-center gap-2 px-1.5 mb-1">
-            <span class="text-[12px]">🛠️</span>
-            <span class="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">Ops</span>
+      <!-- grouped-by-persona layout (toggled) — each persona is a bounded card with a gear → persona page -->
+      <div id="list-grouped" class="hidden space-y-2.5">
+        <div class="rounded-xl border border-line bg-paper/50 p-1.5">
+          <div class="flex items-center gap-2 px-1.5 py-0.5">
+            <span class="text-[13px]">🛠️</span>
+            <span class="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold">Ops</span>
             <span class="text-[10px] text-faint">2</span>
+            <button class="persona-gear ml-auto w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-panel" title="About the Ops persona">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 005 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H1a2 2 0 110-4h.1A1.7 1.7 0 002.6 5l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 009 2.6V2a2 2 0 114 0v.1A1.7 1.7 0 0019 5l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.4 1.9z" transform="scale(0.78) translate(3 3)"/></svg>
+            </button>
           </div>
-          <div class="space-y-0.5">
-            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-accentSoft/60 border border-accent/30 text-left"><span class="min-w-0 flex-1 truncate text-[13px] font-medium">incident watch</span><span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" title="working"></span></button>
-            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">prod deploy review</span></button>
+          <div class="space-y-0.5 mt-0.5">
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-accentSoft/70 border border-accent/30 text-left"><span class="min-w-0 flex-1 truncate text-[13px] font-medium">incident watch</span><span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" title="working"></span></button>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left"><span class="min-w-0 flex-1 truncate text-[13px]">prod deploy review</span></button>
           </div>
         </div>
-        <div>
-          <div class="flex items-center gap-2 px-1.5 mb-1">
-            <span class="text-[12px]">💬</span>
-            <span class="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">Cowork</span>
+        <div class="rounded-xl border border-line bg-paper/50 p-1.5">
+          <div class="flex items-center gap-2 px-1.5 py-0.5">
+            <span class="text-[13px]">💬</span>
+            <span class="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold">Cowork</span>
             <span class="text-[10px] text-faint">2</span>
+            <button class="persona-gear ml-auto w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-panel" title="About the Cowork persona">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 005 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H1a2 2 0 110-4h.1A1.7 1.7 0 002.6 5l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 009 2.6V2a2 2 0 114 0v.1A1.7 1.7 0 0019 5l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.4 1.9z" transform="scale(0.78) translate(3 3)"/></svg>
+            </button>
           </div>
-          <div class="space-y-0.5">
-            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">hi</span><span class="text-[10px] font-semibold text-white bg-accent rounded-full px-1.5 leading-[15px]">1</span></button>
-            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">Q1 sales analysis</span></button>
+          <div class="space-y-0.5 mt-0.5">
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left"><span class="min-w-0 flex-1 truncate text-[13px]">hi</span><span class="text-[10px] font-semibold text-white bg-accent rounded-full px-1.5 leading-[15px]">1</span></button>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left"><span class="min-w-0 flex-1 truncate text-[13px]">Q1 sales analysis</span></button>
           </div>
         </div>
-        <div>
-          <div class="flex items-center gap-2 px-1.5 mb-1">
-            <span class="text-[12px]">🧰</span>
-            <span class="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">Code</span>
+        <div class="rounded-xl border border-line bg-paper/50 p-1.5">
+          <div class="flex items-center gap-2 px-1.5 py-0.5">
+            <span class="text-[13px]">🧰</span>
+            <span class="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold">Code</span>
             <span class="text-[10px] text-faint">1</span>
+            <button class="persona-gear ml-auto w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-panel" title="About the Code persona">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 005 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H1a2 2 0 110-4h.1A1.7 1.7 0 002.6 5l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 009 2.6V2a2 2 0 114 0v.1A1.7 1.7 0 0019 5l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.4 1.9z" transform="scale(0.78) translate(3 3)"/></svg>
+            </button>
           </div>
-          <div class="space-y-0.5">
-            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">Refactor auth module</span></button>
+          <div class="space-y-0.5 mt-0.5">
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left"><span class="min-w-0 flex-1 truncate text-[13px]">Refactor auth module</span></button>
           </div>
         </div>
       </div>
@@ -588,6 +597,116 @@
     </div>
   </main>
 
+  <!-- ============================ MAIN: PERSONA DETAIL ============================ -->
+  <main id="view-persona" class="flex-1 min-w-0 flex flex-col bg-paper hidden">
+    <div class="h-12 shrink-0 px-5 flex items-center gap-3 border-b border-line bg-panel/70 backdrop-blur">
+      <button id="personaBack" class="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg> Back
+      </button>
+      <span class="text-faint">·</span>
+      <span class="text-[13px] font-semibold">Persona</span>
+    </div>
+
+    <div class="flex-1 overflow-y-auto hairline-scroll">
+      <div class="max-w-3xl mx-auto px-7 py-6 space-y-6">
+
+        <!-- identity -->
+        <div class="flex items-start gap-3.5">
+          <span class="w-12 h-12 rounded-xl2 bg-panel border border-line grid place-items-center text-[22px]">🛠️</span>
+          <div class="min-w-0">
+            <h1 class="text-[20px] font-semibold tracking-tight">Ops Coworker</h1>
+            <p class="text-[13px] text-muted mt-0.5">Operate and investigate — runbooks, logs, infrastructure</p>
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <span class="text-[12px] text-muted">Enabled</span>
+            <span class="tgl" role="switch" aria-checked="true" tabindex="0" title="Enable this persona"><span class="knob"></span></span>
+          </div>
+        </div>
+
+        <!-- about -->
+        <section>
+          <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-1.5">About</div>
+          <p class="text-[14px] leading-relaxed text-ink/90">A careful, methodical operations engineer. It investigates incidents, runs runbooks, inspects logs and metrics, and produces clear operational deliverables — incident notes, postmortems, runbook updates — preferring read-only, reversible steps and asking before anything consequential.</p>
+        </section>
+
+        <!-- tools -->
+        <section>
+          <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-2">Built-in capabilities</div>
+          <div class="flex flex-wrap gap-1.5">
+            <span class="px-2 py-1 rounded-md bg-panel border border-line text-[12px] font-mono">files</span>
+            <span class="px-2 py-1 rounded-md bg-panel border border-line text-[12px] font-mono">search</span>
+            <span class="px-2 py-1 rounded-md bg-panel border border-line text-[12px] font-mono">shell</span>
+            <span class="px-2 py-1 rounded-md bg-panel border border-line text-[12px] font-mono">todo</span>
+          </div>
+        </section>
+
+        <!-- connections for full benefit (from manifest `recommends`) -->
+        <section>
+          <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-1">Connections for full benefit</div>
+          <p class="text-[12.5px] text-muted mb-2.5">Declared by the persona — wire Ops into these to unlock its full workflow.</p>
+          <div class="rounded-xl2 border border-line overflow-hidden">
+            <div class="flex items-center gap-3 p-3 bg-panel">
+              <span class="src-badge" data-brand="github">{{GH_ICON}}</span>
+              <div class="flex-1 min-w-0"><div class="flex items-center gap-2"><span class="text-[13px] font-medium">GitHub</span><span class="text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15">core</span></div><div class="text-[12px] text-muted">confirm deploys and inspect the PRs behind a change</div></div>
+              <span class="inline-flex items-center gap-1 text-[11.5px] text-ok"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>connected</span>
+            </div>
+            <div class="flex items-center gap-3 p-3 bg-panel border-t border-line">
+              <span class="src-badge" data-brand="slack">{{SLACK_ICON}}</span>
+              <div class="flex-1 min-w-0"><div class="flex items-center gap-2"><span class="text-[13px] font-medium">Slack</span><span class="text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15">core</span></div><div class="text-[12px] text-muted">receive alerts and reply to the team in-channel</div></div>
+              <span class="inline-flex items-center gap-1 text-[11.5px] text-ok"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>connected</span>
+            </div>
+            <div class="flex items-center gap-3 p-3 bg-panel border-t border-line">
+              <span class="src-badge" data-brand="datadog">{{DD_ICON}}</span>
+              <div class="flex-1 min-w-0"><div class="flex items-center gap-2"><span class="text-[13px] font-medium">Datadog</span><span class="text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15">core</span></div><div class="text-[12px] text-muted">pull the firing alerts and the incident timeline</div></div>
+              <button class="text-[12px] px-2.5 py-1.5 rounded-lg bg-accent text-white shrink-0">Connect</button>
+            </div>
+            <div class="flex items-center gap-3 p-3 bg-panel border-t border-line">
+              <span class="src-badge" data-brand="default">{{PLUG_ICON}}</span>
+              <div class="flex-1 min-w-0"><div class="text-[13px] font-medium">PagerDuty</div><div class="text-[12px] text-muted">see who's on-call before paging</div></div>
+              <button class="text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0">Connect</button>
+            </div>
+            <div class="flex items-center gap-3 p-3 bg-panel border-t border-line">
+              <span class="src-badge" data-brand="mcp">{{PLUG_ICON}}</span>
+              <div class="flex-1 min-w-0"><div class="flex items-center gap-2"><span class="text-[13px] font-medium">Filesystem</span><span class="text-[10px] px-1.5 py-0.5 rounded border border-line text-faint">MCP</span></div><div class="text-[12px] text-muted">read runbooks and postmortems from a local folder</div></div>
+              <button class="text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0">Add</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- default session connections (persona → session default, the middle of the hierarchy) -->
+        <section>
+          <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-1">New sessions get by default</div>
+          <p class="text-[12.5px] text-muted mb-2.5">When you start an Ops session these are enabled automatically. You can still mute any of them per session.</p>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-panel">
+              <span class="src-badge" data-brand="slack">{{SLACK_ICON}}</span>
+              <div class="flex-1 text-[13px] font-medium">Slack</div>
+              <span class="tgl" role="switch" aria-checked="true" tabindex="0" title="On by default for new Ops sessions"><span class="knob"></span></span>
+            </div>
+            <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-panel">
+              <span class="src-badge" data-brand="github">{{GH_ICON}}</span>
+              <div class="flex-1 text-[13px] font-medium">GitHub</div>
+              <span class="tgl" role="switch" aria-checked="true" tabindex="0"><span class="knob"></span></span>
+            </div>
+            <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-panel" style="opacity:.5">
+              <span class="src-badge" data-brand="datadog">{{DD_ICON}}</span>
+              <div class="flex-1 text-[13px] font-medium">Datadog <span class="text-[11px] text-faint font-normal">· connect to enable</span></div>
+              <span class="tgl" role="switch" aria-checked="false" tabindex="0"><span class="knob"></span></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- defaults -->
+        <section class="flex flex-wrap gap-x-8 gap-y-2 text-[12.5px]">
+          <div><span class="text-faint">Models</span> · <span class="font-mono">claude-opus-4-8</span>, <span class="font-mono">gpt-5.5</span></div>
+          <div><span class="text-faint">Default mode</span> · Interactive</div>
+          <div><span class="text-faint">Workspace</span> · deliverable</div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+
 </div>
 
 <!-- ============ per-session Sources drawer (persona-aware connections) ============ -->
@@ -721,11 +840,14 @@
   };
   document.body.innerHTML = document.body.innerHTML.replace(/\{\{(\w+)\}\}/g, (m, k) => ICONS[k] || m);
 
-  // view switch
-  const views = { session: document.getElementById('view-session'), integrations: document.getElementById('view-integrations') };
+  // view switch (session / integrations / persona)
+  const views = {
+    session: document.getElementById('view-session'),
+    integrations: document.getElementById('view-integrations'),
+    persona: document.getElementById('view-persona'),
+  };
   function setView(v){
-    views.session.classList.toggle('hidden', v !== 'session');
-    views.integrations.classList.toggle('hidden', v !== 'integrations');
+    Object.entries(views).forEach(([k, el]) => el.classList.toggle('hidden', k !== v));
     document.querySelectorAll('.view-tab').forEach(b => {
       const on = b.dataset.view === v;
       b.classList.toggle('bg-panel', on); b.classList.toggle('shadow-sm', on);
@@ -733,6 +855,10 @@
     });
   }
   document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  // persona detail page: opened from a persona-group gear or "Manage personas…", back returns to session
+  document.querySelectorAll('.persona-gear').forEach(g => g.addEventListener('click', () => setView('persona')));
+  document.getElementById('personaBack').addEventListener('click', () => setView('session'));
+  document.getElementById('managePersonas').addEventListener('click', () => { document.getElementById('personaMenu').classList.add('hidden'); setView('persona'); });
 
   // integrations sub-tabs
   function setTab(t){
