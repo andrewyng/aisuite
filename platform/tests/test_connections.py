@@ -9,6 +9,8 @@ else inherit-on). These tests pin the stores, the resolver, and the two runtime 
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from coworker.connections import (
     PersonaConnectionStore,
     SessionConnectionStore,
@@ -20,6 +22,18 @@ from coworker.personas.manifest import load_manifest_file
 from coworker.providers import ModelCapabilities, ProviderClient
 from coworker.server.manager import SessionManager
 from coworker.sessions import SessionRecord
+
+
+@pytest.fixture(autouse=True)
+def _isolate_state_dir(tmp_path, monkeypatch):
+    """Isolate the global state/secret dir for every test here.
+
+    The `SessionManager` tests build a real `SecretStore()`, which defaults to the developer's
+    global state dir (`~/.config/coworker`) unless `COWORKER_STATE_DIR` is set — so without this a
+    test's `secrets.put("github:default", …)` would write a fake token into the real secret store.
+    Pin it at a throwaway dir. (Harmless for the pure store/resolver tests that use explicit paths.)
+    """
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
 
 
 class ScriptedProvider(ProviderClient):
@@ -168,6 +182,12 @@ def test_muted_connector_not_delivered(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mgr, "deliver_to_session", fake_deliver)
 
+    # Slack is account-connected (an inbound message implies it is); the inbound gate resolves
+    # against the effective set, which is connected AND not session-muted.
+    mgr.secrets.put(
+        "slack:default",
+        {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True},
+    )
     # two sessions subscribe to the same Slack channel; one has muted Slack for itself
     mgr.subscriptions.subscribe("sListen", "slack:C1")
     mgr.subscriptions.subscribe("sMute", "slack:C1")
