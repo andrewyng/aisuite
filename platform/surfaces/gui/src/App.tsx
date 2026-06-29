@@ -781,9 +781,8 @@ export function App() {
   const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New chat";
-  // Topbar trim: the active persona's display name (mock's "· SRE persona") + a humanized mode pill.
+  // Topbar trim: the active persona's display name (mock's "· SRE persona").
   const personaName = agent === "cowork" ? "OpenCoworker" : personaOf(agent)?.name || "";
-  const modeLabel = mode ? mode.charAt(0).toUpperCase() + mode.slice(1) : "";
   const commitTitleRename = () => {
     const next = renameDraft.trim();
     if (next && next !== activeTitle) renameConversation(sessionId, next);
@@ -948,14 +947,9 @@ export function App() {
           </div>
           <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
           <div className="main-topbar-actions">
-            <span className="px-2.5 py-1 rounded-md border border-line bg-paper text-muted text-[12px]">
-              {model}
-            </span>
-            {modeLabel && (
-              <span className="px-2.5 py-1 rounded-md border border-line bg-paper text-muted text-[12px]">
-                {modeLabel}
-              </span>
-            )}
+            {/* Model + permission-mode are NOT shown here — they live in the composer (model
+                dropdown + "Ask for approval"), where you actually change them. Read-only chips
+                up top duplicated those controls with inconsistent wording (deliberate). */}
             {agent !== "chat" && (
               <button
                 className="topbar-icon-btn"
