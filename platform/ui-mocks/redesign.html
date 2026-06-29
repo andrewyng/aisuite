@@ -68,6 +68,10 @@
   details[open] .when-closed{ display:none; }
   .src-ava{ width:24px; height:24px; padding:4px; border-radius:9999px; background:var(--panel); border:1px solid var(--line); box-shadow:0 0 0 2px var(--paper); display:grid; place-items:center; }
   .src-badge{ width:32px; height:32px; padding:6px; border-radius:9px; background:var(--brand-soft); display:grid; place-items:center; flex:none; }
+  .tgl{ width:34px; height:20px; border-radius:9999px; background:var(--line-strong); position:relative; flex:none; cursor:pointer; transition:background .15s; }
+  .tgl[aria-checked="true"]{ background:var(--accent); }
+  .tgl .knob{ position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:9999px; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.2); }
+  .tgl[aria-checked="true"] .knob{ left:16px; }
   .hairline-scroll::-webkit-scrollbar{ width:9px; height:9px; }
   .hairline-scroll::-webkit-scrollbar-thumb{ background:var(--line-strong); border-radius:9px; border:2px solid var(--paper); }
   .id-reveal .id-hidden{ display:none; }
@@ -100,13 +104,30 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>
       </div>
       <div class="font-semibold tracking-tight">OpenCoworker</div>
+      <button id="layoutToggle" class="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper" title="Layout: flat ↔ group by persona">
+        <svg id="layoutIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5h18M3 12h18M3 19h18"/></svg>
+      </button>
     </div>
 
-    <div class="px-3 pb-2">
-      <button class="w-full text-left px-3 py-2 rounded-lg bg-accent text-white text-[13px] font-medium hover:opacity-95 flex items-center gap-2">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        New session
-      </button>
+    <!-- New session: split button — primary uses last/default persona; ▾ picks a persona (§8) -->
+    <div class="px-3 pb-2 relative">
+      <div class="flex">
+        <button class="flex-1 text-left px-3 py-2 rounded-l-lg bg-accent text-white text-[13px] font-medium hover:opacity-95 flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          New session
+        </button>
+        <button id="personaMenuBtn" class="px-2.5 rounded-r-lg bg-accent text-white border-l border-white/25 hover:opacity-95" title="Start with a specific persona">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <div id="personaMenu" class="hidden absolute left-3 right-3 mt-1 z-30 bg-panel border border-line rounded-xl2 shadow-xl p-1">
+        <div class="px-2 py-1 text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">Start a session as</div>
+        <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">🛠️</span><span><span class="block text-[13px] font-medium">Ops</span><span class="block text-[11px] text-muted">incidents, runbooks, infra</span></span></button>
+        <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">💬</span><span><span class="block text-[13px] font-medium">Cowork</span><span class="block text-[11px] text-muted">general assistant</span></span></button>
+        <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">🧰</span><span><span class="block text-[13px] font-medium">Code</span><span class="block text-[11px] text-muted">repository work</span></span></button>
+        <button class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="w-6 h-6 rounded-md bg-paper border border-line grid place-items-center text-[13px]">📊</span><span><span class="block text-[13px] font-medium">Analyst</span><span class="block text-[11px] text-muted">data & reporting</span></span></button>
+        <div class="border-t border-line mt-1 pt-1"><button class="w-full px-2 py-1.5 rounded-lg hover:bg-paper text-left text-[12.5px] text-muted">Manage personas…</button></div>
+      </div>
     </div>
 
     <div class="px-3 mt-1 flex items-center gap-2">
@@ -116,7 +137,8 @@
       </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto hairline-scroll px-2.5 mt-3 space-y-4">
+    <div class="flex-1 overflow-y-auto hairline-scroll px-2.5 mt-3">
+      <div id="list-flat" class="space-y-4">
       <div>
         <div class="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">Pinned</div>
         <!-- session row: subscribed + working -->
@@ -163,6 +185,43 @@
             </span>
             <span class="w-1.5 h-1.5 rounded-full bg-faint/60" title="idle"></span>
           </button>
+        </div>
+      </div>
+      </div><!-- /list-flat -->
+
+      <!-- grouped-by-persona layout (toggled) -->
+      <div id="list-grouped" class="hidden space-y-3">
+        <div>
+          <div class="flex items-center gap-2 px-1.5 mb-1">
+            <span class="text-[12px]">🛠️</span>
+            <span class="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">Ops</span>
+            <span class="text-[10px] text-faint">2</span>
+          </div>
+          <div class="space-y-0.5">
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-accentSoft/60 border border-accent/30 text-left"><span class="min-w-0 flex-1 truncate text-[13px] font-medium">incident watch</span><span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" title="working"></span></button>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">prod deploy review</span></button>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 px-1.5 mb-1">
+            <span class="text-[12px]">💬</span>
+            <span class="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">Cowork</span>
+            <span class="text-[10px] text-faint">2</span>
+          </div>
+          <div class="space-y-0.5">
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">hi</span><span class="text-[10px] font-semibold text-white bg-accent rounded-full px-1.5 leading-[15px]">1</span></button>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">Q1 sales analysis</span></button>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 px-1.5 mb-1">
+            <span class="text-[12px]">🧰</span>
+            <span class="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">Code</span>
+            <span class="text-[10px] text-faint">1</span>
+          </div>
+          <div class="space-y-0.5">
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-paper text-left"><span class="min-w-0 flex-1 truncate text-[13px]">Refactor auth module</span></button>
+          </div>
         </div>
       </div>
     </div>
@@ -213,7 +272,7 @@
           <span class="src-ava -ml-1.5" data-brand="github" title="GitHub · deeplearning-ai/platform">{{GH_ICON}}</span>
         </span>
         <span class="inline-flex items-center gap-1.5 text-[11px] text-faint group-hover:text-muted">
-          <span class="px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15 font-medium">2 recommended</span>
+          <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15 font-semibold" title="2 recommended connections not yet connected">⚠ 2</span>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
         </span>
       </button>
@@ -558,9 +617,12 @@
         <div class="mt-1 text-[11px] text-faint">2 of 4 recommended connected</div>
       </div>
 
-      <!-- connected for this session -->
+      <!-- connected for this session — each can be toggled OFF for THIS session (§4 hierarchy) -->
       <section>
-        <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-2">Connected · 2</div>
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold">Connected · 2</div>
+          <div class="text-[10.5px] text-faint">enabled for this session</div>
+        </div>
         <div class="space-y-1.5">
           <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-paper">
             <span class="src-badge" data-brand="slack">{{SLACK_ICON}}</span>
@@ -568,17 +630,18 @@
               <div class="text-[13px] font-medium">Slack</div>
               <div class="text-[12px] text-muted truncate">#ocw-test · DMs → this session</div>
             </div>
-            <span class="inline-flex items-center gap-1 text-[11.5px] text-ok"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>active</span>
+            <span class="tgl" role="switch" aria-checked="true" tabindex="0" title="Enabled for this session — tap to mute here"><span class="knob"></span></span>
           </div>
-          <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-paper">
+          <div class="flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-paper opacity-100">
             <span class="src-badge" data-brand="github">{{GH_ICON}}</span>
             <div class="min-w-0 flex-1">
               <div class="text-[13px] font-medium">GitHub</div>
               <div class="text-[12px] text-muted truncate">deeplearning-ai/platform</div>
             </div>
-            <span class="inline-flex items-center gap-1 text-[11.5px] text-ok"><span class="w-1.5 h-1.5 rounded-full bg-ok"></span>active</span>
+            <span class="tgl" role="switch" aria-checked="true" tabindex="0" title="Enabled for this session"><span class="knob"></span></span>
           </div>
         </div>
+        <p class="text-[11px] text-faint mt-1.5">Turning one off mutes it for <b>this session only</b> — the connector stays connected and enabled for the persona.</p>
       </section>
 
       <!-- recommended connectors -->
@@ -693,6 +756,36 @@
   document.getElementById('openSources').addEventListener('click', () => drawer.classList.remove('hidden'));
   drawer.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => drawer.classList.add('hidden')));
   document.getElementById('toGlobalInt').addEventListener('click', () => { drawer.classList.add('hidden'); setView('integrations'); });
+
+  // left-nav layout toggle: flat (Pinned/Recent) ↔ group by persona
+  const layoutBtn = document.getElementById('layoutToggle');
+  let grouped = false;
+  layoutBtn.addEventListener('click', () => {
+    grouped = !grouped;
+    document.getElementById('list-flat').classList.toggle('hidden', grouped);
+    document.getElementById('list-grouped').classList.toggle('hidden', !grouped);
+    document.getElementById('layoutIcon').innerHTML = grouped
+      ? '<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/>'
+      : '<path d="M3 5h18M3 12h18M3 19h18"/>';
+    layoutBtn.title = grouped ? 'Grouped by persona — tap for flat' : 'Flat — tap to group by persona';
+  });
+
+  // new-session persona picker
+  const pBtn = document.getElementById('personaMenuBtn'), pMenu = document.getElementById('personaMenu');
+  pBtn.addEventListener('click', (e) => { e.stopPropagation(); pMenu.classList.toggle('hidden'); });
+  document.addEventListener('click', (e) => { if (!pMenu.contains(e.target) && !pBtn.contains(e.target)) pMenu.classList.add('hidden'); });
+
+  // per-session connection enable/disable toggles (mute a connector for THIS session)
+  document.querySelectorAll('.tgl').forEach(t => {
+    const row = t.closest('div.rounded-xl2');
+    const flip = () => {
+      const on = t.getAttribute('aria-checked') === 'true';
+      t.setAttribute('aria-checked', on ? 'false' : 'true');
+      if (row) row.style.opacity = on ? '0.5' : '1';
+    };
+    t.addEventListener('click', flip);
+    t.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); } });
+  });
 
   setView('session');
   setTab('connectors');
