@@ -65,10 +65,10 @@ export function Icon({
         </svg>
       );
     case "folder":
+      // Clean single-tab folder (Lucide-style) — no internal divider line.
       return (
         <svg {...s}>
-          <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
-          <path d="M3.4 10h17.2" />
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
         </svg>
       );
     case "shield":
@@ -112,10 +112,11 @@ export function Icon({
         </svg>
       );
     case "folderPlus":
+      // Same clean folder body + a centered plus (Lucide-style).
       return (
         <svg {...s}>
-          <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
-          <path d="M3.4 10h17.2M12 12.2v4M10 14.2h4" />
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h8.5" />
+          <path d="M19 14v6M16 17h6" />
         </svg>
       );
     case "plus":

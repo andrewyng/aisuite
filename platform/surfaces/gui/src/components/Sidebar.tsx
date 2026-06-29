@@ -508,7 +508,9 @@ export function Sidebar(props: Props) {
                     </div>
                     {open &&
                       (list.length > 0 ? (
-                        <div className="space-y-0.5 pl-3">
+                        // pl-[19px] aligns each session's name under the folder NAME (folder icon
+                        // 15 + gap 6 + row px 6 − session px 8 = 19), per a clean-column layout.
+                        <div className="space-y-0.5 pl-[19px]">
                           {shown.map((s) => sessionRow(s, { showTime: true }))}
                           {!showAll && list.length > PROJECT_PEEK && (
                             <button
@@ -520,7 +522,7 @@ export function Sidebar(props: Props) {
                           )}
                         </div>
                       ) : (
-                        <div className="px-2 py-1.5 pl-3 text-[12px] text-faint leading-snug">
+                        <div className="px-2 py-1.5 pl-[19px] text-[12px] text-faint leading-snug">
                           No conversations in this project yet.
                         </div>
                       ))}
