@@ -79,6 +79,17 @@ def test_agent_resolution(tmp_path):
     assert reg.agent("does-not-exist").name == reg.default_id()
 
 
+def test_list_all_carries_workspace_enum(tmp_path):
+    # Every persona exposes a `workspace` enum so the GUI can detect project-scoped uniformly:
+    # builtins map family/needs_workspace into it; Ops (markdown) carries `project` verbatim.
+    reg = _reg(tmp_path)
+    ws = {p["id"]: p["workspace"] for p in reg.list_all()}
+    assert ws["code"] == "git"
+    assert ws["cowork"] == "deliverable"
+    assert ws["chat"] == "none"
+    assert ws["ops"] == "project"
+
+
 def test_set_unknown_persona_raises(tmp_path):
     reg = _reg(tmp_path)
     with pytest.raises(KeyError):

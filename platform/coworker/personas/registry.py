@@ -42,8 +42,14 @@ class PersonaEntry:
     needs_workspace: bool = True
     builtin: bool = True
     family: str = "knowledge"
+    # The persona's workspace requirement (git|project|deliverable|none) — surfaced to the GUI so it
+    # can detect project-scoped personas (git/project) uniformly. Manifest-backed personas carry it
+    # verbatim; builtins set it at registration to match their family/needs_workspace.
+    workspace: str = "deliverable"
     tools: list[str] = field(default_factory=list)
-    default_surfaced: bool = True  # whether it shows in the picker before any user choice
+    default_surfaced: bool = (
+        True  # whether it shows in the picker before any user choice
+    )
     _builder: Optional[Callable[[], Agent]] = None
     manifest: Optional[PersonaManifest] = None
 
@@ -84,7 +90,16 @@ class PersonaRegistry:
 
     # -- loading ----------------------------------------------------------------
     def _register_builder(
-        self, id, name, icon, tagline, builder, needs_workspace, family, tools,
+        self,
+        id,
+        name,
+        icon,
+        tagline,
+        builder,
+        needs_workspace,
+        family,
+        tools,
+        workspace="deliverable",
         default_surfaced=True,
     ) -> None:
         self._entries[id] = PersonaEntry(
@@ -95,6 +110,7 @@ class PersonaRegistry:
             needs_workspace=needs_workspace,
             builtin=True,
             family=family,
+            workspace=workspace,
             tools=list(tools),
             default_surfaced=default_surfaced,
             _builder=builder,
@@ -105,16 +121,38 @@ class PersonaRegistry:
         # leads; Chat is hidden from the picker by default (Cowork covers quick Q&A) — recoverable
         # from the Personas tab.
         self._register_builder(
-            "cowork", "OpenCoworker", "cowork", "Produce a deliverable — research, analysis, scripts",
-            cowork_agent, True, "knowledge", COWORK_CAPABILITIES,
+            "cowork",
+            "OpenCoworker",
+            "cowork",
+            "Produce a deliverable — research, analysis, scripts",
+            cowork_agent,
+            True,
+            "knowledge",
+            COWORK_CAPABILITIES,
+            workspace="deliverable",
         )
         self._register_builder(
-            "code", "Code", "code", "Work in a codebase — files, git, shell",
-            code_agent, True, "code", CODE_CAPABILITIES,
+            "code",
+            "Code",
+            "code",
+            "Work in a codebase — files, git, shell",
+            code_agent,
+            True,
+            "code",
+            CODE_CAPABILITIES,
+            workspace="git",
         )
         self._register_builder(
-            "chat", "Chat", "chat", "Quick questions — no workspace",
-            chat_agent, False, "knowledge", [], default_surfaced=False,
+            "chat",
+            "Chat",
+            "chat",
+            "Quick questions — no workspace",
+            chat_agent,
+            False,
+            "knowledge",
+            [],
+            workspace="none",
+            default_surfaced=False,
         )
         # Markdown-backed built-ins (Ops, …) — dogfood the manifest path.
         d = Path(builtin_dir) if builtin_dir else Path(__file__).parent / "builtin"
@@ -125,7 +163,9 @@ class PersonaRegistry:
         if not d.is_dir():
             return
         for md in sorted(d.glob("*.md")):
-            self._register_manifest(load_manifest_file(md, builtin=builtin), builtin=builtin)
+            self._register_manifest(
+                load_manifest_file(md, builtin=builtin), builtin=builtin
+            )
 
     def _register_manifest(self, m, *, builtin: bool) -> None:
         self._entries[m.id] = PersonaEntry(
@@ -136,6 +176,7 @@ class PersonaRegistry:
             needs_workspace=m.needs_workspace,
             builtin=builtin,
             family=m.family,
+            workspace=m.workspace,
             tools=list(m.tools),
             manifest=m,
         )
@@ -236,6 +277,7 @@ class PersonaRegistry:
                 "needs_workspace": e.needs_workspace,
                 "builtin": e.builtin,
                 "family": e.family,
+                "workspace": e.workspace,
                 "tools": e.tools,
                 "enabled": self.is_enabled(e.id),
                 "surfaced": self.is_surfaced(e.id),
@@ -311,8 +353,13 @@ class PersonaRegistry:
         """Clone a persona repo and install its personas (disabled pending consent)."""
         from .loading import clone_persona_repo, git_clone
 
-        base = Path(cache_base) if cache_base else (
-            (self.state_path.parent if self.state_path else Path.cwd()) / "persona-cache"
+        base = (
+            Path(cache_base)
+            if cache_base
+            else (
+                (self.state_path.parent if self.state_path else Path.cwd())
+                / "persona-cache"
+            )
         )
         dest = clone_persona_repo(url, base, clone=clone or git_clone)
         return self.install_from_dir(dest)

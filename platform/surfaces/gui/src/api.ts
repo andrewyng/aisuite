@@ -442,6 +442,7 @@ export interface Persona {
   needs_workspace: boolean;
   builtin: boolean;
   family: string;
+  workspace: string; // "git" | "project" | "deliverable" | "none" — drives project-scoping
   tools: string[];
   enabled: boolean;
   surfaced: boolean;

@@ -23,6 +23,7 @@ import {
   type SurfaceVisibility,
 } from "./api";
 import type { ApprovalDecision, Attachment, Item, SessionInfo, TodoItem, WsEvent } from "./types";
+import { isProjectScoped } from "./personaScope";
 import { itemsFromMessages } from "./itemsFromMessages";
 import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, startWindowDrag } from "./tauri";
@@ -204,11 +205,12 @@ export function App() {
   };
   // Shows a working-area chip / project grouping. Persona's needs_workspace; fallback before load.
   const needsWorkspace = (a: string) => personaOf(a)?.needs_workspace ?? needsWorkspaceFallback(a);
-  // MUST pick a folder before starting (git-bound code family). Knowledge starts orphan — the
-  // server auto-provisions a per-conversation scratch dir and reports it in the `ready` event.
+  // MUST pick a folder before starting — project-scoped personas (git-bound Code, project-bound
+  // Ops). Scratch/deliverable personas start orphan: the server auto-provisions a per-conversation
+  // scratch dir and reports it in the `ready` event.
   const gatesWorkspace = (a: string) => {
     const p = personaOf(a);
-    return p ? p.family === "code" : gatesWorkspaceFallback(a);
+    return p ? isProjectScoped(p) : gatesWorkspaceFallback(a);
   };
 
   // The desktop tray's "Settings" item dispatches this on the window.

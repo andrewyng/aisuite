@@ -66,7 +66,7 @@ def test_persona_detail_endpoint(tmp_path, monkeypatch):
     assert detail["id"] == "ops"
     assert detail["name"] == "Ops Coworker"
     assert detail["enabled"] is True
-    assert detail["workspace"] == "deliverable"
+    assert detail["workspace"] == "project"
     assert detail["default_permission_mode"] == "interactive"
     assert "anthropic:claude-opus-4-8" in detail["recommended_models"]
     assert set(detail["tools"]) == {"files", "search", "shell", "todo"}

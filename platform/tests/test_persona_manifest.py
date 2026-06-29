@@ -51,6 +51,19 @@ def test_list_field_accepts_comma_string():
     assert parse_manifest(text).tools == ["files", "search"]
 
 
+def test_project_workspace_is_valid():
+    # A project-scoped persona (like Ops): `project` is a valid workspace and needs_workspace is True.
+    text = """---
+id: opsy
+workspace: project
+tools: [files, search, shell, todo]
+---
+Operate things.
+"""
+    m = parse_manifest(text)
+    assert m.workspace == "project" and m.needs_workspace is True
+
+
 def test_no_workspace_persona():
     text = """---
 id: chatty
@@ -73,7 +86,10 @@ Just chat.
         ("---\nid: x\ntools: [nope]\n---\nbody", "unknown tool"),
         ("---\nid: x\nfamily: alien\ntools: []\n---\nbody", "family"),
         ("---\nid: x\nworkspace: cloud\ntools: []\n---\nbody", "workspace"),
-        ("---\nid: x\ndefault_permission_mode: yolo\ntools: []\n---\nbody", "permission"),
+        (
+            "---\nid: x\ndefault_permission_mode: yolo\ntools: []\n---\nbody",
+            "permission",
+        ),
     ],
 )
 def test_invalid_manifests_rejected(text, needle):
@@ -112,7 +128,9 @@ def test_recommends_parsed():
 
 def test_recommends_not_validated_against_shipped_connectors():
     # A persona may recommend a connector we don't ship yet — structure only, no catalog check.
-    recs = parse_manifest("---\nid: x\ntools: []\nrecommends:\n  - connector: not_a_real_connector\n---\nbody").recommends
+    recs = parse_manifest(
+        "---\nid: x\ntools: []\nrecommends:\n  - connector: not_a_real_connector\n---\nbody"
+    ).recommends
     assert recs[0].ref == "not_a_real_connector"
 
 
@@ -121,7 +139,10 @@ def test_recommends_not_validated_against_shipped_connectors():
     [
         ("---\nid: x\ntools: []\nrecommends: nope\n---\nbody", "must be a list"),
         ("---\nid: x\ntools: []\nrecommends:\n  - reason: hi\n---\nbody", "connector"),
-        ("---\nid: x\ntools: []\nrecommends:\n  - connector: gh\n    tier: maybe\n---\nbody", "tier"),
+        (
+            "---\nid: x\ntools: []\nrecommends:\n  - connector: gh\n    tier: maybe\n---\nbody",
+            "tier",
+        ),
     ],
 )
 def test_invalid_recommends_rejected(text, needle):

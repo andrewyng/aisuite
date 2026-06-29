@@ -8,6 +8,7 @@ import {
   type SurfaceVisibility,
 } from "../api";
 import type { SessionInfo } from "../types";
+import { isProjectScoped } from "../personaScope";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 
@@ -110,7 +111,7 @@ export function Sidebar(props: Props) {
       .then(setPersonas)
       .catch(() => setPersonas(null));
   }, []);
-  const familyOf = (id: string) => personas?.find((p) => p.id === id)?.family;
+  const personaOf = (id: string) => personas?.find((p) => p.id === id);
 
   // Sidebar layout (§7): "grouped" = the per-persona accordion; "flat" = a single ungrouped list
   // (Pinned + Recent). Read the persisted preference on load (absent → grouped, the accordion),
@@ -177,10 +178,10 @@ export function Sidebar(props: Props) {
   const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
   const mine = all.filter((s) => !s.archived);
   const archived = all.filter((s) => s.archived);
-  // Only the CODE FAMILY groups sessions by project (git-bound). Knowledge-family conversations
-  // are orphan (each has its own per-conversation scratch dir), so they list flat. Family-aware,
-  // not id-aware — so a DevOps/SecOps code-family persona also gets Projects.
-  const workspaceSurface = familyOf(browseKey) === "code";
+  // Only PROJECT-SCOPED personas group sessions by project (git-bound Code, project-bound Ops).
+  // Scratch/deliverable conversations are orphan (each has its own per-conversation scratch dir),
+  // so they list flat. Workspace-aware (not id-aware) — any git/project persona gets Projects.
+  const workspaceSurface = isProjectScoped(personaOf(browseKey));
 
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (s: SessionInfo) =>
@@ -293,12 +294,15 @@ export function Sidebar(props: Props) {
   const cardRow = (s: SessionInfo, { showIcon }: { showIcon: boolean }) => {
     const active = s.session_id === props.activeSession;
     const title = s.title || s.session_id;
+    // Subtitle: persona label, then channels if subscribed; otherwise the workspace basename ONLY
+    // for project-scoped personas (a real folder). Scratch/orphan personas (Cowork, or an orphaned
+    // persona) would otherwise show an ugly per-conversation scratch-dir hash, so we omit it.
     const subParts = [personaLabel(s.agent)];
     if (s.subscriptions?.length)
       subParts.push(
         s.subscriptions.length === 1 ? s.subscriptions[0] : `${s.subscriptions.length} channels`,
       );
-    else if (s.workspace) subParts.push(baseName(s.workspace));
+    else if (s.workspace && isProjectScoped(personaOf(s.agent))) subParts.push(baseName(s.workspace));
     return (
       <div
         key={s.session_id}
