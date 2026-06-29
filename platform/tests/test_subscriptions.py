@@ -1,4 +1,5 @@
 """Channel subscriptions: the store, the agent tools, and the gateway fan-out dispatch."""
+
 import asyncio
 
 import pytest
@@ -45,7 +46,9 @@ def test_store_crud_and_persistence(tmp_path):
     assert len(st.for_channel("slack:C1")) == 2
     # persistence round-trip
     assert {(s.session_id, s.channel) for s in SubscriptionStore(p).all()} == {
-        ("s1", "slack:C1"), ("s2", "slack:C1"), ("s1", "slack:C2"),
+        ("s1", "slack:C1"),
+        ("s2", "slack:C1"),
+        ("s1", "slack:C2"),
     }
     # explicit unsubscribe + session removal (the only implicit teardown)
     assert st.unsubscribe("s2", "slack:C1") is True
@@ -57,7 +60,9 @@ def test_store_crud_and_persistence(tmp_path):
 def test_buffer_and_tools(tmp_path):
     st = SubscriptionStore(tmp_path / "subs.json")
     buf = ChannelBuffer()
-    sub, unsub, lst, getmsgs = subscription_tools(st, "sess", buf, routing_targets=["slack:CINBOX"])
+    sub, unsub, lst, getmsgs = subscription_tools(
+        st, "sess", buf, routing_targets=["slack:CINBOX"]
+    )
 
     assert sub("<#C0123|alerts>")["subscribed"] == "slack:C0123"
     assert lst()["channels"] == ["slack:C0123"]
@@ -76,7 +81,9 @@ def test_buffer_and_tools(tmp_path):
 def _event(text, *, chat_type, chat_id="C1", user="bob"):
     return MessageEvent(
         text=text,
-        source=SessionSource(platform="slack", chat_id=chat_id, user_name=user, chat_type=chat_type),
+        source=SessionSource(
+            platform="slack", chat_id=chat_id, user_name=user, chat_type=chat_type
+        ),
     )
 
 
@@ -84,7 +91,7 @@ def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
     delivered: list[tuple[str, str]] = []
 
-    async def fake_deliver(session_id, message):
+    async def fake_deliver(session_id, message, *, source=None):
         delivered.append((session_id, message))
 
     monkeypatch.setattr(mgr, "deliver_to_session", fake_deliver)
@@ -99,7 +106,9 @@ def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
 
     # a CHANNEL with no subscribers → buffered, nobody delivered
     delivered.clear()
-    asyncio.run(mgr._dispatch_inbound(_event("noise", chat_type="channel", chat_id="C2")))
+    asyncio.run(
+        mgr._dispatch_inbound(_event("noise", chat_type="channel", chat_id="C2"))
+    )
     assert delivered == []
     assert mgr.channel_buffer.recent("slack:C2")[-1]["text"] == "noise"
 
@@ -139,14 +148,20 @@ def test_subscribe_unsubscribe_and_recent_endpoints(tmp_path):
     mgr.channel_buffer.record("slack:C9", "bob", "deploy failed")  # seeds the picker
     client = TestClient(create_app(mgr))
 
-    assert [c["channel"] for c in client.get("/v1/channels/recent").json()["channels"]] == ["slack:C9"]
+    assert [
+        c["channel"] for c in client.get("/v1/channels/recent").json()["channels"]
+    ] == ["slack:C9"]
 
     # subscribe via a Slack #mention token → resolved to the id
-    r = client.post("/v1/subscriptions", json={"session_id": "sZ", "channel": "<#C9|alerts>"}).json()
+    r = client.post(
+        "/v1/subscriptions", json={"session_id": "sZ", "channel": "<#C9|alerts>"}
+    ).json()
     assert r["ok"] and r["channel"] == "slack:C9"
     assert [s.channel for s in mgr.subscriptions.for_session("sZ")] == ["slack:C9"]
 
     # unsubscribe
-    r = client.post("/v1/subscriptions/remove", json={"session_id": "sZ", "channel": "slack:C9"}).json()
+    r = client.post(
+        "/v1/subscriptions/remove", json={"session_id": "sZ", "channel": "slack:C9"}
+    ).json()
     assert r["ok"] and r["removed"] is True
     assert mgr.subscriptions.for_session("sZ") == []

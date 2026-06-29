@@ -5,6 +5,7 @@ from __future__ import annotations
 from .base import (
     BasePlatformAdapter,
     MessageEvent,
+    MessageSource,
     MessageType,
     SendResult,
     SessionSource,
@@ -38,6 +39,7 @@ from .tool_defs import connector_for_tool
 __all__ = [
     "BasePlatformAdapter",
     "MessageEvent",
+    "MessageSource",
     "MessageType",
     "SendResult",
     "SessionSource",

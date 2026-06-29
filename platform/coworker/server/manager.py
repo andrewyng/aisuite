@@ -11,7 +11,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,6 +34,7 @@ from ..roots import RootDir
 from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
 from ..connectors import (
     Gateway,
+    MessageSource,
     connect_connector,
     connector_list,
     disconnect_connector,
@@ -76,7 +79,8 @@ logger = logging.getLogger("coworker.manager")
 
 def _approval_body(request) -> str:
     """Approval card body: the tool's reason (if any) plus a compact preview of its args, so a
-    mirrored 'Run `write_file`?' shows the path/content rather than just the tool name."""
+    mirrored 'Run `write_file`?' shows the path/content rather than just the tool name.
+    """
     reason = (getattr(request, "reason", "") or "").strip()
     preview = args_preview(getattr(request, "arguments", None))
     return "\n".join(p for p in (reason, preview) if p)
@@ -114,7 +118,9 @@ class SessionManager:
         if self.default_workspace:
             self.session_store.touch_workspace(self.default_workspace)
         self._engines: dict[str, TurnEngine] = {}
-        self._running_sessions: set[str] = set()  # sessions with an in-flight turn (busy)
+        self._running_sessions: set[str] = (
+            set()
+        )  # sessions with an in-flight turn (busy)
         self.secrets = SecretStore()
         # No explicit provider injected → route by the model's `provider:` prefix (OpenAI default,
         # Ollama, …). Tests inject a provider directly and bypass the router. The same router is
@@ -291,9 +297,11 @@ class SessionManager:
             # Inbox-based callbacks so a rebuilt engine can still get approvals/answers (and, on
             # resume, the already-resolved item returns immediately).
             approver=approver or self.inbox_approver(session_id, agent),
-            directory_requester=directory_requester or self.inbox_directory_requester(session_id, agent),
+            directory_requester=directory_requester
+            or self.inbox_directory_requester(session_id, agent),
             plan_approver=plan_approver or self.inbox_plan_approver(session_id, agent),
-            question_asker=question_asker or self.inbox_question_asker(session_id, agent),
+            question_asker=question_asker
+            or self.inbox_question_asker(session_id, agent),
             subscription_store=self.subscriptions,
             channel_buffer=self.channel_buffer,
             routing_targets=self._routing_targets(session_id, agent),
@@ -303,8 +311,11 @@ class SessionManager:
 
     def _routing_targets(self, session_id: str, agent: str) -> list[str]:
         """The channel address(es) this session's Inbox routes OUT to — used to warn when a
-        subscription (inbound) collides with Inbox routing (outbound) on the same channel."""
-        binding = self.inbox_routing.binding_for(self.inbox_routing.route_for(session_id, agent))
+        subscription (inbound) collides with Inbox routing (outbound) on the same channel.
+        """
+        binding = self.inbox_routing.binding_for(
+            self.inbox_routing.route_for(session_id, agent)
+        )
         return [f"{binding.channel}:{binding.target}"] if binding.channel else []
 
     def inbox_question_asker(self, session_id: str, agent: str):
@@ -313,7 +324,9 @@ class SessionManager:
         Also the default for background/self-wake runs (no live socket). Mirrors to a bound channel
         like the approver does."""
 
-        async def ask(args: dict[str, Any], tool_call_id: Optional[str] = None) -> dict[str, Any]:
+        async def ask(
+            args: dict[str, Any], tool_call_id: Optional[str] = None
+        ) -> dict[str, Any]:
             question = str(args.get("question", "")).strip()
             if not question:
                 return {"answer": "", "error": "no question"}
@@ -327,7 +340,9 @@ class SessionManager:
                 multi=bool(args.get("multi", False)),
                 tool_call_id=tool_call_id,
             )
-            if item.state != "pending":  # durable resume re-raised an already-answered prompt
+            if (
+                item.state != "pending"
+            ):  # durable resume re-raised an already-answered prompt
                 return {"answer": item.resolution or ""}
             self.persist_session(session_id)  # the pending tool call is now on disk
             await self.mirror_inbox_item(item)
@@ -338,10 +353,13 @@ class SessionManager:
 
     def inbox_approver(self, session_id: str, agent: str):
         """Inbox-based approver — the default for no-socket runs (background, self-wake, durable
-        resume). On resume the item already exists + is resolved, so wait returns at once."""
+        resume). On resume the item already exists + is resolved, so wait returns at once.
+        """
+
         async def approve(request):
             item = self.inbox.add_approval(
-                session_id, f"Run `{request.tool_name}`?",
+                session_id,
+                f"Run `{request.tool_name}`?",
                 body=_approval_body(request),
                 inbox=self.inbox_routing.route_for(session_id, agent),
                 tool_call_id=getattr(request, "tool_call_id", None),
@@ -359,14 +377,20 @@ class SessionManager:
             if resolution == "always":
                 return ApprovalOutcome.ALWAYS_TOOL
             return ApprovalOutcome.DENY
+
         return approve
 
     def inbox_directory_requester(self, session_id: str, agent: str):
         async def request(args, tool_call_id=None):
             item = self.inbox.add_directory(
-                session_id, "Grant access to a folder?", body=str(args.get("reason", "")),
+                session_id,
+                "Grant access to a folder?",
+                body=str(args.get("reason", "")),
                 inbox=self.inbox_routing.route_for(session_id, agent),
-                data={"path": str(args.get("path", "")), "writable": bool(args.get("writable", False))},
+                data={
+                    "path": str(args.get("path", "")),
+                    "writable": bool(args.get("writable", False)),
+                },
                 tool_call_id=tool_call_id,
             )
             if item.state == "pending":
@@ -381,23 +405,34 @@ class SessionManager:
             writable = bool(resp.get("writable", args.get("writable", False)))
             res = self.add_root(session_id, path, writable)
             if not res.get("ok"):
-                return {"granted": False, "error": res.get("error", "could not grant access")}
+                return {
+                    "granted": False,
+                    "error": res.get("error", "could not grant access"),
+                }
             return {"granted": True, "path": path, "writable": writable}
+
         return request
 
     def inbox_plan_approver(self, session_id: str, agent: str):
         async def approve(args, tool_call_id=None):
             item = self.inbox.add_plan(
-                session_id, "Approve the plan?", body=str(args.get("plan", "")),
-                inbox=self.inbox_routing.route_for(session_id, agent), tool_call_id=tool_call_id,
+                session_id,
+                "Approve the plan?",
+                body=str(args.get("plan", "")),
+                inbox=self.inbox_routing.route_for(session_id, agent),
+                tool_call_id=tool_call_id,
             )
             if item.state == "pending":
                 self.persist_session(session_id)
                 await self.mirror_inbox_item(item)
             resp = _parse_inbox_json(await self.inbox.wait(item.id))
             if not resp.get("approved"):
-                return {"approved": False, "feedback": resp.get("feedback") or "the user rejected the plan"}
+                return {
+                    "approved": False,
+                    "feedback": resp.get("feedback") or "the user rejected the plan",
+                }
             return {"approved": True, "mode": resp.get("mode") or "interactive"}
+
         return approve
 
     def persist_session(self, session_id: str) -> None:
@@ -1218,7 +1253,8 @@ class SessionManager:
     async def mirror_inbox_item(self, item) -> None:
         """Mirror an Inbox item to its bound channel. Discrete choices (approve/deny, ask_user
         options) render as BUTTONS — the item id rides in each, so a click resolves it
-        unambiguously. Free-text answers aren't offered over messaging (open the app)."""
+        unambiguously. Free-text answers aren't offered over messaging (open the app).
+        """
         from ..interactions import buttons_for
 
         binding = self.inbox_routing.binding_for(item.inbox)
@@ -1232,7 +1268,8 @@ class SessionManager:
                 await self.gateway.deliver_interactive(target, body, buttons)
             else:
                 await self.gateway.deliver(
-                    target, f"{body}\n(Open the app to respond.)\n[ocw:{item.id}]".strip()
+                    target,
+                    f"{body}\n(Open the app to respond.)\n[ocw:{item.id}]".strip(),
                 )
         except Exception:
             pass
@@ -1279,7 +1316,8 @@ class SessionManager:
     async def resume_due_wakes(self) -> int:
         """Resume sessions whose self-wakes are due (called each scheduler tick). A suspended
         agent (it called sleep_for / wake_on / wake_on_event and ended its turn) is re-invoked on
-        its own session with a wake message so it continues where it left off. Returns the count."""
+        its own session with a wake message so it continues where it left off. Returns the count.
+        """
         resumed = 0
         for wake in self.wakes.due():
             try:
@@ -1303,23 +1341,27 @@ class SessionManager:
     async def _resume_wake(self, wake) -> None:
         await self.deliver_to_session(wake.session_id, self._wake_message(wake))
 
-    async def deliver_to_session(self, session_id: str, message: str) -> None:
+    async def deliver_to_session(
+        self, session_id: str, message: str, *, source: Optional[dict[str, Any]] = None
+    ) -> None:
         """Deliver an out-of-band message to a (durable) session — the agent stays resumable
         forever, so this works with no live socket. Busy (mid tool-loop): steer it into the live
         turn at its next step (don't start a colliding run). Idle: run a fresh background turn
         (results persist; if the session is Unattended, any approvals route to the Inbox). Shared
-        by self-wake and channel-subscription delivery."""
+        by self-wake and channel-subscription delivery. `source` is the display-only MessageSource
+        sidecar for connector messages (framed `message` stays the model-facing text).
+        """
         if self.is_running(session_id):
             engine = self._engines.get(session_id)
             if engine is not None:
-                engine.queue_steering(message)
+                engine.queue_steering(message, source)
             return
         engine = self.get_engine(session_id)
         if engine is None:
             return
         self.mark_running(session_id)
         try:
-            async for event in engine.run(message):
+            async for event in engine.run(message, source=source):
                 # Stream every event to any socket viewing this session, so a background turn
                 # (channel delivery, self-wake, durable resume) is seen live — not just on reselect.
                 await self.broadcast_session(
@@ -1329,10 +1371,14 @@ class SessionManager:
                 # tool failure would otherwise vanish. Log it and park it in the dead-letter store.
                 if event.type.value == "error":
                     reason = (event.data or {}).get("error", "unknown error")
-                    logger.warning("background turn failed for %s: %s", session_id, reason)
+                    logger.warning(
+                        "background turn failed for %s: %s", session_id, reason
+                    )
                     self.unrouted.record(session_id, "-", message, reason=reason)
             self.save(session_id, engine)
-        except Exception as exc:  # an unexpected raise out of the turn must not be swallowed
+        except (
+            Exception
+        ) as exc:  # an unexpected raise out of the turn must not be swallowed
             logger.warning("background turn crashed for %s: %s", session_id, exc)
             self.unrouted.record(session_id, "-", message, reason=str(exc))
             await self.broadcast_session(
@@ -1346,13 +1392,28 @@ class SessionManager:
     async def _dispatch_inbound(self, event) -> None:
         """Route a non-token inbound message. Channel messages are buffered (for catch-up) and
         fanned out to every subscribed session; a DM (or any non-channel) goes to the user-designated
-        DM session (delivered like any background turn) or, if none is set, is parked as unrouted."""
+        DM session (delivered like any background turn) or, if none is set, is parked as unrouted.
+        """
         src = event.source
         text = getattr(event, "text", "") or ""
         who = src.user_name or src.user_id or "?"
         channel = f"{src.platform}:{src.chat_id}"  # thread-agnostic channel address
+        # Structured sidecar (display-only) built from the resolved identities on the event — the
+        # framed text below stays the model-facing `content`; `ms.text` carries the RAW message.
+        ms = MessageSource(
+            connector=src.platform,
+            kind="channel" if src.chat_type in ("channel", "group") else "dm",
+            channel_id=src.chat_id,
+            channel_name=src.chat_name or src.chat_id,
+            sender_id=src.user_id or "",
+            sender_name=src.user_name or src.user_id or "?",
+            ts=_inbound_epoch(getattr(event, "message_id", None)),
+            text=text,
+        )
         if src.chat_type in ("channel", "group"):
-            self.channel_buffer.record(channel, who, text)  # buffer all, even unsubscribed
+            self.channel_buffer.record(
+                channel, who, text
+            )  # buffer all, even unsubscribed
             subs = self.subscriptions.for_channel(channel)
             if subs:
                 msg = (
@@ -1362,7 +1423,9 @@ class SessionManager:
                 )
                 for sub in subs:
                     try:
-                        await self.deliver_to_session(sub.session_id, msg)
+                        await self.deliver_to_session(
+                            sub.session_id, msg, source=ms.to_dict()
+                        )
                     except Exception:
                         pass
                 return
@@ -1370,7 +1433,7 @@ class SessionManager:
         # DM (or any non-channel): route to the designated session, else park it for visibility.
         dm = self.dm_session()
         if dm:
-            await self.deliver_to_session(dm, event.tagged_text())
+            await self.deliver_to_session(dm, event.tagged_text(), source=ms.to_dict())
         else:
             self.unrouted.record(
                 src.target, who, text, reason="no DM session designated"
@@ -1389,7 +1452,9 @@ class SessionManager:
                 f"⏰ Wake — the event `{wake.event_key}` you were waiting on has fired{note}. "
                 "Continue where you left off."
             )
-        return f"⏰ Wake — the timer you set has fired{note}. Continue where you left off."
+        return (
+            f"⏰ Wake — the timer you set has fired{note}. Continue where you left off."
+        )
 
     async def _run_scheduled_task(self, task, trigger: str) -> TaskRun:
         run = TaskRun(
@@ -1835,7 +1900,9 @@ class SessionManager:
                 "liveness": self._session_liveness(r.session_id),
                 # Channels this session listens to (inbound subscriptions) — drives the per-session
                 # "connections" indicator.
-                "subscriptions": [s.channel for s in self.subscriptions.for_session(r.session_id)],
+                "subscriptions": [
+                    s.channel for s in self.subscriptions.for_session(r.session_id)
+                ],
             }
             for r in self.session_store.list(workspace=ws)
             if not r.session_id.startswith("__")  # hide internal threads
@@ -1884,6 +1951,21 @@ def _parse_inbox_json(s: str) -> dict[str, Any]:
 def _epoch() -> float:
     import time
 
+    return time.time()
+
+
+# A Slack message ts looks like "1700000001.000001" (epoch seconds + microseconds). Other
+# platforms use opaque/incrementing ids (e.g. a Telegram integer), so only parse the Slack shape.
+_SLACK_TS_RE = re.compile(r"^\d+\.\d+$")
+
+
+def _inbound_epoch(message_id: Optional[str]) -> float:
+    """Best-effort epoch-seconds for a MessageSource: a Slack-style ts, else wall-clock now."""
+    if message_id and _SLACK_TS_RE.match(str(message_id)):
+        try:
+            return float(message_id)
+        except ValueError:
+            pass
     return time.time()
 
 

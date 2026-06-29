@@ -104,21 +104,35 @@ class TurnEngine:
         ):
             self.messages.insert(0, {"role": "system", "content": instructions})
         self._cancel = asyncio.Event()
-        self._steering: list[str] = []
+        # Each pending steering message: (text, optional MessageSource sidecar dict).
+        self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
         self._cancel.set()
 
-    def queue_steering(self, text: str) -> None:
-        self._steering.append(text)
+    def queue_steering(
+        self, text: str, source: Optional[dict[str, Any]] = None
+    ) -> None:
+        self._steering.append((text, source))
 
     # -- main loop --------------------------------------------------------------
-    async def run(self, user_input: "str | list") -> AsyncIterator[Event]:
+    async def run(
+        self, user_input: "str | list", *, source: Optional[dict[str, Any]] = None
+    ) -> AsyncIterator[Event]:
         # `user_input` is a string, or OpenAI content-parts (text + image_url) for attachments.
-        self.messages.append({"role": "user", "content": user_input})
+        # `source` (a MessageSource dict) is a display-only sidecar for connector messages: it
+        # rides on the persisted user message + the TURN_START event, but is stripped before the
+        # message reaches a provider (see `_outbound_messages`). `content` stays the framed text.
+        message: dict[str, Any] = {"role": "user", "content": user_input}
+        if source is not None:
+            message["source"] = source
+        self.messages.append(message)
         self._cancel.clear()
-        yield Event(EventType.TURN_START, {"input": user_input})
+        data: dict[str, Any] = {"input": user_input}
+        if source is not None:
+            data["source"] = source
+        yield Event(EventType.TURN_START, data)
         async for event in self._loop():
             yield event
 
@@ -142,8 +156,11 @@ class TurnEngine:
 
     def _unanswered_trailing_tool_calls(self) -> list[ToolCall]:
         """The tool-calls of the last assistant message that don't yet have a tool result —
-        i.e. the prompt we suspended on (+ any after it). Reconstructed from the persisted thread."""
-        answered = {m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"}
+        i.e. the prompt we suspended on (+ any after it). Reconstructed from the persisted thread.
+        """
+        answered = {
+            m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"
+        }
         for msg in reversed(self.messages):
             if msg.get("role") == "user":
                 return []
@@ -157,7 +174,9 @@ class TurnEngine:
                         args = json.loads(fn.get("arguments") or "{}")
                     except Exception:
                         args = {}
-                    out.append(ToolCall(id=tc.get("id"), name=fn.get("name"), arguments=args))
+                    out.append(
+                        ToolCall(id=tc.get("id"), name=fn.get("name"), arguments=args)
+                    )
                 return out
         return []
 
@@ -563,7 +582,11 @@ class TurnEngine:
         if self.question_asker is None or not question:
             result: dict[str, Any] = {
                 "answer": "",
-                "error": "no question was asked" if not question else "asking isn't available here",
+                "error": (
+                    "no question was asked"
+                    if not question
+                    else "asking isn't available here"
+                ),
             }
         else:
             # The asker is mode-aware (attended → live inline prompt; unattended → Inbox), so it
@@ -585,26 +608,41 @@ class TurnEngine:
         )
         yield Event(
             EventType.TOOL_FINISHED,
-            {"name": tool_call.name, "status": status, "result_preview": _preview(result)},
+            {
+                "name": tool_call.name,
+                "status": status,
+                "result_preview": _preview(result),
+            },
         )
 
     def _inject_steering(self) -> None:
-        for text in self._steering:
-            self.messages.append({"role": "user", "content": text})
+        for text, source in self._steering:
+            message: dict[str, Any] = {"role": "user", "content": text}
+            if source is not None:
+                message["source"] = source
+            self.messages.append(message)
         self._steering = []
 
     def _outbound_messages(self) -> list[dict[str, Any]]:
-        """`self.messages` with an ephemeral `<system-context>` block appended to the last user
-        message. Returns the list unchanged when there's no context provider or it yields "".
-        Never mutates `self.messages`, so the block is sent but never persisted/replayed.
+        """`self.messages` prepared for the provider. The SOLE provider feed (see `_astream`).
+
+        Every message is stripped of the display-only `source` sidecar (providers reject unknown
+        keys), unconditionally — whether or not a `<system-context>` block is added. When a context
+        provider yields a non-empty string, an ephemeral `<system-context>` block is appended to the
+        last user message. Never mutates `self.messages`, so neither the strip nor the block is
+        persisted/replayed.
         """
-        if self.context_provider is None:
-            return self.messages
-        context = self.context_provider() or ""
+        # Strip `source` from every message (copy only those that carry it; reuse the rest).
+        out = [
+            {k: v for k, v in msg.items() if k != "source"} if "source" in msg else msg
+            for msg in self.messages
+        ]
+        context = (
+            self.context_provider() if self.context_provider is not None else ""
+        ) or ""
         if not context:
-            return self.messages
+            return out
         block = f"\n\n<system-context>\n{context}\n</system-context>"
-        out = list(self.messages)
         for i in range(len(out) - 1, -1, -1):
             if out[i].get("role") != "user":
                 continue

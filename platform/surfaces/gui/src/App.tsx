@@ -17,11 +17,13 @@ import {
   setSessionFlags,
   Session,
   type InboxItem,
+  type MessageSource,
   type Persona,
   type RecentWorkspace,
   type SurfaceVisibility,
 } from "./api";
 import type { ApprovalDecision, Attachment, Item, SessionInfo, TodoItem, WsEvent } from "./types";
+import { itemsFromMessages } from "./itemsFromMessages";
 import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, startWindowDrag } from "./tauri";
 import { Icon } from "./components/Icon";
@@ -406,9 +408,18 @@ export function App() {
           setRunning(true);
           setStreaming("");
           // Background-delivered turns (channel message, self-wake, durable resume) have no local
-          // send(), so the triggering message isn't in `items` yet — surface it as a user item.
+          // send(), so the triggering message isn't in `items` yet — surface it. A connector message
+          // carries a structured `source` (§3.1) → render the rich card; otherwise a plain user item.
           // Foreground turns already appended it in send(); skip the duplicate.
-          if (typeof d.input === "string" && d.input) {
+          if (d.source?.connector) {
+            const src = d.source as MessageSource;
+            setItems((p) => {
+              const last = p[p.length - 1];
+              return last && last.kind === "connector" && last.source.ts === src.ts && last.source.text === src.text
+                ? p
+                : [...p, { kind: "connector", source: src }];
+            });
+          } else if (typeof d.input === "string" && d.input) {
             setItems((p) => {
               const last = p[p.length - 1];
               return last && last.kind === "user" && last.text === d.input
@@ -1075,59 +1086,6 @@ export function App() {
       )}
     </div>
   );
-}
-
-function itemsFromMessages(messages: any[]): Item[] {
-  const items: Item[] = [];
-  // Index tool results by tool_call_id so replayed tool rows can show their output
-  // (the live view gets this from `tool_finished` events; on replay it's the `role:"tool"` msgs).
-  const results: Record<string, string> = {};
-  for (const m of messages || []) {
-    if (m.role === "tool" && m.tool_call_id) {
-      results[m.tool_call_id] =
-        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-    }
-  }
-  for (const m of messages || []) {
-    if (m.role === "user") {
-      const user = userItemFromContent(m.content);
-      if (user.text || user.attachments?.length) items.push(user);
-    } else if (m.role === "assistant") {
-      if (m.content) items.push({ kind: "assistant", text: m.content });
-      for (const tc of m.tool_calls || []) {
-        let args: any = {};
-        try {
-          args = JSON.parse(tc.function?.arguments || "{}");
-        } catch {
-          args = {};
-        }
-        const preview = results[tc.id];
-        items.push({ kind: "tool", id: tc.id, name: tc.function?.name, args, status: "ok", preview });
-      }
-    }
-    // system messages are omitted; tool-result messages are folded into the tool row above
-  }
-  return items;
-}
-
-function userItemFromContent(content: any): Extract<Item, { kind: "user" }> {
-  if (typeof content === "string") return { kind: "user", text: content };
-  if (!Array.isArray(content)) return { kind: "user", text: "" };
-
-  const text: string[] = [];
-  const attachments: Attachment[] = [];
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    if (part.type === "text" && part.text) {
-      text.push(String(part.text));
-    } else if (part.type === "image_url") {
-      const url = part.image_url?.url;
-      if (typeof url === "string" && url.startsWith("data:image/")) {
-        attachments.push({ kind: "image", name: "image", data_url: url });
-      }
-    }
-  }
-  return { kind: "user", text: text.join("\n\n"), attachments };
 }
 
 function lastItemIsAssistant(items: Item[]): boolean {

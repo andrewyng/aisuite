@@ -22,6 +22,10 @@ export interface WsEvent {
   data: any;
 }
 
+// Re-exported for transcript items below. Lives in api.ts (the REST/WS contract source of truth);
+// type-only import, so there's no runtime cycle with api.ts's `import type { ... } from "./types"`.
+import type { MessageSource } from "./api";
+
 export type ApprovalDecision = "once" | "deny" | "always_tool" | "always_command";
 
 export interface TodoItem {
@@ -60,6 +64,10 @@ export interface Attachment {
 // Transcript items
 export type Item =
   | { kind: "user"; text: string; attachments?: Attachment[] }
+  // A connector-delivered inbound message (Slack/Salesforce/…), rendered as a structured card
+  // (ConnectorMessageCard) instead of a plain user bubble. Generalizes to any connector via the
+  // registry — no per-connector special-casing.
+  | { kind: "connector"; source: MessageSource }
   | { kind: "assistant"; text: string }
   | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string }
   | {

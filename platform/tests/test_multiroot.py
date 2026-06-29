@@ -166,7 +166,11 @@ def test_outbound_messages_noop_without_provider():
         model="x",
         messages=[{"role": "user", "content": "hello"}],
     )
-    assert eng._outbound_messages() is eng.messages
+    # No context provider → no `<system-context>` block appended (content unchanged). The list is
+    # now always a fresh copy (the `source` strip is unconditional), so compare by value not identity.
+    out = eng._outbound_messages()
+    assert out == eng.messages
+    assert out[-1]["content"] == "hello"
 
 
 # -- Slice C: add/remove session folders (RO/RW) + persistence ------------------

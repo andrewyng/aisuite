@@ -52,7 +52,31 @@ export async function getSessions(workspace?: string): Promise<SessionInfo[]> {
   return (await res.json()).sessions ?? [];
 }
 
-export async function getSessionMessages(sessionId: string): Promise<any[]> {
+// A structured connector-delivered inbound message (§3.1). Attached to the user message it framed,
+// for display only — the model still sees the framed `content`; this drives the ConnectorMessageCard.
+export interface MessageSource {
+  connector: string; // platform id, e.g. "slack"
+  kind: "channel" | "dm";
+  channel_id: string; // e.g. "C0BD7KZ1AH5"
+  channel_name: string; // resolved; may equal the id (e.g. "#ocw-test")
+  sender_id: string;
+  sender_name: string; // resolved; may equal the id
+  ts: number; // epoch seconds
+  text: string; // the RAW message (what the card shows)
+}
+
+// A transcript message from GET /v1/sessions/{id}/messages. Kept permissive (open shape) because
+// itemsFromMessages reads several role-specific fields; `source` is the optional connector sidecar.
+export interface ConversationMessage {
+  role: string;
+  content?: any;
+  tool_calls?: any[];
+  tool_call_id?: string;
+  source?: MessageSource;
+  [key: string]: any;
+}
+
+export async function getSessionMessages(sessionId: string): Promise<ConversationMessage[]> {
   const res = await fetch(`${httpBase()}/v1/sessions/${sessionId}/messages`);
   return (await res.json()).messages ?? [];
 }

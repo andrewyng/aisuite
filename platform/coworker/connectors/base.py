@@ -9,7 +9,7 @@ can `send` outbound. Inbound identity is carried by `SessionSource`; a `target` 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Optional
 
@@ -58,6 +58,29 @@ class SessionSource:
             self.chat_type, self.chat_type
         )
         return f"{self.platform} {where} · {who}"
+
+
+@dataclass
+class MessageSource:
+    """Structured sidecar for a connector inbound message (UI-REFRESH §3.1).
+
+    Attached (as a plain dict via `to_dict`) to the persisted user message for DISPLAY only —
+    the GUI renders a rich card from it. The model-facing `content` stays the framed text and
+    this sidecar is stripped before the message reaches any provider. `text` is the RAW message
+    (what the card shows), distinct from the framed `content`.
+    """
+
+    connector: str  # platform id, e.g. "slack"
+    kind: str  # "channel" | "dm"
+    channel_id: str  # e.g. "C0BD7KZ1AH5"
+    channel_name: str  # resolved display name; falls back to channel_id
+    sender_id: str
+    sender_name: str  # resolved display name; falls back to sender_id
+    ts: float  # epoch seconds
+    text: str  # the RAW message (what the card shows)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass

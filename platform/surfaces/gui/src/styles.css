@@ -1456,3 +1456,63 @@ button.btn.ghost:hover { color: var(--ink); }
   border-radius: 9px;
   background: var(--brand-soft, rgba(107, 114, 128, 0.12));
 }
+
+/* Connector inbound message card (§3.3). Brand-tinted header + brand-colored left edge; the
+   --brand / --brand-soft custom props are set inline from the connector's color (ConnectorMessageCard).
+   The header swaps names → `channel_id · sender_id` on hover/focus (React state, not CSS :hover). */
+.connector-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand, #6b7280);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.connector-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--brand-soft, rgba(107, 114, 128, 0.12));
+  cursor: default;
+  outline: none;
+}
+.connector-card-head:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--brand, #6b7280);
+}
+.connector-card-channel {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand, #6b7280);
+}
+.connector-card-dot {
+  color: var(--faint);
+}
+.connector-card-sender {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.connector-card-via {
+  font-size: 11px;
+  color: var(--faint);
+  margin-left: 2px;
+}
+.connector-card-ids {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.connector-card-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.connector-card-body {
+  padding: 8px 12px 10px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+}

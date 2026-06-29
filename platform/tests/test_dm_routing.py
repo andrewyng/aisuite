@@ -1,5 +1,6 @@
 """DM routing + super-agent retirement: a DM goes to the user-designated session (delivered like any
 background turn) or is parked as unrouted; the legacy super-agent surface is gone."""
+
 import asyncio
 
 import pytest
@@ -22,7 +23,9 @@ class ScriptedProvider(ProviderClient):
 def _dm(text, chat_id="D1", user="bob"):
     return MessageEvent(
         text=text,
-        source=SessionSource(platform="slack", chat_id=chat_id, user_name=user, chat_type="dm"),
+        source=SessionSource(
+            platform="slack", chat_id=chat_id, user_name=user, chat_type="dm"
+        ),
     )
 
 
@@ -30,7 +33,7 @@ def test_dm_with_designated_session_delivers(tmp_path, monkeypatch):
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider())
     delivered: list[tuple[str, str]] = []
 
-    async def fake_deliver(session_id, message):
+    async def fake_deliver(session_id, message, *, source=None):
         delivered.append((session_id, message))
 
     monkeypatch.setattr(mgr, "deliver_to_session", fake_deliver)
@@ -38,7 +41,9 @@ def test_dm_with_designated_session_delivers(tmp_path, monkeypatch):
 
     asyncio.run(mgr._dispatch_inbound(_dm("ping")))
     assert delivered[0][0] == "sDM"
-    assert "ping" in delivered[0][1]  # the tagged text carries the message + a reply handle
+    assert (
+        "ping" in delivered[0][1]
+    )  # the tagged text carries the message + a reply handle
     assert mgr.unrouted.list() == []
 
 
@@ -58,17 +63,29 @@ def test_dm_route_endpoints(tmp_path):
     client = TestClient(create_app(mgr))
 
     assert client.get("/v1/messaging/dm-route").json()["dm_session"] is None
-    assert client.post("/v1/messaging/dm-route", json={"session_id": "sX"}).json()["dm_session"] == "sX"
+    assert (
+        client.post("/v1/messaging/dm-route", json={"session_id": "sX"}).json()[
+            "dm_session"
+        ]
+        == "sX"
+    )
     assert client.get("/v1/messaging/dm-route").json()["dm_session"] == "sX"
     # a falsy id clears it
-    assert client.post("/v1/messaging/dm-route", json={"session_id": ""}).json()["dm_session"] is None
+    assert (
+        client.post("/v1/messaging/dm-route", json={"session_id": ""}).json()[
+            "dm_session"
+        ]
+        is None
+    )
 
 
 def test_dm_session_persists_across_manager_reload(tmp_path):
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider())
     mgr.set_dm_session("sKeep")
     # a fresh manager over the same data dir reloads the prefs-backed designation
-    reborn = SessionManager(workspace=tmp_path, data_dir=mgr._data_base, provider=ScriptedProvider())
+    reborn = SessionManager(
+        workspace=tmp_path, data_dir=mgr._data_base, provider=ScriptedProvider()
+    )
     assert reborn.dm_session() == "sKeep"
 
 

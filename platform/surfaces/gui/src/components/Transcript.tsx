@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ApprovalDecision, Item } from "../types";
 import { shortArgs } from "./ApprovalCard";
 import { Markdown } from "./Markdown";
+import { ConnectorMessageCard } from "./ConnectorMessageCard";
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
 type ApprovalItem = Extract<Item, { kind: "approval" }>;
@@ -91,6 +92,8 @@ export function Transcript({ items }: Props) {
         if ("activities" in block) return <ToolGroup items={block.activities} key={bi} />;
         const { item } = block;
         switch (item.kind) {
+          case "connector":
+            return <ConnectorMessageCard source={item.source} key={bi} />;
           case "user":
             return (
               <div className="bubble-user" key={bi}>

@@ -9,7 +9,7 @@
 import type { CSSProperties } from "react";
 import { resolveConnector } from "./registry";
 
-const NEUTRAL = "#6b7280"; // fallback gray, matches the descriptor default
+export const NEUTRAL = "#6b7280"; // fallback gray, matches the descriptor default
 
 /** Anything carrying the API connector visuals — the full `Connector` is structurally assignable. */
 export interface ConnectorVisual {
@@ -20,7 +20,7 @@ export interface ConnectorVisual {
 }
 
 /** Convert a `#rgb` / `#rrggbb` hex to an `rgba()` string at `alpha`; '' on malformed input. */
-function hexToRgba(hex: string, alpha: number): string {
+export function hexToRgba(hex: string, alpha: number): string {
   let h = hex.trim().replace(/^#/, "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return "";
