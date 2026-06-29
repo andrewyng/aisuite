@@ -121,6 +121,7 @@ def build_engine(
     subscription_store: Optional[Any] = None,
     channel_buffer: Optional[Any] = None,
     routing_targets: Optional[list[str]] = None,
+    connector_filter: Optional[set[str]] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
@@ -171,6 +172,11 @@ def build_engine(
         registry.register(request_directory_tool())
     if agent.connectors:
         enabled_connectors, enabled_tools = _enabled_connector_tools(secrets)
+        # Per-session connection hierarchy (UI-REFRESH §4.3): when the caller supplies the session's
+        # effective connector set, intersect it so only effective-enabled connectors expose tools.
+        # Default None preserves CLI / direct callers (no per-session restriction).
+        if connector_filter is not None:
+            enabled_connectors = enabled_connectors & connector_filter
         registry.register_all(
             make_integration_tools(
                 secrets,

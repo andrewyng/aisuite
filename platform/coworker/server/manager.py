@@ -19,6 +19,11 @@ from typing import Any, Optional
 
 from ..agent import build_engine
 from ..agents import get_agent
+from ..connections import (
+    PersonaConnectionStore,
+    SessionConnectionStore,
+    effective as effective_connections,
+)
 from ..inbox import InboxStore, args_preview
 from ..inbox_routing import InboxRouting
 from ..personas import PersonaRegistry
@@ -158,6 +163,15 @@ class SessionManager:
         # of recently-seen channel messages for get_channel_messages.
         self.subscriptions = SubscriptionStore(base / "subscriptions.json")
         self.channel_buffer = ChannelBuffer()
+        # Connection hierarchy (UI-REFRESH §4): per-persona default connector on/off (seeded from the
+        # manifest, then user-editable) + per-session overrides. Resolved into the session's effective
+        # connector set, which gates inbound delivery and the engine's connector tools.
+        self.persona_connections = PersonaConnectionStore(
+            base / "persona_connections.json"
+        )
+        self.session_connections = SessionConnectionStore(
+            base / "session_connections.json"
+        )
         # Dead-letter: inbound messages with no destination + background-turn failures, so neither
         # vanishes silently (a debugging/visibility surface, not a redelivery queue).
         self.unrouted = UnroutedStore(base / "unrouted.json")
@@ -305,6 +319,8 @@ class SessionManager:
             subscription_store=self.subscriptions,
             channel_buffer=self.channel_buffer,
             routing_targets=self._routing_targets(session_id, agent),
+            # Per-session connection hierarchy: expose only effective-enabled connectors' tools.
+            connector_filter=self.effective_connectors(session_id, agent_name),
         )
         self._engines[session_id] = engine
         return engine
@@ -317,6 +333,44 @@ class SessionManager:
             self.inbox_routing.route_for(session_id, agent)
         )
         return [f"{binding.channel}:{binding.target}"] if binding.channel else []
+
+    # -- connection hierarchy (UI-REFRESH §4) -----------------------------------
+    def _persona_of(self, session_id: str, persona_id: Optional[str] = None) -> str:
+        if persona_id:
+            return persona_id
+        record = self.session_store.load(session_id)
+        return (record.agent if record else None) or self.personas.default_id()
+
+    def effective_connectors(
+        self, session_id: str, persona_id: Optional[str] = None
+    ) -> set[str]:
+        """The connectors effectively enabled for this session (§4.1): connected AND not muted by
+        the session override / persona default. Drives the engine's connector-tool gating; seeds the
+        persona defaults from the manifest on first read using the full connected set.
+        """
+        persona = self._persona_of(session_id, persona_id)
+        connected = {c["name"] for c in connector_list(self.secrets) if c["connected"]}
+        entry = self.personas.get(persona)
+        manifest = entry.manifest if entry else None
+        persona_defaults = self.persona_connections.defaults_for(
+            persona, manifest, connected=connected
+        )
+        session_overrides = self.session_connections.get(session_id)
+        return set(
+            effective_connections(
+                connected=connected,
+                persona_defaults=persona_defaults,
+                session_overrides=session_overrides,
+            )
+        )
+
+    def _inbound_connector_allowed(self, session_id: str, connector: str) -> bool:
+        """Whether an inbound message on `connector` should be DELIVERED to `session_id` (§4.3).
+
+        Uses the SAME effective set as the engine's connector-tool gating so the inbound gate and the
+        tool gate can never disagree (a muted connector is muted both ways, from the first message).
+        """
+        return connector in self.effective_connectors(session_id)
 
     def inbox_question_asker(self, session_id: str, agent: str):
         """The Unattended `ask_user` handler: turn the agent's question into an Inbox item and
@@ -1244,6 +1298,9 @@ class SessionManager:
             task_store=None,
             session_id=session_id,
             audit_sink=self.audit_store.append,
+            # Scheduled runs respect the same per-session connection hierarchy as live sessions:
+            # expose only the persona's effective-enabled connectors' tools (§4.3).
+            connector_filter=self.effective_connectors(session_id, task.agent),
         )
         for tool in task.always_allowed_tools:
             engine.permissions.allow_tool_for_session(tool)
@@ -1422,6 +1479,12 @@ class SessionManager:
                     f'and reply with the send_message tool to target "{channel}"; otherwise ignore it.)'
                 )
                 for sub in subs:
+                    # Per-session connection hierarchy (§4.3): a session that has muted this
+                    # connector skips delivery — the message is still buffered (above) for catch-up.
+                    if not self._inbound_connector_allowed(
+                        sub.session_id, src.platform
+                    ):
+                        continue
                     try:
                         await self.deliver_to_session(
                             sub.session_id, msg, source=ms.to_dict()
@@ -1432,8 +1495,13 @@ class SessionManager:
             return  # channel with no subscribers — nobody is listening
         # DM (or any non-channel): route to the designated session, else park it for visibility.
         dm = self.dm_session()
-        if dm:
+        if dm and self._inbound_connector_allowed(dm, src.platform):
             await self.deliver_to_session(dm, event.tagged_text(), source=ms.to_dict())
+        elif dm:
+            # Designated, but this session has muted the connector → park rather than deliver.
+            self.unrouted.record(
+                src.target, who, text, reason="connector muted for DM session"
+            )
         else:
             self.unrouted.record(
                 src.target, who, text, reason="no DM session designated"
@@ -1865,6 +1933,8 @@ class SessionManager:
         ok = self.session_store.delete(session_id)
         # Deleting a session is the one implicit unsubscribe (otherwise subscriptions are permanent).
         self.subscriptions.remove_session(session_id)
+        # ...and drops its per-session connector overrides (§4.2, like subscriptions).
+        self.session_connections.remove_session(session_id)
         return {"ok": ok, "session_id": session_id}
 
     # -- provider proxy ---------------------------------------------------------
