@@ -136,6 +136,9 @@ class SlackAdapter(BasePlatformAdapter):
         self._name_cache: dict[str, str] = (
             {}
         )  # user_id → display name (resolved once via users.info)
+        self._channel_cache: dict[str, str] = (
+            {}
+        )  # chat_id → channel name (resolved once via conversations.info)
 
     async def connect(self) -> bool:
         try:
@@ -173,6 +176,11 @@ class SlackAdapter(BasePlatformAdapter):
                 if not mapped.source.user_name:
                     mapped.source.user_name = await self._display_name(
                         mapped.source.user_id
+                    )
+                # ...and a friendly channel/DM name so the GUI card shows "#ocw-test", not "C…".
+                if not mapped.source.chat_name:
+                    mapped.source.chat_name = await self._channel_name(
+                        mapped.source.chat_id
                     )
                 await self.handle_message(mapped)
 
@@ -225,6 +233,31 @@ class SlackAdapter(BasePlatformAdapter):
         if name:
             self._name_cache[uid] = name
         return name
+
+    async def _channel_name(self, chat_id: Optional[str]) -> Optional[str]:
+        """Resolve a channel/DM id to a display name via conversations.info, cached. Best-effort:
+        None on failure (the caller falls back to the id). Mirrors `_display_name`."""
+        if not chat_id:
+            return None
+        if chat_id in self._channel_cache:
+            return self._channel_cache[chat_id]
+        try:
+            info = await self._app.client.conversations_info(channel=chat_id)
+            chan = info.get("channel") or {}
+            name = chan.get("name") or chan.get("name_normalized")
+        except Exception:
+            name = None
+        if name:
+            self._channel_cache[chat_id] = name
+        return name
+
+    async def resolve_user_name(self, user_id: Optional[str]) -> Optional[str]:
+        """Public §2.1 wrapper over the cached user-name resolution."""
+        return await self._display_name(user_id)
+
+    async def resolve_channel_name(self, chat_id: Optional[str]) -> Optional[str]:
+        """Public §2.1 wrapper over the cached channel-name resolution."""
+        return await self._channel_name(chat_id)
 
     async def disconnect(self) -> None:
         if self._socket is not None:

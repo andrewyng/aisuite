@@ -44,6 +44,7 @@ class SessionSource:
     chat_id: str
     user_id: Optional[str] = None
     user_name: Optional[str] = None
+    chat_name: Optional[str] = None  # channel/DM display name (resolved, §2.3)
     chat_type: str = "dm"  # "dm" | "group" | "channel"
     thread_id: Optional[str] = None
 

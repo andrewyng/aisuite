@@ -57,6 +57,8 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "auth": d.auth,
                 "two_way": d.two_way,
                 "available": d.available,
+                "brand_color": d.brand_color,
+                "logo": d.logo,
                 "fields": [f.to_dict() for f in d.fields],
                 "instructions": d.instructions,
                 "connected": connected,
@@ -124,7 +126,9 @@ def connect_connector(
         {u.strip() for u in raw.get("allowed_users", "").split(",") if u.strip()}
     )
     if not allowed and existing.get("allowed_users"):
-        allowed = list(existing["allowed_users"])  # don't wipe the live allow-list on reconnect
+        allowed = list(
+            existing["allowed_users"]
+        )  # don't wipe the live allow-list on reconnect
     token_creds = {k: v for k, v in raw.items() if k != "allowed_users" and v}
 
     identity = None

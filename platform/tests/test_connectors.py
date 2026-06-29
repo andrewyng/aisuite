@@ -399,21 +399,32 @@ def test_reconnect_does_not_clobber_secret_or_allowlist(tmp_path):
         f.placeholder for f in get_descriptor("telegram").fields if f.key == "bot_token"
     )
     connect_connector(
-        secrets, "telegram", {"bot_token": "REAL-TOKEN-123", "allowed_users": "u1, u2"}, validate=False
+        secrets,
+        "telegram",
+        {"bot_token": "REAL-TOKEN-123", "allowed_users": "u1, u2"},
+        validate=False,
     )
 
     # Re-submit with the field's mask + an empty allow-list → both must be preserved.
     connect_connector(
-        secrets, "telegram", {"bot_token": placeholder, "allowed_users": ""}, validate=False
+        secrets,
+        "telegram",
+        {"bot_token": placeholder, "allowed_users": ""},
+        validate=False,
     )
     prof = secrets.get("telegram:default")
     assert prof["bot_token"] == "REAL-TOKEN-123"  # not reset to the placeholder
     assert prof["allowed_users"] == ["u1", "u2"]  # not wiped
 
     # A genuinely new token still updates.
-    connect_connector(secrets, "telegram", {"bot_token": "NEW-TOKEN-999"}, validate=False)
+    connect_connector(
+        secrets, "telegram", {"bot_token": "NEW-TOKEN-999"}, validate=False
+    )
     assert secrets.get("telegram:default")["bot_token"] == "NEW-TOKEN-999"
-    assert secrets.get("telegram:default")["allowed_users"] == ["u1", "u2"]  # still preserved
+    assert secrets.get("telegram:default")["allowed_users"] == [
+        "u1",
+        "u2",
+    ]  # still preserved
 
 
 def test_connect_missing_required_field(tmp_path):
@@ -567,8 +578,43 @@ async def test_slack_resolves_and_caches_display_name():
             raise RuntimeError("nope")
 
     a._app.client = _BadClient()
-    assert await a._display_name("U2") is None  # failure → None (caller falls back to the id)
+    assert (
+        await a._display_name("U2") is None
+    )  # failure → None (caller falls back to the id)
     assert await a._display_name("") is None  # no id → no call
+
+
+async def test_slack_resolve_channel_name():
+    from coworker.connectors import SlackAdapter
+
+    calls: list[str] = []
+
+    class _Client:
+        async def conversations_info(self, channel):
+            calls.append(channel)
+            return {"channel": {"id": channel, "name": "ocw-test"}}
+
+    class _App:
+        client = _Client()
+
+    a = SlackAdapter("b", "x")
+    a._app = _App()
+    assert await a._channel_name("C1") == "ocw-test"
+    assert await a._channel_name("C1") == "ocw-test"  # served from cache
+    assert calls == ["C1"]  # only one API round-trip
+    # public §2.1 wrapper delegates to the cached resolver (no extra call)
+    assert await a.resolve_channel_name("C1") == "ocw-test"
+    assert calls == ["C1"]
+
+    class _BadClient:
+        async def conversations_info(self, channel):
+            raise RuntimeError("nope")
+
+    a._app.client = _BadClient()
+    assert (
+        await a._channel_name("C2") is None
+    )  # failure → None (caller falls back to the id)
+    assert await a._channel_name("") is None  # no id → no call
 
 
 # -- chat-ID auto-capture + connector allow-list -------------------------------

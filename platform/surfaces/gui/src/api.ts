@@ -239,6 +239,8 @@ export interface Connector {
   connected: boolean;
   account: string | null;
   enabled: boolean;
+  brand_color: string; // hex brand color, e.g. "#611f69" (fallback gray "#6b7280")
+  logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   tools: ConnectorTool[];
