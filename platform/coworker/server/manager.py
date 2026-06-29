@@ -372,6 +372,152 @@ class SessionManager:
         """
         return connector in self.effective_connectors(session_id)
 
+    # -- persona + session connection surfaces (UI-REFRESH §5/§6) ----------------
+    @staticmethod
+    def _workspace_kind(entry) -> str:
+        """The persona's workspace requirement as a stable string for the GUI. Manifest-backed
+        personas carry it verbatim (git|deliverable|none); builtins (which have no manifest) map
+        family/needs_workspace into the SAME vocabulary so the frontend reads one enum:
+        code-family → git, knowledge-family with a workspace → deliverable, none → none.
+        """
+        if entry.manifest is not None:
+            return entry.manifest.workspace
+        if not entry.needs_workspace:
+            return "none"
+        return "git" if entry.family == "code" else "deliverable"
+
+    def _connected_connectors(self) -> set[str]:
+        """The account-connected connector names (the first layer of the §4 hierarchy)."""
+        return {c["name"] for c in connector_list(self.secrets) if c["connected"]}
+
+    def _persona_default_connections(
+        self, persona_id: str, manifest, connected: set[str]
+    ) -> list[dict[str, Any]]:
+        """The persona's default connector map (seeded from the manifest's connector recommends on
+        first read, then user-editable) as a list, each annotated with account-connectedness.
+        """
+        defaults = self.persona_connections.defaults_for(
+            persona_id, manifest, connected=connected
+        )
+        return [
+            {"connector": c, "enabled": bool(enabled), "connected": c in connected}
+            for c, enabled in defaults.items()
+        ]
+
+    def persona_detail(self, persona_id: str) -> Optional[dict[str, Any]]:
+        """Identity + capabilities + recommends(+connected) + default connections for one persona
+        (UI-REFRESH §5). Returns None for an unknown id (the route maps that to an error).
+        """
+        entry = self.personas.get(persona_id)
+        if entry is None:
+            return None
+        manifest = entry.manifest
+        connected = self._connected_connectors()
+        recommends = [
+            {
+                "kind": rec.kind,
+                "ref": rec.ref,
+                "reason": rec.reason,
+                "tier": rec.tier,
+                "connected": rec.ref in connected,
+            }
+            for rec in (manifest.recommends if manifest else [])
+        ]
+        return {
+            "id": entry.id,
+            "name": entry.name,
+            "icon": entry.icon,
+            "tagline": entry.tagline,
+            "description": manifest.description if manifest else "",
+            "enabled": self.personas.is_enabled(entry.id),
+            "tools": list(entry.tools),
+            "recommended_models": list(manifest.recommended_models) if manifest else [],
+            "default_permission_mode": (
+                manifest.default_permission_mode if manifest else "interactive"
+            ),
+            "workspace": self._workspace_kind(entry),
+            "recommends": recommends,
+            "default_connections": self._persona_default_connections(
+                persona_id, manifest, connected
+            ),
+        }
+
+    def set_persona_connection(
+        self, persona_id: str, connector: str, enabled: bool
+    ) -> dict[str, Any]:
+        """Set a persona-default connector on/off (UI-REFRESH §5). Seeds the manifest defaults
+        first so the stored row stays complete (the edit overlays the full seed rather than
+        collapsing the row to this one connector), then returns the refreshed default_connections
+        so the client can re-render without a second GET."""
+        entry = self.personas.get(persona_id)
+        if entry is None:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        manifest = entry.manifest
+        connected = self._connected_connectors()
+        self.persona_connections.defaults_for(persona_id, manifest, connected=connected)
+        self.persona_connections.set(persona_id, connector, bool(enabled))
+        return {
+            "ok": True,
+            "default_connections": self._persona_default_connections(
+                persona_id, manifest, connected
+            ),
+        }
+
+    def _connection_detail(
+        self, session_id: str, connector: str, info: Optional[dict[str, Any]]
+    ) -> str:
+        """A short human description of WHY a connector is live for a session: the chat ids it's
+        subscribed to on that platform, plus "DMs" if this is the designated DM session. Channel
+        *names* would need the live adapter's resolve cache (not cheap here), so we show the chat
+        ids; with no subscription/DM tie we fall back to the connector's title."""
+        prefix = f"{connector}:"
+        parts = [
+            s.channel.split(":", 1)[1]
+            for s in self.subscriptions.for_session(session_id)
+            if s.channel.startswith(prefix)
+        ]
+        if self.dm_session() == session_id:
+            parts.append("DMs")
+        if parts:
+            return " · ".join(parts)
+        return (info or {}).get("title") or connector
+
+    def session_connections_view(self, session_id: str) -> dict[str, Any]:
+        """The per-session connections drawer payload (UI-REFRESH §6): the effective-enabled
+        connectors (each with a short detail), the persona's connector recommends that aren't yet
+        account-connected, and the attention count (= those unconnected recommends). mcp recommends
+        are out of scope here — the ⚠ badge counts connectors to connect."""
+        persona = self._persona_of(session_id)
+        entry = self.personas.get(persona)
+        manifest = entry.manifest if entry else None
+        connectors = connector_list(self.secrets)
+        by_name = {c["name"]: c for c in connectors}
+        connected_names = {c["name"] for c in connectors if c["connected"]}
+        effective = self.effective_connectors(session_id, persona)
+        connected = [
+            {
+                "connector": name,
+                "enabled": True,
+                "detail": self._connection_detail(session_id, name, by_name.get(name)),
+            }
+            for name in sorted(effective)
+        ]
+        recommended = [
+            {
+                "connector": rec.ref,
+                "reason": rec.reason,
+                "tier": rec.tier,
+                "connected": False,
+            }
+            for rec in (manifest.recommends if manifest else [])
+            if rec.kind == "connector" and rec.ref not in connected_names
+        ]
+        return {
+            "connected": connected,
+            "recommended": recommended,
+            "attention": sum(1 for r in recommended if not r["connected"]),
+        }
+
     def inbox_question_asker(self, session_id: str, agent: str):
         """The Unattended `ask_user` handler: turn the agent's question into an Inbox item and
         suspend until a human answers it (from the Inbox, or inline when they open the session).

@@ -109,14 +109,16 @@ def create_app(manager: SessionManager) -> FastAPI:
             rec = manager.session_store.load(sub.session_id)
             agent = rec.agent if rec else ""
             routing = manager._routing_targets(sub.session_id, agent or "cowork")
-            out.append({
-                "session_id": sub.session_id,
-                "session_title": (rec.title if rec else None) or sub.session_id,
-                "agent": agent,
-                "channel": sub.channel,
-                "routing_target": routing[0] if routing else None,
-                "collision": bool(routing and sub.channel in routing),
-            })
+            out.append(
+                {
+                    "session_id": sub.session_id,
+                    "session_title": (rec.title if rec else None) or sub.session_id,
+                    "agent": agent,
+                    "channel": sub.channel,
+                    "routing_target": routing[0] if routing else None,
+                    "collision": bool(routing and sub.channel in routing),
+                }
+            )
         return {"subscriptions": out}
 
     @app.get("/v1/channels/recent")
@@ -164,7 +166,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         if not name:
             return {"ok": False, "error": "binding needs a `name`"}
         manager.inbox_routing.set_binding(
-            name, channel=body.get("channel") or None, target=str(body.get("target", ""))
+            name,
+            channel=body.get("channel") or None,
+            target=str(body.get("target", "")),
         )
         return {"ok": True, "bindings": manager.inbox_routing.bindings()}
 
@@ -178,6 +182,27 @@ def create_app(manager: SessionManager) -> FastAPI:
         on = bool(body.get("unattended"))
         manager.unattended.set(session_id, on)
         return {"ok": True, "session_id": session_id, "unattended": on}
+
+    @app.get("/v1/sessions/{session_id}/connections")
+    def session_connections(session_id: str) -> dict[str, Any]:
+        # §6: the Sources drawer payload — effective-enabled connectors + recommended + ⚠ count.
+        return manager.session_connections_view(session_id)
+
+    @app.post("/v1/sessions/{session_id}/connections")
+    def set_session_connection(session_id: str, body: dict) -> dict[str, Any]:
+        # §6: a session override. `clear` drops the override (inherit the persona default again);
+        # otherwise set an explicit on/off. Return the refreshed view so the drawer can re-render.
+        body = body or {}
+        connector = str(body.get("connector", "")).strip()
+        if not connector:
+            return {"ok": False, "error": "connector required"}
+        if body.get("clear"):
+            manager.session_connections.clear(session_id, connector)
+        else:
+            manager.session_connections.set(
+                session_id, connector, bool(body.get("enabled", False))
+            )
+        return {"ok": True, "connections": manager.session_connections_view(session_id)}
 
     @app.post("/v1/personas/install")
     def install_persona(body: dict) -> dict[str, Any]:
@@ -208,6 +233,36 @@ def create_app(manager: SessionManager) -> FastAPI:
         except KeyError:
             return {"ok": False, "error": f"unknown persona: {persona_id}"}
         return {"ok": True, "personas": reg.list_all()}
+
+    @app.get("/v1/personas/{persona_id}")
+    def persona_detail(persona_id: str) -> dict[str, Any]:
+        # §5 detail page: identity + capabilities + recommends(+connected) + default connections.
+        detail = manager.persona_detail(persona_id)
+        if detail is None:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        return detail
+
+    @app.post("/v1/personas/{persona_id}/enable")
+    def persona_enable(persona_id: str, body: dict) -> dict[str, Any]:
+        # Dedicated §5/§8 route; delegates to the same registry toggle as POST /v1/personas/{id}.
+        try:
+            manager.personas.set_enabled(
+                persona_id, bool((body or {}).get("enabled", True))
+            )
+        except KeyError:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        return {"ok": True, "personas": manager.personas.list_all()}
+
+    @app.post("/v1/personas/{persona_id}/connections")
+    def persona_set_connection(persona_id: str, body: dict) -> dict[str, Any]:
+        # §5: flip a persona-default connector on/off; re-reads so the client can refresh.
+        body = body or {}
+        connector = str(body.get("connector", "")).strip()
+        if not connector:
+            return {"ok": False, "error": "connector required"}
+        return manager.set_persona_connection(
+            persona_id, connector, bool(body.get("enabled", False))
+        )
 
     @app.get("/v1/skills")
     def skills() -> dict[str, Any]:
@@ -526,7 +581,11 @@ def create_app(manager: SessionManager) -> FastAPI:
         # Unattended → the cross-session Inbox; attended → inline in this session only. The agent
         # stays blocked until the item is resolved (live WS response, REST, or a bound channel).
         def _visibility() -> str:
-            return VIS_INBOX if manager.unattended.is_unattended(session_id) else VIS_INLINE
+            return (
+                VIS_INBOX
+                if manager.unattended.is_unattended(session_id)
+                else VIS_INLINE
+            )
 
         async def _mirror(item) -> None:
             # Unattended items mirror to a bound channel as buttons (see mirror_inbox_item).
@@ -553,8 +612,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 visibility=_visibility(),
                 tool_call_id=getattr(_request, "tool_call_id", None),
             )
-            if item.state == "pending":  # freshly raised (not a durable-resume re-raise)
-                manager.persist_session(session_id)  # the pending tool call is now on disk
+            if (
+                item.state == "pending"
+            ):  # freshly raised (not a durable-resume re-raise)
+                manager.persist_session(
+                    session_id
+                )  # the pending tool call is now on disk
                 if item.visibility == VIS_INBOX:
                     await _mirror(item)
             resolution = await manager.inbox.wait(item.id)
@@ -587,14 +650,18 @@ def create_app(manager: SessionManager) -> FastAPI:
                 if item.visibility == VIS_INBOX:
                     await _mirror(item)
                 else:
-                    await ws.send_json({
-                        "type": "question_requested",
-                        "data": {
-                            "question": item.title, "options": item.options,
-                            "allow_text": item.allow_text, "multi": item.multi,
-                            "header": str(args.get("header", "")),
-                        },
-                    })
+                    await ws.send_json(
+                        {
+                            "type": "question_requested",
+                            "data": {
+                                "question": item.title,
+                                "options": item.options,
+                                "allow_text": item.allow_text,
+                                "multi": item.multi,
+                                "header": str(args.get("header", "")),
+                            },
+                        }
+                    )
             return {"answer": await manager.inbox.wait(item.id)}
 
         async def directory_requester(args: dict, tool_call_id=None) -> dict:
@@ -605,14 +672,19 @@ def create_app(manager: SessionManager) -> FastAPI:
                 body=str(args.get("reason", "")),
                 inbox=_route(),
                 visibility=_visibility(),
-                data={"path": str(args.get("path", "")), "writable": bool(args.get("writable", False))},
+                data={
+                    "path": str(args.get("path", "")),
+                    "writable": bool(args.get("writable", False)),
+                },
                 tool_call_id=tool_call_id,
             )
             if item.state == "pending":
                 manager.persist_session(session_id)
                 if item.visibility == VIS_INBOX:
                     await _mirror(item)
-            resp = _parse_json(await manager.inbox.wait(item.id))  # {granted, path, writable}
+            resp = _parse_json(
+                await manager.inbox.wait(item.id)
+            )  # {granted, path, writable}
             if not resp.get("granted"):
                 return {"granted": False, "reason": "the user declined the request"}
             path = (resp.get("path") or args.get("path") or "").strip()
@@ -621,7 +693,10 @@ def create_app(manager: SessionManager) -> FastAPI:
             writable = bool(resp.get("writable", args.get("writable", False)))
             res = manager.add_root(session_id, path, writable)
             if not res.get("ok"):
-                return {"granted": False, "error": res.get("error", "could not grant access")}
+                return {
+                    "granted": False,
+                    "error": res.get("error", "could not grant access"),
+                }
             primary = next(
                 (
                     r
@@ -632,7 +707,11 @@ def create_app(manager: SessionManager) -> FastAPI:
                 ),
                 None,
             )
-            return {"granted": True, "path": (primary or {}).get("path", path), "writable": writable}
+            return {
+                "granted": True,
+                "path": (primary or {}).get("path", path),
+                "writable": writable,
+            }
 
         async def plan_approver(_args: dict, tool_call_id=None) -> dict:
             # The engine has already emitted PLAN_PROPOSED. Park, await the verdict.
@@ -648,9 +727,14 @@ def create_app(manager: SessionManager) -> FastAPI:
                 manager.persist_session(session_id)
                 if item.visibility == VIS_INBOX:
                     await _mirror(item)
-            resp = _parse_json(await manager.inbox.wait(item.id))  # {approved, mode, feedback}
+            resp = _parse_json(
+                await manager.inbox.wait(item.id)
+            )  # {approved, mode, feedback}
             if not resp.get("approved"):
-                return {"approved": False, "feedback": resp.get("feedback") or "the user rejected the plan"}
+                return {
+                    "approved": False,
+                    "feedback": resp.get("feedback") or "the user rejected the plan",
+                }
             return {"approved": True, "mode": resp.get("mode") or "interactive"}
 
         def _resolve_pending(resolution: str) -> None:
@@ -716,7 +800,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         }
 
         async def run_turn(content) -> None:
-            manager.mark_running(session_id)  # busy → self-wakes steer instead of colliding
+            manager.mark_running(
+                session_id
+            )  # busy → self-wakes steer instead of colliding
             try:
                 async for event in engine.run(content):
                     # Broadcast to every socket viewing this session (this socket included — it's a
@@ -729,7 +815,9 @@ def create_app(manager: SessionManager) -> FastAPI:
             finally:
                 manager.mark_idle(session_id)
                 manager.save(session_id, engine)
-                await manager.broadcast_session(session_id, {"type": "turn_done", "data": {}})
+                await manager.broadcast_session(
+                    session_id, {"type": "turn_done", "data": {}}
+                )
 
         # This socket is now a live view of the session; background turns (channel delivery,
         # self-wake, durable resume) broadcast here too, not just locally driven run_turns.
@@ -741,17 +829,25 @@ def create_app(manager: SessionManager) -> FastAPI:
                 if kind == "approval":
                     _resolve_pending(message.get("decision", "deny"))
                 elif kind == "directory_response":
-                    _resolve_pending(json.dumps({
-                        "granted": bool(message.get("granted")),
-                        "path": message.get("path", ""),
-                        "writable": bool(message.get("writable", False)),
-                    }))
+                    _resolve_pending(
+                        json.dumps(
+                            {
+                                "granted": bool(message.get("granted")),
+                                "path": message.get("path", ""),
+                                "writable": bool(message.get("writable", False)),
+                            }
+                        )
+                    )
                 elif kind == "plan_response":
-                    _resolve_pending(json.dumps({
-                        "approved": bool(message.get("approved")),
-                        "mode": message.get("mode", "interactive"),
-                        "feedback": message.get("feedback", ""),
-                    }))
+                    _resolve_pending(
+                        json.dumps(
+                            {
+                                "approved": bool(message.get("approved")),
+                                "mode": message.get("mode", "interactive"),
+                                "feedback": message.get("feedback", ""),
+                            }
+                        )
+                    )
                 elif kind == "question_response":
                     _resolve_pending(str(message.get("answer", "")))
                 elif kind == "interrupt":

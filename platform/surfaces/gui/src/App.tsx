@@ -41,6 +41,8 @@ import { Onboarding } from "./components/Onboarding";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
+import { PersonaView } from "./components/PersonaView";
+import { SourcesBar } from "./components/SourcesBar";
 import { AuditView } from "./components/AuditView";
 import { InboxView } from "./components/InboxView";
 import { ApprovalCard } from "./components/ApprovalCard";
@@ -156,7 +158,12 @@ export function App() {
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
-  const [surface, setSurface] = useState<"session" | "scheduled" | "integrations" | "audit" | "inbox">("session");
+  const [surface, setSurface] = useState<
+    "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona"
+  >("session");
+  // The persona whose detail page is showing (surface === "persona"); empty falls back to the
+  // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
+  const [personaViewId, setPersonaViewId] = useState<string>("");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
@@ -830,6 +837,12 @@ export function App() {
         <AuditView />
       ) : surface === "inbox" ? (
         <InboxView onOpenSession={openSessionFromInbox} />
+      ) : surface === "persona" ? (
+        <PersonaView
+          personaId={personaViewId || agent}
+          onBack={() => setSurface("session")}
+          onOpenIntegrations={() => setSurface("integrations")}
+        />
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
@@ -901,6 +914,20 @@ export function App() {
           </div>
           <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
           <div className="main-topbar-actions">
+            {agent !== "chat" && (
+              <button
+                className="topbar-icon-btn"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => {
+                  setPersonaViewId(agent);
+                  setSurface("persona");
+                }}
+                aria-label="About this persona"
+                title="About this persona"
+              >
+                <Icon name="sliders" size={16} />
+              </button>
+            )}
             {agent === "cowork" && railHidden && artifactCount > 0 && (
               <button
                 className="topbar-artifacts-btn"
@@ -926,6 +953,17 @@ export function App() {
             )}
           </div>
         </div>
+        {agent !== "chat" && (
+          <SourcesBar
+            sessionId={sessionId}
+            personaId={agent}
+            onOpenIntegrations={() => setSurface("integrations")}
+            onOpenPersona={(id) => {
+              setPersonaViewId(id);
+              setSurface("persona");
+            }}
+          />
+        )}
         <div className={"main-workspace" + (railHidden ? " rail-hidden" : "")}>
           <div className="main-chat">
             <div className="main-scroll" ref={scrollRef}>

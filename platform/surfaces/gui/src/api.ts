@@ -475,6 +475,119 @@ export async function installPersona(
   return res.json();
 }
 
+// -- Persona detail + connection defaults (§5) --------------------------------
+// A persona's declared recommendation (manifest `recommends`): a connector or MCP server it works
+// best with, with a reason + tier (core/optional). `connected` is annotated server-side from the
+// connector list so the detail page can show connect state without a second round-trip.
+export interface PersonaRecommendation {
+  kind: string; // "connector" | "mcp" | …
+  ref: string; // connector id (e.g. "github") or mcp/server name
+  reason: string;
+  tier: string; // "core" | "optional"
+  connected: boolean;
+}
+
+// A persona-default connection (the middle of the §4 hierarchy): for a connected connector, whether
+// new sessions of this persona get it enabled by default.
+export interface PersonaDefaultConnection {
+  connector: string; // connector id
+  enabled: boolean; // persona-default on/off
+  connected: boolean; // is the account actually connected (else the toggle is disabled)
+}
+
+export interface PersonaDetail {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  enabled: boolean; // persona on/off (shown in the picker)
+  tools: string[];
+  recommended_models: string[];
+  default_permission_mode: string;
+  workspace: string;
+  recommends: PersonaRecommendation[];
+  default_connections: PersonaDefaultConnection[];
+}
+
+export async function getPersonaDetail(id: string): Promise<PersonaDetail> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}`);
+  return res.json();
+}
+
+/** Set a persona-default connection (new sessions of this persona get it on/off by default). */
+export async function setPersonaConnection(
+  id: string,
+  connector: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; default_connections?: PersonaDefaultConnection[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}/connections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connector, enabled }),
+  });
+  return res.json();
+}
+
+/** Enable/disable the persona (whether it surfaces in the new-session picker). */
+export async function setPersonaEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  return res.json();
+}
+
+// -- Per-session connections (Sources bar + drawer, §6) -----------------------
+// An effective-enabled connector for a session, with a short human detail (e.g. "#ocw-test · DMs").
+// `enabled` reflects the session override/persona default so the drawer toggle shows correct state.
+export interface SessionConnectedConnector {
+  connector: string;
+  enabled: boolean;
+  detail: string;
+}
+
+// A persona-recommended connector not yet connected (drives the `⚠ N` attention count).
+export interface SessionRecommendedConnector {
+  connector: string;
+  reason: string;
+  tier: string;
+  connected: boolean;
+}
+
+export interface SessionConnections {
+  connected: SessionConnectedConnector[];
+  recommended: SessionRecommendedConnector[];
+  attention: number; // ⚠ count = recommended connectors not yet connected
+}
+
+export async function getSessionConnections(sessionId: string): Promise<SessionConnections> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/connections`);
+  return res.json();
+}
+
+/**
+ * Set a per-session connection override (mute/unmute a connector for THIS session). Pass
+ * `clear: true` to drop the override and inherit the persona default again.
+ */
+export async function setSessionConnection(
+  sessionId: string,
+  connector: string,
+  enabled: boolean,
+  clear = false,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/connections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connector, enabled, ...(clear ? { clear: true } : {}) }),
+  });
+  return res.json();
+}
+
 // -- Inbox + Unattended -------------------------------------------------------
 export interface InboxItem {
   id: string;
