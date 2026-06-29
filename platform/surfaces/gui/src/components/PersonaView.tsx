@@ -21,6 +21,15 @@ import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
 import { indexConnectors, labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
 
+// Shared section-heading + tag + button utility strings (mock parity).
+const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
+const TAG_CORE =
+  "text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15";
+const TAG_MCP = "text-[10px] px-1.5 py-0.5 rounded border border-line text-faint";
+const BTN_ACCENT = "text-[12px] px-2.5 py-1.5 rounded-lg bg-accent text-white shrink-0";
+const BTN_BORDERED =
+  "text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
+
 export function PersonaView({
   personaId,
   onBack,
@@ -65,39 +74,60 @@ export function PersonaView({
   };
 
   const header = (
-    <div className="persona-view-top">
+    <div className="h-12 shrink-0 px-5 flex items-center gap-3 border-b border-line bg-panel/70 backdrop-blur">
       {onBack && (
-        <button className="persona-back" onClick={onBack}>
-          <Icon name="arrowLeft" size={14} /> Back
-        </button>
+        <>
+          <button
+            className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink"
+            onClick={onBack}
+          >
+            <Icon name="arrowLeft" size={15} /> Back
+          </button>
+          <span className="text-faint">·</span>
+        </>
       )}
-      <span className="persona-view-crumb">Persona</span>
+      <span className="text-[13px] font-semibold">Persona</span>
     </div>
   );
 
   if (error || !detail) {
     return (
-      <main className="persona-view">
+      <main className="flex-1 min-w-0 flex flex-col bg-paper">
         {header}
-        <div className="persona-view-empty">{error || "Loading…"}</div>
+        <div className="p-12 text-center text-faint text-[13px]">{error || "Loading…"}</div>
       </main>
     );
   }
 
   return (
-    <main className="persona-view">
+    <main className="flex-1 min-w-0 flex flex-col bg-paper">
       {header}
-      <div className="persona-view-scroll">
-        <div className="persona-view-body">
+      <div className="flex-1 overflow-y-auto hairline-scroll">
+        <div className="max-w-3xl mx-auto px-7 py-6 space-y-6">
           {/* identity + enable */}
-          <header className="persona-id">
-            <span className="persona-id-icon">{detail.icon || "🛠"}</span>
-            <div className="persona-id-text">
-              <h1>{detail.name}</h1>
-              <p>{detail.tagline}</p>
+          <header className="flex items-start gap-3.5">
+            <span className="w-12 h-12 rounded-xl2 bg-panel border border-line grid place-items-center text-[22px]">
+              {detail.icon && /[^\x00-\x7F]/.test(detail.icon) ? (
+                // an emoji icon (markdown personas) renders as-is…
+                detail.icon
+              ) : (
+                // …a built-in's logo-id (e.g. "cowork"/"code") maps to a line glyph (mirrors the sidebar).
+                <Icon
+                  name={
+                    ({ cowork: "diamond", chat: "chat", code: "code" } as const)[
+                      detail.icon as "cowork" | "chat" | "code"
+                    ] ?? "diamond"
+                  }
+                  size={22}
+                />
+              )}
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-[20px] font-semibold tracking-tight">{detail.name}</h1>
+              <p className="text-[13px] text-muted mt-0.5">{detail.tagline}</p>
             </div>
-            <div className="persona-id-enable">
-              <span>{detail.enabled ? "Enabled" : "Disabled"}</span>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-[12px] text-muted">{detail.enabled ? "Enabled" : "Disabled"}</span>
               <Toggle checked={detail.enabled} onChange={toggleEnabled} title="Enable this persona" />
             </div>
           </header>
@@ -105,18 +135,21 @@ export function PersonaView({
           {/* about */}
           {detail.description && (
             <section>
-              <div className="persona-sec-h">About</div>
-              <p className="persona-about">{detail.description}</p>
+              <div className={`${SEC_H} mb-1.5`}>About</div>
+              <p className="text-[14px] leading-relaxed text-ink/90">{detail.description}</p>
             </section>
           )}
 
           {/* tools */}
           {detail.tools.length > 0 && (
             <section>
-              <div className="persona-sec-h">Built-in capabilities</div>
-              <div className="persona-tools">
+              <div className={`${SEC_H} mb-2`}>Built-in capabilities</div>
+              <div className="flex flex-wrap gap-1.5">
                 {detail.tools.map((t) => (
-                  <span className="persona-tool" key={t}>
+                  <span
+                    className="px-2 py-1 rounded-md bg-panel border border-line text-[12px] font-mono"
+                    key={t}
+                  >
                     {t}
                   </span>
                 ))}
@@ -127,35 +160,40 @@ export function PersonaView({
           {/* connections for full benefit (manifest recommends) */}
           {detail.recommends.length > 0 && (
             <section>
-              <div className="persona-sec-h">Connections for full benefit</div>
-              <p className="persona-sec-note">
+              <div className={`${SEC_H} mb-1`}>Connections for full benefit</div>
+              <p className="text-[12.5px] text-muted mb-2.5">
                 Declared by the persona — wire {detail.name} into these to unlock its full workflow.
               </p>
-              <div className="persona-reco">
-                {detail.recommends.map((r) => {
+              <div className="rounded-xl2 border border-line overflow-hidden">
+                {detail.recommends.map((r, i) => {
                   const isMcp = r.kind === "mcp";
                   return (
-                    <div className="persona-reco-row" key={`${r.kind}:${r.ref}`}>
+                    <div
+                      className={
+                        "flex items-center gap-3 p-3 bg-panel" + (i > 0 ? " border-t border-line" : "")
+                      }
+                      key={`${r.kind}:${r.ref}`}
+                    >
                       <ConnectorBadge connector={visualFor(r.ref, r.kind, byName)} size={32} />
-                      <div className="persona-reco-main">
-                        <div className="persona-reco-name">
-                          <span>{labelFor(r.ref, byName)}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] font-medium">{labelFor(r.ref, byName)}</span>
                           {isMcp ? (
-                            <span className="tag-mcp">MCP</span>
+                            <span className={TAG_MCP}>MCP</span>
                           ) : r.tier === "core" ? (
-                            <span className="tag-core">core</span>
+                            <span className={TAG_CORE}>core</span>
                           ) : null}
                         </div>
-                        <div className="persona-reco-reason">{r.reason}</div>
+                        <div className="text-[12px] text-muted">{r.reason}</div>
                       </div>
                       {r.connected ? (
-                        <span className="reco-connected">
-                          <span className="ok-dot" />
+                        <span className="inline-flex items-center gap-1 text-[11.5px] text-ok shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-ok" />
                           connected
                         </span>
                       ) : (
                         <button
-                          className={"btn sm" + (r.tier === "core" && !isMcp ? " reco-connect-primary" : "")}
+                          className={r.tier === "core" && !isMcp ? BTN_ACCENT : BTN_BORDERED}
                           onClick={onOpenIntegrations}
                         >
                           {isMcp ? "Add" : "Connect"}
@@ -171,22 +209,26 @@ export function PersonaView({
           {/* persona-default connections (persona → session default) */}
           {detail.default_connections.length > 0 && (
             <section>
-              <div className="persona-sec-h">New sessions get by default</div>
-              <p className="persona-sec-note">
+              <div className={`${SEC_H} mb-1`}>New sessions get by default</div>
+              <p className="text-[12.5px] text-muted mb-2.5">
                 When you start a {detail.name} session these are enabled automatically. You can still
                 mute any of them per session.
               </p>
-              <div className="persona-defs">
+              <div className="space-y-1.5">
                 {detail.default_connections.map((c) => (
                   <div
-                    className="persona-def-row"
+                    className={
+                      "flex items-center gap-3 p-2.5 rounded-xl2 border border-line bg-panel" +
+                      (c.connected ? "" : " opacity-50")
+                    }
                     key={c.connector}
-                    style={c.connected ? undefined : { opacity: 0.55 }}
                   >
                     <ConnectorBadge connector={visualFor(c.connector, "connector", byName)} size={32} />
-                    <div className="persona-def-name">
+                    <div className="flex-1 text-[13px] font-medium">
                       {labelFor(c.connector, byName)}
-                      {!c.connected && <span className="persona-def-hint"> · connect to enable</span>}
+                      {!c.connected && (
+                        <span className="text-[11px] text-faint font-normal"> · connect to enable</span>
+                      )}
                     </div>
                     <Toggle
                       checked={c.enabled}
@@ -201,13 +243,13 @@ export function PersonaView({
           )}
 
           {/* defaults footer */}
-          <section className="persona-defaults">
+          <section className="flex flex-wrap gap-x-8 gap-y-2 text-[12.5px]">
             {detail.recommended_models.length > 0 && (
               <div>
-                <span className="persona-defaults-k">Models</span> ·{" "}
+                <span className="text-faint">Models</span> ·{" "}
                 {detail.recommended_models.map((m, i) => (
                   <span key={m}>
-                    <code>{m}</code>
+                    <span className="font-mono">{m}</span>
                     {i < detail.recommended_models.length - 1 ? ", " : ""}
                   </span>
                 ))}
@@ -215,12 +257,12 @@ export function PersonaView({
             )}
             {detail.default_permission_mode && (
               <div>
-                <span className="persona-defaults-k">Default mode</span> · {detail.default_permission_mode}
+                <span className="text-faint">Default mode</span> · {detail.default_permission_mode}
               </div>
             )}
             {detail.workspace && (
               <div>
-                <span className="persona-defaults-k">Workspace</span> · {detail.workspace}
+                <span className="text-faint">Workspace</span> · {detail.workspace}
               </div>
             )}
           </section>
