@@ -11,6 +11,7 @@ tests inject fakes — no network.
 
 from __future__ import annotations
 
+import os
 from typing import Callable, Optional
 
 from .base import SendResult
@@ -18,6 +19,12 @@ from .base import SendResult
 Sender = Callable[[str, str, str, Optional[str]], SendResult]
 
 _TIMEOUT = 30.0
+
+
+def _slack_api_base() -> str:
+    """Web API base URL. `SLACK_API_URL` (trailing slash) lets tests / the FakeSlack harness
+    redirect outbound sends to a local fake. See platform/docs/FAKE-SLACK-SPEC.md."""
+    return os.environ.get("SLACK_API_URL", "https://slack.com/api/")
 
 
 def _send_telegram(
@@ -58,7 +65,7 @@ def _send_slack(
         payload["thread_ts"] = thread_id
     try:
         resp = httpx.post(
-            "https://slack.com/api/chat.postMessage",
+            f"{_slack_api_base()}chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
             json=payload,
             timeout=_TIMEOUT,
@@ -76,18 +83,20 @@ def _slack_blocks(text: str, buttons) -> list[dict]:
     value = the encoded item id + resolution)."""
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if buttons:
-        blocks.append({
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": b.label[:75]},
-                    "value": b.value,
-                    "action_id": f"ocw_{i}",
-                }
-                for i, b in enumerate(buttons)
-            ],
-        })
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": b.label[:75]},
+                        "value": b.value,
+                        "action_id": f"ocw_{i}",
+                    }
+                    for i, b in enumerate(buttons)
+                ],
+            }
+        )
     return blocks
 
 
@@ -96,12 +105,16 @@ def _send_slack_interactive(
 ) -> SendResult:
     import httpx
 
-    payload: dict = {"channel": chat_id, "text": text, "blocks": _slack_blocks(text, buttons)}
+    payload: dict = {
+        "channel": chat_id,
+        "text": text,
+        "blocks": _slack_blocks(text, buttons),
+    }
     if thread_id:
         payload["thread_ts"] = thread_id
     try:
         resp = httpx.post(
-            "https://slack.com/api/chat.postMessage",
+            f"{_slack_api_base()}chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
             json=payload,
             timeout=_TIMEOUT,

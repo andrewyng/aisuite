@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Optional
 
 from .base import (
@@ -132,7 +133,9 @@ class SlackAdapter(BasePlatformAdapter):
         self._socket = None
         self._task: Optional[asyncio.Task] = None
         self._bot_user_id: Optional[str] = None
-        self._name_cache: dict[str, str] = {}  # user_id → display name (resolved once via users.info)
+        self._name_cache: dict[str, str] = (
+            {}
+        )  # user_id → display name (resolved once via users.info)
 
     async def connect(self) -> bool:
         try:
@@ -140,13 +143,20 @@ class SlackAdapter(BasePlatformAdapter):
                 AsyncSocketModeHandler,
             )
             from slack_bolt.async_app import AsyncApp
+            from slack_sdk.web.async_client import AsyncWebClient
         except ImportError:
             logger.warning(
                 "slack-bolt not installed — `pip install coworker[messaging]`"
             )
             return False
 
-        self._app = AsyncApp(token=self.bot_token)
+        # Base-URL override so tests (and the FakeSlack harness) can redirect every Web API
+        # call — auth.test/users.info/conversations.info/chat.update AND Socket Mode's
+        # apps.connections.open, which the handler issues on this same client. Default is the
+        # real Slack API. See platform/docs/FAKE-SLACK-SPEC.md.
+        base_url = os.environ.get("SLACK_API_URL", "https://slack.com/api/")
+        client = AsyncWebClient(token=self.bot_token, base_url=base_url)
+        self._app = AsyncApp(client=client)
         try:
             auth = await self._app.client.auth_test()
             self._bot_user_id = auth.get("user_id")
@@ -161,7 +171,9 @@ class SlackAdapter(BasePlatformAdapter):
                 # Slack message events carry only the user id; resolve a friendly name so recent
                 # senders / the allow-list don't read "unknown".
                 if not mapped.source.user_name:
-                    mapped.source.user_name = await self._display_name(mapped.source.user_id)
+                    mapped.source.user_name = await self._display_name(
+                        mapped.source.user_id
+                    )
                 await self.handle_message(mapped)
 
         # Button clicks on interactive prompts (action_id `ocw_*`). Socket mode delivers these over
@@ -173,7 +185,7 @@ class SlackAdapter(BasePlatformAdapter):
             await ack()
             actions = body.get("actions") or [{}]
             value = actions[0].get("value", "")
-            user = (body.get("user") or {})
+            user = body.get("user") or {}
             channel = (body.get("channel") or {}).get("id", "")
             ts = (body.get("message") or {}).get("ts")
             await self.handle_interaction(
@@ -232,14 +244,18 @@ class SlackAdapter(BasePlatformAdapter):
     async def send_interactive(
         self, chat_id: str, text: str, buttons, *, thread_id: Optional[str] = None
     ) -> SendResult:
-        return _send_slack_interactive(self.bot_token, chat_id, text, buttons, thread_id)
+        return _send_slack_interactive(
+            self.bot_token, chat_id, text, buttons, thread_id
+        )
 
     async def update_message(self, chat_id: str, message_id: str, text: str) -> None:
         """Replace a resolved prompt's buttons with a plain-text outcome ("✅ Approved by …")."""
         if self._app is None or not message_id:
             return
         try:
-            await self._app.client.chat_update(channel=chat_id, ts=message_id, text=text, blocks=[])
+            await self._app.client.chat_update(
+                channel=chat_id, ts=message_id, text=text, blocks=[]
+            )
         except Exception:
             logger.debug("slack chat_update failed", exc_info=True)
 
