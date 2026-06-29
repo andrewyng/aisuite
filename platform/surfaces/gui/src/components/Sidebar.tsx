@@ -491,19 +491,20 @@ export function Sidebar(props: Props) {
                       onClick={() => setProjToggled((s) => toggleSet(s, proj))}
                       title={proj}
                     >
-                      <Icon
-                        name={open ? "chevronDown" : "chevronRight"}
-                        size={13}
-                        className="text-faint shrink-0"
-                      />
                       <Icon name="folder" size={15} className="shrink-0" />
                       <span
                         className={
-                          "truncate flex-1 text-[12.5px] " + (isActive ? "font-semibold" : "font-medium")
+                          "truncate min-w-0 text-[12.5px] " + (isActive ? "font-semibold" : "font-medium")
                         }
                       >
                         {baseName(proj)}
                       </span>
+                      {/* Disclosure chevron sits AFTER the name (Codex parity), not leading the row. */}
+                      <Icon
+                        name={open ? "chevronDown" : "chevronRight"}
+                        size={12}
+                        className="text-faint shrink-0"
+                      />
                     </div>
                     {open &&
                       (list.length > 0 ? (
