@@ -78,7 +78,7 @@ interface Props {
   onSwitchAgent: (agent: string) => void;
   onNewSession: (agent: string) => void;
   onSelectSession: (id: string, workspace: string, agent: string) => void;
-  onNewProject: () => void;
+  onNewProject: (persona: string) => void;
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
@@ -420,7 +420,7 @@ export function Sidebar(props: Props) {
             <div className="space-y-0.5">
               <button
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[13px] text-muted hover:text-ink"
-                onClick={props.onNewProject}
+                onClick={() => props.onNewProject(browseKey)}
               >
                 <Icon name="folderPlus" size={15} className="shrink-0" /> New project
               </button>

@@ -709,7 +709,20 @@ export function App() {
     setSessionId(newId());
     getRecentWorkspaces().then(setProjects).catch(() => {});
   };
-  const newProject = () => {
+  // "New project" lives under a project-scoped persona's accordion. Switch to that persona, start a
+  // fresh session with no folder yet, and open the gate in create mode — so the gate's
+  // surface==="session" && gatesWorkspace(agent) guard passes even if the active session was Chat/Cowork.
+  const newProject = (forAgent?: string) => {
+    const target = forAgent || agent;
+    setSurface("session");
+    setItems([]);
+    setStreaming("");
+    setTodo([]);
+    setRunning(false);
+    if (target !== agent) setAgent(target);
+    setWorkspace(null);
+    setBranch(null);
+    setSessionId(newId());
     setGateCreate(true);
     setShowGate(true);
   };
