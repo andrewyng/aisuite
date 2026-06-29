@@ -337,13 +337,8 @@ export function Sidebar(props: Props) {
   const surfaceBody = () => {
     return (
       <div className="mt-0.5 space-y-1 pl-1">
-        <button
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[13px] text-muted hover:text-ink"
-          onClick={() => props.onNewSession(browseKey)}
-        >
-          <Icon name="plus" size={14} className="shrink-0" /> New {browseKey === "chat" ? "chat" : "session"}
-        </button>
-
+        {/* No per-persona "New session" here — the top split button's ▾ already starts a session
+            in any persona (it was redundant + the mock's grouped cards don't have it). */}
         {workspaceSurface ? (
           <>
             <div className="px-1.5 pt-1 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
@@ -453,12 +448,6 @@ export function Sidebar(props: Props) {
               ) : (
                 list.map(sessionRow)
               )}
-              <button
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-panel text-left text-[12.5px] text-muted hover:text-ink"
-                onClick={() => props.onNewSession(s.key)}
-              >
-                <Icon name="plus" size={13} className="shrink-0" /> New {s.key === "chat" ? "chat" : "session"}
-              </button>
             </div>
           </div>
         );

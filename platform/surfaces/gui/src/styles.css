@@ -226,33 +226,55 @@ body {
 .bubble-assistant .who { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
 
 /* markdown-rendered assistant content (the bubble's pre-wrap would double-space block output) */
-.md { white-space: normal; }
+.md { white-space: normal; font-size: 15px; line-height: 1.68; color: var(--ink); }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
-.md p { margin: 0 0 10px; }
-.md h1, .md h2, .md h3, .md h4 { margin: 16px 0 8px; line-height: 1.3; font-weight: 650; }
-.md h1 { font-size: 19px; }
+.md p { margin: 0 0 12px; }
+.md strong { font-weight: 600; color: var(--ink); }
+
+/* headings — a clear hierarchy with generous space above so sections breathe */
+.md h1, .md h2, .md h3, .md h4, .md h5 {
+  margin: 22px 0 9px; line-height: 1.3; font-weight: 650; letter-spacing: -0.01em; color: var(--ink);
+}
+.md h1 { font-size: 20px; }
 .md h2 { font-size: 17px; }
-.md h3 { font-size: 15.5px; }
-.md h4 { font-size: 15px; }
-.md ul, .md ol { margin: 0 0 10px; padding-left: 24px; }
-.md li { margin: 3px 0; }
-.md li > p { margin: 0; }
+.md h3 { font-size: 15px; }
+.md h4, .md h5 { font-size: 13.5px; }
+
+/* lists — visible markers + comfortable item spacing (was a run-together wall of text) */
+.md ul, .md ol { margin: 4px 0 14px; padding-left: 22px; }
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li { margin: 6px 0; padding-left: 3px; }
+.md li::marker { color: var(--faint); }
+.md li > ul, .md li > ol { margin: 6px 0; }
+.md li > p { margin: 0 0 6px; }
+.md li > p:last-child { margin-bottom: 0; }
+
+/* code */
 .md code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.86em;
   background: var(--paper); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
 }
 .md pre {
-  margin: 0 0 10px; padding: 10px 12px; overflow-x: auto;
-  background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+  margin: 4px 0 14px; padding: 12px 14px; overflow-x: auto;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
 }
-.md pre code { background: none; border: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
-.md blockquote { margin: 0 0 10px; padding: 2px 12px; border-left: 3px solid var(--line-strong); color: var(--muted); }
-.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 13.5px; display: block; overflow-x: auto; }
-.md th, .md td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; }
-.md th { background: var(--paper); font-weight: 600; }
-.md a { color: var(--accent); }
-.md hr { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
+.md pre code { background: none; border: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
+
+/* blockquote */
+.md blockquote { margin: 4px 0 14px; padding: 4px 14px; border-left: 3px solid var(--line-strong); color: var(--muted); }
+.md blockquote p:last-child { margin-bottom: 0; }
+
+/* tables — header tint, zebra rows, roomier cells (kept block-scrollable for wide tables) */
+.md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 6px 0 14px; font-size: 13.5px; }
+.md th, .md td { border: 1px solid var(--line); padding: 7px 12px; text-align: left; vertical-align: top; }
+.md th { background: var(--paper); font-weight: 600; color: var(--muted); white-space: nowrap; }
+.md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--paper) 45%, transparent); }
+
+.md a { color: var(--accent); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
 .md img { max-width: 100%; border-radius: 8px; }
 .stream-cursor { color: var(--accent); animation: blink 1s steps(2, start) infinite; margin-left: 1px; }
 @keyframes blink { to { opacity: 0; } }
