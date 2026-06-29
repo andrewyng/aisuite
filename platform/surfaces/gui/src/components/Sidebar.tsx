@@ -206,9 +206,11 @@ export function Sidebar(props: Props) {
       liveByPersona.set(s.agent, "sleeping");
   }
 
-  // Body data is keyed to the BROWSED persona (only one body renders at a time).
+  // Body data is keyed to the BROWSED persona (only one body renders at a time). Pinned sessions are
+  // EXCLUDED here: they live in the cross-persona Pinned band only, so they don't repeat inside the
+  // persona group / project list (matching the flat layout's Recent, which also drops pinned).
   const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
-  const mine = all.filter((s) => !s.archived);
+  const mine = all.filter((s) => !s.archived && !s.pinned);
   const archived = all.filter((s) => s.archived);
   // Only PROJECT-SCOPED personas group sessions by project (git-bound Code, project-bound Ops).
   // Scratch/deliverable conversations are orphan (each has its own per-conversation scratch dir),
