@@ -114,23 +114,9 @@ body {
 .tab.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .tab.disabled { opacity: 0.4; cursor: default; }
 
-/* -- Channel subscriptions (Integrations panel, read-only) ----------------- */
-.sub-empty { font-size: 13px; padding: 8px 2px; }
-.sub-table { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; }
-.sub-row { display: grid; grid-template-columns: 1.2fr 1.4fr 1fr auto; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
-.sub-row.unrouted-row { grid-template-columns: 1.3fr 1fr 1.2fr 2fr; }
-.sub-row.unrouted-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub-row:nth-child(even) { background: var(--paper); }
-.sub-head { font-weight: 600; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; background: none; }
-.sub-session { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub-chan { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--ink); }
-.sub-route { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub-warn { color: #d97706; font-size: 11.5px; }
+/* -- Channel subscriptions: the per-session composer chip + popover -------- */
 .sub-chip { display: inline-flex; align-items: center; gap: 4px; }
-
-/* add form + the per-session popover */
-.sub-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.sub-add-session, .chan-input { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.chan-input { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--ink); }
 .chan-input { min-width: 220px; }
 .sub-chip-wrap { position: relative; display: inline-flex; }
 .wschip.sub-chip.active { border-color: var(--accent); color: var(--accent); }
@@ -739,22 +725,10 @@ button.btn.danger { color: var(--accent); }
 .manage-body { padding: 16px; overflow-y: auto; }
 .manage-empty { color: var(--muted); font-size: 13.5px; text-align: center; padding: 28px 0; }
 
-.mcp-tab { display: flex; flex-direction: column; gap: 12px; }
+/* .mcp-intro / .mcp-error are still used by ScheduledView; the rest of the MCP servers list is
+   now Tailwind-styled inline (ManageModal McpTab/McpRow/AddForm, ported to the mock). */
 .mcp-intro { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
-.mcp-list { display: flex; flex-direction: column; gap: 8px; }
-.mcp-row { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 11px 13px; }
-.mcp-main { display: flex; align-items: center; gap: 12px; }
-.mcp-id { flex: 1; min-width: 0; }
-.mcp-name { font-size: 14px; color: var(--ink); }
-.mcp-meta { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
-.mcp-tools { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px; }
-.mcp-tool code { font-family: var(--mono); font-size: 11.5px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; color: var(--ink); }
 .mcp-error { color: var(--accent); font-size: 12.5px; margin-top: 6px; }
-.mcp-add { display: flex; flex-direction: column; gap: 8px; }
-.mcp-add-label { font-size: 12.5px; color: var(--muted); }
-.mcp-add textarea { font-family: var(--mono); font-size: 12px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); color: var(--ink); outline: none; resize: vertical; }
-.mcp-add textarea:focus { border-color: var(--accent); }
-.mcp-add-actions { display: flex; align-items: center; gap: 12px; }
 
 button.btn-primary { font: inherit; font-size: 13px; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; align-self: flex-start; }
 button.btn-primary:hover { filter: brightness(1.05); }
@@ -772,13 +746,7 @@ button.link:disabled { color: var(--faint); cursor: default; }
 
 /* -- Connectors tab --------------------------------------------------------- */
 .conn-tab { display: flex; flex-direction: column; gap: 12px; }
-.conn-list { display: flex; flex-direction: column; gap: 8px; }
-.conn-row { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 11px 13px; }
-.conn-main { display: flex; align-items: center; gap: 12px; }
-.conn-icon { font-size: 18px; width: 26px; text-align: center; }
-.conn-id { flex: 1; min-width: 0; }
 .conn-name { font-size: 14px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
-.conn-tag { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 7px; }
 .conn-meta { font-size: 11.5px; color: var(--faint); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
 .conn-meta.ok, .conn-meta .ok { color: var(--ok); }
 .conn-meta.danger, .conn-meta .danger { color: var(--danger); }
@@ -786,17 +754,13 @@ button.link:disabled { color: var(--faint); cursor: default; }
    status row .conn-meta uses, so sentences don't get split into gapped flex items. */
 .conn-note { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
 .conn-note code { white-space: nowrap; }
-.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-dot); display: inline-block; }
 .manage-body { flex: 1 1 auto; min-height: 0; }
 .manage-foot { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-top: 1px solid var(--line); }
 .manage-foot-note { font-size: 12px; display: flex; align-items: center; gap: 5px; }
-.conn-soon { font-size: 12px; color: var(--faint); }
-.conn-actions { display: flex; align-items: center; gap: 10px; }
 button.btn-primary.sm { padding: 5px 13px; font-size: 12.5px; }
 button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 
 .conn-setup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 11px; }
-.conn-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
 .conn-field { display: flex; flex-direction: column; gap: 4px; }
 .conn-field-label { font-size: 12.5px; color: var(--ink); }
 .conn-field-label em { color: var(--faint); font-style: normal; }
@@ -824,11 +788,6 @@ button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 .model-add select { font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--paper); color: var(--ink); outline: none; flex: 0 0 auto; }
 .model-add input { font: inherit; font-size: 13px; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--paper); color: var(--ink); outline: none; flex: 1 1 auto; min-width: 0; }
 .model-add input:focus, .model-add select:focus { border-color: var(--accent); }
-.tool-settings { display: flex; flex-direction: column; gap: 8px; }
-.tool-setting-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
-.tool-setting-row input { margin-top: 3px; }
-.tool-setting-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tool-setting-name { font-size: 13px; color: var(--ink); }
 .audit-filters { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; }
 .audit-filters input { font: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--ink); outline: none; }
 .audit-filters input:focus { border-color: var(--accent); }
@@ -847,13 +806,6 @@ button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 .sa-conn { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .sa-conn-head { display: flex; align-items: baseline; gap: 10px; }
 .sa-sub { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
-.sa-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.sa-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; background: var(--accent-soft); border-radius: 999px; padding: 3px 6px 3px 10px; color: var(--ink); }
-.sa-chip-x { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 11px; padding: 0 2px; }
-.sa-chip-x:hover { color: var(--accent); }
-.sa-recent { display: flex; flex-direction: column; gap: 6px; }
-.sa-recent-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--line); }
-.sa-recent-empty { font-size: 12.5px; padding: 2px 0; }
 .dim { color: var(--faint); }
 
 /* -- Super-agent view (full surface) ---------------------------------------- */
@@ -1390,39 +1342,8 @@ button.btn.ghost:hover { color: var(--ink); }
    grouped-by-persona cards), and the StepGroup transcript disclosure.
    ========================================================================== */
 
-/* -- Integrations sub-nav (Connectors · Messaging routing · Activity · MCP) -- */
-.integrations-view { flex-direction: row; }
-.int-subnav {
-  width: 208px; flex: none; border-right: 1px solid var(--line); background: var(--panel);
-  padding: 16px 12px; display: flex; flex-direction: column; gap: 3px; overflow-y: auto;
-}
-.int-subnav-title {
-  display: flex; align-items: center; gap: 8px; padding: 2px 8px 12px;
-  font-size: 13.5px; font-weight: 600; color: var(--ink);
-}
-.int-subnav-title svg { color: var(--muted); flex: none; }
-.int-tab {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
-  padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; font: inherit;
-  font-size: 13px; color: var(--muted); cursor: pointer; text-align: left;
-}
-.int-tab:hover { background: var(--paper); color: var(--ink); }
-.int-tab.active { background: var(--accent-soft); color: var(--accent); }
-.int-tab-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.int-tab-label svg { flex: none; }
-.int-tab-count { font-size: 11px; color: var(--faint); flex: none; }
-.int-tab.active .int-tab-count { color: var(--accent); }
-.int-tab-count.warn {
-  color: #fff; background: var(--warn-ink); border-radius: 999px; padding: 0 6px;
-  line-height: 16px; font-weight: 600;
-}
-.int-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.int-main .main-scroll { padding: 8px 36px 44px; }
-.int-panel { max-width: 860px; margin: 0 auto; width: 100%; }
-.int-panel-head { margin: 18px 0; }
-.int-panel-title { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--ink); }
-.int-panel-sub { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
-.int-sec-note { font-size: 12.5px; margin: 2px 0 8px; }
+/* -- Integrations sub-nav + panels are now Tailwind-styled inline (IntegrationsView.tsx,
+   ManageModal ConnectorsTab/McpTab), ported to the mock (redesign.html §view-integrations). -- */
 
 /* -- StepGroup (collapsed tool/approval disclosure) — restyled inline with Tailwind utilities
    (Transcript.tsx); only the <summary> disclosure-marker reset stays in CSS. ---- */
