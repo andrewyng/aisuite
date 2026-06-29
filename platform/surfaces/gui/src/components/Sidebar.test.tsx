@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 describe("Sidebar layout toggle", () => {
-  it("toggling the layout persists via setNavLayout and switches to grouped per-persona cards", async () => {
+  it("toggling the layout persists via setNavLayout and switches to the per-persona accordion", async () => {
     const calls = stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
@@ -90,9 +90,10 @@ describe("Sidebar layout toggle", () => {
       expect(post!.body).toMatchObject({ nav_layout: "grouped" });
     });
 
-    // Grouped view shows bounded per-persona cards; the Ops card lists its session, and its gear opens
-    // the persona detail page.
-    expect(await screen.findByText("Ops")).toBeTruthy();
+    // Grouped view = the per-persona accordion. The Ops header appears; expanding it lists its
+    // session, and the header's gear (rightmost element) opens the persona detail page.
+    const opsHeader = await screen.findByText("Ops");
+    fireEvent.click(opsHeader);
     expect(screen.getByText("incident watch")).toBeTruthy();
     fireEvent.click(screen.getByTitle("About the Ops persona"));
     expect(baseProps.onOpenPersona).toHaveBeenCalledWith("ops");

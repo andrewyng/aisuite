@@ -112,12 +112,13 @@ export function Sidebar(props: Props) {
   }, []);
   const familyOf = (id: string) => personas?.find((p) => p.id === id)?.family;
 
-  // Sidebar layout (§7): "flat" = the persona accordions; "grouped" = bounded per-persona cards.
-  // Read the persisted preference on load (absent → flat), write via setNavLayout when toggled.
-  const [layout, setLayout] = useState<"flat" | "grouped">("flat");
+  // Sidebar layout (§7): "grouped" = the per-persona accordion; "flat" = a single ungrouped list
+  // (Pinned + Recent). Read the persisted preference on load (absent → grouped, the accordion),
+  // write via setNavLayout when toggled (now flips flat-list ↔ accordion).
+  const [layout, setLayout] = useState<"flat" | "grouped">("grouped");
   useEffect(() => {
     getSettings()
-      .then((s) => setLayout(s.nav_layout === "grouped" ? "grouped" : "flat"))
+      .then((s) => setLayout(s.nav_layout === "flat" ? "flat" : "grouped"))
       .catch(() => {});
   }, []);
   const toggleLayout = () => {
@@ -186,6 +187,13 @@ export function Sidebar(props: Props) {
     !normalizedQuery ||
     (s.title || s.session_id).toLowerCase().includes(normalizedQuery) ||
     s.session_id.toLowerCase().includes(normalizedQuery);
+
+  // Recent = every non-pinned, non-archived, real session across ALL personas, newest first
+  // (by updated_at; missing timestamps keep store order), search-filtered. Drives the flat layout.
+  const recentSessions = [...props.sessions]
+    .filter((s) => !s.archived && !s.session_id.startsWith("__") && !s.pinned)
+    .filter(matches)
+    .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
 
   // A compact session row (mock §141 grouped/recent rows): one-line title + right-side indicators,
   // with the pin/rename/delete actions revealed on hover. Used in accordion bodies + grouped cards.
@@ -279,6 +287,71 @@ export function Sidebar(props: Props) {
     );
   };
 
+  // A 2-line card row (mock §141 list-flat): an optional persona icon tile + title + a
+  // persona/channel subtitle + right-side indicators, with a pin/unpin button revealed on hover.
+  // Shared by the flat layout's Pinned (no icon) and Recent (with icon) sections.
+  const cardRow = (s: SessionInfo, { showIcon }: { showIcon: boolean }) => {
+    const active = s.session_id === props.activeSession;
+    const title = s.title || s.session_id;
+    const subParts = [personaLabel(s.agent)];
+    if (s.subscriptions?.length)
+      subParts.push(
+        s.subscriptions.length === 1 ? s.subscriptions[0] : `${s.subscriptions.length} channels`,
+      );
+    else if (s.workspace) subParts.push(baseName(s.workspace));
+    return (
+      <div
+        key={s.session_id}
+        className={
+          "group w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
+          (active ? "bg-accentSoft/60 border border-accent/30" : "hover:bg-paper")
+        }
+        title={title}
+        onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
+      >
+        {/* RECENT rows carry the persona glyph; PINNED rows stay icon-free (persona shows in the
+            subtitle), per the mock + the pinned-band decision. */}
+        {showIcon && iconTile(s.agent)}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium">{title}</span>
+          <span className="block truncate text-[11px] text-muted">{subParts.join(" · ")}</span>
+        </span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          <ConnectorDot subs={s.subscriptions} />
+          <LiveDot state={s.liveness} />
+          <AttnBadge n={s.attention || 0} />
+          <button
+            className={
+              "hidden group-hover:grid w-5 h-5 place-items-center rounded hover:bg-paper " +
+              (s.pinned ? "text-accent" : "text-faint hover:text-ink")
+            }
+            title={s.pinned ? "Unpin" : "Pin to top"}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onTogglePin(s.session_id, !s.pinned);
+            }}
+          >
+            <Icon name="pin" size={11} />
+          </button>
+        </span>
+      </div>
+    );
+  };
+
+  // The cross-persona Pinned band (manual pins only) — icon-free rows. Appears in BOTH layouts
+  // (flat list AND accordion), so it's factored here for reuse.
+  const pinnedBand = () =>
+    pinnedSessions.length > 0 ? (
+      <div>
+        <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
+          Pinned
+        </div>
+        <div className="space-y-0.5">
+          {pinnedSessions.map((s) => cardRow(s, { showIcon: false }))}
+        </div>
+      </div>
+    ) : null;
+
   // Code/Cowork group by project; Chat is a flat recents list.
   const byProject = useMemo(() => {
     const grouped = new Map<string, SessionInfo[]>();
@@ -371,20 +444,15 @@ export function Sidebar(props: Props) {
             </div>
           </>
         ) : (
-          <>
-            <div className="px-1.5 pt-1 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
-              Recents
-            </div>
-            <div className="space-y-0.5">
-              {mine.filter(matches).length === 0 ? (
-                <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
-                  {normalizedQuery ? "No matching conversations." : "No conversations yet."}
-                </div>
-              ) : (
-                mine.filter(matches).map(sessionRow)
-              )}
-            </div>
-          </>
+          <div className="space-y-0.5">
+            {mine.filter(matches).length === 0 ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
+                {normalizedQuery ? "No matching conversations." : "No conversations yet."}
+              </div>
+            ) : (
+              mine.filter(matches).map(sessionRow)
+            )}
+          </div>
         )}
 
         {archived.length > 0 && (
@@ -404,52 +472,6 @@ export function Sidebar(props: Props) {
       </div>
     );
   };
-
-  // Grouped layout: one bounded card per persona (sessions grouped by their `agent`), each with a
-  // gear → PersonaView and an inline "New session". A flat alternative to the accordion surfaces.
-  const groupedList = () => (
-    <div className="space-y-2.5">
-      {visibleSurfaces.map((s) => {
-        const list = props.sessions
-          .filter((x) => x.agent === s.key && !x.session_id.startsWith("__") && !x.archived)
-          .filter(matches);
-        return (
-          <div className="rounded-xl border border-line bg-paper/50 p-1.5" key={s.key}>
-            <div className="flex items-center gap-2 px-1.5 py-0.5">
-              <span className="text-muted">
-                <Icon name={s.icon} size={14} />
-              </span>
-              <span className="text-[11px] uppercase tracking-[0.06em] text-faint font-semibold">
-                {s.label}
-              </span>
-              <span className="text-[10px] text-faint">{list.length}</span>
-              <span className="ml-auto flex items-center gap-1.5">
-                <LiveDot state={liveByPersona.get(s.key)} />
-                <AttnBadge n={attnByPersona.get(s.key) || 0} />
-                <button
-                  className="persona-gear w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-panel"
-                  title={`About the ${s.label} persona`}
-                  aria-label={`About the ${s.label} persona`}
-                  onClick={() => props.onOpenPersona(s.key)}
-                >
-                  <Icon name="sliders" size={14} />
-                </button>
-              </span>
-            </div>
-            <div className="space-y-0.5 mt-0.5">
-              {list.length === 0 ? (
-                <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
-                  {normalizedQuery ? "No matching conversations." : "No conversations yet."}
-                </div>
-              ) : (
-                list.map(sessionRow)
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
 
   return (
     <div className="sidebar flex flex-col min-h-0 bg-panel border-r border-line">
@@ -542,71 +564,11 @@ export function Sidebar(props: Props) {
         )}
       </div>
 
-      {/* Scroll area: flat (Pinned band + persona accordions) or grouped (per-persona cards). */}
+      {/* Scroll area: grouped (Pinned band + per-persona accordion) or flat (Pinned + Recent list). */}
       <div className="flex-1 overflow-y-auto px-2.5 mt-3 pb-2">
         {layout === "grouped" ? (
-          groupedList()
-        ) : (
           <div className="space-y-4">
-            {pinnedSessions.length > 0 && (
-              <div>
-                <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
-                  Pinned
-                </div>
-                <div className="space-y-0.5">
-                  {pinnedSessions.map((s) => {
-                    const active = s.session_id === props.activeSession;
-                    const title = s.title || s.session_id;
-                    const subParts = [personaLabel(s.agent)];
-                    if (s.subscriptions?.length)
-                      subParts.push(
-                        s.subscriptions.length === 1
-                          ? s.subscriptions[0]
-                          : `${s.subscriptions.length} channels`,
-                      );
-                    else if (s.workspace) subParts.push(baseName(s.workspace));
-                    return (
-                      <div
-                        key={s.session_id}
-                        className={
-                          "group w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
-                          (active
-                            ? "bg-accentSoft/60 border border-accent/30"
-                            : "hover:bg-paper")
-                        }
-                        title={title}
-                        onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
-                      >
-                        {/* No persona icon on pinned rows (deliberate): the persona shows in the
-                            subtitle, and it avoids stacking the same glyph as the group header below. */}
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium">{title}</span>
-                          <span className="block truncate text-[11px] text-muted">
-                            {subParts.join(" · ")}
-                          </span>
-                        </span>
-                        <span className="flex items-center gap-1.5 shrink-0">
-                          <ConnectorDot subs={s.subscriptions} />
-                          <LiveDot state={s.liveness} />
-                          <AttnBadge n={s.attention || 0} />
-                          <button
-                            className="hidden group-hover:grid w-5 h-5 place-items-center rounded text-accent hover:bg-paper"
-                            title="Unpin"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              props.onTogglePin(s.session_id, false);
-                            }}
-                          >
-                            <Icon name="pin" size={11} />
-                          </button>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
+            {pinnedBand()}
             <div className="space-y-0.5">
               {visibleSurfaces.map((s) => {
                 const expanded = isExpanded(s.key);
@@ -635,11 +597,42 @@ export function Sidebar(props: Props) {
                         size={15}
                         className="text-faint shrink-0"
                       />
+                      {/* Settings gear — the rightmost element; opens the persona page without
+                          toggling the accordion (stops propagation). */}
+                      <button
+                        className="w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
+                        title={`About the ${s.label} persona`}
+                        aria-label={`About the ${s.label} persona`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onOpenPersona(s.key);
+                        }}
+                      >
+                        <Icon name="sliders" size={14} />
+                      </button>
                     </div>
                     {expanded && surfaceBody()}
                   </div>
                 );
               })}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pinnedBand()}
+            <div>
+              <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
+                Recent
+              </div>
+              <div className="space-y-0.5">
+                {recentSessions.length === 0 ? (
+                  <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
+                    {normalizedQuery ? "No matching conversations." : "No conversations yet."}
+                  </div>
+                ) : (
+                  recentSessions.map((s) => cardRow(s, { showIcon: true }))
+                )}
+              </div>
             </div>
           </div>
         )}
