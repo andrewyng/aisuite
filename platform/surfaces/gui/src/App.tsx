@@ -31,7 +31,7 @@ import { Icon } from "./components/Icon";
 import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
-import { UnattendedToggle } from "./components/UnattendedToggle";
+import { InboxControl } from "./components/InboxControl";
 import { Markdown } from "./components/Markdown";
 import { RootsBar } from "./components/RootsBar";
 import { SessionIntro } from "./components/SessionIntro";
@@ -1062,13 +1062,20 @@ export function App() {
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
-              rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
-              moreSlot={
-                agent !== "chat" ? (
-                  <UnattendedToggle sessionId={sessionId} onChange={markUnattended} />
+              rootsSlot={
+                needsWorkspace(agent) ? (
+                  <RootsBar sessionId={sessionId} scratchPrimary={agent === "cowork"} />
                 ) : undefined
               }
-              unattended={unattended}
+              inboxSlot={
+                agent !== "chat" ? (
+                  <InboxControl
+                    sessionId={sessionId}
+                    onChange={markUnattended}
+                    onOpenSettings={() => setSurface("integrations")}
+                  />
+                ) : undefined
+              }
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={

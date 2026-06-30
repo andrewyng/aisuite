@@ -50,10 +50,8 @@ interface Props {
   // workspace folder button.
   rootsSlot?: ReactNode;
   approvalSlot?: ReactNode;
-  // Contents of the "More" menu (Unattended now; Plugins/etc. later).
-  moreSlot?: ReactNode;
-  // Whether the session is Unattended — drives the inline indicator (the toggle itself lives in More).
-  unattended?: boolean;
+  // The Inbox control (send-to-inbox toggle + settings popover).
+  inboxSlot?: ReactNode;
   // Push text + attachments into the composer (e.g. a start-panel task card). The `nonce` makes
   // repeated identical prefills re-apply; the user can still edit before sending.
   prefill?: { text: string; attachments?: Attachment[]; nonce: number };
@@ -68,7 +66,6 @@ export function Composer(props: Props) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -262,47 +259,8 @@ export function Composer(props: Props) {
             <Dropdown value={props.mode} options={PERMISSION_OPTIONS} onChange={props.onModeChange} />
           )}
 
-          {/* More menu (Unattended now; Plugins later) */}
-          {props.moreSlot && (
-            <div className="relative">
-              <button
-                className={
-                  "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12.5px] text-muted hover:text-ink hover:bg-paper " +
-                  (moreMenuOpen ? "bg-paper text-ink" : "")
-                }
-                onClick={() => setMoreMenuOpen((v) => !v)}
-                aria-haspopup="menu"
-                aria-expanded={moreMenuOpen}
-              >
-                More
-                <Icon
-                  name="chevronDown"
-                  size={12}
-                  className={"text-faint transition-transform " + (moreMenuOpen ? "" : "rotate-180")}
-                />
-              </button>
-              {moreMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
-                  {/* No auto-close on inner click — items here (e.g. the Unattended toggle's
-                      confirm step) manage their own state; closing is via the backdrop. */}
-                  <div className="absolute z-40 bottom-full mb-1 left-0 min-w-[240px] rounded-xl border border-line bg-panel shadow-2xl p-2 flex flex-col gap-1.5">
-                    {props.moreSlot}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Unattended indicator — the toggle lives in More; this keeps the state glanceable. */}
-          {props.unattended && (
-            <span
-              className="inline-flex items-center gap-1 text-[11.5px] text-accent font-medium"
-              title="This session is running unattended — approvals route to the Inbox"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-accent" /> Unattended
-            </span>
-          )}
+          {/* Inbox control (send-to-inbox toggle + settings); the icon goes accent when on. */}
+          {props.inboxSlot}
 
           <span className="ml-auto" />
 
@@ -318,7 +276,7 @@ export function Composer(props: Props) {
               <span className="model-warn-ico" aria-hidden>⚠</span>
             </button>
           ) : (
-            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" className="chip" />
+            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
           )}
 
           {/* send / stop */}

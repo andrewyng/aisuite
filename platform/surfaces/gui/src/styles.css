@@ -530,9 +530,10 @@ button.btn.danger { color: var(--accent); }
   padding: 4px 9px; cursor: pointer; max-width: 60%;
 }
 .wschip:hover { border-color: var(--line-strong); }
-/* Icon-only variant (composer folder control): just the folder glyph + a small chevron, no name. */
-.wschip-icon { gap: 3px; padding: 4px 7px; color: var(--muted); }
-.wschip-icon:hover { color: var(--ink); }
+/* Icon-only variant (composer folder control): just the folder glyph + a small chevron, no name,
+   no border/background — sits inline with the other borderless row controls. */
+.wschip-icon { gap: 3px; padding: 5px; border: none; background: none; color: var(--muted); max-width: none; }
+.wschip-icon:hover { background: var(--paper); color: var(--ink); border: none; }
 .wschip .wsname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wschip .edit { color: var(--faint); flex: none; }
 .wschip:hover .edit { color: var(--muted); }
