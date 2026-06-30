@@ -157,6 +157,10 @@ export function Composer(props: Props) {
   const iconBtn =
     "w-7 h-7 grid place-items-center rounded-md text-muted hover:text-ink hover:bg-paper shrink-0";
 
+  // The send button is accent only when there's something to send — subtle grey otherwise, so the
+  // composer isn't carrying a constant blue dot.
+  const hasContent = text.trim().length > 0 || attachments.length > 0;
+
   return (
     <div className="composer-wrap px-6 pb-5 pt-1">
       {props.approvalSlot}
@@ -286,13 +290,18 @@ export function Composer(props: Props) {
             </button>
           ) : (
             <button
-              className="w-8 h-8 rounded-full bg-accent text-white grid place-items-center hover:brightness-105 disabled:opacity-40 disabled:hover:brightness-100 shrink-0"
+              className={
+                "w-7 h-7 rounded-full grid place-items-center shrink-0 transition-colors " +
+                (hasContent && props.connected
+                  ? "bg-accent text-white hover:brightness-105"
+                  : "bg-paper border border-line text-faint")
+              }
               onClick={submit}
               disabled={!props.connected}
               title={needsModel ? "Connect a model to send" : undefined}
               aria-label="Send"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 19V5M5 12l7-7 7 7" />
               </svg>
             </button>

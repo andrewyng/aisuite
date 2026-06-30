@@ -19,8 +19,8 @@
   --teal-ink: #0f766e;        /* connector approval badges */
   --teal-line: #cfebea;
   --teal-soft: #edfafa;
-  --solid: #17191c;           /* "ink-colored" surfaces (user bubble) — NOT --ink, which inverts in dark */
-  --on-solid: #fff;
+  --solid: #e9ebf0;           /* user bubble — a soft neutral fill (was near-black; too heavy in light) */
+  --on-solid: #1f2227;
   --glass: rgba(255, 255, 255, 0.9);        /* frosted bars over content */
   --glass-strong: rgba(255, 255, 255, 0.96);
   --glass-soft: rgba(255, 255, 255, 0.78);
