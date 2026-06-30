@@ -92,18 +92,6 @@ body {
 .sidebar {
   min-height: 0;
 }
-/* MyHelper — the one always-on helper, on its own line above the surface switcher. */
-.helper-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: 9px;
-  cursor: pointer; user-select: none;
-}
-.helper-row:hover { background: var(--paper); }
-.helper-row.active { background: var(--accent-soft); }
-.helper-row .mark { color: var(--accent); font-size: 16px; line-height: 1; }
-.helper-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
-.helper-name { font-weight: 600; font-size: 14px; color: var(--ink); }
-.helper-desc { font-size: 11.5px; color: var(--faint); }
 
 .tabs { display: flex; gap: 4px; background: var(--paper); padding: 4px; border-radius: 10px; }
 .tab {
@@ -129,7 +117,6 @@ body {
 .sub-pop-x:hover { color: var(--ink); }
 .sub-pop-add { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .sub-pop-add .chan-input { min-width: 0; flex: 1; }
-
 
 /* ---------- main ---------- */
 .main {
@@ -395,19 +382,6 @@ button.btn.danger { color: var(--accent); }
 .dot.running { background: var(--ok); }
 .dot.off { background: var(--accent); }
 
-/* tool group (collapsible) */
-.toolgroup { align-self: stretch; }
-.toolgroup-head { font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; padding: 2px 2px 6px; }
-.toolgroup-head .chev { display: inline-block; width: 14px; color: var(--faint); }
-.toolgroup-body { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 6px 10px; }
-.toolrow { display: flex; flex-direction: column; gap: 4px; padding: 3px 0; font-size: 13px; color: var(--muted); }
-.toolrow-head { display: flex; gap: 8px; align-items: baseline; }
-.toolresult { margin: 0 0 0 22px; padding: 6px 9px; background: var(--paper); border: 1px solid var(--line); border-radius: 7px; font-family: var(--mono); font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
-.toolrow .status { width: 14px; color: var(--faint); }
-.toolrow .status.ok { color: var(--ok); }
-.toolrow .name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
-.toolrow .rowargs { font-family: var(--mono); font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.approval-row .name { color: var(--ok); }
 .approval-inline {
   display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
   color: var(--muted); font-size: 12.5px; background: var(--panel);
@@ -442,8 +416,6 @@ button.btn.danger { color: var(--accent); }
 .main.rail-open:has(.right-rail.artifact-mode) .main-chat { margin-right: var(--artifact-rail-w); }
 .main.rail-open:has(.right-rail.artifact-mode) .main-topbar { right: var(--artifact-rail-w); }
 .artifact-head { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
-.rail-kicker { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px; }
-.rail-title { font-size: 15px; font-weight: 600; color: var(--ink); }
 .rail-section { border-bottom: 1px solid var(--line); padding: 11px 0; }
 .rail-section-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .rail-section-toggle { flex: 1; display: flex; gap: 8px; align-items: center; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink); user-select: none; border: 0; background: transparent; padding: 0; text-align: left; }
@@ -479,7 +451,7 @@ button.btn.danger { color: var(--accent); }
 .rail-actions .btn { padding: 6px 9px; font-size: 12px; border-radius: 8px; }
 .browser-mini { display: flex; flex-direction: column; gap: 8px; }
 .browser-shot { display: block; width: 100%; max-height: 220px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-.artifact-list, .tool-chip-list { display: flex; flex-direction: column; gap: 7px; }
+.artifact-list { display: flex; flex-direction: column; gap: 7px; }
 .artifact-row {
   display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 9px;
   text-align: left; border: 1px solid transparent; background: transparent; color: var(--ink);
@@ -490,7 +462,6 @@ button.btn.danger { color: var(--accent); }
 .artifact-name { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-row-meta { font-size: 11px; color: var(--faint); font-weight: 400; }
 .artifact-open { font-size: 11.5px; color: var(--faint); }
-.tool-chip { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; align-self: flex-start; }
 .artifact-viewer { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .artifact-head {
   flex: none; min-height: 58px; padding: 10px 18px; border-bottom: 1px solid var(--line);
@@ -801,15 +772,6 @@ button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 .conn-field select:focus { border-color: var(--accent); }
 .conn-field-help { font-size: 11.5px; color: var(--faint); }
 .conn-setup-actions { display: flex; gap: 12px; align-items: center; }
-.model-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.model-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--paper); color: var(--ink); }
-.model-chip-default { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 999px; }
-.model-chip-x { border: none; background: none; cursor: pointer; color: var(--faint); font-size: 12px; line-height: 1; padding: 0 1px; }
-.model-chip-x:hover { color: var(--danger); }
-.model-add { display: flex; gap: 8px; align-items: center; }
-.model-add select { font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--paper); color: var(--ink); outline: none; flex: 0 0 auto; }
-.model-add input { font: inherit; font-size: 13px; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--paper); color: var(--ink); outline: none; flex: 1 1 auto; min-width: 0; }
-.model-add input:focus, .model-add select:focus { border-color: var(--accent); }
 .audit-filters { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; }
 .audit-filters input { font: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--ink); outline: none; }
 .audit-filters input:focus { border-color: var(--accent); }
@@ -819,14 +781,6 @@ button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 .audit-tool { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
 .audit-args { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
 
-/* -- Super-agent tab --------------------------------------------------------- */
-.sa-tab { display: flex; flex-direction: column; gap: 14px; }
-.sa-field { display: flex; flex-direction: column; gap: 5px; }
-.sa-ws-row { display: flex; gap: 8px; align-items: center; }
-.sa-ws-row input { flex: 1; font: inherit; font-size: 13px; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--paper); color: var(--ink); outline: none; }
-.sa-ws-row input:focus { border-color: var(--accent); }
-.sa-conn { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
-.sa-conn-head { display: flex; align-items: baseline; gap: 10px; }
 .sa-sub { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
 .dim { color: var(--faint); }
 
@@ -849,17 +803,12 @@ button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 /* Big, quiet page title with a small monochrome inline icon — no badge, no bar. */
 .sa-view-title { display: flex; align-items: center; gap: 9px; font-size: 25px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1.2; }
 .sa-view-title svg { color: var(--muted); flex: none; }
-.sa-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
-.sa-status-dot.on { background: var(--ok-dot); }
 .sa-view-sub { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
 .sa-back { background: none; border: none; padding: 0; font: inherit; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 .sa-back:hover { color: var(--ink); }
 /* Quiet outline action in the header (e.g. "+ New automation"). */
 button.btn.new-action { font-size: 13px; padding: 7px 13px; border-radius: 9px; color: var(--ink); border: 1px solid var(--line-strong); background: var(--panel); }
 button.btn.new-action:hover { border-color: var(--accent); color: var(--accent); }
-.sa-composer { display: flex; gap: 10px; align-items: flex-end; max-width: 760px; margin: 0 auto 16px; width: calc(100% - 44px); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 16px; padding: 10px 12px; }
-.sa-composer textarea { flex: 1; resize: none; border: none; outline: none; font: inherit; font-size: 15px; line-height: 1.5; background: transparent; color: var(--ink); max-height: 160px; }
-.sa-composer textarea::placeholder { color: var(--faint); }
 
 /* -- Scheduled view --------------------------------------------------------- */
 .sched-list { display: flex; flex-direction: column; gap: 9px; max-width: 820px; margin: 16px 0; }
@@ -890,7 +839,6 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
 .sched-edit-instr { min-height: 96px; }
 .sched-run { border-bottom: 1px solid var(--line); }
 .sched-run-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; padding: 8px 2px; cursor: pointer; color: var(--muted); }
-.sched-run-body { font-size: 13.5px; color: var(--ink); padding: 4px 2px 12px; white-space: pre-wrap; line-height: 1.5; }
 .run-ok { color: var(--ok); } .run-error { color: var(--accent); } .run-running { color: var(--muted); }
 /* Run row = a launcher into the run's conversation. */
 .sched-run.open { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; padding: 4px 12px 10px; cursor: pointer; background: var(--panel); }
@@ -1135,7 +1083,6 @@ button.btn.ghost:hover { color: var(--ink); }
 .msg-file { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
 
 /* ---- Automation templates ---- */
-.sched-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 
 .tmpl-wrap { max-width: 820px; margin: 18px 0 0; }
 .tmpl-head { margin-bottom: 10px; font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1204,49 +1151,6 @@ button.btn.ghost:hover { color: var(--ink); }
 }
 
 /* Inbox view */
-.inbox-item {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-  background: var(--panel);
-}
-.inbox-item-kind {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.inbox-item-title { font-weight: 600; margin: 2px 0; }
-.inbox-item-body { font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; }
-.inbox-item-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
-}
-.inbox-item-actions input { flex: 1; }
-/* Compact variant: docked inline above the composer (answer-in-context) — matches the native
-   ApprovalCard's `.approval-dock` panel so it doesn't feel cramped against the composer. */
-.inbox-item.compact {
-  max-width: 760px;
-  margin: 0 auto 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
-  padding: 14px 16px;
-  background: var(--panel);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-.inbox-item.compact .inbox-item-kind { margin-bottom: 2px; }
-/* ask_user quick-reply options (AskUserQuestion-style buttons + a free-text escape below). */
-.inbox-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
-.inbox-opt {
-  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
-  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--paper);
-  color: var(--ink); font: inherit; font-size: 13px; cursor: pointer;
-}
-.inbox-opt:hover { border-color: var(--accent); background: var(--accent-soft); }
-.inbox-opt.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.inbox-opt-check { width: 11px; text-align: center; color: var(--accent); }
 /* "Go to session" chip: persona icon + session title, links back for context. */
 .inbox-session-chip {
   display: inline-flex; align-items: center; gap: 7px; margin: 8px 0 2px;
@@ -1263,21 +1167,6 @@ button.btn.ghost:hover { color: var(--ink); }
 .inbox-chip-ico.ico-ops { background: #ea580c; }
 .inbox-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-chip-go { flex: none; color: var(--faint); }
-
-/* Unattended toggle (composer head) — mock's `bg-accentSoft border-accent/30 text-accent`. */
-.wschip.unattended-on {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent);
-  font-weight: 500;
-}
-.unattended-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-}
 
 /* Connector registry logos. The brand color comes from the API (`brand_color`), set inline as the
    --brand / --brand-soft custom properties by <ConnectorIcon>/<ConnectorBadge> — not a CSS table. */
@@ -1344,20 +1233,7 @@ button.btn.ghost:hover { color: var(--ink); }
   cursor: not-allowed;
 }
 
-/* ---- Sources bar (under the session title) — restyled inline with Tailwind utilities
-   (SourcesBar.tsx). Only the `⚠ N` attention pill keeps a shared .attn-badge rule below. ---- */
-.attn-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--warn-soft);
-  color: var(--warn-ink);
-  border: 1px solid var(--warn-ink);
-}
+/* ---- Sources bar (under the session title) — restyled inline with Tailwind utilities (SourcesBar.tsx). ---- */
 
 /* ============================================================================
    Phase 5 — frontend polish: Integrations sub-nav, dual sidebar (split button +
