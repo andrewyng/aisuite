@@ -11,6 +11,7 @@ export type IconName =
   | "plus"
   | "clock"
   | "sliders"
+  | "gear"
   | "code"
   | "wrench"
   | "pencil"
@@ -139,6 +140,13 @@ export function Icon({
           <circle cx="15.5" cy="7" r="2.4" style={{ fill: "var(--panel)" }} />
           <circle cx="8.5" cy="12" r="2.4" style={{ fill: "var(--panel)" }} />
           <circle cx="14" cy="17" r="2.4" style={{ fill: "var(--panel)" }} />
+        </svg>
+      );
+    case "gear":
+      return (
+        <svg {...s}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1L16.5 3h-4l-.4 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.4h4l.4-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6c.1-.3.1-.7.1-1z" />
         </svg>
       );
     case "code":

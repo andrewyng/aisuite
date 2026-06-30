@@ -123,6 +123,7 @@ const PROJECT_PEEK = 5; // sessions shown per project before "Show more"
 
 export function Sidebar(props: Props) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -188,6 +189,22 @@ export function Sidebar(props: Props) {
       </span>
     );
   };
+
+  // A row in the bottom ⚙ "Settings & more" popup: closes the menu, then runs the destination.
+  const appMenuItem = (icon: IconName, label: string, onClick: () => void, active?: boolean) => (
+    <button
+      className={
+        "w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-left " +
+        (active ? "text-ink bg-paper" : "hover:bg-paper")
+      }
+      onClick={() => {
+        setAppMenuOpen(false);
+        onClick();
+      }}
+    >
+      <Icon name={icon} size={15} className="shrink-0 text-muted" /> {label}
+    </button>
+  );
 
   // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
   // accent count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
@@ -707,26 +724,10 @@ export function Sidebar(props: Props) {
         )}
       </div>
 
-      {/* Bottom nav (mock §239): shared destinations. Keeps the app's existing routes. */}
-      <div className="px-2.5 py-2 border-t border-line space-y-0.5">
-        <button
-          className={
-            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
-            (props.integrationsActive ? "bg-paper text-ink" : "hover:bg-paper")
-          }
-          onClick={props.onOpenIntegrations}
-        >
-          <Icon name="plug" size={15} className="shrink-0 text-muted" /> Integrations
-        </button>
-        <button
-          className={
-            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
-            (props.scheduledActive ? "bg-paper text-ink" : "hover:bg-paper")
-          }
-          onClick={props.onOpenScheduled}
-        >
-          <Icon name="clock" size={15} className="shrink-0 text-muted" /> Automations
-        </button>
+      {/* Bottom: Inbox stays visible (its attention badge needs to be glanceable); the occasional
+          destinations (Settings, Integrations, Automations, Activity) collapse into one ⚙ menu that
+          opens upward — Codex/Claude-style — so the bottom isn't a stack of rows. */}
+      <div className="relative px-2.5 py-2 border-t border-line space-y-0.5">
         <button
           className={
             "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
@@ -738,33 +739,46 @@ export function Sidebar(props: Props) {
           <span className="flex-1">Inbox</span>
           <AttnBadge n={totalAttention} />
         </button>
+
         <button
           className={
             "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
-            (props.auditActive ? "bg-paper text-ink" : "hover:bg-paper")
+            (appMenuOpen || props.integrationsActive || props.scheduledActive || props.auditActive
+              ? "bg-paper text-ink"
+              : "hover:bg-paper")
           }
-          onClick={props.onOpenAudit}
+          onClick={() => setAppMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={appMenuOpen}
         >
-          <Icon name="audit" size={15} className="shrink-0 text-muted" /> Activity
+          <Icon name="gear" size={15} className="shrink-0 text-muted" />
+          <span className="flex-1">Settings &amp; more</span>
+          <Icon
+            name="chevronDown"
+            size={14}
+            className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
+          />
         </button>
-      </div>
 
-      {/* Footer (mock §254): the cwd path + a settings gear (→ Manage). */}
-      <div className="px-3.5 py-2.5 border-t border-line text-[11.5px] text-muted flex items-center justify-between gap-2">
-        <span className="truncate" title={props.workspace || undefined}>
-          {props.workspace || ""}
-        </span>
-        <button
-          className="text-faint hover:text-ink shrink-0"
-          title="Manage"
-          aria-label="Manage"
-          onClick={props.onManage}
-        >
-          <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1L16.5 3h-4l-.4 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.4h4l.4-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6c.1-.3.1-.7.1-1z" />
-          </svg>
-        </button>
+        {appMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setAppMenuOpen(false)} />
+            <div className="absolute z-40 bottom-full left-2.5 right-2.5 mb-1 rounded-xl border border-line bg-panel shadow-2xl py-1">
+              {props.workspace && (
+                <div
+                  className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
+                  title={props.workspace}
+                >
+                  {props.workspace}
+                </div>
+              )}
+              {appMenuItem("gear", "Settings", props.onManage)}
+              {appMenuItem("plug", "Integrations", props.onOpenIntegrations, props.integrationsActive)}
+              {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
+              {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
+            </div>
+          </>
+        )}
       </div>
 
       {searchModalOpen && (
