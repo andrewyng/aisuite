@@ -727,7 +727,7 @@ export function Sidebar(props: Props) {
       {/* Bottom: Inbox stays visible (its attention badge needs to be glanceable); the occasional
           destinations (Settings, Integrations, Automations, Activity) collapse into one ⚙ menu that
           opens upward — Codex/Claude-style — so the bottom isn't a stack of rows. */}
-      <div className="relative px-2.5 py-2 border-t border-line space-y-0.5">
+      <div className="px-2.5 py-2 border-t border-line space-y-0.5">
         <button
           className={
             "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
@@ -740,45 +740,49 @@ export function Sidebar(props: Props) {
           <AttnBadge n={totalAttention} />
         </button>
 
-        <button
-          className={
-            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
-            (appMenuOpen || props.integrationsActive || props.scheduledActive || props.auditActive
-              ? "bg-paper text-ink"
-              : "hover:bg-paper")
-          }
-          onClick={() => setAppMenuOpen((v) => !v)}
-          aria-haspopup="menu"
-          aria-expanded={appMenuOpen}
-        >
-          <Icon name="gear" size={15} className="shrink-0 text-muted" />
-          <span className="flex-1">Settings &amp; more</span>
-          <Icon
-            name="chevronDown"
-            size={14}
-            className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
-          />
-        </button>
+        {/* The popup is anchored to THIS button (not the whole bottom block) so it opens directly
+            above the trigger instead of floating detached above the Inbox row. */}
+        <div className="relative">
+          <button
+            className={
+              "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
+              (appMenuOpen || props.integrationsActive || props.scheduledActive || props.auditActive
+                ? "bg-paper text-ink"
+                : "hover:bg-paper")
+            }
+            onClick={() => setAppMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={appMenuOpen}
+          >
+            <Icon name="gear" size={15} className="shrink-0 text-muted" />
+            <span className="flex-1">Settings &amp; more</span>
+            <Icon
+              name="chevronDown"
+              size={14}
+              className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
+            />
+          </button>
 
-        {appMenuOpen && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setAppMenuOpen(false)} />
-            <div className="absolute z-40 bottom-full left-2.5 right-2.5 mb-1 rounded-xl border border-line bg-panel shadow-2xl py-1">
-              {props.workspace && (
-                <div
-                  className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
-                  title={props.workspace}
-                >
-                  {props.workspace}
-                </div>
-              )}
-              {appMenuItem("gear", "Settings", props.onManage)}
-              {appMenuItem("plug", "Integrations", props.onOpenIntegrations, props.integrationsActive)}
-              {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
-              {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
-            </div>
-          </>
-        )}
+          {appMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setAppMenuOpen(false)} />
+              <div className="absolute z-40 bottom-full left-0 right-0 mb-1 rounded-xl border border-line bg-panel shadow-2xl py-1">
+                {props.workspace && (
+                  <div
+                    className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
+                    title={props.workspace}
+                  >
+                    {props.workspace}
+                  </div>
+                )}
+                {appMenuItem("gear", "Settings", props.onManage)}
+                {appMenuItem("plug", "Integrations", props.onOpenIntegrations, props.integrationsActive)}
+                {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
+                {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {searchModalOpen && (
