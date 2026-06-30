@@ -31,12 +31,13 @@ export function RootsBar({ sessionId }: { sessionId: string }) {
   const count = roots.length;
   return (
     <div className="rootsbar" ref={wrap}>
-      <button className="wschip" onClick={() => setOpen((o) => !o)} title="Directories the agent can use">
-        <Icon name="folder" size={14} />
-        <span className="wsname">
-          {count} {count === 1 ? "directory" : "directories"}
-        </span>
-        <Icon name="chevronDown" size={12} className="edit" />
+      <button
+        className="wschip wschip-icon"
+        onClick={() => setOpen((o) => !o)}
+        title={`${count} ${count === 1 ? "directory" : "directories"} the agent can use`}
+      >
+        <Icon name="folder" size={15} />
+        <Icon name="chevronDown" size={11} className="edit" />
       </button>
 
       {open && (

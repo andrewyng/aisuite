@@ -32,7 +32,6 @@ import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
 import { UnattendedToggle } from "./components/UnattendedToggle";
-import { SubscriptionsChip } from "./components/SubscriptionsChip";
 import { Markdown } from "./components/Markdown";
 import { RootsBar } from "./components/RootsBar";
 import { SessionIntro } from "./components/SessionIntro";
@@ -1064,18 +1063,12 @@ export function App() {
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
               rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
-              unattendedSlot={
+              moreSlot={
                 agent !== "chat" ? (
-                  <>
-                    <UnattendedToggle sessionId={sessionId} onChange={markUnattended} />
-                    <SubscriptionsChip
-                      sessionId={sessionId}
-                      channels={activeInfo?.subscriptions || []}
-                      onChanged={refreshSessions}
-                    />
-                  </>
+                  <UnattendedToggle sessionId={sessionId} onChange={markUnattended} />
                 ) : undefined
               }
+              unattended={unattended}
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={
