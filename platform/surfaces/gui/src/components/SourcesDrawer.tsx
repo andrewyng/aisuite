@@ -9,12 +9,29 @@
 // ⚠ count in sync. The persona blurb is fetched here, only when a `personaId` is provided.
 
 import { useEffect, useState } from "react";
-import { getPersonaDetail, setSessionConnection, type PersonaDetail, type SessionConnections } from "../api";
+import {
+  getPersonaDetail,
+  getRecentChannels,
+  getSubscriptions,
+  setSessionConnection,
+  subscribeChannel,
+  unsubscribeChannel,
+  type PersonaDetail,
+  type RecentChannel,
+  type SessionConnections,
+  type Subscription,
+} from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { shortPersonaName } from "../personaScope";
+import { Icon } from "./Icon";
 import { PersonaGlyph } from "./personaIcon";
+import { ChannelPicker } from "./SubscriptionsChip";
 import { Toggle } from "./Toggle";
 import { labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
+
+// A channel address's platform: "slack:C0123" → "slack"; a bare id or "#mention" defaults to slack
+// (the backend's own default when no platform prefix is given).
+const platformOf = (channel: string) => (channel.includes(":") ? channel.split(":")[0] : "slack");
 
 const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
 const TAG_CORE =
@@ -43,6 +60,11 @@ export function SourcesDrawer({
   onOpenPersona?: (id: string) => void;
 }) {
   const [persona, setPersona] = useState<PersonaDetail | null>(null);
+  // The connector whose channel list is open as a child panel (null = main Sources view).
+  const [channelsFor, setChannelsFor] = useState<string | null>(null);
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [recent, setRecent] = useState<RecentChannel[]>([]);
+  const [draft, setDraft] = useState("");
 
   useEffect(() => {
     if (!personaId) return;
@@ -55,9 +77,35 @@ export function SourcesDrawer({
     };
   }, [personaId]);
 
+  // Channel subscriptions (for the two-way-connector drill-down) + the recent-channels datalist.
+  const loadSubs = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
+  useEffect(() => {
+    loadSubs();
+    getRecentChannels().then(setRecent).catch(() => setRecent([]));
+  }, []);
+
   const toggleSession = async (connector: string, next: boolean) => {
     await setSessionConnection(sessionId, connector, next);
     onReload();
+  };
+
+  // Channels this session listens to on a given connector (Slack/Telegram/…).
+  const channelsOf = (connector: string) =>
+    subs.filter((s) => s.session_id === sessionId && platformOf(s.channel) === connector);
+
+  const addChannel = async () => {
+    const raw = draft.trim();
+    if (!raw || !channelsFor) return;
+    // In a connector's panel, a bare id is scoped to that connector; explicit "platform:" or a
+    // "#mention" are passed through as typed.
+    const channel = raw.includes(":") || raw.startsWith("#") ? raw : `${channelsFor}:${raw}`;
+    await subscribeChannel(sessionId, channel);
+    setDraft("");
+    loadSubs();
+  };
+  const removeChannel = async (channel: string) => {
+    await unsubscribeChannel(sessionId, channel);
+    loadSubs();
   };
 
   const { connected, recommended } = conns;
@@ -73,6 +121,21 @@ export function SourcesDrawer({
         role="dialog"
         aria-label="Session connections"
       >
+        {channelsFor ? (
+          <ChannelsPanel
+            connector={channelsFor}
+            label={labelFor(channelsFor, byName)}
+            channels={channelsOf(channelsFor)}
+            recent={recent}
+            draft={draft}
+            onDraft={setDraft}
+            onAdd={addChannel}
+            onRemove={removeChannel}
+            onBack={() => setChannelsFor(null)}
+            onClose={onClose}
+          />
+        ) : (
+        <>
         <header className="px-4 h-12 shrink-0 flex items-center gap-2 border-b border-line">
           <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-[13px]">
             <PersonaGlyph icon={persona?.icon} size={13} />
@@ -144,6 +207,20 @@ export function SourcesDrawer({
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-medium">{labelFor(c.connector, byName)}</div>
                     {c.detail && <div className="text-[12px] text-muted truncate">{c.detail}</div>}
+                    {/* Two-way messaging connectors (Slack/Telegram): drill into the channels this
+                        session listens to. */}
+                    {byName[c.connector]?.two_way && (
+                      <button
+                        className="mt-1 inline-flex items-center gap-0.5 text-[11.5px] text-accent hover:underline"
+                        onClick={() => {
+                          setDraft("");
+                          setChannelsFor(c.connector);
+                        }}
+                      >
+                        Channels · {channelsOf(c.connector).length}
+                        <Icon name="chevronRight" size={11} />
+                      </button>
+                    )}
                   </div>
                   <Toggle
                     checked={c.enabled}
@@ -203,7 +280,114 @@ export function SourcesDrawer({
             Manage all connectors (global) →
           </button>
         </footer>
+        </>
+        )}
       </aside>
     </div>
+  );
+}
+
+// The per-connector channels drill-down (§ Sources child panel): which channels THIS session listens
+// to on a two-way messaging connector (Slack/Telegram). Reached from the connector's "Channels · N"
+// row; ‹ back returns to the Sources list.
+function ChannelsPanel({
+  label,
+  channels,
+  recent,
+  draft,
+  onDraft,
+  onAdd,
+  onRemove,
+  onBack,
+  onClose,
+}: {
+  connector: string;
+  label: string;
+  channels: Subscription[];
+  recent: RecentChannel[];
+  draft: string;
+  onDraft: (v: string) => void;
+  onAdd: () => void;
+  onRemove: (channel: string) => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <header className="px-3 h-12 shrink-0 flex items-center gap-1.5 border-b border-line">
+        <button
+          className="w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
+          onClick={onBack}
+          aria-label="Back to sources"
+        >
+          <Icon name="arrowLeft" size={16} />
+        </button>
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold leading-tight truncate">{label} channels</div>
+          <div className="text-[11px] text-faint leading-tight">This session listens to</div>
+        </div>
+        <button
+          className="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto hairline-scroll px-4 py-4 space-y-5">
+        <section>
+          <div className={`${SEC_H} mb-2`}>Subscribed channels · {channels.length}</div>
+          {channels.length === 0 ? (
+            <div className="text-[12.5px] text-faint px-0.5 py-1">
+              Not listening to any {label} channel yet.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {channels.map((s) => (
+                <div
+                  className="flex items-center gap-2 p-2.5 rounded-xl2 border border-line bg-paper"
+                  key={s.channel}
+                >
+                  <Icon name="plug" size={14} className="text-muted shrink-0" />
+                  <span className="min-w-0 flex-1 text-[13px] truncate" title={s.channel}>
+                    {s.channel}
+                  </span>
+                  {s.collision && (
+                    <span
+                      className="text-[10.5px] text-warnInk bg-warnSoft/70 border border-warnInk/15 rounded px-1.5 py-0.5 shrink-0"
+                      title="This channel is also this session's Inbox-routing target — inbound and outbound collide."
+                    >
+                      ⚠
+                    </span>
+                  )}
+                  <button
+                    className="w-6 h-6 grid place-items-center text-faint hover:text-danger shrink-0"
+                    title="Stop listening"
+                    onClick={() => onRemove(s.channel)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className={`${SEC_H} mb-2`}>Add a channel</div>
+          <div className="flex items-center gap-2">
+            <ChannelPicker value={draft} onChange={onDraft} recent={recent} onSubmit={onAdd} />
+            <button className={BTN_ACCENT} disabled={!draft.trim()} onClick={onAdd}>
+              Add
+            </button>
+          </div>
+          <p className="text-[11px] text-faint mt-2 leading-relaxed">
+            The agent receives messages posted to these channels. Removing one stops this session from
+            listening — the connector stays connected.
+          </p>
+        </section>
+      </div>
+    </>
   );
 }

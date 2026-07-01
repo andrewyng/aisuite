@@ -16,7 +16,7 @@ import {
   type UnroutedItem,
 } from "../api";
 import type { SessionInfo } from "../types";
-import { ConnectorsTab, McpTab } from "./ManageModal";
+import { ConnectorsTab, McpTab } from "./ManageTabs";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
 
@@ -139,7 +139,7 @@ export function IntegrationsView() {
   );
 }
 
-function PanelHead({ title, sub }: { title: string; sub: string }) {
+export function PanelHead({ title, sub }: { title: string; sub: string }) {
   return (
     <div className="mb-4">
       <h2 className="text-[18px] font-semibold tracking-tight">{title}</h2>
