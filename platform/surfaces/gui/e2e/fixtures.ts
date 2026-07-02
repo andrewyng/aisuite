@@ -50,11 +50,17 @@ const SESSIONS = { sessions: [PINNED_SESSION] };
 
 const CONNECTORS = {
   connectors: [
-    { name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#611f69", logo: "slack", fields: [], instructions: [], connected: true, account: "acme", enabled: true, allowed_users: [], tools: [] },
-    { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [] },
-    { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
+    { name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#611f69", logo: "slack", fields: [], instructions: [], connected: true, account: "acme", enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
+    { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
+    { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
+    // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
+    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", auth: "oauth", two_way: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
 };
+
+// Mutable cloud sign-in state: POST /v1/cloud/login flips it (the real flow
+// goes through the browser; the mock completes instantly), logout flips back.
+export const CLOUD_STATE = { signed_in: false, account: "", user_id: "" };
 
 // Persona detail (GET /v1/personas/:id) — SourcesDrawer/PersonaView read `recommends` and
 // `default_connections` as arrays, so these must be present (not the catch-all {}).
@@ -99,6 +105,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // the RO/RW add/toggle round-trips through the real UI. POST upserts by path (a toggle re-adds).
   const roots: any[] = [{ ...PRIMARY_ROOT }];
 
+  // Fresh cloud sign-in state per test (module state outlives a page).
+  Object.assign(CLOUD_STATE, { signed_in: false, account: "", user_id: "" });
+
   // Stub the event WebSocket so the app's live channel doesn't error (no server behind it).
   await page.routeWebSocket(/.*/, () => {
     /* intercepted; left open with no messages */
@@ -138,6 +147,18 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/personas")) return json(PERSONAS);
     if (p.endsWith("/v1/sessions")) return json(SESSIONS);
     if (p.endsWith("/v1/connectors")) return json(CONNECTORS);
+    if (p.endsWith("/v1/cloud/status")) return json({ ...CLOUD_STATE });
+    if (p.endsWith("/v1/cloud/login") && m === "POST") {
+      Object.assign(CLOUD_STATE, { signed_in: true, account: "rohit@opencoworker.app", user_id: "usr_e2e" });
+      return json({ ok: true });
+    }
+    if (p.endsWith("/v1/cloud/logout") && m === "POST") {
+      Object.assign(CLOUD_STATE, { signed_in: false, account: "", user_id: "" });
+      return json({ ok: true, signed_in: false });
+    }
+    if (/\/v1\/connectors\/[^/]+\/connect-managed$/.test(p) && m === "POST") {
+      return json(CLOUD_STATE.signed_in ? { ok: true } : { ok: false, error: "not signed in" });
+    }
     if (p.endsWith("/v1/providers")) return json(PROVIDERS);
     if (p.endsWith("/v1/channels/recent")) return json({ channels: [] });
     if (p.endsWith("/v1/inbox")) return json({ items: [] });

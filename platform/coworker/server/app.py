@@ -15,8 +15,20 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+
+def _browser_page(title: str, detail: str) -> str:
+    """Tiny page shown in the user's browser at the end of a loopback flow."""
+    import html as _html
+
+    return (
+        '<!doctype html><html><body style="font-family: system-ui; '
+        'margin: 4rem auto; max-width: 28rem;">'
+        f"<h2>{_html.escape(title)}</h2><p>{_html.escape(detail)}</p>"
+        "</body></html>"
+    )
 
 from ..attachments import build_user_content
 from ..engine import ApprovalOutcome
@@ -396,8 +408,116 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
 
     @app.post("/v1/connectors/{name}/disconnect")
-    def connector_disconnect(name: str) -> dict[str, Any]:
+    async def connector_disconnect(name: str) -> dict[str, Any]:
+        # Managed profiles: best-effort flip of the cloud metadata record first
+        # (network call → off the loop). Local deletion always proceeds.
+        from .. import cloud
+        from ..config import load_config
+
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(manager.secrets, load_config(), name)
+        )
         return manager.disconnect_connector(name)
+
+    # -- OpenCoworker Cloud: sign-in + managed one-click connect ---------------
+    # All optional: the app is fully functional signed out (manual token paste
+    # stays available for every connector, before and after sign-in).
+
+    @app.get("/v1/cloud/status")
+    def cloud_status() -> dict[str, Any]:
+        from .. import cloud
+
+        return cloud.status(manager.secrets)
+
+    @app.post("/v1/cloud/login")
+    def cloud_login() -> dict[str, Any]:
+        """Start browser sign-in. The sidecar opens the system browser itself
+        (works identically under Tauri and plain-browser dev)."""
+        import webbrowser
+
+        from .. import cloud
+        from ..config import load_config
+
+        out = cloud.begin_login(load_config())
+        webbrowser.open(out["authorize_url"])
+        return {"ok": True, "authorize_url": out["authorize_url"]}
+
+    @app.post("/v1/cloud/logout")
+    def cloud_logout() -> dict[str, Any]:
+        from .. import cloud
+
+        return cloud.logout(manager.secrets)
+
+    @app.get("/auth/callback")
+    async def cloud_auth_callback(code: str = "", state: str = "", error: str = ""):
+        from fastapi.responses import HTMLResponse
+
+        from .. import cloud
+        from ..config import load_config
+
+        if error:
+            return HTMLResponse(_browser_page("Sign-in failed", error), status_code=400)
+        result = await asyncio.to_thread(
+            lambda: cloud.complete_login(manager.secrets, load_config(), code, state)
+        )
+        if not result.get("ok"):
+            return HTMLResponse(
+                _browser_page("Sign-in failed", result.get("error", "")), status_code=400
+            )
+        return HTMLResponse(
+            _browser_page(
+                "Signed in to OpenCoworker Cloud",
+                "You can close this tab and return to OpenCoworker.",
+            )
+        )
+
+    @app.post("/v1/connectors/{name}/connect-managed")
+    async def connector_connect_managed(name: str) -> dict[str, Any]:
+        """One-click managed OAuth (requires cloud sign-in). Opens the provider
+        consent page in the system browser; the broker's callback page will
+        form-POST the tokens to /oauth/callback below."""
+        import webbrowser
+
+        from .. import cloud
+        from ..config import load_config
+
+        out = await asyncio.to_thread(
+            lambda: cloud.begin_managed_connect(manager.secrets, load_config(), name)
+        )
+        if out.get("ok"):
+            webbrowser.open(out["authorize_url"])
+        return out
+
+    @app.post("/oauth/callback")
+    async def managed_oauth_callback(request: Request) -> Any:
+        from fastapi.responses import HTMLResponse
+
+        from .. import cloud
+        from ..connectors.setup import managed_connect_connector
+
+        form = await request.form()
+        data = {k: str(v) for k, v in form.items()}
+        connector = data.get("connector", "")
+        if data.get("error"):
+            return HTMLResponse(
+                _browser_page("Connection failed", data["error"]), status_code=400
+            )
+        if not connector or not data.get("access_token"):
+            return HTMLResponse(
+                _browser_page("Connection failed", "missing fields"), status_code=400
+            )
+        result = managed_connect_connector(
+            manager.secrets, connector, cloud.managed_profile_from_callback(data)
+        )
+        if not result.get("ok"):
+            return HTMLResponse(
+                _browser_page("Connection failed", result.get("error", "")),
+                status_code=400,
+            )
+        title = f"{connector} connected"
+        return HTMLResponse(
+            _browser_page(title, "You can close this tab and return to OpenCoworker.")
+        )
 
     @app.patch("/v1/connectors/{name}/tools")
     def connector_tools_patch(name: str, body: dict) -> dict[str, Any]:

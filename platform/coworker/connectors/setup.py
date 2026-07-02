@@ -69,6 +69,9 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "tools": tool_dicts(secrets, d.name),
                 "experimental": d.experimental,
                 "risk_notice": d.risk_notice,
+                "managed": d.managed,
+                # Whether THIS profile came from managed OAuth (vs manual paste).
+                "managed_profile": bool(profile.get("managed")),
             }
         )
     return out
@@ -148,6 +151,27 @@ def connect_connector(
         profile["account"] = identity
     secrets.put(f"{name}:default", profile)
     return {"ok": True, "account": identity}
+
+
+def managed_connect_connector(
+    secrets: SecretStore, name: str, profile: dict[str, Any]
+) -> dict[str, Any]:
+    """Store a profile produced by managed OAuth (cloud.managed_profile_from_callback).
+
+    Field-compatible with a manual connect for the same connector, so tools and
+    session gating can't tell the paths apart; preserves an existing allow-list
+    on reconnect just like the manual path does.
+    """
+    d = get_descriptor(name)
+    if d is None or not d.available:
+        return {"ok": False, "error": "unknown or unavailable connector"}
+    if not d.managed:
+        return {"ok": False, "error": f"{name} does not support managed connect"}
+    existing = secrets.get(f"{name}:default") or {}
+    if existing.get("allowed_users"):
+        profile = {**profile, "allowed_users": list(existing["allowed_users"])}
+    secrets.put(f"{name}:default", profile)
+    return {"ok": True, "account": profile.get("account") or None}
 
 
 def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:

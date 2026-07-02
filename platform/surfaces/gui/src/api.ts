@@ -268,6 +268,42 @@ export interface Connector {
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   tools: ConnectorTool[];
+  managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
+  managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
+}
+
+// --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
+
+export interface CloudStatus {
+  signed_in: boolean;
+  account: string;
+  user_id: string;
+}
+
+export async function getCloudStatus(): Promise<CloudStatus> {
+  const res = await fetch(`${httpBase()}/v1/cloud/status`);
+  return res.json();
+}
+
+export async function cloudLogin(): Promise<{ ok: boolean }> {
+  // The sidecar opens the system browser; the GUI just polls status after.
+  const res = await fetch(`${httpBase()}/v1/cloud/login`, { method: "POST" });
+  return res.json();
+}
+
+export async function cloudLogout(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/cloud/logout`, { method: "POST" });
+  return res.json();
+}
+
+export async function connectManaged(
+  name: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
+    { method: "POST" },
+  );
+  return res.json();
 }
 
 export interface ConnectorTool {
