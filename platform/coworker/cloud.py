@@ -227,18 +227,20 @@ def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
     gating treat both paths identically; the managed extras (refresh_token,
     connection_id) are what enable broker refresh and cloud disconnect.
     """
-    return {
+    profile = {
         "type": "oauth",
         "enabled": True,
         "managed": True,
         "access_token": form.get("access_token", ""),
         "refresh_token": form.get("refresh_token", ""),
-        "expires": _now() + int(form.get("expires_in") or 3600) - 60,
         "scope": form.get("scope", ""),
         "connection_id": form.get("connection_id", ""),
         "provider": form.get("provider", ""),
         "account": form.get("account", ""),
     }
+    if form.get("expires_in"):  # absent ⇒ non-expiring token (e.g. Slack bot tokens)
+        profile["expires"] = _now() + int(form["expires_in"]) - 60
+    return profile
 
 
 def refresh_managed_token(
