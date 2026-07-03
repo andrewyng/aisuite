@@ -380,8 +380,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Sign in to OpenCoworker Cloud for one-click connect, or:",
-            "Use a Google OAuth access token with Gmail readonly and send scopes and paste it below.",
+            "Use a Google OAuth access token with Gmail readonly and send scopes.",
+            "Paste the access token below.",
         ],
         available=True,
         managed=True,
@@ -402,8 +402,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Sign in to OpenCoworker Cloud for one-click connect, or:",
-            "Use a Google OAuth access token with Calendar read/write scopes and paste it below.",
+            "Use a Google OAuth access token with Calendar read/write scopes.",
+            "Paste the access token below.",
         ],
         available=True,
         managed=True,
