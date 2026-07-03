@@ -5,6 +5,7 @@ import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { ModelsTab } from "./ManageTabs";
+import { GalleryTab } from "./GalleryTab";
 import { PersonasTab } from "./PersonasTab";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
@@ -12,7 +13,7 @@ import { PersonasTab } from "./PersonasTab";
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
-type SetTab = "appearance" | "files" | "models" | "personas";
+type SetTab = "appearance" | "files" | "models" | "personas" | "gallery";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -28,6 +29,7 @@ const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "folder" | "code
   { key: "files", label: "Files", icon: "folder" },
   { key: "models", label: "Models", icon: "code" },
   { key: "personas", label: "Personas", icon: "sparkle" },
+  { key: "gallery", label: "Gallery", icon: "sparkle" },
 ];
 
 export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
@@ -70,13 +72,21 @@ export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
               />
               <ModelsTab />
             </section>
-          ) : (
+          ) : tab === "personas" ? (
             <section>
               <PanelHead
                 title="Personas"
                 sub="Which coworkers are enabled and shown in the picker, plus installing new persona bundles."
               />
               <PersonasTab />
+            </section>
+          ) : (
+            <section>
+              <PanelHead
+                title="Gallery"
+                sub="Curated coworkers from OpenCoworker Cloud. Installs go through the same consent flow as any persona and stay disabled until you approve them."
+              />
+              <GalleryTab />
             </section>
           )}
         </div>

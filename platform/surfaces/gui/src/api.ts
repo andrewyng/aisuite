@@ -517,8 +517,33 @@ export async function updatePersona(
   return res.json();
 }
 
+// A curated persona card from the cloud gallery (metadata only — the manifest
+// is fetched server-side at install and runs through the normal consent flow).
+export interface GalleryPersona {
+  slug: string;
+  version: number;
+  name: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  family: string;
+  workspace: string;
+  publisher: string;
+  recommended_connectors: string[];
+  risk_summary: string;
+}
+
+export async function getCloudGallery(): Promise<{
+  ok: boolean;
+  personas: GalleryPersona[];
+  error?: string;
+}> {
+  const res = await fetch(`${httpBase()}/v1/cloud/gallery`);
+  return res.json();
+}
+
 export async function installPersona(
-  body: { dir?: string; git_url?: string },
+  body: { dir?: string; git_url?: string; gallery_slug?: string },
 ): Promise<{ ok: boolean; consent?: PersonaConsent[]; personas?: Persona[]; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/personas/install`, {
     method: "POST",

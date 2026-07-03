@@ -62,6 +62,22 @@ const CONNECTORS = {
 // goes through the browser; the mock completes instantly), logout flips back.
 export const CLOUD_STATE = { signed_in: false, account: "", user_id: "" };
 
+const GALLERY_PERSONAS = [
+  {
+    slug: "sales",
+    version: 1,
+    name: "Sales Coworker",
+    icon: "chart",
+    tagline: "Research accounts, prep meetings, draft follow-ups",
+    description: "A sales-focused coworker.",
+    family: "knowledge",
+    workspace: "deliverable",
+    publisher: "OpenCoworker",
+    recommended_connectors: ["hubspot", "gmail"],
+    risk_summary: "Declarative manifest; no executable code.",
+  },
+];
+
 // Persona detail (GET /v1/personas/:id) — SourcesDrawer/PersonaView read `recommends` and
 // `default_connections` as arrays, so these must be present (not the catch-all {}).
 const PERSONA_DETAIL = {
@@ -143,6 +159,18 @@ export async function mockApi(page: import("@playwright/test").Page) {
 
     if (p.endsWith("/v1/health")) return json(HEALTH);
     if (p.endsWith("/v1/settings")) return json(SETTINGS);
+    // must precede the /v1/personas/{id} catch-all (install matches it too)
+    if (p.endsWith("/v1/personas/install") && m === "POST") {
+      const b = req.postDataJSON();
+      if (b.gallery_slug) {
+        return json(
+          CLOUD_STATE.signed_in
+            ? { ok: true, consent: [{ id: b.gallery_slug }], personas: PERSONAS.personas }
+            : { ok: false, error: "gallery requires cloud sign-in" },
+        );
+      }
+      return json({ ok: false, error: "unsupported in mock" });
+    }
     if (/\/v1\/personas\/[^/]+$/.test(p)) return json(PERSONA_DETAIL);
     if (p.endsWith("/v1/personas")) return json(PERSONAS);
     if (p.endsWith("/v1/sessions")) return json(SESSIONS);
@@ -158,6 +186,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
     }
     if (/\/v1\/connectors\/[^/]+\/connect-managed$/.test(p) && m === "POST") {
       return json(CLOUD_STATE.signed_in ? { ok: true } : { ok: false, error: "not signed in" });
+    }
+    if (p.endsWith("/v1/cloud/gallery")) {
+      return json(
+        CLOUD_STATE.signed_in
+          ? { ok: true, personas: GALLERY_PERSONAS }
+          : { ok: false, error: "gallery requires cloud sign-in", personas: [] },
+      );
     }
     if (p.endsWith("/v1/providers")) return json(PROVIDERS);
     if (p.endsWith("/v1/channels/recent")) return json({ channels: [] });
