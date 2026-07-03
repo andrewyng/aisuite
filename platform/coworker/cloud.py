@@ -312,3 +312,47 @@ def cloud_disconnect(secrets: SecretStore, config: Config, connector: str) -> No
         )
     except httpx.HTTPError:
         pass
+
+
+# --- persona gallery -----------------------------------------------------------
+
+
+def _gallery_get(secrets: SecretStore, config: Config, path: str) -> Optional[dict]:
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return None
+    try:
+        resp = httpx.get(
+            config.cloud_base_url.rstrip("/") + path,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+    except httpx.HTTPError:
+        return None
+    return resp.json() if resp.status_code == 200 else None
+
+
+def gallery_list(secrets: SecretStore, config: Config) -> Optional[dict]:
+    """Curated persona cards visible to this user's tenant; None when signed
+    out or the cloud is unreachable (gallery requires sign-in by design)."""
+    return _gallery_get(secrets, config, "/v1/personas/gallery")
+
+
+def gallery_manifest(secrets: SecretStore, config: Config, slug: str) -> Optional[dict]:
+    return _gallery_get(secrets, config, f"/v1/personas/gallery/{slug}/manifest")
+
+
+def gallery_install_event(secrets: SecretStore, config: Config, slug: str) -> None:
+    """Best-effort product telemetry (slug/version only, no content)."""
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return
+    try:
+        httpx.post(
+            config.cloud_base_url.rstrip("/") + f"/v1/personas/gallery/{slug}/install-events",
+            json={"platform": __import__("sys").platform},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        pass

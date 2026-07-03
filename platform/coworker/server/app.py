@@ -226,11 +226,50 @@ def create_app(manager: SessionManager) -> FastAPI:
                 summaries = reg.install_from_git(str(body["git_url"]))
             elif body.get("dir"):
                 summaries = reg.install_from_dir(str(body["dir"]))
+            elif body.get("gallery_slug"):
+                # Gallery install = fetch the manifest markdown from the cloud
+                # (sign-in required), verify its hash, then reuse the exact
+                # same parser + consent path as a local/Git install. The
+                # gallery never changes the trust model: no executable code,
+                # lands disabled pending consent.
+                import hashlib
+                import tempfile
+
+                from .. import cloud
+                from ..config import load_config
+
+                slug = str(body["gallery_slug"]).strip()
+                manifest = cloud.gallery_manifest(manager.secrets, load_config(), slug)
+                if manifest is None:
+                    return {
+                        "ok": False,
+                        "error": "gallery requires cloud sign-in (or the cloud is unreachable)",
+                    }
+                markdown = manifest.get("manifest_markdown", "")
+                digest = "sha256:" + hashlib.sha256(markdown.encode()).hexdigest()
+                if manifest.get("manifest_hash") and manifest["manifest_hash"] != digest:
+                    return {"ok": False, "error": "manifest hash mismatch"}
+                with tempfile.TemporaryDirectory() as td:
+                    (Path(td) / f"{slug}.md").write_text(markdown)
+                    summaries = reg.install_from_dir(td)
+                cloud.gallery_install_event(manager.secrets, load_config(), slug)
             else:
-                return {"ok": False, "error": "provide a `dir` or `git_url`"}
+                return {"ok": False, "error": "provide a `dir`, `git_url`, or `gallery_slug`"}
         except Exception as e:  # surface manifest/clone errors to the caller
             return {"ok": False, "error": str(e)}
         return {"ok": True, "consent": summaries, "personas": reg.list_all()}
+
+    @app.get("/v1/cloud/gallery")
+    def cloud_gallery() -> dict[str, Any]:
+        """Gallery cards for the GUI. Signed out ⇒ ok:false (the gallery is a
+        signed-in feature by design; local personas are unaffected)."""
+        from .. import cloud
+        from ..config import load_config
+
+        body = cloud.gallery_list(manager.secrets, load_config())
+        if body is None:
+            return {"ok": False, "error": "gallery requires cloud sign-in", "personas": []}
+        return {"ok": True, "personas": body.get("personas", [])}
 
     @app.post("/v1/personas/{persona_id}")
     def update_persona(persona_id: str, body: dict) -> dict[str, Any]:

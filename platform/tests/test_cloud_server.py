@@ -89,3 +89,69 @@ def test_disconnect_works_signed_out(client):
     body = client.post("/v1/connectors/gmail/disconnect").json()
     assert body["ok"]
     assert client.manager.secrets.get("gmail:default") is None
+
+
+SALES_MANIFEST = """---
+id: sales
+name: Sales Coworker
+icon: chart
+tagline: t
+family: knowledge
+workspace: deliverable
+tools: [files, search, todo]
+description: d
+---
+You are the Sales Coworker."""
+
+
+def _stub_gallery(monkeypatch, markdown=SALES_MANIFEST, *, hash_ok=True):
+    import hashlib
+
+    from coworker import cloud
+
+    digest = "sha256:" + hashlib.sha256(markdown.encode()).hexdigest()
+    manifest = {
+        "slug": "sales",
+        "version": 1,
+        "manifest_markdown": markdown,
+        "manifest_hash": digest if hash_ok else "sha256:tampered",
+    }
+    events = []
+    monkeypatch.setattr(cloud, "gallery_manifest", lambda s, c, slug: manifest)
+    monkeypatch.setattr(
+        cloud, "gallery_install_event", lambda s, c, slug: events.append(slug)
+    )
+    return events
+
+
+def test_gallery_install_runs_consent_flow(client, monkeypatch):
+    events = _stub_gallery(monkeypatch)
+    body = client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()
+    assert body["ok"], body
+    assert body["consent"][0]["id"] == "sales"
+    installed = {p["id"]: p for p in body["personas"]}
+    # lands disabled + unsurfaced pending explicit user approval (trust model)
+    assert installed["sales"]["enabled"] is False
+    assert events == ["sales"]  # install event fired
+
+
+def test_gallery_install_rejects_hash_mismatch(client, monkeypatch):
+    _stub_gallery(monkeypatch, hash_ok=False)
+    body = client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()
+    assert not body["ok"]
+    assert "hash" in body["error"]
+
+
+def test_gallery_install_requires_sign_in(client, monkeypatch):
+    from coworker import cloud
+
+    monkeypatch.setattr(cloud, "gallery_manifest", lambda s, c, slug: None)
+    body = client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()
+    assert not body["ok"]
+    assert "sign-in" in body["error"]
+
+
+def test_cloud_gallery_endpoint_signed_out(client):
+    body = client.get("/v1/cloud/gallery").json()
+    assert not body["ok"]
+    assert body["personas"] == []
