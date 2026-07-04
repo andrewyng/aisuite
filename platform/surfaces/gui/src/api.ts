@@ -970,6 +970,7 @@ export interface ProviderField {
   required: boolean;
   help: string;
   placeholder: string;
+  default?: string; // pre-filled editable value (e.g. an OpenAI-compatible vendor's endpoint)
 }
 
 export interface ProviderInfo {
@@ -981,6 +982,7 @@ export interface ProviderInfo {
   values: Record<string, string>; // non-secret stored values (e.g. base_url), for prefilling
   suggested_models: string[]; // bare model-name suggestions for the "add model" datalist
   recommended_model: string | null; // pre-filled default for this provider (e.g. qwen3-coder:30b)
+  blurb?: string; // one-line note under the title ("Uses X's OpenAI-compatible API…")
 }
 
 export async function getProviders(): Promise<ProviderInfo[]> {

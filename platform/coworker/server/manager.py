@@ -1103,6 +1103,18 @@ class SessionManager:
             )
         return out
 
+    # Suggestions for the OpenAI-compatible vendor providers (checked against vendor docs
+    # 2026-07-04; refresh alongside `recommended_model` in providers/registry.py).
+    COMPAT_MODELS = {
+        "zai": ["glm-5.2", "glm-4.6"],
+        "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "kimi": ["kimi-k2.6", "kimi-k2.5"],
+        "minimax": ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M3"],
+        "qwen": ["qwen3-max", "qwen3-coder-plus", "qwen-plus"],
+        "xai": ["grok-4.3", "grok-4"],
+        "mistral": ["mistral-large-latest", "mistral-small-latest"],
+    }
+
     def _suggested_models(self, name: str) -> list[str]:
         """Bare model-name suggestions for the 'add model' form (datalist), per provider.
         OpenAI → the built-in list; Ollama → live `/api/tags` (best-effort)."""
@@ -1114,7 +1126,7 @@ class SessionManager:
             return ["gemini-2.5-flash", "gemini-2.5-pro"]
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
-        return []
+        return list(self.COMPAT_MODELS.get(name, []))
 
     def set_provider(
         self, name: str, fields: Optional[dict[str, Any]]

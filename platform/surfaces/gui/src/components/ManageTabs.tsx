@@ -84,8 +84,12 @@ export function ModelsTab() {
         setProviders(ps);
         const oll = ps.find((p) => p.name === "ollama");
         if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
-        const oai = ps.find((p) => p.name === "openai");
-        if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
+        // Seed the endpoint for the selected provider: stored value, else the descriptor's
+        // pre-filled default (OpenAI-compatible vendors ship their official endpoint).
+        const sel = ps.find((p) => p.name === apiProv);
+        const seeded =
+          sel?.values?.base_url || sel?.fields.find((f) => f.key === "base_url")?.default || "";
+        if (seeded) setEndpoint((cur) => cur || seeded);
       })
       .catch(() => {});
   useEffect(() => {
@@ -115,10 +119,14 @@ export function ModelsTab() {
   const provName = sub === "local" ? "ollama" : apiProv;
   const selProv = providers.find((p) => p.name === provName);
 
+  // The provider's endpoint field, when it has one (OpenAI's optional custom endpoint + the
+  // OpenAI-compatible vendors' pre-filled one).
+  const endpointField = selProv?.fields.find((f) => f.key === "base_url");
+
   const keyFields = (): Record<string, string> => {
     const fields: Record<string, string> = {};
     if (draft.trim()) fields.api_key = draft.trim();
-    if (apiProv === "openai") fields.base_url = endpoint.trim();
+    if (endpointField) fields.base_url = endpoint.trim();
     return fields;
   };
 
@@ -130,7 +138,7 @@ export function ModelsTab() {
   };
 
   const save = async () => {
-    if (!draft.trim() && !(apiProv === "openai" && endpoint.trim())) return;
+    if (!draft.trim() && !(endpointField && endpoint.trim())) return;
     setBusy(true);
     setMsg(null);
     const res = await setProvider(apiProv, keyFields());
@@ -198,6 +206,11 @@ export function ModelsTab() {
                 setDraft("");
                 setMsg(null);
                 setVerify({ state: "idle" });
+                // Re-seed the endpoint for the newly selected provider (stored → default → blank).
+                const p = providers.find((x) => x.name === e.target.value);
+                setEndpoint(
+                  p?.values?.base_url || p?.fields.find((f) => f.key === "base_url")?.default || "",
+                );
               }}
             >
               {providers
@@ -209,6 +222,10 @@ export function ModelsTab() {
                 ))}
             </select>
           </label>
+
+          {selProv?.blurb && (
+            <p className="text-[12px] text-muted -mt-2 mb-4 leading-relaxed">{selProv.blurb}</p>
+          )}
 
           <div className="text-[12px] mb-4">
             {selProv?.configured ? (
@@ -227,22 +244,19 @@ export function ModelsTab() {
               it below; the stored key is used only when the environment variable is absent.
             </p>
           )}
-          {provName === "openai" && (
+          {endpointField && (
             <label className="block mb-4">
-              <span className={FIELD_LABEL}>Custom endpoint (optional)</span>
+              <span className={FIELD_LABEL}>{endpointField.label}</span>
               <input
                 className={INPUT_W}
                 type="text"
-                placeholder="https://…/openai/v1"
+                placeholder={endpointField.placeholder}
                 value={endpoint}
                 spellCheck={false}
                 autoComplete="off"
                 onChange={(e) => setEndpoint(e.target.value)}
               />
-              <span className={FIELD_HELP}>
-                For Azure OpenAI, OpenRouter, vLLM, or any OpenAI-compliant server. Leave blank for
-                api.openai.com.
-              </span>
+              <span className={FIELD_HELP}>{endpointField.help}</span>
             </label>
           )}
           <label className="block mb-4">

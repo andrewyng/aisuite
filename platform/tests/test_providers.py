@@ -159,3 +159,94 @@ def test_stream_accumulates_tool_calls():
     assert turn.tool_calls[0] == ToolCall(
         id="call_1", name="read_file", arguments={"path": "a.py"}
     )
+
+
+# -- OpenAI-compatible vendor providers (Z AI, DeepSeek, Kimi, MiniMax, Qwen, xAI, Mistral) ------
+
+COMPAT_VENDORS = {
+    "zai": "https://api.z.ai/api/paas/v4",
+    "deepseek": "https://api.deepseek.com",
+    "kimi": "https://api.moonshot.ai/v1",
+    "minimax": "https://api.minimax.io/v1",
+    "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "xai": "https://api.x.ai/v1",
+    "mistral": "https://api.mistral.ai/v1",
+}
+
+
+def test_compat_vendor_descriptors_ship_prefilled_endpoints():
+    from coworker.providers.registry import get_descriptor
+
+    for name, endpoint in COMPAT_VENDORS.items():
+        d = get_descriptor(name)
+        assert d is not None and d.needs_key, name
+        base = next(f for f in d.fields if f.key == "base_url")
+        assert base.default == endpoint  # prefilled, editable
+        assert not base.required  # blank falls back to the default in the builder
+        assert "OpenAI-compatible" in d.blurb
+        assert d.env_key and d.recommended_model
+
+
+def test_compat_builder_defaults_and_profile_override(monkeypatch):
+    from coworker.providers.registry import build_provider_client
+
+    p = build_provider_client("zai", {"api_key": "zk"}, None)
+    assert p._base_url == COMPAT_VENDORS["zai"]
+    assert p._api_key == "zk"
+
+    override = "https://open.bigmodel.cn/api/paas/v4"
+    p2 = build_provider_client("zai", {"api_key": "zk", "base_url": override}, None)
+    assert p2._base_url == override
+
+
+def test_compat_builder_env_key_fallback(monkeypatch):
+    from coworker.providers.registry import build_provider_client
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
+    p = build_provider_client("deepseek", {}, None)
+    assert p._api_key == "ds-key"
+    assert p._base_url == COMPAT_VENDORS["deepseek"]
+
+
+def test_compat_builder_never_leaks_the_openai_key(monkeypatch):
+    """A configured OPENAI_API_KEY must never be sent to a different vendor's endpoint —
+    a missing vendor key fails fast with a vendor-named error instead."""
+    import pytest
+
+    from coworker.providers.registry import build_provider_client
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-real")
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Kimi"):
+        build_provider_client("kimi", {}, None)
+
+
+def test_compat_models_route_and_get_tool_capabilities():
+    from coworker.providers.router import ProviderRouter
+
+    router = ProviderRouter.__new__(ProviderRouter)  # only using _provider_name (stateless)
+    for model in (
+        "zai:glm-5.2",
+        "deepseek:deepseek-v4-flash",
+        "kimi:kimi-k2.6",
+        "minimax:MiniMax-M2.5",
+        "qwen:qwen3-max",
+        "xai:grok-4.3",
+        "mistral:mistral-large-latest",
+    ):
+        prefix = model.split(":", 1)[0]
+        assert router._provider_name(model) == prefix
+        assert ProviderRouter._bare(model) == model.split(":", 1)[1]
+        caps = capabilities_for(model)
+        assert caps.tools and caps.streaming
+
+
+def test_compat_recommended_models_are_in_the_suggested_lists():
+    """set_provider only auto-adds the recommended model if it's in _suggested_models —
+    keep the registry and the manager's COMPAT_MODELS table in lockstep."""
+    from coworker.providers.registry import get_descriptor
+    from coworker.server.manager import SessionManager
+
+    for name in COMPAT_VENDORS:
+        d = get_descriptor(name)
+        assert d.recommended_model in SessionManager.COMPAT_MODELS[name], name
