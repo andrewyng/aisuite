@@ -30,9 +30,18 @@ won't clash with a running `npm run dev` on 5173) and reuses it if already up.
 
 - `page.route("**/v1/**", …)` dispatches by pathname + method to fixtures whose shapes mirror the
   real backend (captured from a live server). Unknown endpoints return an empty-but-valid body.
-- Channel subscribe/unsubscribe mutate an in-memory list, so add/remove reflect through the real UI
-  on re-fetch.
-- The event WebSocket is stubbed (`routeWebSocket`) so the app's live channel doesn't error.
+- Mutations are held in per-test in-memory state so they reflect through the real UI on re-fetch:
+  sessions (archive/rename/delete), personas (enable/surface/delete — enable implies surface,
+  matching the backend), inbox items + the routing binding, roots, channel subscriptions.
+- The session WebSocket (`routeWebSocket`) is a **scripted fake agent** speaking the real
+  `{type, data}` event protocol: `ready` on connect; `user_message` → `turn_start` → deltas →
+  `assistant_message "Echo: <text>"` → `turn_done`; a message containing **"run a tool"** emits
+  `tool_proposed` + `permission_required` and suspends until the client's `approval` decision
+  arrives. This runs the production send/stream/approve code paths with zero model cost.
+- Seed data worth knowing: the pinned session "Draft the launch note" is the newest (boot-resume
+  target); 7 unpinned "Weekly plan N" cowork sessions exercise the sidebar peek cap; two pending
+  Inbox items (approval on cowork, question on ops) drive the Inbox filters; `acme-notes` is a
+  disabled non-builtin persona for enable/delete flows.
 
 ## Adding a spec
 
