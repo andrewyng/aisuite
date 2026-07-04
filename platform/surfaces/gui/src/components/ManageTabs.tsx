@@ -29,7 +29,26 @@ import {
 } from "../api";
 import { ModelChecklist } from "./ModelChecklist";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { SelectMenu } from "./SelectMenu";
 import { Toggle } from "./Toggle";
+
+// "2h ago"-style label for the providers' Last-used line (null when never used).
+const relTime = (epoch?: number | null): string | null => {
+  if (!epoch) return null;
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - epoch));
+  if (secs < 90) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+};
+
+const fmtDate = (iso?: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+};
 
 // Shared tab bodies for the Settings and Integrations pages (the old top-tab ManageModal was retired
 // when Settings/Activity became full-page surfaces): ModelsTab → Settings ▸ Models; ConnectorsTab +
@@ -44,7 +63,6 @@ const FIELD_LABEL = "block text-[12.5px] font-medium text-ink mb-1.5";
 const FIELD_HELP = "block text-[12px] text-muted mt-1.5 leading-relaxed";
 const INPUT_W =
   "w-full px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
-const SELECT_W = "w-full px-2.5 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink";
 
 /** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
 function initials(name: string): string {
@@ -196,32 +214,41 @@ export function ModelsTab() {
 
       {sub === "api" ? (
         <div className={CARD + " p-4"}>
-          <label className="block mb-4">
+          <div className="mb-4">
             <span className={FIELD_LABEL}>Provider</span>
-            <select
-              className={SELECT_W}
+            {/* Custom select, sectioned "Ready to use" / "Needs a key" (configured providers
+                float to the top). Rows carry a green "key set" dot + a Last-used sub-line, so
+                which providers are configured (and still in use) is visible at a glance. */}
+            <SelectMenu
+              ariaLabel="Provider"
               value={apiProv}
-              onChange={(e) => {
-                setApiProv(e.target.value);
+              options={[...providers]
+                .filter((p) => p.name !== "ollama")
+                .sort((a, b) => Number(b.configured) - Number(a.configured)) // stable: keeps registry order within each section
+                .map((p) => ({
+                  value: p.name,
+                  label: p.title,
+                  group: p.configured ? "Ready to use" : "Needs a key",
+                  dot: p.configured,
+                  sub: p.configured
+                    ? relTime(p.last_used_at)
+                      ? `Last used ${relTime(p.last_used_at)}`
+                      : "Not used yet"
+                    : undefined,
+                }))}
+              onChange={(name) => {
+                setApiProv(name);
                 setDraft("");
                 setMsg(null);
                 setVerify({ state: "idle" });
                 // Re-seed the endpoint for the newly selected provider (stored → default → blank).
-                const p = providers.find((x) => x.name === e.target.value);
+                const p = providers.find((x) => x.name === name);
                 setEndpoint(
                   p?.values?.base_url || p?.fields.find((f) => f.key === "base_url")?.default || "",
                 );
               }}
-            >
-              {providers
-                .filter((p) => p.name !== "ollama")
-                .map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.title}
-                  </option>
-                ))}
-            </select>
-          </label>
+            />
+          </div>
 
           {selProv?.blurb && (
             <p className="text-[12px] text-muted -mt-2 mb-4 leading-relaxed">{selProv.blurb}</p>
@@ -230,8 +257,13 @@ export function ModelsTab() {
           <div className="text-[12px] mb-4">
             {selProv?.configured ? (
               <span className="text-ok">
-                ● Connected — key set
+                ● Connected
+                {fmtDate(selProv.key_set_at) ? ` — key added ${fmtDate(selProv.key_set_at)}` : " — key set"}
                 {provName === "openai" && settings.source === "env" ? " (from environment)" : ""}
+                <span className="text-muted">
+                  {" · "}
+                  {relTime(selProv.last_used_at) ? `last used ${relTime(selProv.last_used_at)}` : "not used yet"}
+                </span>
               </span>
             ) : (
               <span className="text-danger">● Not connected — add a key below to use this provider</span>

@@ -132,7 +132,9 @@ class SessionManager:
         # Ollama, …). Tests inject a provider directly and bypass the router. The same router is
         # shared by every engine and the `/v1/chat/completions` proxy.
         if self.provider is None:
-            self.provider = ProviderRouter(self.secrets, default_provider="openai")
+            self.provider = ProviderRouter(
+                self.secrets, default_provider="openai", on_use=self._note_provider_use
+            )
         self.mcp = MCPManager()
         self.gateway: Optional[Gateway] = None
         self._data_base = base
@@ -1099,9 +1101,32 @@ class SessionManager:
                     "configured": configured,
                     "values": values,
                     "suggested_models": self._suggested_models(d.name),
+                    # Key hygiene for the Settings pane: when the key was saved (date, stamped
+                    # by set_provider) and when the provider last served a completion (epoch,
+                    # stamped by the router's on_use hook). Absent for env-only config.
+                    "key_set_at": profile.get("key_set_at"),
+                    "last_used_at": (self._prefs.get("provider_last_used") or {}).get(
+                        d.name
+                    ),
                 }
             )
         return out
+
+    def _note_provider_use(self, name: str) -> None:
+        """Router on_use hook: remember when a provider last served a completion. Persisted
+        THROTTLED (once per provider per minute) — this fires on every model call, from engine
+        threads, and prefs.json isn't a place for a write-per-token-of-work."""
+        import time
+
+        now = time.time()
+        used = self._prefs.setdefault("provider_last_used", {})
+        if now - float(used.get(name) or 0) < 60:
+            return
+        used[name] = now
+        try:
+            self._save_prefs()
+        except OSError:
+            pass
 
     # Suggestions for the OpenAI-compatible vendor providers (checked against vendor docs
     # 2026-07-04; refresh alongside `recommended_model` in providers/registry.py).
@@ -1151,6 +1176,12 @@ class SessionManager:
         missing = [f.label for f in d.fields if f.required and not profile.get(f.key)]
         if missing:
             return {"ok": False, "error": "missing: " + ", ".join(missing)}
+        # A (re)pasted key stamps its save date — Settings shows "key added <date>" so stale
+        # keys are visible. Endpoint-only saves keep the original stamp.
+        if isinstance(fields.get("api_key"), str) and fields["api_key"].strip():
+            from datetime import date
+
+            profile["key_set_at"] = date.today().isoformat()
         self.secrets.put(f"provider:{name}", profile)
         self._refresh_provider(name)
         # Convenience: if the provider recommends a model and it's actually available, add it to

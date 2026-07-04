@@ -478,3 +478,58 @@ def test_provider_suggested_models(tmp_path, monkeypatch):
     sugg = provs["ollama"]["suggested_models"]
     assert isinstance(sugg, list)
     assert all(not m.startswith("ollama:") for m in sugg)
+
+
+# -- last-used tracking (router on_use hook + manager persistence) ----------------
+
+
+def test_router_on_use_fires_with_provider_name():
+    seen: list[str] = []
+    router = ProviderRouter(on_use=seen.append)
+    router._clients["openai"] = OpenAIProvider(client=_FakeOAClient(content="hi"))
+    router._clients["zai"] = OpenAIProvider(client=_FakeOAClient(content="hi"))
+
+    router.complete(model="gpt-5.5", messages=[])
+    router.complete(model="zai:glm-5.2", messages=[])
+    assert seen == ["openai", "zai"]
+
+
+def test_router_on_use_failures_never_break_the_call():
+    def boom(_name):
+        raise RuntimeError("telemetry down")
+
+    router = ProviderRouter(on_use=boom)
+    router._clients["openai"] = OpenAIProvider(client=_FakeOAClient(content="ok"))
+    assert router.complete(model="gpt-5.5", messages=[]).text == "ok"
+
+
+def test_manager_key_hygiene_stamps(tmp_path, monkeypatch):
+    """set_provider stamps key_set_at; _note_provider_use records (throttled) last_used_at;
+    get_providers exposes both for the Settings pane."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from datetime import date
+
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    mgr.set_provider("deepseek", {"api_key": "ds-key"})
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["deepseek"]["configured"] is True
+    assert provs["deepseek"]["key_set_at"] == date.today().isoformat()
+    assert provs["deepseek"]["last_used_at"] is None  # configured but never used
+
+    # Endpoint-only re-save keeps the original stamp (the key wasn't touched).
+    mgr.set_provider("deepseek", {"base_url": "https://api.deepseek.com/v1"})
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["deepseek"]["key_set_at"] == date.today().isoformat()
+
+    mgr._note_provider_use("deepseek")
+    first = mgr._prefs["provider_last_used"]["deepseek"]
+    mgr._note_provider_use("deepseek")  # within the 60s throttle window → unchanged
+    assert mgr._prefs["provider_last_used"]["deepseek"] == first
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["deepseek"]["last_used_at"] == first
+    # and it survives a reload (persisted to prefs.json)
+    mgr2 = SessionManager(data_dir=tmp_path)
+    provs2 = {p["name"]: p for p in mgr2.get_providers()}
+    assert provs2["deepseek"]["last_used_at"] == first
