@@ -32,6 +32,7 @@ interface Props {
   mode: string;
   model: string;
   models?: string[];
+  modelLabels?: Record<string, string>; // curated display names (raw id when absent)
   running: boolean;
   connected: boolean;
   // False when the default model's provider has no key — the composer shows a "connect a model"
@@ -151,7 +152,7 @@ export function Composer(props: Props) {
   const available = props.models && props.models.length ? props.models : MODEL_VALUES;
   const modelOptions: Option[] = Array.from(new Set([props.model, ...available])).map((m) => ({
     value: m,
-    label: shortModel(m),
+    label: props.modelLabels?.[m] || shortModel(m),
   }));
 
   const iconBtn =

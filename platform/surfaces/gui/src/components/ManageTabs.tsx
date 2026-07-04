@@ -196,6 +196,7 @@ export function ModelsTab() {
         suggested={selProv?.suggested_models || []}
         curated={settings.models}
         defaultModel={settings.model}
+        labels={settings.model_labels}
         onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
       />
     </div>

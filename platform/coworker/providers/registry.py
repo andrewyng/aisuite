@@ -298,6 +298,24 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         recommended_model="mistral-large-latest",
         env_key="MISTRAL_API_KEY",
     ),
+    # Resellers: many labs' models behind one key, using THEIR model namespaces (the curated
+    # ids + display labels live in providers/matrix.py). TODO: add Groq and OpenRouter here
+    # (+ their matrix rows) once the current provider surface is tested — deliberately
+    # deferred to bound how much needs verifying at once (owner call, 2026-07-04).
+    _compat(
+        "together",
+        "Together AI",
+        base_url="https://api.together.xyz/v1",
+        recommended_model="zai-org/GLM-5.2",
+        env_key="TOGETHER_API_KEY",
+    ),
+    _compat(
+        "fireworks",
+        "Fireworks AI",
+        base_url="https://api.fireworks.ai/inference/v1",
+        recommended_model="accounts/fireworks/models/glm-5p2",
+        env_key="FIREWORKS_API_KEY",
+    ),
     ProviderDescriptor(
         name="ollama",
         title="Ollama (local models)",

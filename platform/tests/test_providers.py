@@ -250,3 +250,49 @@ def test_compat_recommended_models_are_in_the_suggested_lists():
     for name in COMPAT_VENDORS:
         d = get_descriptor(name)
         assert d.recommended_model in SessionManager.COMPAT_MODELS[name], name
+
+
+# -- curated model matrix (labels + capabilities by full routed id) -----------------
+
+
+def test_matrix_answers_capabilities_for_reseller_ids():
+    """Reseller ids ('together:zai-org/GLM-5.2') defeat the name-prefix heuristics — the
+    matrix must answer them exactly, with tool calling on."""
+    for mid in (
+        "together:zai-org/GLM-5.2",
+        "together:meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "fireworks:accounts/fireworks/models/kimi-k2p6",
+    ):
+        caps = capabilities_for(mid)
+        assert caps.tools and caps.parallel_tool_calls and caps.streaming
+
+
+def test_matrix_labels_and_custom_model_fallback():
+    from coworker.providers.matrix import MATRIX, model_labels
+
+    labels = model_labels()
+    assert labels["together:zai-org/GLM-5.2"] == "GLM-5.2 · via Together"
+    assert labels["zai:glm-5.2"] == "GLM-5.2 · Z AI"
+    # Deliberately small: agent-capable current models only (owner call, 2026-07-04).
+    assert len(MATRIX) < 30
+    assert all(e.caps.tools for e in MATRIX.values())
+    # A custom (unlisted) reseller model falls back to the conservative default — usable,
+    # but at the user's own risk (no parallel tool calls assumed).
+    caps = capabilities_for("together:some-org/Brand-New-Model")
+    assert caps.tools and not caps.parallel_tool_calls
+
+
+def test_reseller_descriptors_and_matrix_stay_in_lockstep():
+    """Together/Fireworks suggested models derive from the matrix, and each descriptor's
+    recommended model must be one of them (set_provider's auto-add depends on it)."""
+    from coworker.providers.matrix import models_for_provider
+    from coworker.providers.registry import get_descriptor
+
+    for name in ("together", "fireworks"):
+        d = get_descriptor(name)
+        assert d is not None and d.needs_key
+        curated = models_for_provider(name)
+        assert curated and d.recommended_model in curated
+        # full ids in the matrix must round-trip: prefix + bare == matrix key
+        base = next(f for f in d.fields if f.key == "base_url")
+        assert base.default.startswith("https://")

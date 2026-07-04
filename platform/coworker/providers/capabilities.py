@@ -10,6 +10,15 @@ from .base import ModelCapabilities
 
 
 def capabilities_for(model: str) -> ModelCapabilities:
+    # Curated models answer from the matrix (exact full-id match — including reseller ids
+    # like `together:zai-org/GLM-5.2`, whose names defeat the prefix heuristics below).
+    # Custom user-added models fall through to the heuristics, at their own risk.
+    from .matrix import entry_for
+
+    entry = entry_for(model)
+    if entry is not None:
+        return entry.caps
+
     provider = model.split(":", 1)[0].lower() if ":" in model else ""
     name = model.split(":", 1)[-1].lower()  # strip a provider prefix if present
 

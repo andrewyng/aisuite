@@ -141,6 +141,7 @@ export function App() {
   const [agent, setAgent] = useState("cowork");
   const [model, setModel] = useState("gpt-5.5");
   const [models, setModels] = useState<string[]>([]);
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({});
   const [surfaces, setSurfaces] = useState<SurfaceVisibility>({ cowork: true, chat: false, code: false });
   const [mode, setMode] = useState("interactive");
   const [connected, setConnected] = useState(false);
@@ -363,6 +364,7 @@ export function App() {
     getSettings()
       .then((s) => {
         setModels(s.models || []);
+        setModelLabels(s.model_labels || {});
         setModelReady(s.model_ready);
         if (s.surfaces) setSurfaces(s.surfaces);
       })
@@ -1066,6 +1068,7 @@ export function App() {
               mode={mode}
               model={model}
               models={models}
+              modelLabels={modelLabels}
               running={running}
               connected={connected}
               modelReady={modelReady}

@@ -1151,6 +1151,12 @@ class SessionManager:
             return ["gemini-2.5-flash", "gemini-2.5-pro"]
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
+        if name in ("together", "fireworks"):
+            # Resellers suggest exactly the curated matrix (their catalogs are 200+ models;
+            # we vouch for the agent-capable handful — anything else is add-by-hand).
+            from ..providers.matrix import models_for_provider
+
+            return models_for_provider(name)
         return list(self.COMPAT_MODELS.get(name, []))
 
     def set_provider(
@@ -1340,10 +1346,15 @@ class SessionManager:
         ]
         if self.model not in selectable:
             selectable.insert(0, self.model)
+        from ..providers.matrix import model_labels
+
         return {
             "provider": "openai",
             "model": self.model,
             "models": selectable,
+            # Curated-matrix display names ({full id → "GLM-5.2 · via Together"}) so every
+            # picker shows human labels; custom models absent here render their raw id.
+            "model_labels": model_labels(),
             "has_key": env_key or stored,
             # Provider-agnostic "can this default model actually run?" — true when the default
             # model's provider is configured (any provider, not just OpenAI). Drives the GUI's

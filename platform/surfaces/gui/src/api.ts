@@ -448,6 +448,8 @@ export interface ModelSettings {
   nav_layout?: "flat" | "grouped";
   // Sidebar: sessions shown per group before "Show more" (default 5, 1–50).
   sessions_peek?: number;
+  // Curated-matrix display names ({full id → "GLM-5.2 · via Together"}); custom models absent.
+  model_labels?: Record<string, string>;
 }
 
 /** Persist how many sessions a sidebar group shows before "Show more". */
