@@ -491,3 +491,26 @@ def test_ws_session_resume_via_store(tmp_path):
     # The session is now listed via REST.
     sessions = client.get("/v1/sessions").json()["sessions"]
     assert any(s["session_id"] == "keep" and s["messages"] > 0 for s in sessions)
+
+
+def test_ws_user_message_carries_the_composer_model(tmp_path):
+    """Every user_message may carry the composer's visible model; the engine adopts it before
+    the turn runs — immune to set_model races across reconnects (found 2026-07-04: a new
+    cowork session reconnects to adopt its scratch dir, which could drop a queued set_model
+    and leave the engine on a stale/resumed model)."""
+    client = _client(tmp_path, [_text("ok"), _text("ok again")])
+    with client.websocket_connect("/ws/session/model-per-msg") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        default_model = ready["data"]["model"]
+        ws.send_json(
+            {"type": "user_message", "text": "hi", "model": "zai:glm-5.2"}
+        )
+        _drain(ws)
+        # message WITHOUT a model keeps the last adopted one (no silent reset to default)
+        ws.send_json({"type": "user_message", "text": "again"})
+        _drain(ws)
+    mgr = client.app.state.manager
+    engine = mgr._engines["model-per-msg"]
+    assert engine.model == "zai:glm-5.2"
+    assert engine.model != default_model

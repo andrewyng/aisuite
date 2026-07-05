@@ -1087,6 +1087,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 elif kind == "user_message":
                     text = (message.get("text") or "").strip()
                     attachments = message.get("attachments") or []
+                    # The composer sends its visible model with every message — adopt it here so
+                    # the turn uses exactly what the user saw, regardless of set_model races
+                    # across reconnects (see api.ts Session.userMessage).
+                    model = message.get("model")
+                    if model:
+                        engine.model = model
                     if text or attachments:
                         content = build_user_content(text, attachments)
                         asyncio.create_task(run_turn(content))

@@ -580,7 +580,8 @@ export function App() {
 
   const send = (text: string, attachments?: Attachment[]) => {
     setItems((p) => [...p, { kind: "user", text, attachments }]);
-    sessionRef.current?.userMessage(text, attachments);
+    // The visible model rides along with the message (single source of truth per turn).
+    sessionRef.current?.userMessage(text, attachments, model);
   };
   const approve = (decision: ApprovalDecision) => {
     setItems((p) => resolveLastApproval(p, decision));

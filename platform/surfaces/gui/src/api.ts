@@ -1203,8 +1203,17 @@ export class Session {
     else if (this.ws.readyState === WebSocket.CONNECTING) this.outbox.push(payload);
   }
 
-  userMessage(text: string, attachments?: unknown[]) {
-    this.send({ type: "user_message", text, ...(attachments?.length ? { attachments } : {}) });
+  /** `model` = the composer's CURRENT selection, carried on every message so the turn uses
+   * exactly what the user sees — immune to set_model races across reconnects (a new cowork
+   * session always reconnects once to adopt its scratch dir, which could drop a queued
+   * set_model and leave the engine on a stale/resumed model; found 2026-07-04). */
+  userMessage(text: string, attachments?: unknown[], model?: string) {
+    this.send({
+      type: "user_message",
+      text,
+      ...(model ? { model } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+    });
   }
 
   approve(decision: string) {

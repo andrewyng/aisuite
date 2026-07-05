@@ -262,7 +262,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
         }
         send("assistant_delta", { text: "Echo: " });
         send("assistant_delta", { text: msg.text });
-        send("assistant_message", { text: `Echo: ${msg.text}` });
+        // Echo the model the message carried — pins the model-per-message contract (the
+        // composer's visible model must ride on every user_message; 2026-07-04 fix).
+        send("assistant_message", { text: `Echo: ${msg.text} [model=${msg.model || "none"}]` });
         send("turn_done");
       } else if (msg.type === "approval") {
         if (msg.decision === "deny") {

@@ -17,7 +17,10 @@ test("send → user bubble → streamed echo reply renders", async ({ page }) =>
 
   // Local echo of the user message, then the agent's reply (delta-streamed, then finalized).
   await expect(page.getByText("hello agent", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Echo: hello agent")).toBeVisible();
+  await expect(page.getByText(/Echo: hello agent/)).toBeVisible();
+  // The message carried the composer's visible model (model-per-message contract): what the
+  // user sees at send time is exactly what serves the turn.
+  await expect(page.getByText("[model=anthropic:claude-opus-4-8]")).toBeVisible();
   // Composer cleared and re-armed for the next turn.
   await expect(box).toHaveValue("");
 });
