@@ -295,6 +295,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Automations — mutable so Run now appends a run, enable/disable toggles, and delete removes.
   const automations: any[] = [{ ...AUTOMATION }];
   const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));
+  // Per-session unattended flag — mutable so the composer's "Send to Inbox" toggle persists and
+  // the app reads it back (which is what gates parking approvals to the Inbox vs an inline card).
+  const unattended: Record<string, boolean> = {};
 
   // Fresh cloud sign-in state per test (module state outlives a page).
   Object.assign(CLOUD_STATE, {
@@ -374,7 +377,14 @@ export async function mockApi(page: import("@playwright/test").Page) {
       return json({ roots });
     }
     if (/\/v1\/sessions\/[^/]+\/messages$/.test(p)) return json({ messages: [] });
-    if (/\/v1\/sessions\/[^/]+\/unattended$/.test(p)) return json({ unattended: false });
+    if (/\/v1\/sessions\/[^/]+\/unattended$/.test(p)) {
+      const id = decodeURIComponent(p.split("/").slice(-2)[0]);
+      if (m === "POST") {
+        unattended[id] = !!req.postDataJSON().unattended;
+        return json({ ok: true, unattended: unattended[id] });
+      }
+      return json({ unattended: !!unattended[id] });
+    }
     if (/\/v1\/sessions\/[^/]+$/.test(p)) {
       const id = decodeURIComponent(p.split("/").pop()!);
       const i = sessions.findIndex((s) => s.session_id === id);
