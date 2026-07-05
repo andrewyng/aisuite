@@ -165,7 +165,7 @@ class SessionManager:
         # Channel subscriptions (inbound): persisted (session_id, channel) records + a ring buffer
         # of recently-seen channel messages for get_channel_messages.
         self.subscriptions = SubscriptionStore(base / "subscriptions.json")
-        self.channel_buffer = ChannelBuffer()
+        self.channel_buffer = ChannelBuffer(state_path=base / "channels.json")
         # Connection hierarchy (UI-REFRESH §4): per-persona default connector on/off (seeded from the
         # manifest, then user-editable) + per-session overrides. Resolved into the session's effective
         # connector set, which gates inbound delivery and the engine's connector tools.

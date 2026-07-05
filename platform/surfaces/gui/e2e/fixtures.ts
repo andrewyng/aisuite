@@ -479,7 +479,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
       });
     }
     if (p.endsWith("/v1/providers")) return json(PROVIDERS);
-    if (p.endsWith("/v1/channels/recent")) return json({ channels: [] });
+    if (p.endsWith("/v1/channels/recent"))
+      return json({
+        channels: [
+          { channel: "slack:C0AAA111", last_from: "amy", last_text: "standup at 10" },
+          { channel: "slack:C0BBB222", last_from: "bob", last_text: "deploy failed" },
+        ],
+      });
 
     // inbox: pending items + the outbound routing binding (inline Slack config)
     if (/\/v1\/inbox\/[^/]+\/resolve$/.test(p) && m === "POST") {
@@ -522,8 +528,19 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/subscriptions") && m === "GET") return json({ subscriptions });
     if (p.endsWith("/v1/subscriptions") && m === "POST") {
       const b = req.postDataJSON();
-      subscriptions.push({ session_id: b.session_id, session_title: "", agent: "", channel: b.channel, routing_target: null, collision: false });
-      return json({ ok: true });
+      // Backend parity with resolve_channel: Copy-link URLs resolve to the id; bare #names
+      // can't be looked up and are rejected with the same hint the server gives.
+      const raw = String(b.channel || "").trim();
+      if (raw.startsWith("#"))
+        return json({
+          ok: false,
+          error:
+            "Channel names can't be looked up — paste the channel ID (channel name ▸ About) or the channel's Copy-link URL.",
+        });
+      const link = raw.match(/slack\.com\/archives\/([A-Za-z0-9]+)/);
+      const channel = link ? `slack:${link[1].toUpperCase()}` : raw;
+      subscriptions.push({ session_id: b.session_id, session_title: "", agent: "", channel, routing_target: null, collision: false });
+      return json({ ok: true, channel });
     }
     if (p.endsWith("/v1/subscriptions/remove") && m === "POST") {
       const b = req.postDataJSON();

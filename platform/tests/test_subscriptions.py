@@ -31,6 +31,44 @@ def test_resolve_channel():
     assert resolve_channel("slack:C0999") == "slack:C0999"  # already an address
     assert resolve_channel("C0777") == "slack:C0777"  # bare id → default platform
     assert resolve_channel("") == ""
+    # Slack "Copy link" URL → the id in the path (case-normalized), query/anchor tolerated.
+    assert resolve_channel("https://acme.slack.com/archives/C0123ABC") == "slack:C0123ABC"
+    assert (
+        resolve_channel("https://acme.slack.com/archives/c0123abc?foo=1")
+        == "slack:C0123ABC"
+    )
+    # A bare #name can't be looked up locally — resolving it literally would create a
+    # subscription that never matches inbound `slack:C…` traffic, so it must fail.
+    assert resolve_channel("#general") == ""
+
+
+def test_subscribe_rejects_bare_channel_names(tmp_path):
+    from fastapi.testclient import TestClient
+    from coworker.server import create_app
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    client = TestClient(create_app(mgr))
+    r = client.post(
+        "/v1/subscriptions", json={"session_id": "sN", "channel": "#general"}
+    ).json()
+    assert r["ok"] is False and "channel ID" in r["error"]
+    assert mgr.subscriptions.for_session("sN") == []
+
+
+def test_channel_buffer_persists_across_restarts(tmp_path):
+    path = tmp_path / "channels.json"
+    buf = ChannelBuffer(state_path=path)
+    buf.record("slack:C9", "bob", "deploy failed")
+    buf.record("slack:C7", "amy", "standup at 10")
+
+    # A fresh instance over the same file sees the channels AND the catch-up messages.
+    reloaded = ChannelBuffer(state_path=path)
+    assert {c["channel"] for c in reloaded.channels()} == {"slack:C9", "slack:C7"}
+    assert reloaded.recent("slack:C9") == [{"from": "bob", "text": "deploy failed"}]
+
+    # A corrupt file must never block startup — it just starts empty.
+    path.write_text("{not json")
+    assert ChannelBuffer(state_path=path).channels() == []
 
 
 def test_store_crud_and_persistence(tmp_path):

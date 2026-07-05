@@ -160,8 +160,17 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..subscriptions import resolve_channel
 
         session_id = str(body.get("session_id", "")).strip()
-        addr = resolve_channel(str(body.get("channel", "")))
+        raw = str(body.get("channel", ""))
+        addr = resolve_channel(raw)
         if not session_id or not addr or ":" not in addr:
+            if raw.strip().startswith("#"):
+                # A bare #name can't be looked up locally — storing it literally would create a
+                # subscription that never matches real traffic (resolve_channel returns "").
+                return {
+                    "ok": False,
+                    "error": "Channel names can't be looked up — paste the channel ID "
+                    "(channel name ▸ About) or the channel's Copy-link URL.",
+                }
             return {"ok": False, "error": "need a session_id and a channel"}
         manager.subscriptions.subscribe(session_id, addr)
         return {"ok": True, "channel": addr}

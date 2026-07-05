@@ -52,7 +52,7 @@ test("routing: inline Slack config binds a channel, then Stop clears it", async 
   // Slack is connected in the fixture, so the inline configure affordance shows (no detour to
   // the global connectors page).
   await page.getByTestId("inbox-route-configure").click();
-  await page.getByPlaceholder("slack:C0123 or #channel").fill("C0777");
+  await page.getByPlaceholder("slack:C0123 or channel link").fill("C0777");
   await line.getByRole("button", { name: "Set", exact: true }).click();
 
   await expect(line).toContainText("slack:C0777");
