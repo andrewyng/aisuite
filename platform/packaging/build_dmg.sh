@@ -55,8 +55,10 @@ STAGING="$(mktemp -d)"
 cp -R "$BUNDLE/macos/$APP.app" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 # Background art (arrow + "drag to Applications") — hidden folder Finder reads for the window.
+# A HiDPI TIFF (1x + native 2x reps) so text/arrow stay crisp on Retina; a plain 1x PNG would
+# be upscaled and look hazy/pixelated.
 mkdir "$STAGING/.background"
-cp "$HERE/dmg-background.png" "$STAGING/.background/bg.png"
+cp "$HERE/dmg-background.tiff" "$STAGING/.background/bg.tiff"
 DMG="$BUNDLE/dmg/${APP}_${VERSION}_${ARCH}.dmg"
 mkdir -p "$(dirname "$DMG")"
 rm -f "$DMG"
@@ -85,11 +87,11 @@ tell application "Finder"
     set the bounds of container window to {200, 120, 840, 543}
     set opts to the icon view options of container window
     set arrangement of opts to not arranged
-    set icon size of opts to 128
+    set icon size of opts to 96
     set text size of opts to 12
-    set background picture of opts to POSIX file "$mnt/.background/bg.png"
-    set position of item "$APP.app" of container window to {160, 205}
-    set position of item "Applications" of container window to {480, 205}
+    set background picture of opts to POSIX file "$mnt/.background/bg.tiff"
+    set position of item "$APP.app" of container window to {172, 190}
+    set position of item "Applications" of container window to {468, 190}
     update without registering applications
     delay 1
     close
