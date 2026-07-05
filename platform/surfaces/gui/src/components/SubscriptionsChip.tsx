@@ -151,14 +151,17 @@ export function SubscriptionsChip({
           {channels.length === 0 ? (
             <div className="dim sub-pop-empty">Not subscribed to any channel.</div>
           ) : (
-            channels.map((c) => (
+            channels.map((c) => {
+              const nm = recent.find((r) => r.channel === c)?.name;
+              return (
               <div className="sub-pop-row" key={c}>
-                <span className="sub-pop-chan">{c}</span>
+                <span className="sub-pop-chan" title={c}>{nm ? `#${nm}` : c}</span>
                 <button className="sub-pop-x" title="Unsubscribe" onClick={() => remove(c)}>
                   ×
                 </button>
               </div>
-            ))
+              );
+            })
           )}
           <div className="sub-pop-add">
             <ChannelPicker value={draft} onChange={setDraft} recent={recent} onSubmit={add} />

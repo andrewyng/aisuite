@@ -183,6 +183,10 @@ class ChannelBuffer:
         msgs = list(self._by_channel.get(channel, ()))
         return msgs[-max(1, min(n, self._cap)):]
 
+    def name_for(self, channel: str) -> Optional[str]:
+        """The channel's resolved display name, if any inbound message carried one."""
+        return self._names.get(channel)
+
     def channels(self) -> list[dict]:
         """Channels seen so far (the picker's 'recently-seen' list), newest message last."""
         out: list[dict] = []

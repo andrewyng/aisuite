@@ -885,7 +885,9 @@ function ListeningSessionsBlock({ c }: { c: Connector }) {
                 {s.session_title || s.session_id}
                 {s.agent ? <span className="text-faint"> · {s.agent}</span> : null}
               </span>
-              <span className="text-muted shrink-0">← {s.channel}</span>
+              <span className="text-muted shrink-0" title={s.channel}>
+                ← {s.channel_name ? `#${s.channel_name}` : s.channel}
+              </span>
               <button
                 className="ml-auto text-faint hover:text-danger shrink-0"
                 title="Unsubscribe this session"

@@ -265,7 +265,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const subscriptions: any[] = [
     // One existing subscription (a non-pinned session) so the connector card's
     // "Sessions listening" block has a row without touching the pinned session's drawer.
-    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:C0AAA111", routing_target: null, collision: false },
+    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:C0AAA111", channel_name: "ocw-test", routing_target: null, collision: false },
   ];
   // Parked unauthorized messages (§19) — mutable so Allow/Dismiss round-trip through the UI.
   const parked: any[] = [

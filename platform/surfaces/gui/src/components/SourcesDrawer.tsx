@@ -454,7 +454,10 @@ function ChannelsPanel({
                 >
                   <Icon name="plug" size={14} className="text-muted shrink-0" />
                   <span className="min-w-0 flex-1 text-[13px] truncate" title={s.channel}>
-                    {s.channel}
+                    {s.channel_name ? `#${s.channel_name}` : s.channel}
+                    {s.channel_name && (
+                      <span className="ml-1.5 text-[11px] text-faint">{s.channel}</span>
+                    )}
                   </span>
                   {s.collision && (
                     <span

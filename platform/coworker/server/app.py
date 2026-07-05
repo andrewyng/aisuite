@@ -139,6 +139,9 @@ def create_app(manager: SessionManager) -> FastAPI:
                     "session_title": (rec.title if rec else None) or sub.session_id,
                     "agent": agent,
                     "channel": sub.channel,
+                    # Display name from the channel buffer ("#ocw-test"), when any inbound
+                    # message has carried one — the address stays the identifier.
+                    "channel_name": manager.channel_buffer.name_for(sub.channel),
                     "routing_target": routing[0] if routing else None,
                     "collision": bool(routing and sub.channel in routing),
                 }

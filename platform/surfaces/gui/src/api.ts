@@ -833,6 +833,7 @@ export interface Subscription {
   session_title: string;
   agent: string;
   channel: string;
+  channel_name?: string | null; // resolved display name ("ocw-test"); address stays the id
   routing_target: string | null;
   collision: boolean; // inbound subscription == outbound Inbox routing on the same channel
 }

@@ -42,7 +42,7 @@ test("sessions listening to Slack channels: listed with unsubscribe", async ({ p
   const block = page.getByTestId("listening-slack");
   await expect(block).toContainText("Sessions listening to Slack channels · 1");
   await expect(block).toContainText("Weekly plan 1");
-  await expect(block).toContainText("slack:C0AAA111");
+  await expect(block).toContainText("#ocw-test"); // named channel (address in the tooltip)
 
   await block.getByTitle("Unsubscribe this session").click();
   await expect(block).toContainText("Sessions listening to Slack channels · 0");

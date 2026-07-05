@@ -185,11 +185,13 @@ def test_subscriptions_endpoint_and_collision(tmp_path):
 
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
     mgr.subscriptions.subscribe("s1", "slack:C1")
+    mgr.channel_buffer.record("slack:C1", "bob", "hello", name="ops-alerts")
     client = TestClient(create_app(mgr))
     subs = client.get("/v1/subscriptions").json()["subscriptions"]
     assert len(subs) == 1
     row = subs[0]
     assert row["session_id"] == "s1" and row["channel"] == "slack:C1"
+    assert row["channel_name"] == "ops-alerts"  # display name from the buffer
     assert row["collision"] is False  # no Inbox routing bound → no collision
     # the per-session list field is present too
     sessions = client.get("/v1/sessions").json()["sessions"]
