@@ -54,10 +54,58 @@ BUNDLE="$GUI/src-tauri/target/release/bundle"
 STAGING="$(mktemp -d)"
 cp -R "$BUNDLE/macos/$APP.app" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
+# Background art (arrow + "drag to Applications") — hidden folder Finder reads for the window.
+mkdir "$STAGING/.background"
+cp "$HERE/dmg-background.png" "$STAGING/.background/bg.png"
 DMG="$BUNDLE/dmg/${APP}_${VERSION}_${ARCH}.dmg"
 mkdir -p "$(dirname "$DMG")"
 rm -f "$DMG"
-hdiutil create -volname "$APP" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+
+# A styled install window (fixed size, icons in place, arrow background) instead of Finder's
+# default oversized bare window. Needs Finder (AppleScript); if it isn't available (headless CI),
+# fall back to the plain compressed image so the build still produces a working .dmg.
+style_dmg() {
+  local rw; rw="$(mktemp -u).dmg"
+  hdiutil create -volname "$APP" -srcfolder "$STAGING" -fs HFS+ -format UDRW -ov "$rw" >/dev/null
+  local info dev mnt
+  info="$(hdiutil attach -readwrite -noverify -noautoopen "$rw")"
+  dev="$(echo "$info" | grep -Eo '^/dev/disk[0-9]+' | head -1)"
+  mnt="$(echo "$info" | grep -Eo '/Volumes/.*$' | head -1)"
+  [ -n "$dev" ] && [ -n "$mnt" ] || return 1
+  sleep 1
+  # Icons at y≈205 to sit on the background's arrow: app left of it, Applications right. The
+  # background is set via its POSIX path (the HFS `file ".background:bg.png"` form errors -10006).
+  osascript <<OSA || { hdiutil detach "$dev" >/dev/null 2>&1 || true; return 1; }
+tell application "Finder"
+  tell disk "$APP"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set the bounds of container window to {200, 120, 840, 543}
+    set opts to the icon view options of container window
+    set arrangement of opts to not arranged
+    set icon size of opts to 128
+    set text size of opts to 12
+    set background picture of opts to POSIX file "$mnt/.background/bg.png"
+    set position of item "$APP.app" of container window to {160, 205}
+    set position of item "Applications" of container window to {480, 205}
+    update without registering applications
+    delay 1
+    close
+  end tell
+end tell
+OSA
+  sync
+  hdiutil detach "$dev" >/dev/null
+  hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
+  rm -f "$rw"
+}
+
+if ! style_dmg; then
+  echo "    (Finder styling unavailable — writing a plain .dmg)"
+  hdiutil create -volname "$APP" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null
+fi
 rm -rf "$STAGING"
 
 echo ""
