@@ -1112,6 +1112,33 @@ class SessionManager:
             )
         return out
 
+    def pick_native_folder(self) -> dict[str, Any]:
+        """Open the OS folder picker FROM THE SIDECAR — the browser GUI can't obtain absolute
+        paths from web file dialogs, but the sidecar is local and can (the desktop shell uses
+        Tauri's own picker instead). Blocking until pick/cancel; callers run it off-thread."""
+        import subprocess
+        import sys
+
+        if sys.platform == "darwin":
+            cmd = [
+                "osascript",
+                "-e",
+                'tell application "System Events" to activate',
+                "-e",
+                'POSIX path of (choose folder with prompt "Give the coworker access to a folder")',
+            ]
+        else:
+            # Linux: zenity when present; otherwise the GUI's paste-a-path input remains.
+            cmd = ["zenity", "--file-selection", "--directory"]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.TimeoutExpired):
+            return {"ok": False, "error": "no native folder picker available"}
+        path = (out.stdout or "").strip()
+        if out.returncode != 0 or not path:
+            return {"ok": False, "canceled": True}
+        return {"ok": True, "path": path}
+
     def _note_provider_use(self, name: str) -> None:
         """Router on_use hook: remember when a provider last served a completion. Persisted
         THROTTLED (once per provider per minute) — this fires on every model call, from engine

@@ -534,3 +534,34 @@ def test_session_messages_prefers_the_live_engine(tmp_path):
 
     msgs = client.get("/v1/sessions/__run__live/messages").json()["messages"]
     assert any(m.get("content") == "hi from a running automation" for m in msgs)
+
+
+def test_pick_native_folder_paths(tmp_path, monkeypatch):
+    """The sidecar-side folder picker (for browser GUIs): picked path round-trips; cancel and
+    missing-picker degrade to ok:False without raising."""
+    import subprocess
+    from types import SimpleNamespace
+
+    client = _client(tmp_path, [])
+    mgr = client.app.state.manager
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="/tmp/picked\n", stderr=""),
+    )
+    assert client.post("/v1/workspaces/pick").json() == {"ok": True, "path": "/tmp/picked"}
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="User canceled."),
+    )
+    assert client.post("/v1/workspaces/pick").json()["ok"] is False
+
+    def boom(*a, **k):
+        raise OSError("no zenity")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    out = mgr.pick_native_folder()
+    assert out["ok"] is False and "picker" in out["error"]

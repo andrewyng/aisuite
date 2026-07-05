@@ -34,6 +34,18 @@ export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {
   return (await res.json()).workspaces ?? [];
 }
 
+/** Ask the LOCAL sidecar to open the OS folder picker — the browser GUI can't obtain absolute
+ * paths from web file dialogs. Blocks until the user picks or cancels; null on cancel/unavailable. */
+export async function pickFolderViaServer(): Promise<string | null> {
+  try {
+    const res = await fetch(`${httpBase()}/v1/workspaces/pick`, { method: "POST" });
+    const d = await res.json();
+    return d.ok && d.path ? d.path : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function openWorkspace(
   path: string,
   create = false,

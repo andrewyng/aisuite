@@ -356,6 +356,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/health")) return json(HEALTH);
     if (p.endsWith("/v1/settings")) return json(SETTINGS);
     if (p.endsWith("/v1/workspaces/recent")) return json({ workspaces: [] });
+    if (p.endsWith("/v1/workspaces/pick") && m === "POST") {
+      return json({ ok: true, path: "/tmp/picked-folder" });
+    }
     if (p.endsWith("/v1/workspaces/open") && m === "POST") {
       const b = req.postDataJSON();
       return json({ ok: true, path: b.path, git_branch: "main" });

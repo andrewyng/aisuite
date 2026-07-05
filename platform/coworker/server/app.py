@@ -371,6 +371,12 @@ def create_app(manager: SessionManager) -> FastAPI:
             body.get("path", ""), create=bool(body.get("create"))
         )
 
+    @app.post("/v1/workspaces/pick")
+    async def pick_workspace() -> dict[str, Any]:
+        # Native folder picker opened by the LOCAL sidecar (browser GUIs can't get absolute
+        # paths from web file dialogs). Off the event loop: blocks until pick/cancel.
+        return await asyncio.to_thread(manager.pick_native_folder)
+
     @app.get("/v1/sessions")
     def sessions(workspace: str | None = None) -> dict[str, Any]:
         return {"sessions": manager.list_sessions(workspace)}
