@@ -197,6 +197,39 @@ const CONNECTIONS = {
   attention: 1,
 };
 
+// One scheduled automation with a running run: its session id uses the real `__run__` convention
+// so the session view's run banner (detection is id-based) can be exercised end-to-end.
+const AUTOMATION = {
+  id: "task-1",
+  title: "Daily AI News",
+  instructions: "Fetch the latest AI news and produce an HTML+Tailwind presentation.",
+  schedule: "Every day at ~5:40 PM",
+  schedule_raw: { kind: "cron", cron: "40 17 * * *", fire_at: null, timezone: "local" },
+  workspace: "",
+  agent: "cowork",
+  enabled: true,
+  next_run: Math.floor(Date.now() / 1000) + 3600,
+  last_run: Math.floor(Date.now() / 1000) - 60,
+  last_status: "running",
+  run_count: 1,
+  notify_on_completion: false,
+  always_allowed: [],
+};
+const AUTOMATION_RUNS = [
+  {
+    run_id: "r1",
+    task_id: "task-1",
+    session_id: "__run__r1",
+    started_at: Math.floor(Date.now() / 1000) - 60,
+    finished_at: null,
+    status: "running",
+    result_text: null,
+    artifacts: [],
+    error: null,
+    trigger: "schedule",
+  },
+];
+
 const PRIMARY_ROOT = { path: "/Users/test/OpenCoworker/launch-note", writable: true, label: "scratch", primary: true, exists: true };
 const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
 
@@ -440,7 +473,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
       });
     }
 
-    if (p.endsWith("/v1/automations")) return json({ tasks: [] });
+    // automations: one scheduled task with a running run (drives the Automations detail page
+    // and the run-session banner + Back-to-runs flow)
+    if (/\/v1\/automations\/[^/]+$/.test(p) && m === "GET") {
+      return json({ task: AUTOMATION, runs: AUTOMATION_RUNS });
+    }
+    if (p.endsWith("/v1/automations")) return json({ tasks: [AUTOMATION] });
     if (p.endsWith("/v1/mcp")) return json({ servers: [] });
     if (p.endsWith("/v1/unrouted")) return json([]);
 

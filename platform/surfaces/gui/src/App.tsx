@@ -152,6 +152,12 @@ export function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [projects, setProjects] = useState<RecentWorkspace[]>([]);
   const [sessionId, setSessionId] = useState<string>(newId());
+  // Automation-run context (§ owner ask 2026-07-04): which task an open __run__ session belongs
+  // to, driving the banner + "Back to runs". Best-effort — a run session without context still
+  // shows a generic banner (detected by its __run__ id).
+  const [runContext, setRunContext] = useState<{ id: string; title: string } | null>(null);
+  // Which automation the Automations surface opens on (set by the banner's Back link).
+  const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<"appearance" | "files" | "models" | "personas">(
@@ -778,17 +784,23 @@ export function App() {
 
   // "Run now": prepare a manual run, open its session, and auto-send the task so the agent
   // runs LIVE in the main view; finalize it in history once the first turn finishes.
-  const openRunSession = (sessionId: string, ws: string, ag: string) => {
+  const openRunSession = (
+    sessionId: string,
+    ws: string,
+    ag: string,
+    task?: { id: string; title: string },
+  ) => {
+    setRunContext(task ?? null);
     setSurface("session");
     setShowGate(false);
     selectSession(sessionId, ws, ag);
   };
-  const runTaskNow = async (taskId: string) => {
+  const runTaskNow = async (taskId: string, title?: string) => {
     const r = await runAutomation(taskId);
     if (!r || !r.ok) return;
     pendingPromptRef.current = r.prompt;
     activeRunRef.current = { taskId, runId: r.run_id, sessionId: r.session_id };
-    openRunSession(r.session_id, r.workspace, r.agent);
+    openRunSession(r.session_id, r.workspace, r.agent, { id: taskId, title: title || "" });
   };
 
   const idle = items.length === 0 && !streaming;
@@ -870,7 +882,11 @@ export function App() {
         inboxActive={surface === "inbox"}
       />
       {surface === "scheduled" ? (
-        <ScheduledView onOpenRun={openRunSession} onRunNow={runTaskNow} />
+        <ScheduledView
+          onOpenRun={openRunSession}
+          onRunNow={runTaskNow}
+          initialOpenId={scheduledOpenId}
+        />
       ) : surface === "integrations" ? (
         <IntegrationsView />
       ) : surface === "settings" ? (
@@ -1006,6 +1022,36 @@ export function App() {
             )}
           </div>
         </div>
+        {/* Automation-run context (owner ask 2026-07-04): a __run__ session looked like any other
+            chat with no way back to the runs list. Detected by the id convention, enriched with
+            the task title when navigation provided it. */}
+        {surface === "session" && sessionId.startsWith("__run__") && (
+          <div
+            className="flex items-center gap-2 px-6 py-2 text-[12.5px] border-b border-line bg-accentSoft/40"
+            data-testid="run-banner"
+          >
+            <Icon name="clock" size={14} className="text-accent shrink-0" />
+            <span className="truncate text-muted">
+              Scheduled run
+              {runContext?.title ? (
+                <>
+                  {" — "}
+                  <span className="text-ink font-medium">{runContext.title}</span>
+                </>
+              ) : null}{" "}
+              · this conversation was started by an automation
+            </span>
+            <button
+              className="ml-auto shrink-0 text-accent font-medium hover:underline"
+              onClick={() => {
+                if (runContext) setScheduledOpenId(runContext.id);
+                setSurface("scheduled");
+              }}
+            >
+              ← Back to runs
+            </button>
+          </div>
+        )}
         <div className={"main-workspace" + (railHidden ? " rail-hidden" : "")}>
           <div className="main-chat">
             {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute

@@ -521,3 +521,16 @@ def test_ws_first_message_binds_the_session_model_then_locks(tmp_path):
     engine = mgr._engines["model-per-msg"]
     assert engine.model == "zai:glm-5.2"
     assert engine.model != default_model
+
+
+def test_session_messages_prefers_the_live_engine(tmp_path):
+    """Opening a RUNNING session (e.g. a scheduled automation's first turn) must show the live
+    conversation: the persisted record may not exist yet mid-turn — reading only the store gave
+    a blank transcript on first open (owner report, 2026-07-04)."""
+    client = _client(tmp_path, [_text("ok")])
+    mgr = client.app.state.manager
+    engine = mgr.get_engine("__run__live", agent="chat")
+    engine.messages.append({"role": "user", "content": "hi from a running automation"})
+
+    msgs = client.get("/v1/sessions/__run__live/messages").json()["messages"]
+    assert any(m.get("content") == "hi from a running automation" for m in msgs)

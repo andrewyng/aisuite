@@ -2176,6 +2176,12 @@ class SessionManager:
         return {"ok": True, "roots": self.get_roots(session_id)}
 
     def session_messages(self, session_id: str) -> list[dict[str, Any]]:
+        # A live engine's in-memory thread is authoritative: mid-turn it's ahead of the
+        # persisted record — which may not even exist yet for a scheduled run's first turn
+        # (opening a "running" automation showed a blank session; owner report 2026-07-04).
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            return list(engine.messages)
         record = self.session_store.load(session_id)
         return record.messages if record else []
 
