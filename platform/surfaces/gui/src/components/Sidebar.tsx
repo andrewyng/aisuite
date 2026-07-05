@@ -638,21 +638,12 @@ export function Sidebar(props: Props) {
 
   return (
     <div className="sidebar flex flex-col min-h-0 bg-panel border-r border-line">
-      {/* Header: accent check-logo tile + wordmark + flat↔grouped layout toggle (mock §102). */}
-      <div className="brand px-3.5 pt-3.5 pb-2 flex items-center gap-2">
+      {/* Header: accent logo tile (6-point star, matches the app + tray icon) + wordmark +
+          flat↔grouped layout toggle (mock §102). data-tauri-drag-region makes this strip drag
+          the window on desktop, where it also clears the overlaid traffic lights (see styles.css). */}
+      <div className="brand px-3.5 pt-3.5 pb-2 flex items-center gap-2" data-tauri-drag-region>
         <div className="w-6 h-6 rounded-md bg-accent/15 grid place-items-center text-accent shrink-0">
-          <svg
-            width={14}
-            height={14}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.2}
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="M5 13l4 4L19 7" />
-          </svg>
+          <Icon name="logo" size={14} />
         </div>
         <div className="font-semibold tracking-tight">OpenCoworker</div>
         {/* Layout toggle by the wordmark: flat (persona accordions) ↔ grouped (per-persona cards). */}
