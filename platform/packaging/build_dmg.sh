@@ -7,8 +7,21 @@
 #   4. Wrap the .app in a compressed .dmg via hdiutil (reliable + headless; Tauri's own
 #      bundle_dmg.sh uses Finder AppleScript and fails in non-interactive sessions).
 #
-# The result is UNSIGNED — first launch needs right-click → Open (Gatekeeper). Real
-# code-signing + notarization is a later step.
+# Prerequisites (mirrors build_windows.ps1's header):
+#   - Rust (rustup) + Node/npm, and the GUI deps installed (npm ci in surfaces/gui).
+#   - A Python venv at platform/.venv with this package installed editable, plus the
+#     build-only deps:
+#       python3 -m venv platform/.venv
+#       platform/.venv/bin/pip install -e . pyinstaller tzdata typer
+#     `typer` is needed only at BUILD time: PyInstaller walks the `mcp` package and
+#     `mcp.cli` calls sys.exit() at import if typer is absent, which aborts the freeze.
+#     (aisuite is not pip-installed — the spec adds <repo> to pathex so PyInstaller finds it.)
+#
+# SIGNING: set APPLE_SIGNING_IDENTITY to a "Developer ID Application: … (TEAMID)" identity and
+# `tauri build` signs the .app + the bundled sidecar with it. Left unset → UNSIGNED (first launch
+# needs right-click → Open). Either way this script does NOT notarize; to finish a public release:
+#   xcrun notarytool submit "<dmg>" --keychain-profile <profile> --wait   # profile via store-credentials
+#   xcrun stapler staple "<dmg>"
 #
 # Experimental (use-at-your-own-risk) connectors are EXCLUDED from this build by default —
 # the spec strips coworker.connectors.experimental. Self-builders can opt in with:
