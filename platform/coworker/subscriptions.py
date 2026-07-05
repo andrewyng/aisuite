@@ -138,18 +138,28 @@ class ChannelBuffer:
         self._cap = cap
         self._path = Path(state_path) if state_path else None
         self._by_channel: dict[str, deque] = {}
+        self._names: dict[str, str] = {}  # channel address → display name ("#ocw-test")
         if self._path is not None and self._path.exists():
             try:
                 data = json.loads(self._path.read_text())
-                for chan, msgs in data.items():
-                    self._by_channel[chan] = deque(list(msgs)[-cap:], maxlen=cap)
-            except (OSError, ValueError):
+                # Current format: {"messages": {...}, "names": {...}}; the first shipped
+                # format was the bare messages dict — accept both.
+                msgs_by_chan = data.get("messages", data) if isinstance(data, dict) else {}
+                self._names = dict(data.get("names") or {}) if isinstance(data, dict) else {}
+                for chan, msgs in msgs_by_chan.items():
+                    if isinstance(msgs, list):
+                        self._by_channel[chan] = deque(msgs[-cap:], maxlen=cap)
+            except (OSError, ValueError, AttributeError):
                 pass  # a corrupt buffer must never block startup
 
-    def record(self, channel: str, who: str, text: str) -> None:
+    def record(
+        self, channel: str, who: str, text: str, name: Optional[str] = None
+    ) -> None:
         self._by_channel.setdefault(channel, deque(maxlen=self._cap)).append(
             {"from": who, "text": text}
         )
+        if name:
+            self._names[channel] = name
         self._save()
 
     def _save(self) -> None:
@@ -158,7 +168,12 @@ class ChannelBuffer:
         try:
             tmp = self._path.with_suffix(".tmp")
             tmp.write_text(
-                json.dumps({c: list(m) for c, m in self._by_channel.items()})
+                json.dumps(
+                    {
+                        "messages": {c: list(m) for c, m in self._by_channel.items()},
+                        "names": self._names,
+                    }
+                )
             )
             tmp.replace(self._path)
         except OSError:
@@ -173,7 +188,14 @@ class ChannelBuffer:
         out: list[dict] = []
         for chan, msgs in self._by_channel.items():
             last = msgs[-1] if msgs else {}
-            out.append({"channel": chan, "last_from": last.get("from"), "last_text": last.get("text")})
+            out.append(
+                {
+                    "channel": chan,
+                    "name": self._names.get(chan),
+                    "last_from": last.get("from"),
+                    "last_text": last.get("text"),
+                }
+            )
         return out
 
 

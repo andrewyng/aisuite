@@ -33,12 +33,13 @@ export function ChannelPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  // Filter as the user types (address or last-message text); the full list shows on focus.
+  // Filter as the user types (name, address, or last-message text); full list on focus.
   const q = value.trim().toLowerCase();
   const options = recent.filter(
     (c) =>
       !q ||
       c.channel.toLowerCase().includes(q) ||
+      (c.name || "").toLowerCase().includes(q) ||
       (c.last_text || "").toLowerCase().includes(q),
   );
 
@@ -79,7 +80,10 @@ export function ChannelPicker({
                 setOpen(false);
               }}
             >
-              <span className="text-[12.5px] text-ink">{c.channel}</span>
+              <span className="text-[12.5px] text-ink">
+                {c.name ? `#${c.name}` : c.channel}
+              </span>
+              {c.name && <span className="ml-1.5 text-[11px] text-faint">{c.channel}</span>}
               {c.last_text && (
                 <span className="block text-[11px] text-faint truncate">
                   {c.last_from ? `${c.last_from}: ` : ""}

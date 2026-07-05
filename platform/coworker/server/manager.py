@@ -169,6 +169,20 @@ class SessionManager:
         self.channel_buffer = ChannelBuffer(state_path=base / "channels.json")
         # Unauthorized inbound messages, parked instead of dropped (one-step allow-and-deliver).
         self.parked = ParkedStore(base / "parked.json")
+        # People directory: "platform:user_id" → display name, noted from every inbound
+        # (authorized or parked) so allow-list chips read "Rohit Prsad", not "U07JK…".
+        self._people_path = base / "people.json"
+        try:
+            self._people: dict[str, str] = json.loads(self._people_path.read_text())
+        except (OSError, ValueError):
+            self._people = {}
+        # Seed from already-parked messages (they carry resolved names) so an allow made from
+        # an old parked item still gets a named chip.
+        for it in self.parked.list():
+            if it.get("user_name"):
+                self._people.setdefault(
+                    f"{it['platform']}:{it['user_id']}", it["user_name"]
+                )
         # Connection hierarchy (UI-REFRESH §4): per-persona default connector on/off (seeded from the
         # manifest, then user-editable) + per-session overrides. Resolved into the session's effective
         # connector set, which gates inbound delivery and the engine's connector tools.
@@ -856,9 +870,18 @@ class SessionManager:
             recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
             for r in recent:
                 r["authorized"] = r.get("user_id") in allowed
+                # Backfill from the people directory (an event may predate name scopes).
+                r["user_name"] = r.get("user_name") or self._people.get(
+                    f"{c['name']}:{r.get('user_id')}"
+                )
             c["recent"] = recent
             # Parked unauthorized messages (§19) — the connector page resolves them inline.
             c["unauthorized"] = self.parked.list(c["name"])
+            # Allow-list display names from the people directory (ids stay the source of truth).
+            c["allowed_user_names"] = {
+                u: self._people.get(f"{c['name']}:{u}")
+                for u in (c.get("allowed_users") or [])
+            }
         return connectors
 
     def connect_connector(
@@ -1584,10 +1607,24 @@ class SessionManager:
             self.gateway = None
 
     # -- unauthorized inbound (parked, §19) --------------------------------------
+    def _note_person(self, platform: str, user_id: Optional[str], name: Optional[str]) -> None:
+        """Remember a sender's display name (persisted) so ID-keyed surfaces — the allow-list
+        chips above all — can show who a U07JK… actually is. Best-effort, newest name wins."""
+        if not user_id or not name:
+            return
+        key = f"{platform}:{user_id}"
+        if self._people.get(key) != name:
+            self._people[key] = name
+            try:
+                self._people_path.write_text(json.dumps(self._people))
+            except OSError:
+                pass
+
     async def _park_unauthorized(self, event) -> None:
         """Gateway callback: keep what an unallowed sender said (names already resolved by the
         adapter, best-effort) so the owner can allow-and-deliver without a re-send."""
         s = event.source
+        self._note_person(s.platform, s.user_id, s.user_name)
         self.parked.park(
             platform=s.platform,
             chat_id=s.chat_id,
@@ -1850,6 +1887,7 @@ class SessionManager:
         text = getattr(event, "text", "") or ""
         who = src.user_name or src.user_id or "?"
         channel = f"{src.platform}:{src.chat_id}"  # thread-agnostic channel address
+        self._note_person(src.platform, src.user_id, src.user_name)
         # Structured sidecar (display-only) built from the resolved identities on the event — the
         # framed text below stays the model-facing `content`; `ms.text` carries the RAW message.
         ms = MessageSource(
@@ -1864,7 +1902,7 @@ class SessionManager:
         )
         if src.chat_type in ("channel", "group"):
             self.channel_buffer.record(
-                channel, who, text
+                channel, who, text, name=src.chat_name
             )  # buffer all, even unsubscribed
             subs = self.subscriptions.for_channel(channel)
             if subs:

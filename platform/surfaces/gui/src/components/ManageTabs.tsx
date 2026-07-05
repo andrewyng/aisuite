@@ -922,11 +922,12 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
             <span
               key={u}
               className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-paper border border-line text-[12px]"
+              title={`id ${u}`}
             >
               <span className="w-4 h-4 rounded-full bg-accentSoft text-accent grid place-items-center text-[9px] font-bold">
-                {initials(u)}
+                {initials(c.allowed_user_names?.[u] || u)}
               </span>
-              {u}
+              {c.allowed_user_names?.[u] || u}
               <button
                 className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
                 title="remove"

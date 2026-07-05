@@ -47,8 +47,16 @@ test("recent channels popover: opens on focus, filters, picks", async ({ page })
   const input = page.getByPlaceholder("slack:C0123 or channel link");
   await input.click();
   const pop = page.getByTestId("channel-suggestions");
+  // Named channels show "#name" with the address as a sub-label; unnamed fall back to the address.
+  await expect(pop.getByText("#ocw-test")).toBeVisible();
   await expect(pop.getByText("slack:C0AAA111")).toBeVisible();
   await expect(pop.getByText("bob: deploy failed")).toBeVisible();
+
+  // Typing part of the channel NAME filters too…
+  await input.fill("ocw");
+  await expect(pop.getByText("#ocw-test")).toBeVisible();
+  await expect(pop.getByText("slack:C0BBB222")).toHaveCount(0);
+  await input.fill("");
 
   // Typing filters (matches address or message text)…
   await input.fill("deploy");

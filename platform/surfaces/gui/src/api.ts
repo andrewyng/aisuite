@@ -291,6 +291,7 @@ export interface Connector {
   brand_color: string; // hex brand color, e.g. "#611f69" (fallback gray "#6b7280")
   logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
+  allowed_user_names?: Record<string, string | null>; // id → display name (people directory)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   unauthorized?: ParkedMessage[]; // parked messages from unallowed senders (§19)
   tools: ConnectorTool[];
@@ -838,6 +839,7 @@ export interface Subscription {
 
 export interface RecentChannel {
   channel: string;
+  name?: string | null; // resolved display name, e.g. "ocw-test" (falls back to the address)
   last_from: string | null;
   last_text: string | null;
 }

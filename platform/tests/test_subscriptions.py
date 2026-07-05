@@ -58,13 +58,23 @@ def test_subscribe_rejects_bare_channel_names(tmp_path):
 def test_channel_buffer_persists_across_restarts(tmp_path):
     path = tmp_path / "channels.json"
     buf = ChannelBuffer(state_path=path)
-    buf.record("slack:C9", "bob", "deploy failed")
+    buf.record("slack:C9", "bob", "deploy failed", name="ops-alerts")
     buf.record("slack:C7", "amy", "standup at 10")
 
-    # A fresh instance over the same file sees the channels AND the catch-up messages.
+    # A fresh instance over the same file sees the channels, names, AND catch-up messages.
     reloaded = ChannelBuffer(state_path=path)
-    assert {c["channel"] for c in reloaded.channels()} == {"slack:C9", "slack:C7"}
+    by_chan = {c["channel"]: c for c in reloaded.channels()}
+    assert set(by_chan) == {"slack:C9", "slack:C7"}
+    assert by_chan["slack:C9"]["name"] == "ops-alerts"  # display name survives
+    assert by_chan["slack:C7"]["name"] is None
     assert reloaded.recent("slack:C9") == [{"from": "bob", "text": "deploy failed"}]
+
+    # The first shipped format was the bare messages dict — still loads.
+    import json as _json
+
+    path.write_text(_json.dumps({"slack:C1": [{"from": "z", "text": "old format"}]}))
+    legacy = ChannelBuffer(state_path=path)
+    assert legacy.recent("slack:C1") == [{"from": "z", "text": "old format"}]
 
     # A corrupt file must never block startup — it just starts empty.
     path.write_text("{not json")
@@ -266,6 +276,9 @@ def test_unauthorized_messages_park_and_resolve(tmp_path, monkeypatch):
     assert [sid for sid, _ in delivered] == ["sA"]
     assert mgr.channel_buffer.recent("slack:C1")[-1]["text"] == "deploy failed"
     assert mgr.parked.list("slack") == []
+    # The people directory captured the sender, so the allow-list chip can show a NAME.
+    slack = next(c for c in mgr.list_connectors() if c["name"] == "slack")
+    assert slack["allowed_user_names"] == {"U9": "bob"}
 
     # unknown item / wrong platform → error
     assert asyncio.run(mgr.resolve_unauthorized("slack", "nope", "dismiss"))["ok"] is False
