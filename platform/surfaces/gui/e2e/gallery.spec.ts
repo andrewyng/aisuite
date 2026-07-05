@@ -19,6 +19,23 @@ async function openGallery(page) {
   await expect(page.getByTestId("gallery-modal")).toBeVisible();
 }
 
+test("slow cloud: skeleton shows while the gallery loads, never a blank body", async ({
+  page,
+}) => {
+  // The real gallery is a cloud round-trip (Lambda + Dynamo) that can take seconds;
+  // delay the mocked endpoints to assert the skeleton bridges the gap.
+  await page.route("**/v1/cloud/status", async (route) => {
+    await new Promise((r) => setTimeout(r, 1200));
+    await route.fulfill({ json: { ok: true, signed_in: false } });
+  });
+  await openGallery(page);
+  await expect(page.getByTestId("gallery-loading")).toBeVisible();
+  await expect(page.getByTestId("gallery-loading")).toContainText("Loading the gallery");
+  // Resolves into the real body (signed-out prompt here) once the cloud answers.
+  await expect(page.getByTestId("gallery-signin")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("gallery-loading")).toHaveCount(0);
+});
+
 test("signed out: modal prompts for sign-in, manual install path unaffected", async ({ page }) => {
   await openGallery(page);
   const prompt = page.getByTestId("gallery-signin");
