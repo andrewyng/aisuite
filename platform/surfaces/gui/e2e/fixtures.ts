@@ -289,6 +289,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Session roots — the primary (writable, non-removable) scratch plus any added folders. Mutable so
   // the RO/RW add/toggle round-trips through the real UI. POST upserts by path (a toggle re-adds).
   const roots: any[] = [{ ...PRIMARY_ROOT }];
+  // Providers — mutable so save (POST) flips `configured` and stamps key_set_at, matching the
+  // backend's set_provider. verify (POST) never mutates: it's a live read-only credential check.
+  const providers: any[] = PROVIDERS.map((p) => ({ ...p }));
+  // Automations — mutable so Run now appends a run, enable/disable toggles, and delete removes.
+  const automations: any[] = [{ ...AUTOMATION }];
+  const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));
 
   // Fresh cloud sign-in state per test (module state outlives a page).
   Object.assign(CLOUD_STATE, {
@@ -505,7 +511,26 @@ export async function mockApi(page: import("@playwright/test").Page) {
         ],
       });
     }
-    if (p.endsWith("/v1/providers")) return json(PROVIDERS);
+    // provider credential check (read-only) — an api_key containing "bad" fails, else ok.
+    if (p.endsWith("/v1/providers/verify") && m === "POST") {
+      const key = String(req.postDataJSON()?.fields?.api_key || "");
+      return /bad/i.test(key)
+        ? json({ ok: false, error: "Invalid API key." })
+        : json({ ok: true });
+    }
+    // save a provider key — flips `configured`, stamps key_set_at (backend set_provider parity).
+    if (p.endsWith("/v1/providers") && m === "POST") {
+      const b = req.postDataJSON();
+      const prov = providers.find((x) => x.name === b.name);
+      if (!prov) return json({ ok: false, error: `unknown provider: ${b.name}` });
+      if (b.fields?.api_key) {
+        prov.configured = true;
+        prov.key_set_at = "2026-07-05";
+      }
+      if (b.fields?.base_url) prov.values = { ...prov.values, base_url: b.fields.base_url };
+      return json({ ok: true, provider: b.name, recommended_model: null });
+    }
+    if (p.endsWith("/v1/providers")) return json(providers);
     if (p.endsWith("/v1/channels/recent"))
       return json({
         channels: [
@@ -543,11 +568,52 @@ export async function mockApi(page: import("@playwright/test").Page) {
     }
 
     // automations: one scheduled task with a running run (drives the Automations detail page
-    // and the run-session banner + Back-to-runs flow)
-    if (/\/v1\/automations\/[^/]+$/.test(p) && m === "GET") {
-      return json({ task: AUTOMATION, runs: AUTOMATION_RUNS });
+    // and the run-session banner + Back-to-runs flow). Mutable: Run now appends a run and opens
+    // its live session; the enable toggle (PATCH) and delete (DELETE) round-trip through the UI.
+    if (/\/v1\/automations\/[^/]+\/run$/.test(p) && m === "POST") {
+      const id = p.split("/").slice(-2)[0];
+      const task = automations.find((t) => t.id === id);
+      if (!task) return json({ ok: false, error: "unknown task" });
+      const runId = `r${automationRuns.length + 1}`;
+      automationRuns.unshift({
+        run_id: runId,
+        task_id: id,
+        session_id: `__run__${runId}`,
+        started_at: Math.floor(Date.now() / 1000),
+        finished_at: null,
+        status: "running",
+        result_text: null,
+        artifacts: [],
+        error: null,
+        trigger: "manual",
+      });
+      return json({
+        ok: true,
+        run_id: runId,
+        session_id: `__run__${runId}`,
+        workspace: task.workspace,
+        agent: task.agent,
+        prompt: task.instructions,
+      });
     }
-    if (p.endsWith("/v1/automations")) return json({ tasks: [AUTOMATION] });
+    if (/\/v1\/automations\/[^/]+$/.test(p) && m === "GET") {
+      const id = p.split("/").pop();
+      const task = automations.find((t) => t.id === id) ?? automations[0];
+      return json({ task, runs: automationRuns.filter((r) => r.task_id === task?.id) });
+    }
+    if (/\/v1\/automations\/[^/]+$/.test(p) && m === "PATCH") {
+      const id = p.split("/").pop();
+      const task = automations.find((t) => t.id === id);
+      if (task) Object.assign(task, req.postDataJSON());
+      return json({ ok: true, task });
+    }
+    if (/\/v1\/automations\/[^/]+$/.test(p) && m === "DELETE") {
+      const id = p.split("/").pop();
+      const i = automations.findIndex((t) => t.id === id);
+      if (i >= 0) automations.splice(i, 1);
+      return json({ ok: true });
+    }
+    if (p.endsWith("/v1/automations")) return json({ tasks: automations });
     if (p.endsWith("/v1/mcp")) return json({ servers: [] });
     if (p.endsWith("/v1/unrouted")) return json([]);
 
