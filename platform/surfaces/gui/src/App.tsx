@@ -1070,6 +1070,7 @@ export function App() {
               model={model}
               models={models}
               modelLabels={modelLabels}
+              modelLocked={items.length > 0}
               running={running}
               connected={connected}
               modelReady={modelReady}

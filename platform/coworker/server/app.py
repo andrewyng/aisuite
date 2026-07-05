@@ -960,6 +960,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 }
             return {"approved": True, "mode": resp.get("mode") or "interactive"}
 
+        def _model_locked() -> bool:
+            # The model is chosen until the first real turn, then fixed for the session's life
+            # (system message doesn't count as history). Enforced HERE, not just in the GUI,
+            # so API callers and message races can't rebind a running conversation.
+            return any(m.get("role") != "system" for m in engine.messages)
+
         def _resolve_pending(resolution: str) -> None:
             # Live WS responses resolve THE session's single pending prompt (one at a time, since the
             # agent blocks). Reconnect / Inbox resolve by id via REST instead.
@@ -1082,16 +1088,18 @@ def create_app(manager: SessionManager) -> FastAPI:
                         pass
                 elif kind == "set_model":
                     model = message.get("model")
-                    if model:
+                    if model and not _model_locked():
                         engine.model = model
                 elif kind == "user_message":
                     text = (message.get("text") or "").strip()
                     attachments = message.get("attachments") or []
-                    # The composer sends its visible model with every message — adopt it here so
-                    # the turn uses exactly what the user saw, regardless of set_model races
-                    # across reconnects (see api.ts Session.userMessage).
+                    # The composer sends its visible model with every message — the FIRST one
+                    # binds the session's model (race-proof across reconnects; see api.ts
+                    # Session.userMessage). After that the model is FIXED for the session's
+                    # life (owner call, 2026-07-04): mixed-model transcripts invite
+                    # provider-quirk breakage. Start a new session to switch.
                     model = message.get("model")
-                    if model:
+                    if model and not _model_locked():
                         engine.model = model
                     if text or attachments:
                         content = build_user_content(text, attachments)

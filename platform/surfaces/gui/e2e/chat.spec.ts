@@ -21,6 +21,9 @@ test("send → user bubble → streamed echo reply renders", async ({ page }) =>
   // The message carried the composer's visible model (model-per-message contract): what the
   // user sees at send time is exactly what serves the turn.
   await expect(page.getByText("[model=anthropic:claude-opus-4-8]")).toBeVisible();
+  // …and having sent, the model is now FIXED for this session: the picker becomes a
+  // read-only pill (start a new session to switch).
+  await expect(page.getByTitle(/model is fixed for this session/)).toBeVisible();
   // Composer cleared and re-armed for the next turn.
   await expect(box).toHaveValue("");
 });

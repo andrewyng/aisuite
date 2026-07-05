@@ -493,12 +493,13 @@ def test_ws_session_resume_via_store(tmp_path):
     assert any(s["session_id"] == "keep" and s["messages"] > 0 for s in sessions)
 
 
-def test_ws_user_message_carries_the_composer_model(tmp_path):
-    """Every user_message may carry the composer's visible model; the engine adopts it before
-    the turn runs — immune to set_model races across reconnects (found 2026-07-04: a new
-    cowork session reconnects to adopt its scratch dir, which could drop a queued set_model
-    and leave the engine on a stale/resumed model)."""
-    client = _client(tmp_path, [_text("ok"), _text("ok again")])
+def test_ws_first_message_binds_the_session_model_then_locks(tmp_path):
+    """The FIRST user_message's model binds the session (race-proof across reconnects — found
+    2026-07-04: a new cowork session reconnects to adopt its scratch dir, which could drop a
+    queued set_model and leave the engine on a stale/resumed model). After the first turn the
+    model is FIXED for the session's life: later message models and set_model are ignored
+    (owner call, 2026-07-04 — mixed-model transcripts invite provider-quirk breakage)."""
+    client = _client(tmp_path, [_text("ok"), _text("ok again"), _text("still ok")])
     with client.websocket_connect("/ws/session/model-per-msg") as ws:
         ready = ws.receive_json()
         assert ready["type"] == "ready"
@@ -507,8 +508,14 @@ def test_ws_user_message_carries_the_composer_model(tmp_path):
             {"type": "user_message", "text": "hi", "model": "zai:glm-5.2"}
         )
         _drain(ws)
-        # message WITHOUT a model keeps the last adopted one (no silent reset to default)
+        # message WITHOUT a model keeps the bound one (no silent reset to default)
         ws.send_json({"type": "user_message", "text": "again"})
+        _drain(ws)
+        # locked: neither a different message model nor set_model can rebind mid-session
+        ws.send_json({"type": "set_model", "model": "kimi:kimi-k2.6"})
+        ws.send_json(
+            {"type": "user_message", "text": "switch?", "model": "kimi:kimi-k2.6"}
+        )
         _drain(ws)
     mgr = client.app.state.manager
     engine = mgr._engines["model-per-msg"]

@@ -33,6 +33,9 @@ interface Props {
   model: string;
   models?: string[];
   modelLabels?: Record<string, string>; // curated display names (raw id when absent)
+  // The model is FIXED once the session has history (owner call, 2026-07-04): mixed-model
+  // transcripts invite provider-quirk breakage and unreasonable behavior. Locked → read-only pill.
+  modelLocked?: boolean;
   running: boolean;
   connected: boolean;
   // False when the default model's provider has no key — the composer shows a "connect a model"
@@ -281,7 +284,18 @@ export function Composer(props: Props) {
               <span className="model-warn-ico" aria-hidden>⚠</span>
             </button>
           ) : (
-            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
+            props.modelLocked ? (
+              <span
+                className="pill"
+                title="The model is fixed for this session — start a new session to switch"
+              >
+                <span className="pill-label">
+                  {props.modelLabels?.[props.model] || shortModel(props.model)}
+                </span>
+              </span>
+            ) : (
+              <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
+            )
           )}
 
           {/* send / stop */}
