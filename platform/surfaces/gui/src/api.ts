@@ -262,6 +262,19 @@ export interface ConnectorField {
   placeholder: string;
 }
 
+// A message from a sender not (yet) on the allow-list — parked instead of dropped (§19).
+export interface ParkedMessage {
+  id: string;
+  platform: string;
+  chat_id: string;
+  chat_name: string | null;
+  user_id: string;
+  user_name: string | null;
+  chat_type: string;
+  text: string;
+  ts: number;
+}
+
 export interface Connector {
   name: string;
   title: string;
@@ -279,6 +292,7 @@ export interface Connector {
   logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
+  unauthorized?: ParkedMessage[]; // parked messages from unallowed senders (§19)
   tools: ConnectorTool[];
   managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
@@ -1167,6 +1181,23 @@ export async function allowUser(name: string, userId: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId }),
   });
+  return res.json();
+}
+
+/** Resolve a parked unauthorized message (§19): dismiss / allow / allow_deliver. */
+export async function resolveUnauthorized(
+  name: string,
+  itemId: string,
+  action: "dismiss" | "allow" | "allow_deliver",
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/unauthorized/${encodeURIComponent(itemId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    },
+  );
   return res.json();
 }
 

@@ -55,6 +55,7 @@ from ..connectors.browser_automation import (
     browser_state,
     browser_take_screenshot,
 )
+from ..connectors.parked import ParkedStore
 from ..mcp import (
     MCPManager,
     build_callables,
@@ -166,6 +167,8 @@ class SessionManager:
         # of recently-seen channel messages for get_channel_messages.
         self.subscriptions = SubscriptionStore(base / "subscriptions.json")
         self.channel_buffer = ChannelBuffer(state_path=base / "channels.json")
+        # Unauthorized inbound messages, parked instead of dropped (one-step allow-and-deliver).
+        self.parked = ParkedStore(base / "parked.json")
         # Connection hierarchy (UI-REFRESH §4): per-persona default connector on/off (seeded from the
         # manifest, then user-editable) + per-session overrides. Resolved into the session's effective
         # connector set, which gates inbound delivery and the engine's connector tools.
@@ -854,6 +857,8 @@ class SessionManager:
             for r in recent:
                 r["authorized"] = r.get("user_id") in allowed
             c["recent"] = recent
+            # Parked unauthorized messages (§19) — the connector page resolves them inline.
+            c["unauthorized"] = self.parked.list(c["name"])
         return connectors
 
     def connect_connector(
@@ -1541,6 +1546,20 @@ class SessionManager:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
         durable sessions: a channel message to its subscribers, a DM to the designated DM session
         (else parked). Returns the platforms whose listeners came up."""
+        self.scheduler.start()  # tick scheduler for automations (independent of connectors)
+        return await self._build_and_start_gateway()
+
+    async def refresh_gateway(self) -> list[str]:
+        """Hot-reload the messaging listeners with fresh secrets — called after a connector
+        connect/disconnect so pasting new tokens takes effect immediately. A platform socket
+        (Slack Socket Mode) authenticates at connect time, so new creds mean reopening that
+        socket; this replaces the adapters in-process — the sidecar never restarts."""
+        await self.stop_gateway()
+        started = await self._build_and_start_gateway()
+        print(f"[coworker] messaging gateway reloaded: {', '.join(started) or 'none'}")
+        return started
+
+    async def _build_and_start_gateway(self) -> list[str]:
         settings = load_settings(self.secrets)
         self.gateway = Gateway(
             secrets=self.secrets,
@@ -1548,6 +1567,7 @@ class SessionManager:
             handler=self._dispatch_inbound,
             reply_resolver=self._resolve_inbox_reply,
             interaction_handler=self._on_interaction,
+            on_unauthorized=self._park_unauthorized,
         )
         for platform, st in settings.items():
             if not st.enabled:
@@ -1556,13 +1576,62 @@ class SessionManager:
             adapter = make_adapter(platform, profile)
             if adapter is not None:
                 self.gateway.register(adapter)
-        self.scheduler.start()  # tick scheduler for automations (independent of connectors)
         return await self.gateway.start()
 
     async def stop_gateway(self) -> None:
         if self.gateway is not None:
             await self.gateway.stop()
             self.gateway = None
+
+    # -- unauthorized inbound (parked, §19) --------------------------------------
+    async def _park_unauthorized(self, event) -> None:
+        """Gateway callback: keep what an unallowed sender said (names already resolved by the
+        adapter, best-effort) so the owner can allow-and-deliver without a re-send."""
+        s = event.source
+        self.parked.park(
+            platform=s.platform,
+            chat_id=s.chat_id,
+            chat_name=s.chat_name,
+            user_id=s.user_id or "?",
+            user_name=s.user_name,
+            chat_type=s.chat_type,
+            thread_id=s.thread_id,
+            text=event.text or "",
+        )
+
+    async def resolve_unauthorized(
+        self, name: str, item_id: str, action: str
+    ) -> dict[str, Any]:
+        """Resolve one parked message: "dismiss" throws it away; "allow" adds the sender to the
+        allow-list (future messages flow); "allow_deliver" also re-injects the parked message
+        through the NORMAL inbound path — buffer + subscriptions — as if it just arrived."""
+        item = self.parked.pop(item_id)
+        if item is None or item.platform != name:
+            return {"ok": False, "error": "unknown item"}
+        if action == "dismiss":
+            return {"ok": True}
+        if action not in ("allow", "allow_deliver"):
+            return {"ok": False, "error": f"unknown action: {action}"}
+        allowed = self._set_allowed(name, item.user_id, add=True)
+        if not allowed.get("ok"):
+            return allowed
+        if action == "allow_deliver":
+            from ..connectors import MessageEvent, SessionSource
+
+            event = MessageEvent(
+                text=item.text,
+                source=SessionSource(
+                    platform=item.platform,
+                    chat_id=item.chat_id,
+                    user_id=item.user_id,
+                    user_name=item.user_name,
+                    chat_name=item.chat_name,
+                    chat_type=item.chat_type,
+                    thread_id=item.thread_id,
+                ),
+            )
+            await self._dispatch_inbound(event)
+        return {"ok": True}
 
     # -- per-session live view --------------------------------------------------
     def register_session_client(self, session_id: str, send_cb: Any) -> None:

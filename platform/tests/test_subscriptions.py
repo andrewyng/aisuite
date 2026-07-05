@@ -211,3 +211,90 @@ def test_subscribe_unsubscribe_and_recent_endpoints(tmp_path):
     ).json()
     assert r["ok"] and r["removed"] is True
     assert mgr.subscriptions.for_session("sZ") == []
+
+
+def test_unauthorized_messages_park_and_resolve(tmp_path, monkeypatch):
+    """§19: an allow-list drop PARKS the message; resolving it can dismiss, allow the sender,
+    or allow AND deliver the original message through the normal inbound path (no re-send)."""
+    from coworker.connectors import Gateway
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    _connect_slack(mgr)
+    delivered: list[tuple[str, str]] = []
+
+    async def fake_deliver(session_id, message, *, source=None):
+        delivered.append((session_id, message))
+
+    monkeypatch.setattr(mgr, "deliver_to_session", fake_deliver)
+    mgr.subscriptions.subscribe("sA", "slack:C1")
+
+    # A gateway with an empty allow-list drops the message — into the parked store.
+    from coworker.connectors.config import ConnectorSettings
+
+    gw = Gateway(
+        secrets=mgr.secrets,
+        settings={"slack": ConnectorSettings(platform="slack", enabled=True)},
+        handler=mgr._dispatch_inbound,
+        on_unauthorized=mgr._park_unauthorized,
+    )
+    ev = MessageEvent(
+        text="deploy failed",
+        source=SessionSource(
+            platform="slack", chat_id="C1", user_id="U9", user_name="bob",
+            chat_type="channel",
+        ),
+    )
+    asyncio.run(gw._on_inbound(ev))
+    assert delivered == []  # dropped, not delivered
+    items = mgr.parked.list("slack")
+    assert len(items) == 1 and items[0]["text"] == "deploy failed"
+    assert items[0]["user_id"] == "U9" and items[0]["chat_id"] == "C1"
+
+    # dismiss: gone, nothing else happens
+    asyncio.run(gw._on_inbound(ev))  # park a second copy to dismiss
+    two = mgr.parked.list("slack")
+    r = asyncio.run(mgr.resolve_unauthorized("slack", two[0]["id"], "dismiss"))
+    assert r["ok"] and len(mgr.parked.list("slack")) == 1
+
+    # allow_deliver: sender allow-listed AND the parked message reaches the subscriber + buffer
+    r = asyncio.run(
+        mgr.resolve_unauthorized("slack", mgr.parked.list("slack")[0]["id"], "allow_deliver")
+    )
+    assert r["ok"]
+    profile = mgr.secrets.get("slack:default")
+    assert "U9" in profile["allowed_users"]
+    assert [sid for sid, _ in delivered] == ["sA"]
+    assert mgr.channel_buffer.recent("slack:C1")[-1]["text"] == "deploy failed"
+    assert mgr.parked.list("slack") == []
+
+    # unknown item / wrong platform → error
+    assert asyncio.run(mgr.resolve_unauthorized("slack", "nope", "dismiss"))["ok"] is False
+
+
+def test_parked_store_persists_and_caps(tmp_path):
+    from coworker.connectors.parked import ParkedStore
+
+    path = tmp_path / "parked.json"
+    store = ParkedStore(path, cap=2)
+    store.park(platform="slack", chat_id="C1", user_id="U1", text="one")
+    store.park(platform="slack", chat_id="C1", user_id="U1", text="two")
+    store.park(platform="slack", chat_id="C1", user_id="U1", text="three")  # evicts "one"
+    assert [i["text"] for i in store.list("slack")] == ["three", "two"]  # newest first
+
+    reloaded = ParkedStore(path, cap=2)
+    assert [i["text"] for i in reloaded.list()] == ["three", "two"]
+    popped = reloaded.pop(reloaded.list()[0]["id"])
+    assert popped is not None and popped.text == "three"
+    assert ParkedStore(path, cap=2).list() == [{**i} for i in reloaded.list()]
+
+
+def test_refresh_gateway_replaces_listeners(tmp_path):
+    """Pasting new tokens must take effect without a sidecar restart: refresh_gateway swaps
+    the Gateway (and its adapters) in-process."""
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    asyncio.run(mgr.start_gateway())
+    first = mgr.gateway
+    assert first is not None
+    asyncio.run(mgr.refresh_gateway())
+    assert mgr.gateway is not None and mgr.gateway is not first
+    asyncio.run(mgr.aclose())

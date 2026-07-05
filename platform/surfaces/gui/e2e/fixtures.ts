@@ -262,7 +262,15 @@ const PROVIDERS = [
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
-  const subscriptions: any[] = [];
+  const subscriptions: any[] = [
+    // One existing subscription (a non-pinned session) so the connector card's
+    // "Sessions listening" block has a row without touching the pinned session's drawer.
+    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:C0AAA111", routing_target: null, collision: false },
+  ];
+  // Parked unauthorized messages (§19) — mutable so Allow/Dismiss round-trip through the UI.
+  const parked: any[] = [
+    { id: "pk1", platform: "slack", chat_id: "C0AAA111", chat_name: "#ocw-test", user_id: "U0NEW", user_name: "Maya", chat_type: "channel", text: "hey ocw, can you summarize this thread?", ts: Date.now() / 1000 - 120 },
+  ];
   // Installed personas — mutable so enable/surface/delete round-trip through the UI.
   const personas: any[] = PERSONAS.personas.map((p) => ({ ...p }));
   // Sessions — mutable so archive (PATCH), rename (PATCH), and delete round-trip.
@@ -433,7 +441,26 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (/\/v1\/personas\/[^/]+$/.test(p)) return json(PERSONA_DETAIL);
     if (p.endsWith("/v1/personas")) return json({ personas });
     if (p.endsWith("/v1/sessions")) return json({ sessions });
-    if (p.endsWith("/v1/connectors")) return json(CONNECTORS);
+    if (/\/v1\/connectors\/slack\/unauthorized\/[^/]+$/.test(p) && m === "POST") {
+      const id = p.split("/").pop();
+      const i = parked.findIndex((x) => x.id === id);
+      if (i < 0) return json({ ok: false, error: "unknown item" });
+      const b = req.postDataJSON();
+      const item = parked.splice(i, 1)[0];
+      // Backend parity: allow_deliver re-injects through the inbound path — the channel
+      // becomes a recent suggestion and the sender lands on the allow-list.
+      if (b.action === "allow" || b.action === "allow_deliver") {
+        const slack = CONNECTORS.connectors.find((c: any) => c.name === "slack");
+        if (slack && !slack.allowed_users.includes(item.user_id)) slack.allowed_users.push(item.user_id);
+      }
+      return json({ ok: true });
+    }
+    if (p.endsWith("/v1/connectors"))
+      return json({
+        connectors: CONNECTORS.connectors.map((c: any) =>
+          c.name === "slack" ? { ...c, unauthorized: parked.map((x) => ({ ...x })) } : c,
+        ),
+      });
     if (p.endsWith("/v1/cloud/status")) return json({ ...CLOUD_STATE });
     if (p.endsWith("/v1/cloud/login") && m === "POST") {
       Object.assign(CLOUD_STATE, { signed_in: true, account: "rohit@opencoworker.app", user_id: "usr_e2e" });

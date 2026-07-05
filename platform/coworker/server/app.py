@@ -495,17 +495,32 @@ def create_app(manager: SessionManager) -> FastAPI:
     def connectors_list() -> dict[str, Any]:
         return {"connectors": manager.list_connectors()}
 
+    async def _refresh_listeners_if_two_way(name: str) -> None:
+        # New/removed creds only take effect when the platform socket reconnects (Socket Mode
+        # authenticates at connect time) — hot-reload the listeners in-process so pasting
+        # tokens works immediately, no sidecar restart (§19).
+        from ..connectors.config import PLATFORMS
+
+        if name in PLATFORMS:
+            try:
+                await manager.refresh_gateway()
+            except Exception:
+                pass  # a listener that fails to come up must not fail the save
+
     @app.post("/v1/connectors/{name}/connect")
     async def connector_connect(name: str, body: dict) -> dict[str, Any]:
         fields = body.get("fields") if isinstance(body, dict) else None
         # experimental connectors require the caller to explicitly acknowledge the risk notice
         acknowledged = bool(isinstance(body, dict) and body.get("acknowledge_risk"))
         # token validation does a blocking HTTP call → keep it off the event loop
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             lambda: manager.connect_connector(
                 name, fields or {}, acknowledged=acknowledged
             )
         )
+        if result.get("ok"):
+            await _refresh_listeners_if_two_way(name)
+        return result
 
     @app.post("/v1/connectors/{name}/disconnect")
     async def connector_disconnect(name: str) -> dict[str, Any]:
@@ -517,7 +532,17 @@ def create_app(manager: SessionManager) -> FastAPI:
         await asyncio.to_thread(
             lambda: cloud.cloud_disconnect(manager.secrets, load_config(), name)
         )
-        return manager.disconnect_connector(name)
+        result = manager.disconnect_connector(name)
+        await _refresh_listeners_if_two_way(name)
+        return result
+
+    @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
+    async def connector_unauthorized_resolve(
+        name: str, item_id: str, body: dict
+    ) -> dict[str, Any]:
+        # Resolve a parked unauthorized message: dismiss / allow / allow_deliver (§19).
+        action = str((body or {}).get("action", "")).strip()
+        return await manager.resolve_unauthorized(name, item_id, action)
 
     # -- OpenCoworker Cloud: sign-in + managed one-click connect ---------------
     # All optional: the app is fully functional signed out (manual token paste
