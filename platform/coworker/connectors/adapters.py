@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from typing import Any, Optional
 
 from .base import (
@@ -22,6 +23,11 @@ from .base import (
 from .senders import _send_slack, _send_slack_interactive, _send_telegram
 
 logger = logging.getLogger("coworker.connectors")
+
+# Slack encodes an @-mention in message text as `<@U0123>` (legacy: `<@U0123|name>`) — a token,
+# not the display name. Resolved at ingestion so every surface (parked cards, transcripts, the
+# channel buffer) shows "@name" instead of the raw id.
+_SLACK_MENTION_RE = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
 
 
 # -- pure mappers --------------------------------------------------------------
@@ -182,6 +188,9 @@ class SlackAdapter(BasePlatformAdapter):
                     mapped.source.chat_name = await self._channel_name(
                         mapped.source.chat_id
                     )
+                # ...and rewrite <@U…> mention tokens in the text to @name ("@ocw hi", not
+                # "<@U0BDKMA4DFF> hi").
+                mapped.text = await self._resolve_mentions(mapped.text)
                 await self.handle_message(mapped)
 
         # Button clicks on interactive prompts (action_id `ocw_*`). Socket mode delivers these over
@@ -233,6 +242,17 @@ class SlackAdapter(BasePlatformAdapter):
         if name:
             self._name_cache[uid] = name
         return name
+
+    async def _resolve_mentions(self, text: str) -> str:
+        """Rewrite `<@U…>` mention tokens to `@display-name` (cached users.info, same cache as
+        sender names). Best-effort: an id that won't resolve (missing scope, deleted user)
+        keeps its token."""
+        out = text
+        for uid in set(_SLACK_MENTION_RE.findall(text or "")):
+            name = await self._display_name(uid)
+            if name:
+                out = re.sub(rf"<@{re.escape(uid)}(?:\|[^>]*)?>", f"@{name}", out)
+        return out
 
     async def _channel_name(self, chat_id: Optional[str]) -> Optional[str]:
         """Resolve a channel/DM id to a display name via conversations.info, cached. Best-effort:
