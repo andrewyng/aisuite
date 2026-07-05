@@ -506,6 +506,25 @@ class SessionManager:
             ),
         }
 
+    def set_persona_enabled(self, persona_id: str, enabled: bool) -> dict[str, Any]:
+        """Flip a persona's enabled flag. Disabling also archives its real (unarchived,
+        non-internal) sessions — disable means "put this coworker and its history away", so
+        the persona's sidebar section disappears with it (owner call, 2026-07-04). Re-enabling
+        never unarchives: that would overwrite the user's archive state; history returns one
+        click at a time via the Show-archived disclosure. Raises KeyError for unknown ids."""
+        self.personas.set_enabled(persona_id, enabled)
+        archived = 0
+        if not enabled:
+            for r in self.session_store.list():
+                if (
+                    r.agent == persona_id
+                    and not r.archived
+                    and not r.session_id.startswith("__")
+                ):
+                    self.session_store.set_flags(r.session_id, archived=True)
+                    archived += 1
+        return {"ok": True, "archived_sessions": archived}
+
     def _connection_detail(
         self, session_id: str, connector: str, info: Optional[dict[str, Any]]
     ) -> str:

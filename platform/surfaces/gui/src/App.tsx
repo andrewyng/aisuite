@@ -10,6 +10,7 @@ import {
   getPersonas,
   getInbox,
   getUnattended,
+  PERSONAS_CHANGED,
   resolveInboxItem,
   deleteSession,
   renameSession,
@@ -395,6 +396,14 @@ export function App() {
   useEffect(() => {
     const t = setInterval(refreshSessions, 5000);
     return () => clearInterval(t);
+  }, [refreshSessions]);
+
+  // Persona toggles can archive sessions server-side (disable-archives, §18): refetch on the
+  // personas-changed event so the sidebar section disappears immediately, not on the next poll.
+  useEffect(() => {
+    const onPersonas = () => refreshSessions();
+    window.addEventListener(PERSONAS_CHANGED, onPersonas);
+    return () => window.removeEventListener(PERSONAS_CHANGED, onPersonas);
   }, [refreshSessions]);
 
   // If the active surface isn't visible (hidden in Settings, or a resumed session landed on a

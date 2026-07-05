@@ -34,3 +34,49 @@ test("enabling an installed persona surfaces it in picker + sidebar without relo
   await page.getByLabel("Choose a persona").click();
   await expect(page.locator(".newsplit-menu").getByText("Acme Notes")).toBeVisible();
 });
+
+// Disable-archives (§18): disabling a persona archives its conversations, so the confirm must
+// interpose when there's something to archive — and only then. The sidebar section disappears
+// with the persona (its sessions are archived, so the never-orphan rule no longer holds it).
+test("disabling a persona with conversations asks first, then archives them", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const sidebar = page.locator(".sidebar");
+  await expect(sidebar.getByText("Ops", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Personas", exact: true }).click();
+  const row = page.locator(".divide-y > div").filter({ hasText: "Ops Coworker" });
+  const enabled = row.getByRole("checkbox", { name: "Enabled" });
+
+  // Unchecking only ARMS the confirm — the flag must not flip yet.
+  await enabled.click();
+  const warning = page.getByTestId("persona-disable-warning-ops");
+  await expect(warning).toContainText("archives its 1 conversation");
+  await expect(enabled).toBeChecked();
+
+  // Backing out leaves everything as it was.
+  await page.getByRole("button", { name: "Keep enabled" }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(enabled).toBeChecked();
+
+  // Arm again and confirm: persona disables, its section leaves the sidebar without a reload.
+  await enabled.click();
+  await page.getByTestId("persona-disable-confirm-ops").click();
+  await expect(enabled).not.toBeChecked();
+  await expect(sidebar.getByText("Ops", { exact: true })).toHaveCount(0);
+});
+
+test("disabling a persona with no conversations skips the confirm", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Personas", exact: true }).click();
+  const row = page.locator(".divide-y > div").filter({ hasText: "Code" });
+  const enabled = row.getByRole("checkbox", { name: "Enabled" });
+  await enabled.click();
+  await expect(page.getByTestId("persona-disable-warning-code")).toHaveCount(0);
+  await expect(enabled).not.toBeChecked();
+});

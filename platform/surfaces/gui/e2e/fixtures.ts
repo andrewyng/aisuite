@@ -78,6 +78,24 @@ const EXTRA_SESSIONS = Array.from({ length: 7 }, (_, i) => ({
   subscriptions: [],
 }));
 
+// One Ops session (older than everything above so boot-resume stays deterministic) — the
+// target for the disable-archives-conversations confirm flow on the Personas page.
+const OPS_SESSION = {
+  session_id: "ops-1",
+  title: "Ops triage",
+  workspace: "/Users/test/OpenCoworker/ops-triage",
+  agent: "ops",
+  model: "anthropic:claude-opus-4-8",
+  mode: "interactive",
+  updated_at: "2026-06-15 10:00:00",
+  messages: 4,
+  pinned: false,
+  archived: false,
+  attention: 0,
+  liveness: "idle",
+  subscriptions: [],
+};
+
 const CONNECTORS = {
   connectors: [
     { name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#611f69", logo: "slack", fields: [], instructions: [], connected: true, account: "acme", enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
@@ -248,7 +266,11 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Installed personas — mutable so enable/surface/delete round-trip through the UI.
   const personas: any[] = PERSONAS.personas.map((p) => ({ ...p }));
   // Sessions — mutable so archive (PATCH), rename (PATCH), and delete round-trip.
-  const sessions: any[] = [{ ...PINNED_SESSION }, ...EXTRA_SESSIONS.map((s) => ({ ...s }))];
+  const sessions: any[] = [
+    { ...PINNED_SESSION },
+    ...EXTRA_SESSIONS.map((s) => ({ ...s })),
+    { ...OPS_SESSION },
+  ];
   // Inbox items + the outbound routing binding — mutable for resolve + the inline Slack config.
   const inbox: any[] = INBOX_ITEMS.map((i) => ({ ...i }));
   const routing: { name: string; channel: string | null; target: string } = {
@@ -383,12 +405,23 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (!t) return json({ ok: false, error: `unknown persona: ${id}` });
       const b = req.postDataJSON();
       if (b.default) personas.forEach((x) => (x.default = x.id === id));
+      let archivedCount = 0;
       if (typeof b.enabled === "boolean") {
         t.enabled = b.enabled;
         if (b.enabled) t.surfaced = true;
+        // Backend parity (disable-archives, §18): disabling archives the persona's real
+        // sessions server-side, so its sidebar section disappears with it.
+        if (!b.enabled) {
+          for (const s of sessions) {
+            if (s.agent === id && !s.archived && !s.session_id.startsWith("__")) {
+              s.archived = true;
+              archivedCount++;
+            }
+          }
+        }
       }
       if (typeof b.surfaced === "boolean") t.surfaced = b.surfaced;
-      return json({ ok: true, personas });
+      return json({ ok: true, personas, archived_sessions: archivedCount });
     }
     if (/\/v1\/personas\/[^/]+$/.test(p) && m === "DELETE") {
       const id = p.split("/").pop();

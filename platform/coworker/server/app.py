@@ -304,16 +304,21 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/personas/{persona_id}")
     def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
         reg = manager.personas
+        archived = 0
         try:
             if "enabled" in body:
-                reg.set_enabled(persona_id, bool(body["enabled"]))
+                # Disable archives the persona's sessions atomically (server-side, one
+                # request) so any client gets the same semantic. See set_persona_enabled.
+                archived = manager.set_persona_enabled(persona_id, bool(body["enabled"]))[
+                    "archived_sessions"
+                ]
             if "surfaced" in body:
                 reg.set_surfaced(persona_id, bool(body["surfaced"]))
             if body.get("default"):
                 reg.set_default(persona_id)
         except KeyError:
             return {"ok": False, "error": f"unknown persona: {persona_id}"}
-        return {"ok": True, "personas": reg.list_all()}
+        return {"ok": True, "personas": reg.list_all(), "archived_sessions": archived}
 
     @app.delete("/v1/personas/{persona_id}")
     def persona_delete(persona_id: str) -> dict[str, Any]:
@@ -337,11 +342,10 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/personas/{persona_id}/enable")
     def persona_enable(persona_id: str, body: dict) -> dict[str, Any]:
-        # Dedicated §5/§8 route; delegates to the same registry toggle as POST /v1/personas/{id}.
+        # Dedicated §5/§8 route; delegates to the same manager toggle as POST /v1/personas/{id}
+        # (so disable archives the persona's sessions here too).
         try:
-            manager.personas.set_enabled(
-                persona_id, bool((body or {}).get("enabled", True))
-            )
+            manager.set_persona_enabled(persona_id, bool((body or {}).get("enabled", True)))
         except KeyError:
             return {"ok": False, "error": f"unknown persona: {persona_id}"}
         return {"ok": True, "personas": manager.personas.list_all()}

@@ -74,6 +74,46 @@ def test_agents_and_memory_rest(tmp_path):
     )
 
 
+def test_disable_persona_archives_its_sessions(tmp_path):
+    """Disable = "put this coworker and its history away": the persona's real sessions are
+    archived atomically server-side (so its sidebar section disappears with it), internal
+    __run__ threads and other personas are untouched, and re-enable never unarchives."""
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    store = manager.session_store
+
+    def mk(sid, agent):
+        store.save(
+            SessionRecord(
+                session_id=sid, workspace=str(tmp_path), model="m",
+                mode="interactive", agent=agent,
+            )
+        )
+
+    mk("chat-a", "chat")
+    mk("chat-b", "chat")
+    mk("chat-old", "chat")
+    store.set_flags("chat-old", archived=True)  # already archived — must not be re-counted
+    mk("cowork-a", "cowork")
+    mk("__run__r1", "chat")  # internal automation thread — never touched
+
+    client = TestClient(create_app(manager))
+    body = client.post("/v1/personas/chat", json={"enabled": False}).json()
+    assert body["ok"] is True
+    assert body["archived_sessions"] == 2
+    assert store.load("chat-a").archived and store.load("chat-b").archived
+    assert store.load("cowork-a").archived is False
+    assert store.load("__run__r1").archived is False
+
+    # Re-enable brings the persona back but never rewrites the user's archive state.
+    client.post("/v1/personas/chat", json={"enabled": True})
+    assert store.load("chat-a").archived
+
+    # The dedicated §5/§8 enable route shares the same semantic.
+    mk("chat-c", "chat")
+    client.post("/v1/personas/chat/enable", json={"enabled": False})
+    assert store.load("chat-c").archived
+
+
 def test_connector_tool_settings_and_audit_rest(tmp_path):
     client = _client(tmp_path, [])
     connectors = {
