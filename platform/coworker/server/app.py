@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,6 +18,25 @@ from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+# Origins allowed to talk to the local sidecar. It binds to 127.0.0.1, but a page in the
+# user's own browser can still reach loopback — so without an origin gate, any website they
+# visit could read `GET /v1/sessions` (CORS was `*`) and drive a session over the WS (which
+# CORS never covers) into shell/file tools. We pin to the desktop webview's own origins
+# (`tauri://localhost`, Windows' `http(s)://tauri.localhost`) and localhost dev/browser
+# builds. Requests with NO Origin header (curl, native clients, tests, server-to-server) are
+# allowed — the gate targets browsers, which always attach an unforgeable Origin.
+_ALLOWED_ORIGIN_RE = re.compile(
+    r"^(tauri://localhost"
+    r"|https?://localhost(:\d+)?"
+    r"|https?://127\.0\.0\.1(:\d+)?"
+    r"|https?://tauri\.localhost)$"
+)
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    """True if a browser Origin may use the API. Missing Origin (non-browser) passes."""
+    return origin is None or bool(_ALLOWED_ORIGIN_RE.match(origin))
 
 
 def _browser_page(title: str, detail: str) -> str:
@@ -57,7 +77,9 @@ def create_app(manager: SessionManager) -> FastAPI:
     app = FastAPI(title="coworker", version="0.0.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # local-first; tighten when remote exposure lands
+        # Pinned to the desktop webview + localhost (see _ALLOWED_ORIGIN_RE): stops a random
+        # website the user visits from reading local API responses cross-origin.
+        allow_origin_regex=_ALLOWED_ORIGIN_RE.pattern,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -842,6 +864,12 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.websocket("/ws/session/{session_id}")
     async def ws_session(ws: WebSocket, session_id: str) -> None:
+        # CORS never gates WebSockets, so a cross-site page could otherwise open this socket
+        # and drive the session into tool calls. Reject a disallowed browser Origin before
+        # accepting the handshake (1008 = policy violation).
+        if not _origin_allowed(ws.headers.get("origin")):
+            await ws.close(code=1008)
+            return
         await ws.accept()
         agent = ws.query_params.get("agent") or "code"
 

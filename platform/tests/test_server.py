@@ -318,6 +318,43 @@ def test_ws_simple_turn(tmp_path):
         assert "turn_end" in types
 
 
+# -- origin gate (local-API hardening): a browser page on a foreign origin must not be able to
+# read the API cross-origin or open the driving WebSocket. -------------------------------------
+
+
+def test_cors_rejects_foreign_origin(tmp_path):
+    client = _client(tmp_path, [])
+    # A random website's origin gets no ACAO header, so the browser blocks the read.
+    resp = client.get("/v1/sessions", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in {k.lower() for k in resp.headers}
+    # The desktop webview's own origin is allowed.
+    ok = client.get("/v1/sessions", headers={"Origin": "tauri://localhost"})
+    assert ok.headers.get("access-control-allow-origin") == "tauri://localhost"
+    # Localhost dev/browser build is allowed too.
+    dev = client.get("/v1/sessions", headers={"Origin": "http://localhost:1420"})
+    assert dev.headers.get("access-control-allow-origin") == "http://localhost:1420"
+
+
+def test_ws_rejects_foreign_origin(tmp_path):
+    from starlette.websockets import WebSocketDisconnect as WSD
+
+    client = _client(tmp_path, [_text("hi")])
+    with pytest.raises(WSD) as e:
+        with client.websocket_connect(
+            "/ws/session/x", headers={"Origin": "https://evil.example"}
+        ) as ws:
+            ws.receive_json()
+    assert e.value.code == 1008
+
+
+def test_ws_allows_webview_origin(tmp_path):
+    client = _client(tmp_path, [_text("hi")])
+    with client.websocket_connect(
+        "/ws/session/x", headers={"Origin": "http://tauri.localhost"}
+    ) as ws:
+        assert ws.receive_json()["type"] == "ready"
+
+
 def test_ws_approval_round_trip(tmp_path):
     client = _client(
         tmp_path,
