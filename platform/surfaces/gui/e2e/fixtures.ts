@@ -23,6 +23,11 @@ const SETTINGS = {
   scratch_base: "~/OpenCoworker",
   secrets_path: "/Users/test/.config/coworker/secrets.json",
   sessions_peek: 5,
+  // Curated-matrix display names (subset — mirrors /v1/settings.model_labels).
+  model_labels: {
+    "anthropic:claude-opus-4-8": "Claude Opus 4.8 · Anthropic",
+    "zai:glm-5.2": "GLM-5.2 · Z AI",
+  },
 };
 
 const PERSONAS = {

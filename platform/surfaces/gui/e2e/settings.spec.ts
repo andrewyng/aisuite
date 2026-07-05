@@ -48,4 +48,9 @@ test("Models: provider picker shows key status; vendor endpoint prefills", async
   await expect(page.getByText(/Uses Z AI's OpenAI-compatible API/)).toBeVisible();
   await expect(page.getByLabel("Endpoint")).toHaveValue("https://api.z.ai/api/paas/v4");
   await expect(page.getByText(/Not connected/)).toBeVisible();
+
+  // Unconfigured providers still preview their curated models (read-only, matrix labels).
+  const preview = page.getByTestId("model-preview");
+  await expect(preview).toContainText("Included models");
+  await expect(preview).toContainText("GLM-5.2 · Z AI");
 });
