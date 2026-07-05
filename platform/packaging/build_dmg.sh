@@ -66,21 +66,32 @@ rm -f "$DMG"
 # A styled install window (fixed size, icons in place, arrow background) instead of Finder's
 # default oversized bare window. Needs Finder (AppleScript); if it isn't available (headless CI),
 # fall back to the plain compressed image so the build still produces a working .dmg.
+#
+# Two hard-won correctness points (both caused a *silently* unstyled .dmg before):
+#   1. A stale "$APP" volume already mounted → our RW image mounts as "$APP 1", and a hardcoded
+#      `tell disk "$APP"` then styles the WRONG (stale) volume, so our image never gets a
+#      .DS_Store. Detach any pre-existing mount first, and target the ACTUAL mounted name.
+#   2. Finder writes .DS_Store asynchronously — detaching too soon drops it. Poll until it lands.
 style_dmg() {
+  # Clear any earlier mount of this volume so we don't collide into "$APP 1".
+  [ -d "/Volumes/$APP" ] && hdiutil detach "/Volumes/$APP" -force >/dev/null 2>&1 || true
   local rw; rw="$(mktemp -u).dmg"
   hdiutil create -volname "$APP" -srcfolder "$STAGING" -fs HFS+ -format UDRW -ov "$rw" >/dev/null
-  local info dev mnt
+  local info dev mnt vol
   info="$(hdiutil attach -readwrite -noverify -noautoopen "$rw")"
   dev="$(echo "$info" | grep -Eo '^/dev/disk[0-9]+' | head -1)"
   mnt="$(echo "$info" | grep -Eo '/Volumes/.*$' | head -1)"
   [ -n "$dev" ] && [ -n "$mnt" ] || return 1
+  vol="$(basename "$mnt")"   # the real mounted name — what `tell disk` must target
   sleep 1
-  # Icons at y≈205 to sit on the background's arrow: app left of it, Applications right. The
-  # background is set via its POSIX path (the HFS `file ".background:bg.png"` form errors -10006).
-  osascript <<OSA || { hdiutil detach "$dev" >/dev/null 2>&1 || true; return 1; }
+  # Icons at y≈190 to sit on the background's arrow: app left of it, Applications right. Background
+  # via the relative HFS path (`file ".background:bg.tiff"`) so the alias survives a rename; the
+  # close→open→update dance forces Finder to actually write the .DS_Store.
+  osascript <<OSA || { hdiutil detach "$dev" -force >/dev/null 2>&1 || true; return 1; }
 tell application "Finder"
-  tell disk "$APP"
+  tell disk "$vol"
     open
+    delay 1
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
@@ -89,17 +100,21 @@ tell application "Finder"
     set arrangement of opts to not arranged
     set icon size of opts to 96
     set text size of opts to 12
-    set background picture of opts to POSIX file "$mnt/.background/bg.tiff"
+    set background picture of opts to file ".background:bg.tiff"
     set position of item "$APP.app" of container window to {172, 190}
     set position of item "Applications" of container window to {468, 190}
-    update without registering applications
-    delay 1
     close
+    open
+    update without registering applications
+    delay 3
   end tell
 end tell
 OSA
-  sync
-  hdiutil detach "$dev" >/dev/null
+  # Wait for Finder to flush .DS_Store into the image (else the layout is lost).
+  local i; for i in $(seq 1 15); do [ -f "$mnt/.DS_Store" ] && break; sleep 1; done
+  [ -f "$mnt/.DS_Store" ] || { hdiutil detach "$dev" -force >/dev/null 2>&1 || true; return 1; }
+  sync; sync
+  hdiutil detach "$dev" -force >/dev/null
   hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
   rm -f "$rw"
 }
