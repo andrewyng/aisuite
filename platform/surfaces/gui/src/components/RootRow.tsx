@@ -1,5 +1,6 @@
 import type { RootInfo } from "../api";
 import { Icon } from "./Icon";
+import { baseName } from "../paths";
 
 // One directory row, shared by the composer popover and the session start panel. The primary is the
 // session's bound workspace — the repo/folder for Code/Ops (shown by name), or a throwaway scratch
@@ -17,7 +18,6 @@ export function RootRow({
   onToggle: (r: RootInfo) => void;
   onRemove: (path: string) => void;
 }) {
-  const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
   const label = root.primary
     ? scratchPrimary
       ? "Temporary space"

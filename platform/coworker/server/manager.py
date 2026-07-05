@@ -1174,6 +1174,17 @@ class SessionManager:
                 "-e",
                 'POSIX path of (choose folder with prompt "Give the coworker access to a folder")',
             ]
+        elif sys.platform == "win32":
+            # WinForms folder dialog via PowerShell — no extra deps. -STA is required
+            # (the dialog silently fails in the default MTA apartment).
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = 'Give the coworker access to a folder'; "
+                "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+                "{ [Console]::Out.Write($f.SelectedPath) }"
+            )
+            cmd = ["powershell.exe", "-NoProfile", "-STA", "-Command", ps]
         else:
             # Linux: zenity when present; otherwise the GUI's paste-a-path input remains.
             cmd = ["zenity", "--file-selection", "--directory"]

@@ -13,6 +13,7 @@ import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 import { SearchModal } from "./SearchModal";
+import { baseName } from "../paths";
 
 // Session surfaces shown as accordions, in display order. The surfaced personas drive this list
 // (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
@@ -98,8 +99,6 @@ interface Props {
   auditActive: boolean;
   inboxActive: boolean;
 }
-
-const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
 
 // Codex-style compact age for project session rows: "now" / "5m" / "6h" / "3d" / "2w" / "4mo" / "2y".
 const compactAge = (iso?: string | null): string => {

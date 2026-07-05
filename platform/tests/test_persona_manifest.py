@@ -98,6 +98,27 @@ def test_fallback_id_from_filename():
     assert m.id == "ops"
 
 
+# Ids become directory names under the managed install area (snapshot on install, rmtree on
+# uninstall), so hostile or merely unlucky ids must be rejected at parse time: `..`/slashes
+# would escape the install dir; `:*?"<>|` are invalid filename chars on Windows.
+@pytest.mark.parametrize(
+    "bad_id",
+    ["../../evil", "a/b", "a\\b", "sales:v2", "up*", "..", "A", "-lead", "x" * 65],
+)
+def test_unsafe_explicit_ids_rejected(bad_id):
+    with pytest.raises(ManifestError) as e:
+        parse_manifest(f"---\nid: {bad_id!r}\ntools: []\n---\nbody")
+    assert "invalid" in str(e.value)
+
+
+def test_fallback_id_is_slugified_not_rejected():
+    # A filename like "My Persona.md" (no explicit id) installs as a safe slug.
+    m = parse_manifest("---\nname: X\ntools: []\n---\nbody", fallback_id="My Persona")
+    assert m.id == "my-persona"
+    with pytest.raises(ManifestError):  # nothing salvageable in the stem
+        parse_manifest("---\nname: X\ntools: []\n---\nbody", fallback_id="..")
+
+
 REC = """---
 id: ops
 tools: []
