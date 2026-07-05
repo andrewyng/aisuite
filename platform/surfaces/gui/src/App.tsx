@@ -1022,38 +1022,39 @@ export function App() {
             )}
           </div>
         </div>
-        {/* Automation-run context (owner ask 2026-07-04): a __run__ session looked like any other
-            chat with no way back to the runs list. Detected by the id convention, enriched with
-            the task title when navigation provided it. */}
-        {surface === "session" && sessionId.startsWith("__run__") && (
-          <div
-            className="flex items-center gap-2 px-6 py-2 text-[12.5px] border-b border-line bg-accentSoft/40"
-            data-testid="run-banner"
-          >
-            <Icon name="clock" size={14} className="text-accent shrink-0" />
-            <span className="truncate text-muted">
-              Scheduled run
-              {runContext?.title ? (
-                <>
-                  {" — "}
-                  <span className="text-ink font-medium">{runContext.title}</span>
-                </>
-              ) : null}{" "}
-              · this conversation was started by an automation
-            </span>
-            <button
-              className="ml-auto shrink-0 text-accent font-medium hover:underline"
-              onClick={() => {
-                if (runContext) setScheduledOpenId(runContext.id);
-                setSurface("scheduled");
-              }}
-            >
-              ← Back to runs
-            </button>
-          </div>
-        )}
         <div className={"main-workspace" + (railHidden ? " rail-hidden" : "")}>
           <div className="main-chat">
+            {/* Automation-run context (owner ask 2026-07-04): a __run__ session looked like any
+                other chat with no way back to the runs list. Lives INSIDE the chat column (which
+                is padded to clear the absolute glass topbar — rendering above .main-workspace put
+                it underneath the topbar; owner-reported CSS bug). */}
+            {sessionId.startsWith("__run__") && (
+              <div
+                className="flex items-center gap-2 px-4 py-2 mb-1 rounded-lg text-[12.5px] border border-line bg-accentSoft/40"
+                data-testid="run-banner"
+              >
+                <Icon name="clock" size={14} className="text-accent shrink-0" />
+                <span className="truncate text-muted">
+                  Scheduled run
+                  {runContext?.title ? (
+                    <>
+                      {" — "}
+                      <span className="text-ink font-medium">{runContext.title}</span>
+                    </>
+                  ) : null}{" "}
+                  · started by an automation
+                </span>
+                <button
+                  className="ml-auto shrink-0 text-accent font-medium hover:underline"
+                  onClick={() => {
+                    if (runContext) setScheduledOpenId(runContext.id);
+                    setSurface("scheduled");
+                  }}
+                >
+                  ← Back to runs
+                </button>
+              </div>
+            )}
             {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute
                 glass topbar), as a fixed sub-header above the scrolling conversation — mock §6. */}
             {agent !== "chat" && (
