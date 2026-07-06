@@ -32,7 +32,7 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   /* The right rail's width while reading an artifact (wider than the 332px inspector). */
-  --artifact-rail-w: min(580px, 52vw);
+  --artifact-rail-w: min(62vw, 960px);
 }
 
 /* Dark palette. `data-theme` is set on <html> by an inline script in index.html (pre-paint)
@@ -121,22 +121,24 @@ body {
   width: 14px;
   z-index: 55;
 }
-/* Explicit reveal button while collapsed (top-left, cleared past the traffic lights on desktop). */
+/* Reveal button while collapsed. Positioned to land EXACTLY on the brand's pin button (.nav-pin-btn,
+   14px/14px inside the brand row) so peeking the nav puts the pin under the cursor — no travel. */
 .nav-reveal-btn {
   position: fixed;
-  top: 9px;
-  left: 12px;
+  top: 14px;
+  left: 14px;
   z-index: 58;
   width: 28px;
   height: 28px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
-  color: var(--muted);
+  border-radius: 6px;
+  color: var(--faint);
   background: transparent;
 }
 .nav-reveal-btn:hover { color: var(--ink); background: var(--paper); }
-.app.tauri-overlay .nav-reveal-btn { top: 8px; left: 84px; } /* clear the macOS traffic lights */
+/* On desktop, both the brand row and the reveal button shift right to clear the traffic lights. */
+.app.tauri-overlay .nav-reveal-btn { top: 8px; left: 82px; }
 /* Make room for the reveal button so it never overlaps the topbar / page-view header content. */
 .app.nav-collapsed .main-topbar,
 .app.nav-collapsed .sa-view-head { padding-left: 46px; }
@@ -917,10 +919,11 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
 }
 .titlebar-brand { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); user-select: none; }
 .titlebar-brand .mark { color: var(--accent); }
-/* The sidebar's brand row IS the desktop title bar: keep it visible (it holds the wordmark +
-   layout toggle) and push it down so the logo clears the overlaid traffic lights. The row is a
-   drag region (data-tauri-drag-region in Sidebar.tsx), so this strip moves the window. */
-.app.tauri-overlay .sidebar .brand { padding-top: 34px; }
+/* The sidebar's brand row IS the desktop title bar (pin control + wordmark). On desktop the
+   traffic lights float top-left, so shift the row RIGHT (not down) to clear them and keep it at
+   the top — that puts the pin button just right of the lights, aligned with the reveal button.
+   The row is a drag region (data-tauri-drag-region in Sidebar.tsx), so this strip moves the window. */
+.app.tauri-overlay .sidebar .brand { padding-top: 8px; padding-left: 82px; }
 
 /* ---- Onboarding wizard ----------------------------------------------------- */
 .ob-overlay {

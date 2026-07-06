@@ -747,18 +747,15 @@ export function Sidebar(props: Props) {
       className="sidebar flex flex-col min-h-0 bg-panel border-r border-line"
       onMouseLeave={props.onPeekLeave}
     >
-      {/* Header: accent logo tile (6-point star, matches the app + tray icon) + wordmark +
-          collapse/pin control. data-tauri-drag-region makes this strip drag the window on desktop,
-          where it also clears the overlaid traffic lights (see styles.css). */}
+      {/* Header: collapse/pin control FIRST + wordmark. The pin sits at the same screen position
+          as the collapsed reveal button (see .nav-pin-btn / .nav-reveal-btn in styles.css), so
+          hovering the reveal peeks the nav and the pin lands right under the cursor — no travel.
+          data-tauri-drag-region drags the window; on desktop the row clears the traffic lights. */}
       <div className="brand px-3.5 pt-3.5 pb-2 flex items-center gap-2" data-tauri-drag-region>
-        <div className="w-6 h-6 rounded-md bg-accent/15 grid place-items-center text-accent shrink-0">
-          <Icon name="logo" size={14} />
-        </div>
-        <div className="font-semibold tracking-tight">OpenCoworker</div>
         {/* Collapse (dock) / pin the sidebar. ⌘B mirrors this. */}
         {props.onCollapse && (
           <button
-            className="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper"
+            className="nav-pin-btn w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
             title={props.collapsed ? "Dock sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
             aria-label={props.collapsed ? "Dock sidebar" : "Collapse sidebar"}
             onClick={props.onCollapse}
@@ -766,6 +763,7 @@ export function Sidebar(props: Props) {
             <Icon name={props.collapsed ? "panelOpen" : "panelClose"} size={16} />
           </button>
         )}
+        <div className="font-semibold tracking-tight">OpenCoworker</div>
       </div>
 
       {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
