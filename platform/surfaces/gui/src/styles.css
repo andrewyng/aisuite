@@ -1,3 +1,17 @@
+/* Manrope — the wordmark typeface, self-hosted (bundled woff2, no external font call). */
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/manrope-700.woff2") format("woff2");
+}
+.brand-wordmark {
+  font-family: "Manrope", -apple-system, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
 :root {
   color-scheme: light;
   --paper: #f5f6f7;          /* cool light gray — reads "tool", not "writing app" */
@@ -137,8 +151,9 @@ body {
   background: transparent;
 }
 .nav-reveal-btn:hover { color: var(--ink); background: var(--paper); }
-/* On desktop, both the brand row and the reveal button shift right to clear the traffic lights. */
-.app.tauri-overlay .nav-reveal-btn { top: 8px; left: 82px; }
+/* On desktop, both the brand row and the reveal button shift right to clear the traffic lights
+   (and down to align with them in their lowered position — see traffic_light_position in lib.rs). */
+.app.tauri-overlay .nav-reveal-btn { top: 12px; left: 84px; }
 /* Make room for the reveal button so it never overlaps the topbar / page-view header content. */
 .app.nav-collapsed .main-topbar,
 .app.nav-collapsed .sa-view-head { padding-left: 46px; }
@@ -923,7 +938,7 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
    traffic lights float top-left, so shift the row RIGHT (not down) to clear them and keep it at
    the top — that puts the pin button just right of the lights, aligned with the reveal button.
    The row is a drag region (data-tauri-drag-region in Sidebar.tsx), so this strip moves the window. */
-.app.tauri-overlay .sidebar .brand { padding-top: 8px; padding-left: 82px; }
+.app.tauri-overlay .sidebar .brand { padding-top: 12px; padding-left: 84px; }
 
 /* ---- Onboarding wizard ----------------------------------------------------- */
 .ob-overlay {

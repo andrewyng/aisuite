@@ -4,6 +4,7 @@
 export type IconName =
   | "sparkle"
   | "logo"
+  | "sidebar"
   | "chat"
   | "diamond"
   | "search"
@@ -73,6 +74,14 @@ export function Icon({
       return (
         <svg {...s} fill="currentColor" stroke="none">
           <path d="M12.00 1.80 L13.35 9.66 L20.83 6.90 L14.70 12.00 L20.83 17.10 L13.35 14.34 L12.00 22.20 L10.65 14.34 L3.17 17.10 L9.30 12.00 L3.17 6.90 L10.65 9.66 Z" />
+        </svg>
+      );
+    case "sidebar":
+      // Clean "sidebar panel" toggle — rounded rect + divider, no chevron (one glyph both states).
+      return (
+        <svg {...s}>
+          <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+          <path d="M9 4.5v15" />
         </svg>
       );
     case "folder":

@@ -879,7 +879,7 @@ export function App() {
       <div className={"app boot-splash" + (desktop ? " tauri-overlay" : "")}>
         {desktop && (
           <div className="titlebar-drag" data-tauri-drag-region>
-            <span className="titlebar-brand">
+            <span className="titlebar-brand brand-wordmark">
               <Icon name="logo" size={13} className="mark" /> OpenCoworker
             </span>
           </div>
@@ -916,7 +916,7 @@ export function App() {
           title="Show sidebar (⌘B)"
           aria-label="Show sidebar"
         >
-          <Icon name="panelOpen" size={16} />
+          <Icon name="sidebar" size={16} />
         </button>
       )}
       {onboarding && (

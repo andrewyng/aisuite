@@ -760,10 +760,10 @@ export function Sidebar(props: Props) {
             aria-label={props.collapsed ? "Dock sidebar" : "Collapse sidebar"}
             onClick={props.onCollapse}
           >
-            <Icon name={props.collapsed ? "panelOpen" : "panelClose"} size={16} />
+            <Icon name="sidebar" size={16} />
           </button>
         )}
-        <div className="font-semibold tracking-tight">OpenCoworker</div>
+        <div className="brand-wordmark text-[15px]">OpenCoworker</div>
       </div>
 
       {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
