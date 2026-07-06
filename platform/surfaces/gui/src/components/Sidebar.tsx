@@ -211,10 +211,12 @@ export function Sidebar(props: Props) {
 
   // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the persona's
   // resolved glyph (manifest icon → family default; emoji rendered as-is).
-  const iconTile = (agentId: string, size = 13) => {
+  const iconTile = (agentId: string, size = 16) => {
     const p = personas?.find((x) => x.id === agentId);
+    // Bare glyph — no box/border/fill (the tile framing read as "boxy"). The glyph alone still
+    // gives the quick persona-type scan.
     return (
-      <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-muted shrink-0">
+      <span className="w-6 h-6 grid place-items-center text-muted shrink-0">
         <PersonaGlyph icon={p?.icon} family={p?.family} size={size} />
       </span>
     );
@@ -293,8 +295,10 @@ export function Sidebar(props: Props) {
       <div
         key={s.session_id}
         className={
-          "group flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
-          (active ? "bg-accentSoft/70 border border-accent/30" : "hover:bg-panel")
+          "group relative flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
+          (active
+            ? "bg-ink/[0.055] before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-accent"
+            : "hover:bg-panel")
         }
         onClick={() => {
           if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
@@ -409,8 +413,10 @@ export function Sidebar(props: Props) {
       <div
         key={s.session_id}
         className={
-          "group w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
-          (active ? "bg-accentSoft/60 border border-accent/30" : "hover:bg-paper")
+          "group relative w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
+          (active
+            ? "bg-ink/[0.055] before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-accent"
+            : "hover:bg-paper")
         }
         title={title}
         onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
