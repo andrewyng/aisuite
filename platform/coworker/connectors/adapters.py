@@ -131,13 +131,34 @@ class TelegramAdapter(BasePlatformAdapter):
 class SlackAdapter(BasePlatformAdapter):
     platform = "slack"
 
-    def __init__(self, bot_token: str, app_token: str) -> None:
+    # Watchdog cadence: how often to check the live Socket Mode connection and force a reconnect
+    # if it has silently died. `start_async()` sleeps forever, so a dead socket looks alive to us
+    # unless we poll the client's own is_connected(). Overridable for tests.
+    _WATCHDOG_INTERVAL = 20.0
+
+    def __init__(
+        self,
+        bot_token: str,
+        app_token: str,
+        *,
+        watchdog_interval: Optional[float] = None,
+        auto_reconnect: bool = True,
+    ) -> None:
         super().__init__()
         self.bot_token = bot_token
         self.app_token = app_token
         self._app = None
         self._socket = None
         self._task: Optional[asyncio.Task] = None
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self._closing = False
+        self._reconnects = 0  # observable: how many times the watchdog revived the connection
+        self._watchdog_interval = (
+            watchdog_interval if watchdog_interval is not None else self._WATCHDOG_INTERVAL
+        )
+        # slack_sdk's own reconnect stays on in production (seamless on Slack's graceful cycling);
+        # tests turn it off so the watchdog is the sole, deterministic recovery path.
+        self._auto_reconnect = auto_reconnect
         self._bot_user_id: Optional[str] = None
         self._name_cache: dict[str, str] = (
             {}
@@ -215,10 +236,45 @@ class SlackAdapter(BasePlatformAdapter):
                 )
             )
 
+        self._closing = False
         self._socket = AsyncSocketModeHandler(self._app, self.app_token)
+        self._socket.client.auto_reconnect_enabled = self._auto_reconnect
         self._task = asyncio.create_task(self._socket.start_async())
+        # Supervise the connection: start_async() sleeps forever even if the socket dies, so poll
+        # the client's real state and force a reconnect if it drops (the silent-stall fix).
+        self._watchdog_task = asyncio.create_task(self._watchdog())
         logger.info("slack adapter connected (socket mode) as %s", self._bot_user_id)
         return True
+
+    async def _watchdog(self) -> None:
+        """Reconnect the Socket Mode connection if it silently dies. slack_sdk maintains the socket
+        in background tasks and normally auto-reconnects, but it can give up after a transient
+        error during Slack's periodic connection cycling — leaving a dead socket that never
+        recovers. We poll is_connected() and re-open a fresh endpoint when it's down."""
+        # Let the initial connect settle before the first check.
+        while not self._closing:
+            try:
+                await asyncio.sleep(self._watchdog_interval)
+            except asyncio.CancelledError:
+                break
+            if self._closing or self._socket is None:
+                break
+            client = getattr(self._socket, "client", None)
+            try:
+                alive = bool(client and client.is_connected())
+            except Exception:
+                alive = False
+            if alive:
+                continue
+            logger.warning("slack socket mode connection down — reconnecting (watchdog)")
+            try:
+                await client.connect_to_new_endpoint(force=True)
+                self._reconnects += 1
+                logger.info("slack socket mode reconnected (watchdog, #%d)", self._reconnects)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("slack watchdog reconnect failed — will retry")
 
     async def _display_name(self, uid: Optional[str]) -> Optional[str]:
         """Resolve a user id to a display name via users.info, cached. Best-effort: None on failure
@@ -280,6 +336,10 @@ class SlackAdapter(BasePlatformAdapter):
         return await self._channel_name(chat_id)
 
     async def disconnect(self) -> None:
+        self._closing = True
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
         if self._socket is not None:
             try:
                 await self._socket.close_async()
