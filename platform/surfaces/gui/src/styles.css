@@ -139,7 +139,7 @@ body {
    14px/14px inside the brand row) so peeking the nav puts the pin under the cursor — no travel. */
 .nav-reveal-btn {
   position: fixed;
-  top: 14px;
+  top: 10px; /* center (10+14) aligns with the topbar title in the browser build */
   left: 14px;
   z-index: 58;
   width: 28px;
@@ -153,7 +153,10 @@ body {
 .nav-reveal-btn:hover { color: var(--ink); background: var(--paper); }
 /* On desktop, both the brand row and the reveal button shift right to clear the traffic lights
    (and down to align with them in their lowered position — see traffic_light_position in lib.rs). */
-.app.tauri-overlay .nav-reveal-btn { top: 13px; left: 84px; }
+/* Desktop overlay: the whole top strip sits lower (center ~30) to line up with the lowered
+   traffic lights — reveal/pin, the wordmark, and the topbar title all on that line. */
+.app.tauri-overlay .nav-reveal-btn { top: 16px; left: 84px; }
+.app.tauri-overlay .main-topbar { padding-top: 12px; }
 /* Make room for the reveal button so it never overlaps the topbar / page-view header content. */
 .app.nav-collapsed .main-topbar,
 .app.nav-collapsed .sa-view-head { padding-left: 46px; }
@@ -914,6 +917,22 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
   50% { opacity: 0.9; transform: scale(1.04); }
 }
 
+/* Dev-only fake traffic lights (?overlay=1) at the SAME position the real app uses
+   (traffic_light_position 19,24 in lib.rs) so the desktop top-left previews in the browser. */
+.sim-traffic-lights {
+  position: fixed;
+  left: 19px;
+  top: 24px;
+  display: flex;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+}
+.sim-traffic-lights span { width: 12px; height: 12px; border-radius: 50%; }
+.sim-traffic-lights span:nth-child(1) { background: #ff5f57; }
+.sim-traffic-lights span:nth-child(2) { background: #febc2e; }
+.sim-traffic-lights span:nth-child(3) { background: #28c840; }
+
 /* ---- Desktop overlay title bar -------------------------------------------- */
 /* Traffic lights float over the UI (Tauri titleBarStyle: Overlay). The visible
    app header/sidebar top padding provide the draggable area in the normal app. */
@@ -938,7 +957,7 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
    traffic lights float top-left, so shift the row RIGHT (not down) to clear them and keep it at
    the top — that puts the pin button just right of the lights, aligned with the reveal button.
    The row is a drag region (data-tauri-drag-region in Sidebar.tsx), so this strip moves the window. */
-.app.tauri-overlay .sidebar .brand { padding-top: 13px; padding-left: 84px; }
+.app.tauri-overlay .sidebar .brand { padding-top: 16px; padding-left: 84px; }
 
 /* ---- Onboarding wizard ----------------------------------------------------- */
 .ob-overlay {

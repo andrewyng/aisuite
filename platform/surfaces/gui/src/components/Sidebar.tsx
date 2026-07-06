@@ -757,7 +757,7 @@ export function Sidebar(props: Props) {
           as the collapsed reveal button (see .nav-pin-btn / .nav-reveal-btn in styles.css), so
           hovering the reveal peeks the nav and the pin lands right under the cursor — no travel.
           data-tauri-drag-region drags the window; on desktop the row clears the traffic lights. */}
-      <div className="brand px-3.5 pt-3.5 pb-2 flex items-center gap-2" data-tauri-drag-region>
+      <div className="brand px-3.5 pt-2.5 pb-2 flex items-center gap-2" data-tauri-drag-region>
         {/* Collapse (dock) / pin the sidebar. ⌘B mirrors this. */}
         {props.onCollapse && (
           <button

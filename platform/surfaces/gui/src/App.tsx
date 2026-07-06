@@ -869,6 +869,11 @@ export function App() {
   };
 
   const desktop = isTauri();
+  // Dev-only: `?overlay=1` simulates the desktop overlay layout in the browser (adds the
+  // tauri-overlay class + draws fake traffic lights at the real position) so the top-left can be
+  // tuned in the preview without a DMG build. Never active in the real app (isTauri() short-circuits).
+  const simOverlay = !desktop && new URLSearchParams(window.location.search).has("overlay");
+  const overlay = desktop || simOverlay;
   const beginWindowDrag = (event: PointerEvent) => {
     if (!desktop || event.button !== 0) return;
     startWindowDrag();
@@ -876,7 +881,7 @@ export function App() {
 
   if (booting || !uiReady) {
     return (
-      <div className={"app boot-splash" + (desktop ? " tauri-overlay" : "")}>
+      <div className={"app boot-splash" + (overlay ? " tauri-overlay" : "")}>
         {desktop && (
           <div className="titlebar-drag" data-tauri-drag-region>
             <span className="titlebar-brand brand-wordmark">
@@ -894,11 +899,17 @@ export function App() {
     <div
       className={
         "app" +
-        (desktop ? " tauri-overlay" : "") +
+        (overlay ? " tauri-overlay" : "") +
         (navCollapsed ? " nav-collapsed" : "") +
         (navCollapsed && navPeek ? " nav-peek" : "")
       }
     >
+      {/* Dev-only fake traffic lights so ?overlay=1 previews the real desktop top-left. */}
+      {simOverlay && (
+        <div className="sim-traffic-lights" aria-hidden="true">
+          <span /><span /><span />
+        </div>
+      )}
       {/* When collapsed, a thin left-edge zone peeks the nav back as a floating overlay. */}
       {navCollapsed && (
         <div
