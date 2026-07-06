@@ -84,6 +84,7 @@ function normalizeTodos(raw: unknown): TodoItem[] {
 const needsWorkspaceFallback = (a: string) => a === "code" || a === "cowork";
 const gatesWorkspaceFallback = (a: string) => a === "code";
 const LAST_SESSION_KEY = "coworker:last-session-by-agent:v1";
+const NAV_COLLAPSED_KEY = "coworker:nav-collapsed:v1";
 
 type LastSession = { sessionId: string; workspace: string; updatedAt: number };
 
@@ -180,6 +181,46 @@ export function App() {
   const [personaViewId, setPersonaViewId] = useState<string>("");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
+  // Left-nav collapse (⌘B): when collapsed the sidebar leaves the grid so content reclaims the
+  // width; hovering the left edge peeks it back as a floating overlay. Persisted per-device.
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem(NAV_COLLAPSED_KEY) === "1"; } catch { return false; }
+  });
+  const [navPeek, setNavPeek] = useState(false);
+  // While an artifact preview is open we auto-collapse the nav (#3). Remember the pre-preview
+  // collapse state so we can restore it on close — unless the user re-opened the nav meanwhile.
+  const navBeforePreview = useRef<boolean | null>(null);
+  const setNavCollapsedPersist = useCallback((v: boolean) => {
+    setNavCollapsed(v);
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, v ? "1" : "0"); } catch { /* best effort */ }
+  }, []);
+  const toggleNav = useCallback(() => {
+    setNavPeek(false);
+    navBeforePreview.current = null; // a manual toggle takes control from the artifact auto-collapse
+    setNavCollapsedPersist(!navCollapsed);
+  }, [navCollapsed, setNavCollapsedPersist]);
+  // #3: collapse the nav while a full artifact preview is open, restore it on close (unless the
+  // user manually toggled meanwhile). The collapse is transient — it never overwrites the pref.
+  const onArtifactPreview = useCallback((open: boolean) => {
+    if (open) {
+      if (navBeforePreview.current === null) navBeforePreview.current = navCollapsed;
+      setNavPeek(false);
+      setNavCollapsed(true);
+    } else if (navBeforePreview.current !== null) {
+      setNavCollapsed(navBeforePreview.current);
+      navBeforePreview.current = null;
+    }
+  }, [navCollapsed]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleNav();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleNav]);
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
   // the topbar when the side panel is hidden, so produced files are never buried.
   const [artifactCount, setArtifactCount] = useState(0);
@@ -850,7 +891,34 @@ export function App() {
   }
 
   return (
-    <div className={"app" + (desktop ? " tauri-overlay" : "")}>
+    <div
+      className={
+        "app" +
+        (desktop ? " tauri-overlay" : "") +
+        (navCollapsed ? " nav-collapsed" : "") +
+        (navCollapsed && navPeek ? " nav-peek" : "")
+      }
+    >
+      {/* When collapsed, a thin left-edge zone peeks the nav back as a floating overlay. */}
+      {navCollapsed && (
+        <div
+          className="nav-hover-zone"
+          onMouseEnter={() => setNavPeek(true)}
+          aria-hidden="true"
+        />
+      )}
+      {/* Explicit reveal affordance while collapsed (alongside hover-peek + ⌘B). */}
+      {navCollapsed && !navPeek && (
+        <button
+          className="nav-reveal-btn"
+          onClick={toggleNav}
+          onMouseEnter={() => setNavPeek(true)}
+          title="Show sidebar (⌘B)"
+          aria-label="Show sidebar"
+        >
+          <Icon name="panelOpen" size={16} />
+        </button>
+      )}
       {onboarding && (
         <Onboarding
           onDone={() => {
@@ -889,6 +957,9 @@ export function App() {
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
+        collapsed={navCollapsed}
+        onCollapse={toggleNav}
+        onPeekLeave={() => setNavPeek(false)}
       />
       {surface === "scheduled" ? (
         <ScheduledView
@@ -1205,6 +1276,7 @@ export function App() {
             toolNames={items.filter((i) => i.kind === "tool").map((i: any) => i.name)}
             todo={todo}
             running={running}
+            onPreviewChange={onArtifactPreview}
           />
         </div>
       </div>

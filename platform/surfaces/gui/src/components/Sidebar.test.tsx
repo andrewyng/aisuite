@@ -70,8 +70,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Sidebar layout toggle", () => {
-  it("toggling the layout persists via setNavLayout and switches to the per-persona accordion", async () => {
+describe("Sidebar group/filter control", () => {
+  it("choosing Persona persists via setNavLayout and switches to the per-persona accordion", async () => {
     const calls = stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
@@ -79,10 +79,12 @@ describe("Sidebar layout toggle", () => {
     ]);
     render(<Sidebar {...baseProps} />);
 
-    // personas load drives the surfaces; wait for them.
-    await screen.findByTitle("Flat — tap to group by persona");
+    // personas load drives the surfaces; the RECENT header's group/filter control is always present.
+    const control = await screen.findByLabelText("Group and filter conversations");
 
-    fireEvent.click(screen.getByTitle("Flat — tap to group by persona"));
+    // Open the popover and choose "Group by → Persona".
+    fireEvent.click(control);
+    fireEvent.click(await screen.findByText("Persona"));
 
     // POSTs the new layout pref.
     await waitFor(() => {
@@ -90,6 +92,10 @@ describe("Sidebar layout toggle", () => {
       expect(post).toBeTruthy();
       expect(post!.body).toMatchObject({ nav_layout: "grouped" });
     });
+
+    // Close the popover (it stays open so you can group AND filter in one visit) before asserting
+    // the accordion — otherwise "Ops" also matches the filter-by-coworker checkbox.
+    fireEvent.click(control);
 
     // Grouped view = the per-persona accordion. The Ops header appears; expanding it lists its
     // session, and the header's gear (rightmost element) opens the persona detail page.
@@ -108,7 +114,7 @@ describe("New-session split button", () => {
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
     ]);
     const { container } = render(<Sidebar {...baseProps} />);
-    await screen.findByTitle("Flat — tap to group by persona");
+    await screen.findByLabelText("Group and filter conversations");
 
     // Primary action → a new session with the current (last-used) persona.
     fireEvent.click(container.querySelector(".newsplit-primary")!);

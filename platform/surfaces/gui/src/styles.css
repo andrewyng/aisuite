@@ -93,6 +93,56 @@ body {
   min-height: 0;
 }
 
+/* ---------- collapsible left nav (⌘B + hover-peek) ---------- */
+/* Collapsed: the grid column goes to 0 so the content reclaims the width; the sidebar slides
+   off-screen. Hovering the left edge (.nav-hover-zone) adds .nav-peek, floating it back OVER the
+   content as an overlay with a shadow. */
+/* Single column when collapsed: the sidebar is taken out of flow (absolute), so the main content
+   must occupy the whole grid — a leading 0-width column would swallow it instead. */
+.app.nav-collapsed { grid-template-columns: 1fr; }
+.app.nav-collapsed .sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 264px;
+  z-index: 60;
+  transform: translateX(-100%);
+  transition: transform 0.18s ease;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+}
+.app.nav-collapsed.nav-peek .sidebar { transform: translateX(0); }
+/* Thin left-edge zone that triggers the peek while collapsed. */
+.nav-hover-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 14px;
+  z-index: 55;
+}
+/* Explicit reveal button while collapsed (top-left, cleared past the traffic lights on desktop). */
+.nav-reveal-btn {
+  position: fixed;
+  top: 9px;
+  left: 12px;
+  z-index: 58;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+}
+.nav-reveal-btn:hover { color: var(--ink); background: var(--paper); }
+.app.tauri-overlay .nav-reveal-btn { top: 8px; left: 84px; } /* clear the macOS traffic lights */
+/* Make room for the reveal button so it never overlaps the topbar / page-view header content. */
+.app.nav-collapsed .main-topbar,
+.app.nav-collapsed .sa-view-head { padding-left: 46px; }
+.app.nav-collapsed.tauri-overlay .main-topbar,
+.app.nav-collapsed.tauri-overlay .sa-view-head { padding-left: 120px; }
+
 .tabs { display: flex; gap: 4px; background: var(--paper); padding: 4px; border-radius: 10px; }
 .tab {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
