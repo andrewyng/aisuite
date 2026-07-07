@@ -166,7 +166,7 @@ export function Composer(props: Props) {
   const hasContent = text.trim().length > 0 || attachments.length > 0;
 
   return (
-    <div className="composer-wrap px-6 pb-5 pt-1">
+    <div className="composer-wrap px-6 pb-5 pt-4">
       {props.approvalSlot}
 
       {/* Attachments preview — a strip ABOVE the input box (mock/Claude-style). */}
@@ -322,22 +322,6 @@ export function Composer(props: Props) {
             </button>
           )}
         </div>
-      </div>
-      <div className="statusline">
-        <span>
-          <span
-            className={"dot " + (needsModel || !props.connected ? "off" : props.running ? "running" : "idle")}
-          />
-          &nbsp;
-          {needsModel
-            ? "needs setup — connect a model to send"
-            : !props.connected
-              ? "disconnected"
-              : props.running
-                ? "working…"
-                : "ready"}
-        </span>
-        <span>Enter to send · Shift+Enter for newline</span>
       </div>
     </div>
   );
