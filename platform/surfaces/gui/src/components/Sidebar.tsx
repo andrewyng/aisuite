@@ -209,18 +209,6 @@ export function Sidebar(props: Props) {
     return shortPersonaName(p?.name, agentId);
   };
 
-  // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the persona's
-  // resolved glyph (manifest icon → family default; emoji rendered as-is).
-  const iconTile = (agentId: string, size = 16) => {
-    const p = personas?.find((x) => x.id === agentId);
-    // Bare glyph — no box/border/fill (the tile framing read as "boxy"). The glyph alone still
-    // gives the quick persona-type scan.
-    return (
-      <span className="w-6 h-6 grid place-items-center text-muted shrink-0">
-        <PersonaGlyph icon={p?.icon} family={p?.family} size={size} />
-      </span>
-    );
-  };
 
   // A row in the bottom ⚙ "Settings & more" popup: closes the menu, then runs the destination.
   const appMenuItem = (icon: IconName, label: string, onClick: () => void, active?: boolean) => (
@@ -819,7 +807,6 @@ export function Sidebar(props: Props) {
                       }
                       onClick={() => onHeaderClick(s.key)}
                     >
-                      {iconTile(s.key)}
                       <span
                         className={
                           "min-w-0 flex-1 truncate text-[13px] " +
