@@ -98,12 +98,11 @@ describe("Sidebar group/filter control", () => {
     fireEvent.click(control);
 
     // Grouped view = the per-persona accordion. The Ops header appears; expanding it lists its
-    // session, and the header's gear (rightmost element) opens the persona detail page.
+    // session. (Persona configuration moved to Settings ▸ Personas, so there is no header gear.)
     const opsHeader = await screen.findByText("Ops");
     fireEvent.click(opsHeader);
     expect(screen.getByText("incident watch")).toBeTruthy();
-    fireEvent.click(screen.getByTitle("About the Ops persona"));
-    expect(baseProps.onOpenPersona).toHaveBeenCalledWith("ops");
+    expect(screen.queryByTitle("About the Ops persona")).toBeNull();
   });
 });
 

@@ -31,7 +31,13 @@ const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "folder" | "code
   { key: "personas", label: "Personas", icon: "sparkle" },
 ];
 
-export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
+export function SettingsView({
+  initialTab,
+  onOpenPersona,
+}: {
+  initialTab?: SetTab;
+  onOpenPersona?: (id: string) => void;
+}) {
   const [tab, setTab] = useState<SetTab>(initialTab ?? "appearance");
 
   return (
@@ -72,7 +78,7 @@ export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
               <ModelsTab />
             </section>
           ) : (
-            <PersonasSection />
+            <PersonasSection onOpenPersona={onOpenPersona} />
           )}
         </div>
       </div>
@@ -83,7 +89,7 @@ export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
 // -- Personas: installed/enabled/delete management, the dir/Git importer, and the
 // entry point to the Persona Gallery (a screen-sized modal — installs finish back
 // here, disabled pending consent; a gallery install re-mounts the list in place).
-function PersonasSection() {
+function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => void }) {
   const [galleryBump, setGalleryBump] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
 
@@ -93,7 +99,7 @@ function PersonasSection() {
         title="Personas"
         sub="Which coworkers are enabled and shown in the picker, plus installing new persona bundles."
       />
-      <PersonasTab key={galleryBump} />
+      <PersonasTab key={galleryBump} onOpenPersona={onOpenPersona} />
       <button
         className="mt-6 w-full rounded-xl2 border border-line bg-panel px-4 py-3.5 flex items-center gap-3 text-left hover:border-lineStrong"
         data-testid="gallery-link"

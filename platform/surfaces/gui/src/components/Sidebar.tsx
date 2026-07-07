@@ -400,7 +400,7 @@ export function Sidebar(props: Props) {
   // A 2-line card row (mock §141 list-flat): an optional persona icon tile + title + a
   // persona/channel subtitle + right-side indicators, with a pin/unpin button revealed on hover.
   // Shared by the flat layout's Pinned (no icon) and Recent (with icon) sections.
-  const cardRow = (s: SessionInfo, { showIcon }: { showIcon: boolean }) => {
+  const cardRow = (s: SessionInfo) => {
     const active = s.session_id === props.activeSession;
     const title = s.title || s.session_id;
     // Subtitle (deliberately quiet): just the persona label + the workspace basename for
@@ -421,9 +421,8 @@ export function Sidebar(props: Props) {
         title={title}
         onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
       >
-        {/* RECENT rows carry the persona glyph; PINNED rows stay icon-free (persona shows in the
-            subtitle), per the mock + the pinned-band decision. */}
-        {showIcon && iconTile(s.agent)}
+        {/* No leading glyph on session rows — the persona shows in the subtitle (Rohit's call
+            2026-07-07: the per-session icon read as noise in both grouped and chronological). */}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium">{title}</span>
           <span className="block truncate text-[11px] text-faint">{subParts.join(" · ")}</span>
@@ -459,7 +458,7 @@ export function Sidebar(props: Props) {
           Pinned
         </div>
         <div className="space-y-0.5">
-          {pinnedSessions.map((s) => cardRow(s, { showIcon: false }))}
+          {pinnedSessions.map((s) => cardRow(s))}
         </div>
       </div>
     ) : null;
@@ -831,24 +830,13 @@ export function Sidebar(props: Props) {
                       </span>
                       <LiveDot state={liveByPersona.get(s.key)} />
                       <AttnBadge n={attnByPersona.get(s.key) || 0} />
+                      {/* Persona configuration moved to Settings ▸ Personas (Rohit's call
+                          2026-07-07) — the per-group gear read as clutter here. */}
                       <Icon
                         name={expanded ? "chevronDown" : "chevronRight"}
                         size={15}
                         className="text-faint shrink-0"
                       />
-                      {/* Settings gear — the rightmost element; opens the persona page without
-                          toggling the accordion (stops propagation). */}
-                      <button
-                        className="w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
-                        title={`About the ${s.label} persona`}
-                        aria-label={`About the ${s.label} persona`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          props.onOpenPersona(s.key);
-                        }}
-                      >
-                        <Icon name="sliders" size={14} />
-                      </button>
                     </div>
                     {expanded && surfaceBody()}
                   </div>
@@ -862,7 +850,7 @@ export function Sidebar(props: Props) {
                   {normalizedQuery ? "No matching conversations." : "No conversations yet."}
                 </div>
               ) : (
-                recentSessions.map((s) => cardRow(s, { showIcon: true }))
+                recentSessions.map((s) => cardRow(s))
               )}
             </div>
             )}
