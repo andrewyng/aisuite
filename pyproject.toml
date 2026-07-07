@@ -33,6 +33,7 @@ psycopg = { version = "^3.3.4", optional = true }
 httpx = "~0.27.0"
 [tool.poetry.extras]
 anthropic = ["anthropic"]
+atlascloud = ["openai"]
 aws = ["boto3"]
 azure = []
 cerebras = ["cerebras_cloud_sdk"]
