@@ -283,9 +283,9 @@ export function Sidebar(props: Props) {
       <div
         key={s.session_id}
         className={
-          "group relative flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
+          "group flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
           (active
-            ? "bg-ink/[0.055] before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-accent"
+            ? "bg-ink/[0.055]"
             : "hover:bg-panel")
         }
         onClick={() => {
@@ -401,9 +401,9 @@ export function Sidebar(props: Props) {
       <div
         key={s.session_id}
         className={
-          "group relative w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
+          "group w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
           (active
-            ? "bg-ink/[0.055] before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-accent"
+            ? "bg-ink/[0.055]"
             : "hover:bg-paper")
         }
         title={title}
