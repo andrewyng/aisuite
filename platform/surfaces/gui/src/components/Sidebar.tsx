@@ -169,6 +169,10 @@ export function Sidebar(props: Props) {
     setLayout(next);
     setNavLayout(next).catch(() => {});
   };
+  // Chronological RECENT list: cap at RECENT_PEEK with a Show more/less toggle so the sidebar
+  // doesn't grow unbounded.
+  const RECENT_PEEK = 4;
+  const [recentExpanded, setRecentExpanded] = useState(false);
   // The RECENT-header group/filter popover (§20). Filter = show only these personas (empty = all).
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [filterPersonas, setFilterPersonas] = useState<Set<string>>(new Set());
@@ -837,7 +841,22 @@ export function Sidebar(props: Props) {
                   {normalizedQuery ? "No matching conversations." : "No conversations yet."}
                 </div>
               ) : (
-                recentSessions.map((s) => cardRow(s))
+                <>
+                  {(recentExpanded
+                    ? recentSessions
+                    : recentSessions.slice(0, RECENT_PEEK)
+                  ).map((s) => cardRow(s))}
+                  {recentSessions.length > RECENT_PEEK && (
+                    <button
+                      className="w-full text-left px-2 py-1.5 text-[12px] text-muted hover:text-ink"
+                      onClick={() => setRecentExpanded((v) => !v)}
+                    >
+                      {recentExpanded
+                        ? "Show less"
+                        : `Show ${recentSessions.length - RECENT_PEEK} more`}
+                    </button>
+                  )}
+                </>
               )}
             </div>
             )}
