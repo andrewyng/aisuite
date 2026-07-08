@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
-from .adapters import slack_event_to_event
+from .adapters import _SLACK_MENTION_RE, slack_event_to_event
 from .base import BasePlatformAdapter, InteractionEvent, SendResult, SessionSource
 from .senders import _send_slack, _send_slack_interactive
 from .slack_addr import qualify
@@ -83,6 +85,10 @@ class SlackRelayAdapter(BasePlatformAdapter):
         self._connections = 0  # total successful opens; reconnects == connections-1
         self._dispatched = 0  # frames dispatched (observable for tests)
         self._progress = asyncio.Event()
+        # Name resolution caches, keyed PER WORKSPACE — a U…/C… id only means
+        # something inside its team, and resolution uses that team's bot token.
+        self._names: dict[str, dict[str, str]] = {}  # team_id -> {uid: name}
+        self._channels: dict[str, dict[str, str]] = {}  # team_id -> {cid: name}
 
     # -- lifecycle -----------------------------------------------------------
     async def connect(self) -> bool:
@@ -191,14 +197,25 @@ class SlackRelayAdapter(BasePlatformAdapter):
         await self._on_event(frame)
 
     async def _on_event(self, frame: dict) -> None:
-        team_id = frame.get("team_id", "")
-        event = frame.get("event") or {}
+        await self._dispatch_slack_event(frame.get("team_id", ""), frame.get("event") or {})
+
+    async def _dispatch_slack_event(self, team_id: str, event: dict) -> None:
+        """Map a raw Slack event → MessageEvent, resolve display names via the
+        per-team bot token, team-qualify the reply handle, and dispatch."""
         mapped = slack_event_to_event(event, self._bot_user_id(team_id))
         if mapped is None:
             return
+        channel = mapped.source.chat_id  # bare channel id before qualification
+        # Resolve friendly names with THIS workspace's bot token (cached per team),
+        # mirroring the Socket-Mode adapter — so cards read "@ocw"/"Rohit"/"#ocw-test"
+        # not raw U…/C… ids. Best-effort: ids fall through on failure.
+        if not mapped.source.user_name:
+            mapped.source.user_name = await self._display_name(team_id, mapped.source.user_id)
+        if not mapped.source.chat_name:
+            mapped.source.chat_name = await self._channel_name(team_id, channel)
+        mapped.text = await self._resolve_mentions(team_id, mapped.text)
         # Team-qualify the reply handle so multi-workspace replies pick the right
         # per-team token.
-        channel = mapped.source.chat_id
         mapped.source.chat_id = qualify(team_id, channel)
         mapped.source.team_id = team_id
         await self.handle_message(mapped)
@@ -235,14 +252,65 @@ class SlackRelayAdapter(BasePlatformAdapter):
         except Exception:
             logger.exception("relay nudge history fetch failed")
             return
-        bot = self._bot_user_id(team_id)
         for raw in messages:
-            mapped = slack_event_to_event({**raw, "channel": channel}, bot)
-            if mapped is None:
-                continue
-            mapped.source.chat_id = qualify(team_id, channel)
-            mapped.source.team_id = team_id
-            await self.handle_message(mapped)
+            await self._dispatch_slack_event(team_id, {**raw, "channel": channel})
+
+    # -- name resolution (per workspace, via that team's bot token) ----------
+    async def _slack_get(self, team_id: str, method: str, params: dict) -> Optional[dict]:
+        """Call a Slack Web API read method with the team's bot token. Best-effort
+        (None on any failure). `SLACK_API_URL` redirects to the fake in tests."""
+        import httpx
+
+        token = self._bot_token(team_id)
+        if not token:
+            return None
+        base = os.environ.get("SLACK_API_URL", "https://slack.com/api/")
+        try:
+            async with httpx.AsyncClient(timeout=15) as http:
+                resp = await http.get(
+                    base + method, params=params,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            data = resp.json()
+        except Exception:
+            return None
+        return data if data.get("ok") else None
+
+    async def _display_name(self, team_id: str, uid: Optional[str]) -> Optional[str]:
+        if not uid:
+            return None
+        cache = self._names.setdefault(team_id, {})
+        if uid in cache:
+            return cache[uid]
+        data = await self._slack_get(team_id, "users.info", {"user": uid})
+        u = (data or {}).get("user") or {}
+        prof = u.get("profile") or {}
+        name = prof.get("display_name") or prof.get("real_name") or u.get("real_name") or u.get("name")
+        if name:
+            cache[uid] = name
+        return name
+
+    async def _channel_name(self, team_id: str, cid: Optional[str]) -> Optional[str]:
+        if not cid:
+            return None
+        cache = self._channels.setdefault(team_id, {})
+        if cid in cache:
+            return cache[cid]
+        data = await self._slack_get(team_id, "conversations.info", {"channel": cid})
+        chan = (data or {}).get("channel") or {}
+        name = chan.get("name") or chan.get("name_normalized")
+        if name:
+            cache[cid] = name
+        return name
+
+    async def _resolve_mentions(self, team_id: str, text: str) -> str:
+        """Rewrite `<@U…>` tokens to `@display-name` (cached). Best-effort."""
+        out = text
+        for uid in set(_SLACK_MENTION_RE.findall(text or "")):
+            name = await self._display_name(team_id, uid)
+            if name:
+                out = re.sub(rf"<@{re.escape(uid)}(?:\|[^>]*)?>", f"@{name}", out)
+        return out
 
     # -- outbound ------------------------------------------------------------
     async def send(

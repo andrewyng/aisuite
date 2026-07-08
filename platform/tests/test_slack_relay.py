@@ -120,6 +120,57 @@ async def test_relay_dispatches_team_qualified_event():
     assert ev.text == "hi"
 
 
+async def test_relay_resolves_names_and_mentions(monkeypatch):
+    adapter = _adapter([_event_frame("T1", "C1", "U_ALICE", text="<@UBOT1> hey bot")])
+
+    async def fake_get(team_id, method, params):
+        assert team_id == "T1"  # resolved with THIS workspace's token
+        if method == "users.info":
+            names = {
+                "U_ALICE": {"profile": {"display_name": "Rohit"}},
+                "UBOT1": {"profile": {"display_name": "ocw"}},
+            }
+            return {"ok": True, "user": names.get(params["user"], {})}
+        if method == "conversations.info":
+            return {"ok": True, "channel": {"name": "ocw-test"}}
+        return None
+
+    monkeypatch.setattr(adapter, "_slack_get", fake_get)
+    events: list[MessageEvent] = []
+
+    async def handler(e):
+        events.append(e)
+
+    adapter.set_message_handler(handler)
+    await adapter.connect()
+    try:
+        await adapter.wait_dispatched(1)
+    finally:
+        await adapter.disconnect()
+
+    ev = events[0]
+    assert ev.source.user_name == "Rohit"  # not U_ALICE
+    assert ev.source.chat_name == "ocw-test"  # not C1
+    assert ev.text == "@ocw hey bot"  # <@UBOT1> rewritten
+
+
+async def test_relay_name_cache_is_per_workspace(monkeypatch):
+    """A cached (team, id) must not leak across workspaces."""
+    adapter = SlackRelayAdapter("wss://x", lambda: "jwt", teams=dict(TEAMS))
+    calls = []
+
+    async def fake_get(team_id, method, params):
+        calls.append((team_id, params.get("user")))
+        return {"ok": True, "user": {"profile": {"display_name": f"{team_id}:{params['user']}"}}}
+
+    monkeypatch.setattr(adapter, "_slack_get", fake_get)
+    # Same uid string in two workspaces resolves independently + caches per team.
+    assert await adapter._display_name("T1", "U9") == "T1:U9"
+    assert await adapter._display_name("T2", "U9") == "T2:U9"
+    assert await adapter._display_name("T1", "U9") == "T1:U9"  # cached, no new call
+    assert calls == [("T1", "U9"), ("T2", "U9")]  # T1 second lookup served from cache
+
+
 async def test_relay_two_workspace_fan_in():
     adapter = _adapter(
         [_event_frame("T1", "C1", "U_A", ts="1"), _event_frame("T2", "C2", "U_B", ts="2")]
