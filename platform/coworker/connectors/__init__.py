@@ -19,7 +19,7 @@ from .adapters import (
     slack_event_to_event,
     telegram_message_to_event,
 )
-from .config import ConnectorSettings, is_authorized, load_settings
+from .config import ConnectorSettings, TeamAuth, is_authorized, load_settings
 from .relay_client import SlackRelayAdapter
 from .slack_addr import qualify as slack_qualify, split as slack_split
 from .descriptors import ConnectorDescriptor, get_descriptor, list_descriptors
@@ -48,6 +48,7 @@ __all__ = [
     "format_target",
     "parse_target",
     "ConnectorSettings",
+    "TeamAuth",
     "is_authorized",
     "load_settings",
     "ConnectorDescriptor",

@@ -31,6 +31,7 @@ class ParkedMessage:
     user_name: Optional[str] = None  # resolved display name (falls back to user_id)
     chat_type: str = "channel"  # "channel" | "group" | "dm"
     thread_id: Optional[str] = None
+    team_id: Optional[str] = None  # workspace id (managed relay); None for socket mode
     ts: float = field(default_factory=time.time)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 

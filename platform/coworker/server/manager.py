@@ -867,9 +867,17 @@ class SessionManager:
             if not (c.get("two_way") and c.get("connected")):
                 continue
             allowed = set(c.get("allowed_users") or [])
+            # Per-workspace allow-lists (managed relay) — a sender is judged against
+            # ITS workspace's list; the flat list only governs team-less (socket) events.
+            team_allowed = {
+                w["team_id"]: set(w.get("allowed_users") or [])
+                for w in (c.get("workspaces") or [])
+            }
             recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
             for r in recent:
-                r["authorized"] = r.get("user_id") in allowed
+                team = r.get("team_id")
+                pool = team_allowed.get(team, set()) if team else allowed
+                r["authorized"] = r.get("user_id") in pool
                 # Backfill from the people directory (an event may predate name scopes).
                 r["user_name"] = r.get("user_name") or self._people.get(
                     f"{c['name']}:{r.get('user_id')}"
@@ -882,6 +890,11 @@ class SessionManager:
                 u: self._people.get(f"{c['name']}:{u}")
                 for u in (c.get("allowed_users") or [])
             }
+            for w in c.get("workspaces") or []:
+                w["allowed_user_names"] = {
+                    u: self._people.get(f"{c['name']}:{u}")
+                    for u in (w.get("allowed_users") or [])
+                }
         return connectors
 
     def connect_connector(
@@ -1554,27 +1567,47 @@ class SessionManager:
         return {"ok": True, **self.get_settings()}
 
     # -- gateway + connector allow-list (inbound messaging) ---------------------
-    def allow_user(self, name: str, user_id: str) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, add=True)
+    def allow_user(
+        self, name: str, user_id: str, team_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        return self._set_allowed(name, user_id, team_id=team_id, add=True)
 
-    def disallow_user(self, name: str, user_id: str) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, add=False)
+    def disallow_user(
+        self, name: str, user_id: str, team_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        return self._set_allowed(name, user_id, team_id=team_id, add=False)
 
-    def _set_allowed(self, name: str, user_id: str, *, add: bool) -> dict[str, Any]:
+    def _set_allowed(
+        self, name: str, user_id: str, *, team_id: Optional[str] = None, add: bool
+    ) -> dict[str, Any]:
+        """Add/remove a sender on the allow-list. With `team_id` the edit targets that
+        workspace's `slack:team:<id>` profile (managed relay — ids are workspace-scoped);
+        without, the flat `<name>:default` list (manual single-workspace mode)."""
         user_id = str(user_id).strip()
         if not user_id:
             return {"ok": False, "error": "user_id required"}
-        profile = self.secrets.get(f"{name}:default")
+        profile_key = f"{name}:team:{team_id}" if team_id else f"{name}:default"
+        profile = self.secrets.get(profile_key)
         if not profile:
-            return {"ok": False, "error": "connector not connected"}
+            return {
+                "ok": False,
+                "error": "workspace not connected" if team_id else "connector not connected",
+            }
         allowed = set(profile.get("allowed_users") or [])
         allowed.add(user_id) if add else allowed.discard(user_id)
         profile["allowed_users"] = sorted(allowed)
-        self.secrets.put(f"{name}:default", profile)
+        self.secrets.put(profile_key, profile)
         # reflect into the live gateway so it takes effect without a restart
         if self.gateway is not None and name in self.gateway.settings:
-            self.gateway.settings[name].allowed_users = set(allowed)
-        return {"ok": True, "allowed_users": sorted(allowed)}
+            if team_id:
+                from ..connectors import TeamAuth
+
+                teams = self.gateway.settings[name].teams
+                team = teams.setdefault(team_id, TeamAuth())
+                team.allowed_users = set(allowed)
+            else:
+                self.gateway.settings[name].allowed_users = set(allowed)
+        return {"ok": True, "allowed_users": sorted(allowed), "team_id": team_id}
 
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
@@ -1661,6 +1694,7 @@ class SessionManager:
             user_name=s.user_name,
             chat_type=s.chat_type,
             thread_id=s.thread_id,
+            team_id=s.team_id,
             text=event.text or "",
         )
 
@@ -1677,7 +1711,7 @@ class SessionManager:
             return {"ok": True}
         if action not in ("allow", "allow_deliver"):
             return {"ok": False, "error": f"unknown action: {action}"}
-        allowed = self._set_allowed(name, item.user_id, add=True)
+        allowed = self._set_allowed(name, item.user_id, team_id=item.team_id, add=True)
         if not allowed.get("ok"):
             return allowed
         if action == "allow_deliver":
@@ -1693,6 +1727,7 @@ class SessionManager:
                     chat_name=item.chat_name,
                     chat_type=item.chat_type,
                     thread_id=item.thread_id,
+                    team_id=item.team_id,
                 ),
             )
             await self._dispatch_inbound(event)

@@ -699,11 +699,16 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/connectors/{name}/allow")
     def connector_allow(name: str, body: dict) -> dict[str, Any]:
-        return manager.allow_user(name, str(body.get("user_id", "")))
+        # `team_id` scopes the edit to one workspace (managed relay); absent → flat list.
+        return manager.allow_user(
+            name, str(body.get("user_id", "")), str(body.get("team_id", "")) or None
+        )
 
     @app.post("/v1/connectors/{name}/disallow")
     def connector_disallow(name: str, body: dict) -> dict[str, Any]:
-        return manager.disallow_user(name, str(body.get("user_id", "")))
+        return manager.disallow_user(
+            name, str(body.get("user_id", "")), str(body.get("team_id", "")) or None
+        )
 
     # -- audit / browser observability ------------------------------------------
     @app.get("/v1/audit")

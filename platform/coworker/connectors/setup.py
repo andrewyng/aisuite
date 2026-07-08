@@ -53,8 +53,7 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             continue
         profile = secrets.get(f"{d.name}:default") or {}
         connected = _profile_connected(d, profile)
-        out.append(
-            {
+        entry = {
                 "name": d.name,
                 "title": d.title,
                 "icon": d.icon,
@@ -77,9 +76,31 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "managed": d.managed,
                 # Whether THIS profile came from managed OAuth (vs manual paste).
                 "managed_profile": bool(profile.get("managed")),
+                # "relay" for the managed cloud path; empty for manual/token connect.
+                "mode": profile.get("mode") or "",
             }
-        )
+        if d.name == "slack":
+            # Managed relay is multi-workspace: each `slack:team:*` profile is one
+            # connected workspace with its OWN allow-list (ids are workspace-scoped).
+            entry["workspaces"] = _slack_workspaces(secrets)
+        out.append(entry)
     return out
+
+
+def _slack_workspaces(secrets: SecretStore) -> list[dict[str, Any]]:
+    from .config import _slack_team_profiles
+
+    return [
+        {
+            "team_id": team_id,
+            "account": profile.get("account") or team_id,
+            "allowed_users": list(profile.get("allowed_users") or []),
+            "allow_all": bool(profile.get("allow_all")),
+        }
+        for team_id, profile in sorted(
+            _slack_team_profiles(secrets), key=lambda t: t[0]
+        )
+    ]
 
 
 def update_connector_tools(

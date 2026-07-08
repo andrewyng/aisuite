@@ -18,14 +18,40 @@ PLATFORMS = ("telegram", "slack")
 
 
 @dataclass
+class TeamAuth:
+    """One workspace's inbound authorization (managed multi-workspace Slack).
+
+    User/channel ids are workspace-scoped — a U… only means something inside its
+    team — so each connected workspace carries its own allow-list.
+    """
+
+    allowed_users: set[str] = field(default_factory=set)
+    allow_all: bool = False
+
+
+@dataclass
 class ConnectorSettings:
     platform: str
     enabled: bool = False
     allowed_users: set[str] = field(default_factory=set)
     allow_all: bool = False
+    # Per-workspace auth, keyed by team_id (populated from `slack:team:*` profiles).
+    # Only relay-mode Slack fills this; manual Socket Mode uses the flat fields above.
+    teams: dict[str, TeamAuth] = field(default_factory=dict)
 
 
 def is_authorized(settings: ConnectorSettings, source: SessionSource) -> bool:
+    team_id = getattr(source, "team_id", None)
+    if team_id:
+        # Relay events carry their workspace; authorization is that team's list
+        # alone. An unknown team means no install we know of — deny (park).
+        team = settings.teams.get(team_id)
+        if team is None:
+            return False
+        if team.allow_all:
+            return True
+        uid = source.user_id
+        return bool(uid) and uid in team.allowed_users
     if settings.allow_all:
         return True
     uid = source.user_id
@@ -61,10 +87,32 @@ def load_settings(
             enabled = bool(profile.get("enabled", True))
         else:
             enabled = bool(token) and profile.get("enabled", True)
+        teams: dict[str, TeamAuth] = {}
+        if platform == "slack":
+            for team_id, team_profile in _slack_team_profiles(secrets):
+                teams[team_id] = TeamAuth(
+                    allowed_users=set(team_profile.get("allowed_users") or []),
+                    allow_all=bool(team_profile.get("allow_all")),
+                )
         out[platform] = ConnectorSettings(
             platform=platform,
             enabled=enabled,
             allowed_users=allowed,
             allow_all=allow_all,
+            teams=teams,
         )
+    return out
+
+
+def _slack_team_profiles(secrets: SecretStore) -> list[tuple[str, dict]]:
+    """(team_id, profile) for every managed-install workspace (`slack:team:*`)."""
+    out: list[tuple[str, dict]] = []
+    for meta in secrets.status():
+        name = meta.get("profile", "")
+        if not name.startswith("slack:team:"):
+            continue
+        team_id = name[len("slack:team:") :]
+        profile = secrets.get(name)
+        if team_id and profile:
+            out.append((team_id, profile))
     return out
