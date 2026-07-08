@@ -98,7 +98,6 @@ const OPS_SESSION = {
 
 const CONNECTORS = {
   connectors: [
-    { name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#611f69", logo: "slack", fields: [], instructions: [], connected: true, account: "acme", enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
     { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
     { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
     // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
@@ -268,9 +267,34 @@ export async function mockApi(page: import("@playwright/test").Page) {
     { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:C0AAA111", channel_name: "ocw-test", routing_target: null, collision: false },
   ];
   // Parked unauthorized messages (§19) — mutable so Allow/Dismiss round-trip through the UI.
+  // The relay is multi-workspace: parked items carry their team so the Slack page files them
+  // under the right workspace card.
   const parked: any[] = [
-    { id: "pk1", platform: "slack", chat_id: "C0AAA111", chat_name: "#ocw-test", user_id: "U0NEW", user_name: "Maya", chat_type: "channel", text: "hey ocw, can you summarize this thread?", ts: Date.now() / 1000 - 120 },
+    { id: "pk1", platform: "slack", chat_id: "C0AAA111", chat_name: "#ocw-test", user_id: "U0NEW", user_name: "Maya", chat_type: "channel", text: "hey ocw, can you summarize this thread?", ts: Date.now() / 1000 - 120, team_id: "T1DL" },
   ];
+  // Slack connector — PER-TEST state (managed relay, two workspaces) so allow/disconnect
+  // mutations never leak across tests sharing a worker. Backend parity: `workspaces` mirrors
+  // the slack:team:* profiles, each with its OWN allow-list.
+  const slackState = {
+    connected: true,
+    mode: "relay" as "" | "relay",
+    account: "deeplearning.ai",
+    allowed_users: [] as string[], // flat list (manual Socket Mode only)
+    workspaces: [
+      { team_id: "T1DL", account: "deeplearning.ai", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null> },
+      { team_id: "T2AC", account: "acme-partners", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null> },
+    ],
+  };
+  const slackConnector = () => ({
+    name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.",
+    auth: "bot_token", two_way: true, available: true, brand_color: "#611f69", logo: "slack",
+    fields: [], instructions: [], connected: slackState.connected,
+    account: slackState.account, enabled: slackState.connected,
+    allowed_users: [...slackState.allowed_users], tools: [], managed: true,
+    managed_profile: slackState.mode === "relay", mode: slackState.mode,
+    workspaces: slackState.workspaces.map((w) => ({ ...w, allowed_users: [...w.allowed_users] })),
+    unauthorized: parked.map((x) => ({ ...x })),
+  });
   // Installed personas — mutable so enable/surface/delete round-trip through the UI.
   const personas: any[] = PERSONAS.personas.map((p) => ({ ...p }));
   // Sessions — mutable so archive (PATCH), rename (PATCH), and delete round-trip.
@@ -463,19 +487,44 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (i < 0) return json({ ok: false, error: "unknown item" });
       const b = req.postDataJSON();
       const item = parked.splice(i, 1)[0];
-      // Backend parity: allow_deliver re-injects through the inbound path — the channel
-      // becomes a recent suggestion and the sender lands on the allow-list.
+      // Backend parity: allowing routes to the item's OWN workspace's list (ids are
+      // workspace-scoped); a team-less item lands on the flat list (manual mode).
       if (b.action === "allow" || b.action === "allow_deliver") {
-        const slack = CONNECTORS.connectors.find((c: any) => c.name === "slack");
-        if (slack && !slack.allowed_users.includes(item.user_id)) slack.allowed_users.push(item.user_id);
+        const pool = item.team_id
+          ? slackState.workspaces.find((w) => w.team_id === item.team_id)?.allowed_users
+          : slackState.allowed_users;
+        if (pool && !pool.includes(item.user_id)) pool.push(item.user_id);
       }
       return json({ ok: true });
     }
+    // Per-workspace allow/disallow (team_id in the body) + the flat manual list without it.
+    if (/\/v1\/connectors\/slack\/(allow|disallow)$/.test(p) && m === "POST") {
+      const b = req.postDataJSON();
+      const add = p.endsWith("/allow");
+      const pool = b.team_id
+        ? slackState.workspaces.find((w) => w.team_id === b.team_id)?.allowed_users
+        : slackState.allowed_users;
+      if (!pool) return json({ ok: false, error: "workspace not connected" });
+      const i = pool.indexOf(b.user_id);
+      if (add && i < 0) pool.push(b.user_id);
+      if (!add && i >= 0) pool.splice(i, 1);
+      return json({ ok: true, allowed_users: [...pool], team_id: b.team_id ?? null });
+    }
+    // Stop relaying one workspace; removing the last flips the connector off (backend parity).
+    if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const teamId = decodeURIComponent(p.split("/").slice(-2)[0]);
+      const i = slackState.workspaces.findIndex((w) => w.team_id === teamId);
+      if (i < 0) return json({ ok: false, error: "workspace not connected" });
+      slackState.workspaces.splice(i, 1);
+      if (slackState.workspaces.length === 0) {
+        slackState.connected = false;
+        slackState.mode = "";
+      }
+      return json({ ok: true, remaining_workspaces: slackState.workspaces.length });
+    }
     if (p.endsWith("/v1/connectors"))
       return json({
-        connectors: CONNECTORS.connectors.map((c: any) =>
-          c.name === "slack" ? { ...c, unauthorized: parked.map((x) => ({ ...x })) } : c,
-        ),
+        connectors: [slackConnector(), ...CONNECTORS.connectors.map((c: any) => ({ ...c }))],
       });
     if (p.endsWith("/v1/cloud/status")) return json({ ...CLOUD_STATE });
     if (p.endsWith("/v1/cloud/login") && m === "POST") {
@@ -491,7 +540,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
       return json({ ok: true, signed_in: false });
     }
     if (/\/v1\/connectors\/[^/]+\/connect-managed$/.test(p) && m === "POST") {
-      return json(CLOUD_STATE.signed_in ? { ok: true } : { ok: false, error: "not signed in" });
+      if (!CLOUD_STATE.signed_in) return json({ ok: false, error: "not signed in" });
+      // Slack managed install = add a workspace. The real flow completes in the system
+      // browser; the mock installs instantly so the page's poll picks it up.
+      if (p.includes("/connectors/slack/")) {
+        slackState.workspaces.push({ team_id: "T3NEW", account: "new-workspace", allowed_users: [], allow_all: false, allowed_user_names: {} });
+        slackState.connected = true;
+        slackState.mode = "relay";
+      }
+      return json({ ok: true });
     }
     if (p.endsWith("/v1/cloud/gallery")) {
       return json(

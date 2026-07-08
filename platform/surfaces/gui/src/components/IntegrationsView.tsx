@@ -17,6 +17,7 @@ import {
 } from "../api";
 import type { SessionInfo } from "../types";
 import { ConnectorsTab, McpTab } from "./ManageTabs";
+import { SlackWorkspacesTab } from "./SlackWorkspacesTab";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
 
@@ -26,7 +27,7 @@ import { Icon } from "./Icon";
 // controls move under Messaging routing; the Unrouted/dead-letter panel under Activity; MCP servers
 // under MCP. Restyled to the mock (redesign.html §view-integrations) with Tailwind utilities — no
 // functionality is lost; the existing tab components are just regrouped and re-skinned.
-type IntTab = "connectors" | "messaging" | "activity" | "mcp";
+type IntTab = "connectors" | "slack" | "messaging" | "activity" | "mcp";
 
 // Shared utility strings (mock parity — mirrors PersonaView's constants).
 const CARD = "rounded-xl2 border border-line bg-panel";
@@ -35,6 +36,7 @@ const BTN_ACCENT_SM = "text-[12px] px-2.5 py-1 rounded-md bg-accent text-white d
 
 const INT_TABS: { key: IntTab; label: string; icon: "plug" | "chat" | "audit" | "code" }[] = [
   { key: "connectors", label: "Connectors", icon: "plug" },
+  { key: "slack", label: "Slack workspaces", icon: "chat" },
   { key: "messaging", label: "Messaging routing", icon: "chat" },
   { key: "activity", label: "Activity", icon: "audit" },
   { key: "mcp", label: "MCP servers", icon: "code" },
@@ -102,7 +104,15 @@ export function IntegrationsView() {
                 title="Connectors"
                 sub="Apps and tools OpenCoworker can use. You bring the credentials for this local build."
               />
-              <ConnectorsTab />
+              <ConnectorsTab onManageSlack={() => setTab("slack")} />
+            </section>
+          ) : tab === "slack" ? (
+            <section>
+              <PanelHead
+                title="Slack workspaces"
+                sub="Connect one or more workspaces. Each workspace keeps its own allow-list — Slack ids only mean something inside their workspace."
+              />
+              <SlackWorkspacesTab />
             </section>
           ) : tab === "messaging" ? (
             <section>

@@ -598,7 +598,7 @@ function AddForm({
 }
 
 // -- Connectors tab ----------------------------------------------------------
-export function ConnectorsTab() {
+export function ConnectorsTab({ onManageSlack }: { onManageSlack?: () => void } = {}) {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [openName, setOpenName] = useState<string | null>(null);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
@@ -633,6 +633,7 @@ export function ConnectorsTab() {
               refresh();
             }}
             onRefresh={refresh}
+            onManageSlack={onManageSlack}
           />
         ))}
       </div>
@@ -730,6 +731,7 @@ function ConnectorRow({
   onToggleOpen,
   onChanged,
   onRefresh,
+  onManageSlack,
 }: {
   c: Connector;
   cloud: CloudStatus | null;
@@ -737,7 +739,17 @@ function ConnectorRow({
   onToggleOpen: () => void;
   onChanged: () => void;
   onRefresh: () => void;
+  onManageSlack?: () => void;
 }) {
+  // Slack is multi-workspace (managed relay): its card stays COMPACT — status + a
+  // "Manage workspaces →" link to the dedicated page, where the allow-list / parked
+  // messages / disconnect live per workspace. Other two-way connectors keep the
+  // inline blocks below.
+  const slackCompact = c.name === "slack" && c.connected;
+  const relay = c.mode === "relay";
+  const slackStatus = relay
+    ? `${c.workspaces?.length ?? 0} workspace${(c.workspaces?.length ?? 0) === 1 ? "" : "s"} · managed relay`
+    : c.account || "connected";
   return (
     <div className={CARD} data-testid={`connector-${c.name}`}>
       <div className="flex items-center gap-3 p-3.5">
@@ -756,8 +768,10 @@ function ConnectorRow({
           {c.connected ? (
             <div className="text-[12px] text-muted flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
-              {c.account || "connected"}
-              {c.allowed_users.length > 0 ? ` · ${c.allowed_users.length} allowed` : ""}
+              {slackCompact ? slackStatus : c.account || "connected"}
+              {!slackCompact && c.allowed_users.length > 0
+                ? ` · ${c.allowed_users.length} allowed`
+                : ""}
             </div>
           ) : (
             <div className="text-[12px] text-muted">{c.blurb || (c.available ? "Not connected" : "")}</div>
@@ -766,6 +780,27 @@ function ConnectorRow({
         <div className="ml-auto flex items-center gap-2">
           {!c.available ? (
             <span className="text-[12px] text-faint">Soon</span>
+          ) : slackCompact ? (
+            <>
+              <button
+                className={BTN_BORDERED}
+                data-testid="manage-slack-workspaces"
+                onClick={onManageSlack}
+              >
+                Manage workspaces →
+              </button>
+              {!relay && (
+                <button
+                  className={BTN_DANGER}
+                  onClick={async () => {
+                    await disconnectConnector(c.name);
+                    onChanged();
+                  }}
+                >
+                  Disconnect
+                </button>
+              )}
+            </>
           ) : c.connected && c.auth === "none" ? (
             <button className={BTN_BORDERED} onClick={onToggleOpen}>
               {open ? "Close" : "Settings"}
@@ -793,10 +828,14 @@ function ConnectorRow({
         </div>
       </div>
       {open && !c.connected && <ConnectSetup c={c} cloud={cloud} onConnected={onChanged} />}
-      {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
-      {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
-      {open && c.connected && c.two_way && <UnauthorizedBlock c={c} onChanged={onRefresh} />}
-      {open && c.connected && c.two_way && <ListeningSessionsBlock c={c} />}
+      {open && c.connected && !slackCompact && <ConnectorTools c={c} onChanged={onChanged} />}
+      {open && c.connected && c.two_way && !slackCompact && (
+        <>
+          <AllowlistBlock c={c} onChanged={onRefresh} />
+          <UnauthorizedBlock c={c} onChanged={onRefresh} />
+          <ListeningSessionsBlock c={c} />
+        </>
+      )}
     </div>
   );
 }
@@ -804,15 +843,30 @@ function ConnectorRow({
 // Parked messages from senders not on the allow-list (§19). The gateway keeps what they said
 // instead of dropping it, so first contact is one step: Allow & deliver replays the original
 // message through the normal inbound path — no "message the bot again".
-function UnauthorizedBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
-  const items = c.unauthorized ?? [];
+// With `teamId` (the Slack-workspaces page) only that workspace's parked messages show;
+// resolving routes the allow to the right workspace server-side (the item carries its team).
+export function UnauthorizedBlock({
+  c,
+  onChanged,
+  teamId,
+}: {
+  c: Connector;
+  onChanged: () => void;
+  teamId?: string;
+}) {
+  const items = (c.unauthorized ?? []).filter(
+    (m) => teamId === undefined || m.team_id === teamId,
+  );
   if (items.length === 0) return null;
   const act = async (id: string, action: "dismiss" | "allow" | "allow_deliver") => {
     await resolveUnauthorized(c.name, id, action);
     onChanged();
   };
   return (
-    <div className="border-t border-line px-3.5 py-3" data-testid={`unauthorized-${c.name}`}>
+    <div
+      className="border-t border-line px-3.5 py-3"
+      data-testid={teamId ? `unauthorized-${c.name}-${teamId}` : `unauthorized-${c.name}`}
+    >
       <div className={SEC_H + " mb-2"}>
         Messages from senders you haven't allowed · {items.length}
       </div>
@@ -861,7 +915,7 @@ function UnauthorizedBlock({ c, onChanged }: { c: Connector; onChanged: () => vo
 // Which sessions listen to this connector's channels — the per-connector cut of the global
 // Channel-subscriptions table (Integrations ▸ Messaging routing). Subscribing happens from a
 // session's Sources ▸ Channels panel; here the owner can see and revoke.
-function ListeningSessionsBlock({ c }: { c: Connector }) {
+export function ListeningSessionsBlock({ c }: { c: Connector }) {
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const load = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
   useEffect(() => {
@@ -908,8 +962,26 @@ function ListeningSessionsBlock({ c }: { c: Connector }) {
 
 // Who may message this two-way bot. Recent senders surface here once they DM/mention the bot, so you
 // can Allow them; allowed users are chips you can remove. (Was orphaned in the super-agent view.)
-function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
-  const recent = c.recent ?? [];
+// With `teamId` (the Slack-workspaces page) the list is that WORKSPACE's — ids are
+// workspace-scoped, so allow/remove target `slack:team:<id>` and recents filter to the team.
+export function AllowlistBlock({
+  c,
+  onChanged,
+  teamId,
+  allowed,
+  allowedNames,
+}: {
+  c: Connector;
+  onChanged: () => void;
+  teamId?: string;
+  allowed?: string[];
+  allowedNames?: Record<string, string | null>;
+}) {
+  const allowedUsers = allowed ?? c.allowed_users;
+  const names = allowedNames ?? c.allowed_user_names;
+  const recent = (c.recent ?? []).filter(
+    (r) => teamId === undefined || r.team_id === teamId,
+  );
   const unknownRecent = recent.filter((r) => !r.authorized);
 
   return (
@@ -917,24 +989,24 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
       <div>
         <div className={SEC_H + " mb-2"}>Allowed to message</div>
         <div className="flex flex-wrap gap-1.5">
-          {c.allowed_users.length === 0 && (
+          {allowedUsers.length === 0 && (
             <span className="text-[12px] text-faint">nobody yet — Allow a recent sender →</span>
           )}
-          {c.allowed_users.map((u) => (
+          {allowedUsers.map((u) => (
             <span
               key={u}
               className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-paper border border-line text-[12px]"
               title={`id ${u}`}
             >
               <span className="w-4 h-4 rounded-full bg-accentSoft text-accent grid place-items-center text-[9px] font-bold">
-                {initials(c.allowed_user_names?.[u] || u)}
+                {initials(names?.[u] || u)}
               </span>
-              {c.allowed_user_names?.[u] || u}
+              {names?.[u] || u}
               <button
                 className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
                 title="remove"
                 onClick={async () => {
-                  await disallowUser(c.name, u);
+                  await disallowUser(c.name, u, teamId);
                   onChanged();
                 }}
               >
@@ -961,7 +1033,7 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
                 <button
                   className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-accent text-white shrink-0"
                   onClick={async () => {
-                    await allowUser(c.name, r.user_id);
+                    await allowUser(c.name, r.user_id, teamId);
                     onChanged();
                   }}
                 >

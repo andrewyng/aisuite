@@ -273,6 +273,17 @@ export interface ParkedMessage {
   chat_type: string;
   text: string;
   ts: number;
+  team_id?: string | null; // workspace (managed Slack relay); null on manual Socket Mode
+}
+
+// One connected Slack workspace (managed relay is multi-workspace; ids are workspace-scoped,
+// so each workspace carries its OWN allow-list).
+export interface SlackWorkspace {
+  team_id: string;
+  account: string;
+  allowed_users: string[];
+  allow_all: boolean;
+  allowed_user_names?: Record<string, string | null>;
 }
 
 export interface Connector {
@@ -297,6 +308,8 @@ export interface Connector {
   tools: ConnectorTool[];
   managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
+  mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
+  workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
 }
 
 // --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
@@ -1066,6 +1079,7 @@ export interface RecentSender {
   chat_type: string;
   target: string;
   authorized: boolean;
+  team_id?: string | null; // workspace (managed relay); null on manual Socket Mode
 }
 
 // -- direct-message routing ---------------------------------------------------
@@ -1178,11 +1192,11 @@ export async function finalizeAutomationRun(id: string, runId: string) {
   return res.json();
 }
 
-export async function allowUser(name: string, userId: string) {
+export async function allowUser(name: string, userId: string, teamId?: string | null) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/allow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId }),
+    body: JSON.stringify(teamId ? { user_id: userId, team_id: teamId } : { user_id: userId }),
   });
   return res.json();
 }
@@ -1204,12 +1218,21 @@ export async function resolveUnauthorized(
   return res.json();
 }
 
-export async function disallowUser(name: string, userId: string) {
+export async function disallowUser(name: string, userId: string, teamId?: string | null) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/disallow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId }),
+    body: JSON.stringify(teamId ? { user_id: userId, team_id: teamId } : { user_id: userId }),
   });
+  return res.json();
+}
+
+/** Stop relaying one managed Slack workspace (the app stays installed in Slack). */
+export async function disconnectSlackWorkspace(teamId: string): Promise<{ ok: boolean; error?: string; remaining_workspaces?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/disconnect`,
+    { method: "POST" },
+  );
   return res.json();
 }
 
