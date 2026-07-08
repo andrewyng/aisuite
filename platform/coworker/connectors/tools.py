@@ -40,6 +40,25 @@ _SCHEMA = {
 }
 
 
+def _resolve_token(secrets: SecretStore, platform: str, chat_id: str) -> Optional[str]:
+    """Pick the outbound token for a reply.
+
+    Managed Slack relay is multi-workspace: a team-qualified chat_id ("T…/C…")
+    selects that team's bot token from its `slack:team:<team_id>` profile. Manual
+    Socket-Mode (single workspace, bare "C…") uses `slack:default`. Non-Slack
+    platforms always use `<platform>:default`.
+    """
+    if platform == "slack":
+        from .slack_addr import split
+
+        team, _channel = split(chat_id)
+        if team:
+            per_team = secrets.get(f"slack:team:{team}") or {}
+            return per_team.get("bot_token")
+    creds = secrets.get(f"{platform}:default") or {}
+    return creds.get("bot_token")
+
+
 def make_send_message_tool(
     secrets: SecretStore,
     *,
@@ -56,8 +75,7 @@ def make_send_message_tool(
         sender = senders.get(platform)
         if sender is None:
             return {"error": f"unknown platform: {platform}"}
-        creds = secrets.get(f"{platform}:default") or {}
-        token = creds.get("bot_token")
+        token = _resolve_token(secrets, platform, chat_id)
         if not token:
             return {"error": f"no bot token for {platform} — connect it first"}
         result = sender(token, chat_id, text, thread_id)

@@ -57,6 +57,10 @@ class Config:
     cloud_auth_domain: str = "opencoworker.us.auth0.com"
     cloud_client_id: str = "g1l4Q1lhYWmyS03qPSf4KEJGrgq02Qam"
     cloud_audience: str = "https://api.opencoworker.app"
+    # Managed Slack relay WebSocket endpoint (wss://…execute-api…/<stage>). Empty
+    # until the relay is deployed; empty ⇒ managed Slack unavailable, Socket Mode
+    # (manual tokens) still works. Set post-`terraform apply`.
+    cloud_relay_ws_url: str = ""
 
 
 _FIELDS = {
@@ -72,6 +76,7 @@ _FIELDS = {
     "cloud_auth_domain",
     "cloud_client_id",
     "cloud_audience",
+    "cloud_relay_ws_url",
 }
 
 

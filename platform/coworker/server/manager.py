@@ -1603,11 +1603,28 @@ class SessionManager:
             interaction_handler=self._on_interaction,
             on_unauthorized=self._park_unauthorized,
         )
+        # Managed Slack relay wiring (only used when a connector picks relay mode):
+        # the cloud sign-in JWT authorizes the relay WebSocket, and the relay
+        # endpoint comes from config. Both are lazy — Socket Mode needs neither.
+        from ..cloud import fresh_access_token
+        from ..config import load_config
+
+        cloud_config = load_config()
+
+        def _relay_token() -> str:
+            return fresh_access_token(self.secrets, cloud_config) or ""
+
         for platform, st in settings.items():
             if not st.enabled:
                 continue
             profile = self.secrets.get(f"{platform}:default") or {}
-            adapter = make_adapter(platform, profile)
+            adapter = make_adapter(
+                platform,
+                profile,
+                secrets=self.secrets,
+                token_provider=_relay_token,
+                relay_url=getattr(cloud_config, "cloud_relay_ws_url", "") or None,
+            )
             if adapter is not None:
                 self.gateway.register(adapter)
         return await self.gateway.start()

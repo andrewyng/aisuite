@@ -55,7 +55,12 @@ def load_settings(
         allow_all = bool(profile.get("allow_all")) or os.environ.get(
             f"{platform.upper()}_ALLOW_ALL_USERS", ""
         ).lower() in ("1", "true", "yes")
-        enabled = bool(token) and profile.get("enabled", True)
+        # Managed Slack relay carries no bot_token in the default profile (tokens
+        # are per-team); it enables on `mode == "relay"` instead of on a token.
+        if platform == "slack" and profile.get("mode") == "relay":
+            enabled = bool(profile.get("enabled", True))
+        else:
+            enabled = bool(token) and profile.get("enabled", True)
         out[platform] = ConnectorSettings(
             platform=platform,
             enabled=enabled,

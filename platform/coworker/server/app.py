@@ -656,7 +656,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         from fastapi.responses import HTMLResponse
 
         from .. import cloud
-        from ..connectors.setup import managed_connect_connector
+        from ..connectors.setup import (
+            managed_connect_connector,
+            managed_connect_slack_install,
+        )
 
         form = await request.form()
         data = {k: str(v) for k, v in form.items()}
@@ -669,9 +672,14 @@ def create_app(manager: SessionManager) -> FastAPI:
             return HTMLResponse(
                 _browser_page("Connection failed", "missing fields"), status_code=400
             )
-        result = managed_connect_connector(
-            manager.secrets, connector, cloud.managed_profile_from_callback(data)
-        )
+        # Managed Slack is multi-workspace + relay: store the per-team bot token
+        # and flip to relay mode, rather than the single-token connector path.
+        if connector == "slack" and data.get("team_id"):
+            result = managed_connect_slack_install(manager.secrets, data)
+        else:
+            result = managed_connect_connector(
+                manager.secrets, connector, cloud.managed_profile_from_callback(data)
+            )
         if not result.get("ok"):
             return HTMLResponse(
                 _browser_page("Connection failed", result.get("error", "")),

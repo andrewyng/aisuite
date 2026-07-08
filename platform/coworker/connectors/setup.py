@@ -174,5 +174,41 @@ def managed_connect_connector(
     return {"ok": True, "account": profile.get("account") or None}
 
 
+def managed_connect_slack_install(
+    secrets: SecretStore, form: dict[str, Any]
+) -> dict[str, Any]:
+    """Store a managed Slack install (relay mode) from the broker's form-POST.
+
+    Slack managed install is multi-workspace and inbound-via-relay, so unlike a
+    single-token connector it writes:
+    - `slack:team:<team_id>` — that workspace's bot token + bot_user_id (used for
+      replies and to ignore the bot's own posts);
+    - `slack:default` flipped to `mode="relay"` so the gateway builds the
+      `SlackRelayAdapter` (Socket Mode's manual bot_token/app_token untouched if
+      the user later switches back). Existing allow-list preserved.
+    """
+    team_id = form.get("team_id", "")
+    bot_token = form.get("access_token", "")
+    if not team_id or not bot_token:
+        return {"ok": False, "error": "missing team_id or bot token"}
+    secrets.put(
+        f"slack:team:{team_id}",
+        {
+            "type": "oauth",
+            "managed": True,
+            "bot_token": bot_token,
+            "bot_user_id": form.get("bot_user_id", ""),
+            "team_id": team_id,
+            "account": form.get("account", ""),
+            "scope": form.get("scope", ""),
+            "connection_id": form.get("connection_id", ""),
+        },
+    )
+    default = secrets.get("slack:default") or {}
+    default.update({"type": "oauth", "managed": True, "mode": "relay", "enabled": True})
+    secrets.put("slack:default", default)
+    return {"ok": True, "account": form.get("account") or team_id}
+
+
 def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
     return {"ok": secrets.delete(f"{name}:default")}

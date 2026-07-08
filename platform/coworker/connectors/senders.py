@@ -60,6 +60,11 @@ def _send_slack(
 ) -> SendResult:
     import httpx
 
+    from .slack_addr import split
+
+    # A managed-relay chat_id is team-qualified ("T…/C…"); Slack's API wants the
+    # bare channel. The per-team token is selected by the caller (send_message).
+    _team, chat_id = split(chat_id)
     payload: dict = {"channel": chat_id, "text": text}
     if thread_id:
         payload["thread_ts"] = thread_id
@@ -105,6 +110,9 @@ def _send_slack_interactive(
 ) -> SendResult:
     import httpx
 
+    from .slack_addr import split
+
+    _team, chat_id = split(chat_id)
     payload: dict = {
         "channel": chat_id,
         "text": text,

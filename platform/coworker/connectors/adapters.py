@@ -378,10 +378,58 @@ class SlackAdapter(BasePlatformAdapter):
             logger.debug("slack chat_update failed", exc_info=True)
 
 
-def make_adapter(platform: str, profile: dict) -> Optional[BasePlatformAdapter]:
-    """Build the adapter for a connected platform from its SecretStore profile."""
+def _load_slack_teams(secrets) -> dict[str, dict]:
+    """Per-team bot tokens for managed relay, from `slack:team:<team_id>` profiles
+    (written by the managed OAuth install). Returns {team_id: {bot_token, bot_user_id}}."""
+    teams: dict[str, dict] = {}
+    if secrets is None:
+        return teams
+    for entry in secrets.status():
+        prof = entry.get("profile", "")
+        if not prof.startswith("slack:team:"):
+            continue
+        team_id = prof[len("slack:team:") :]
+        data = secrets.get(prof) or {}
+        if data.get("bot_token"):
+            teams[team_id] = {
+                "bot_token": data["bot_token"],
+                "bot_user_id": data.get("bot_user_id"),
+            }
+    return teams
+
+
+def make_adapter(
+    platform: str,
+    profile: dict,
+    *,
+    secrets=None,
+    token_provider=None,
+    relay_url: Optional[str] = None,
+) -> Optional[BasePlatformAdapter]:
+    """Build the adapter for a connected platform from its SecretStore profile.
+
+    Slack supports two mutually-exclusive modes, the user's choice:
+    - `mode == "relay"` → managed cloud relay (`SlackRelayAdapter`): needs the
+      cloud sign-in `token_provider` + `relay_url`; per-team tokens come from
+      `slack:team:*` profiles. No manual tokens.
+    - otherwise → Socket Mode (`SlackAdapter`): manual bot + app tokens, one
+      workspace.
+    """
     if platform == "telegram" and profile.get("bot_token"):
         return TelegramAdapter(profile["bot_token"])
-    if platform == "slack" and profile.get("bot_token") and profile.get("app_token"):
-        return SlackAdapter(profile["bot_token"], profile["app_token"])
+    if platform == "slack":
+        if profile.get("mode") == "relay":
+            if not (relay_url and token_provider):
+                logger.warning(
+                    "slack managed-relay configured but relay endpoint / sign-in unavailable "
+                    "— sign in and set cloud_relay_ws_url; skipping"
+                )
+                return None
+            from .relay_client import SlackRelayAdapter
+
+            return SlackRelayAdapter(
+                relay_url, token_provider, teams=_load_slack_teams(secrets)
+            )
+        if profile.get("bot_token") and profile.get("app_token"):
+            return SlackAdapter(profile["bot_token"], profile["app_token"])
     return None
