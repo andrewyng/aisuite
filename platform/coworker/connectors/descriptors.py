@@ -282,11 +282,16 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="slack",
         title="Slack",
         icon="💬",
-        blurb="Two-way messaging via a Slack app (Socket Mode).",
+        blurb="Two-way messaging — one-click via OpenCoworker Cloud, or a manual Slack app (Socket Mode).",
         auth="socket_app",
         two_way=True,
         brand_color="#611f69",
         logo="slack",
+        # One-click managed OAuth (the cloud relay): signed in, the GUI shows
+        # "Connect Slack with one click" (no tokens). The manual Socket-Mode
+        # fields below stay as the always-available fallback (slack → slack in
+        # PROVIDER_FOR_CONNECTOR drives the broker start).
+        managed=True,
         fields=[
             Field(
                 "bot_token",
