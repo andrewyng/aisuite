@@ -31,6 +31,11 @@ def _profile_connected(descriptor, profile: dict[str, Any]) -> bool:
         return False
     if descriptor.auth == "none":
         return True
+    # Managed relay (e.g. Slack cloud relay) carries no manual credential in the
+    # :default profile — the tokens live per-team (slack:team:*). The relay-mode
+    # flag is what marks it connected, so don't require the manual fields.
+    if profile.get("mode") == "relay":
+        return True
     required = [
         f.key for f in descriptor.fields if f.required and f.key != "allowed_users"
     ]
