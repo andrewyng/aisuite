@@ -131,6 +131,26 @@ def test_managed_connect_rejected_for_unmanaged_connector(secrets):
     assert not result["ok"]
 
 
+def test_managed_connect_redirect_follows_actual_port(secrets, config, monkeypatch):
+    """The loopback redirect must target the sidecar's real bound port
+    (COWORKER_PORT), not config.port — the packaged app runs on a random port,
+    so an 8765 redirect would hit the wrong (or no) process."""
+    secrets.put(cloud.CLOUD_AUTH_PROFILE, {"access_token": "at", "enabled": True})
+    monkeypatch.setattr(cloud, "fresh_access_token", lambda *a, **k: "at")
+    monkeypatch.setenv("COWORKER_PORT", "52854")  # e.g. what free_port() picked
+
+    seen = {}
+
+    def fake_post(url, **kwargs):
+        seen["redirect"] = kwargs["json"]["redirect"]
+        return FakeResponse(200, {"authorize_url": "https://slack/authorize?x=1"})
+
+    monkeypatch.setattr(cloud.httpx, "post", fake_post)
+    out = cloud.begin_managed_connect(secrets, config, "slack")
+    assert out["ok"]
+    assert seen["redirect"] == "http://127.0.0.1:52854/oauth/callback"  # not 8765
+
+
 def test_manual_paste_still_works_and_is_not_managed(secrets):
     result = connect_connector(
         secrets, "gmail", {"access_token": "manual-token"}, validate=False

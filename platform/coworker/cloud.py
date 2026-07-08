@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import secrets as _secrets
 import time
 import urllib.parse
@@ -278,12 +279,16 @@ def begin_managed_connect(
         return {"ok": False, "error": "not signed in", "signed_in": False}
 
     app_state = _secrets.token_urlsafe(16)
+    # The broker form-POSTs the tokens back to THIS process's loopback. Use the
+    # actually-bound port (published by run.py), falling back to config.port —
+    # the packaged app runs the sidecar on a random port, not 8765.
+    port = os.environ.get("COWORKER_PORT") or config.port
     try:
         resp = httpx.post(
             config.cloud_base_url.rstrip("/") + f"/v1/oauth/{provider}/start",
             json={
                 "connector": connector,
-                "redirect": f"http://127.0.0.1:{config.port}/oauth/callback",
+                "redirect": f"http://127.0.0.1:{port}/oauth/callback",
                 "app_state": app_state,
             },
             headers={"Authorization": f"Bearer {token}"},
