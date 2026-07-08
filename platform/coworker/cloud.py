@@ -395,6 +395,26 @@ def cloud_disconnect(secrets: SecretStore, config: Config, connector: str) -> No
         pass
 
 
+def slack_disconnect_workspace(
+    secrets: SecretStore, config: Config, team_id: str
+) -> None:
+    """Best-effort: delete this user's relay routing row for one workspace so the
+    cloud stops pushing its events. Local token deletion always proceeds regardless
+    (the row only routes; without the desktop token nothing can be sent anyway)."""
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return
+    try:
+        httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/relay/slack/uninstall",
+            json={"team_id": team_id},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        pass
+
+
 # --- persona gallery -----------------------------------------------------------
 
 

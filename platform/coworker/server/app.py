@@ -561,6 +561,12 @@ def create_app(manager: SessionManager) -> FastAPI:
         await _refresh_listeners_if_two_way(name)
         return result
 
+    @app.post("/v1/connectors/slack/workspaces/{team_id}/disconnect")
+    async def slack_workspace_disconnect(team_id: str) -> dict[str, Any]:
+        """Stop relaying one workspace (managed relay). Cloud routing row deleted
+        best-effort, local per-team token removed, gateway hot-reloaded."""
+        return await manager.disconnect_slack_workspace(team_id)
+
     @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
     async def connector_unauthorized_resolve(
         name: str, item_id: str, body: dict
@@ -676,6 +682,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         # and flip to relay mode, rather than the single-token connector path.
         if connector == "slack" and data.get("team_id"):
             result = managed_connect_slack_install(manager.secrets, data)
+            if result.get("ok"):
+                # Hot-add: rebuild the gateway so the new workspace's token loads
+                # (and the relay socket opens on a first-ever install) right away.
+                await manager.refresh_gateway()
         else:
             result = managed_connect_connector(
                 manager.secrets, connector, cloud.managed_profile_from_callback(data)

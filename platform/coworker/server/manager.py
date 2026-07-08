@@ -1609,6 +1609,51 @@ class SessionManager:
                 self.gateway.settings[name].allowed_users = set(allowed)
         return {"ok": True, "allowed_users": sorted(allowed), "team_id": team_id}
 
+    async def disconnect_slack_workspace(self, team_id: str) -> dict[str, Any]:
+        """Stop relaying ONE workspace: delete the cloud routing row (best-effort),
+        drop the local per-team token, and hot-reload the gateway. Removing the last
+        workspace also clears relay mode on slack:default so the connector reads
+        disconnected (the manual Socket Mode fields, if any, are left untouched)."""
+        team_id = str(team_id).strip()
+        profile_key = f"slack:team:{team_id}"
+        if not team_id or not self.secrets.get(profile_key):
+            return {"ok": False, "error": "workspace not connected"}
+        from .. import cloud
+        from ..config import load_config
+
+        await asyncio.to_thread(
+            lambda: cloud.slack_disconnect_workspace(
+                self.secrets, load_config(), team_id
+            )
+        )
+        self.secrets.delete(profile_key)
+        remaining = [
+            m["profile"]
+            for m in self.secrets.status()
+            if m.get("profile", "").startswith("slack:team:")
+        ]
+        if not remaining:
+            default = self.secrets.get("slack:default") or {}
+            if default.get("mode") == "relay":
+                default.pop("mode", None)
+                default.pop("managed", None)
+                if default.get("bot_token"):
+                    # Manual Socket Mode creds predating the relay switch: keep them
+                    # stored but DISABLED — removing the last workspace must never
+                    # silently start listening with old tokens.
+                    default["type"] = "token"
+                    default["enabled"] = False
+                    self.secrets.put("slack:default", default)
+                else:
+                    default.pop("type", None)
+                    default.pop("enabled", None)
+                    if default:  # e.g. a flat allow-list worth keeping
+                        self.secrets.put("slack:default", default)
+                    else:
+                        self.secrets.delete("slack:default")
+        await self.refresh_gateway()
+        return {"ok": True, "remaining_workspaces": len(remaining)}
+
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
         durable sessions: a channel message to its subscribers, a DM to the designated DM session
