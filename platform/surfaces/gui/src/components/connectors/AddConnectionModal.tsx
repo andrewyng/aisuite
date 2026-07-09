@@ -142,8 +142,8 @@ function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null 
   return (
     <div className="px-5 py-4 space-y-3">
       <p className="text-[13px] text-muted">
-        Opens GitHub in your browser — install the @ocw App on an account or org and pick
-        the repos there. No tokens typed; the agent acts as ocw[bot].
+        Opens GitHub in your browser — install the @ocw-agent App on an account or org and
+        pick the repos there. No tokens typed; the agent acts as ocw-agent[bot].
       </p>
       {cloud?.signed_in ? (
         <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={go} disabled={waiting}>

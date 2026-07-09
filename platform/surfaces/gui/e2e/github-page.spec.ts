@@ -41,7 +41,7 @@ test("add installation opens the modal; signed in installs a second org", async 
   await openGithubPage(page);
   await page.getByTestId("add-installation-btn").click();
   const modal = page.getByTestId("add-connection-modal");
-  await expect(modal).toContainText("install the @ocw App"); // one-click pane
+  await expect(modal).toContainText("install the @ocw-agent App"); // one-click pane
   await expect(modal).toContainText("Sign in to OpenCoworker Cloud"); // signed out
   // Manual PAT pane is right there too — both modes, one entry point
   await modal.getByTestId("modal-pane-manual").click();

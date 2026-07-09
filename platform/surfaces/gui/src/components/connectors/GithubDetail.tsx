@@ -98,8 +98,8 @@ export function GithubDetail({ c, cloud, onChanged }: DetailProps) {
       {!c.connected && (
         <div className={GRP}>
           <div className={ROW + " text-[12.5px] text-muted"}>
-            One @ocw App, installed per account or org — you pick the repos on GitHub;
-            each installation keeps its own allow-list.
+            One @ocw-agent App, installed per account or org — you pick the repos on
+            GitHub; each installation keeps its own allow-list.
             {cloud?.signed_in ? "" : " One-click needs cloud sign-in; a PAT works without it."}
           </div>
         </div>
@@ -138,7 +138,8 @@ export function GithubDetail({ c, cloud, onChanged }: DetailProps) {
       <ToolsDisclosure c={c} onChanged={onChanged} />
       {c.connected && relay && (
         <div className={FOOT + " mt-2"}>
-          Triggers: @ocw mentions and the “ocw” label. The agent replies as ocw[bot].
+          Triggers: @ocw-agent mentions and the “ocw-agent” label. The agent replies as
+          ocw-agent[bot].
         </div>
       )}
 
@@ -196,7 +197,7 @@ function InstallationGroup({
         {empty ? (
           <div className={ROW}>
             <span className="min-w-0 flex-1 text-[12.5px] text-muted">
-              No one allowed yet — @ocw mentions show up here for your OK.
+              No one allowed yet — @ocw-agent mentions show up here for your OK.
             </span>
             <DisconnectBtn id={inst.installation_id} busy={busy} onClick={disconnect} />
           </div>
