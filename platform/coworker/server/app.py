@@ -572,6 +572,18 @@ def create_app(manager: SessionManager) -> FastAPI:
         """Slack health, three layers: relay socket / cloud sign-in / per-team tokens."""
         return manager.slack_status()
 
+    @app.post("/v1/connectors/github/installations/{installation_id}/disconnect")
+    async def github_installation_disconnect(installation_id: str) -> dict[str, Any]:
+        """Stop relaying one GitHub App installation (managed relay). Cloud
+        routing rows deleted best-effort, local profile removed, gateway
+        hot-reloaded."""
+        return await manager.disconnect_github_installation(installation_id)
+
+    @app.get("/v1/connectors/github/status")
+    async def github_status() -> dict[str, Any]:
+        """GitHub health: relay socket / cloud sign-in / per-installation tokens."""
+        return manager.github_status()
+
     @app.post("/v1/connectors/gmail/accounts/{email}/disconnect")
     async def gmail_account_disconnect(email: str) -> dict[str, Any]:
         """Drop ONE mailbox (cloud metadata best-effort first, like a full
@@ -724,9 +736,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..config import load_config
 
         access = str((body or {}).get("access") or "")
+        flow = str((body or {}).get("flow") or "")  # github: "" install | "authorize"
         out = await asyncio.to_thread(
             lambda: cloud.begin_managed_connect(
-                manager.secrets, load_config(), name, access=access
+                manager.secrets, load_config(), name, access=access, flow=flow
             )
         )
         if out.get("ok"):
@@ -749,6 +762,26 @@ def create_app(manager: SessionManager) -> FastAPI:
         if data.get("error"):
             return HTMLResponse(
                 _browser_page("Connection failed", data["error"]), status_code=400
+            )
+        # Managed GitHub deliberately carries NO token fields — the loopback POST
+        # is routing metadata only (installation tokens are minted on demand,
+        # github-relay-spec §4) — so its branch precedes the access_token check.
+        if connector == "github" and data.get("installation_id"):
+            from ..connectors.github_installs import managed_connect_install
+
+            result = managed_connect_install(manager.secrets, data)
+            if result.get("ok"):
+                await manager.refresh_gateway()  # hot-add, like a workspace
+            if not result.get("ok"):
+                return HTMLResponse(
+                    _browser_page("Connection failed", result.get("error", "")),
+                    status_code=400,
+                )
+            return HTMLResponse(
+                _browser_page(
+                    "github connected",
+                    "You can close this tab and return to OpenCoworker.",
+                )
             )
         if not connector or not data.get("access_token"):
             return HTMLResponse(

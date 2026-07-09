@@ -58,8 +58,14 @@ TokenProvider = Callable[[], str]  # returns the current cloud sign-in JWT
 HistoryFetcher = Callable[[str, str, int], Awaitable[list[dict]]]
 
 
-class SlackRelayAdapter(BasePlatformAdapter):
-    platform = "slack"
+class RelayHub:
+    """The ONE desktop↔cloud relay socket, shared by every provider adapter.
+
+    The cloud pushes all of a user's events down a single authenticated WS;
+    frames fan out here by their `provider` tag (slack / github / …). Owns the
+    transport, the read loop, and the reconnect watchdog — adapters own only
+    their provider's frame handling. Extracted from SlackRelayAdapter when
+    GitHub became the second relay provider (github-relay-spec §8)."""
 
     _RECONNECT_DELAY = 2.0
 
@@ -68,38 +74,40 @@ class SlackRelayAdapter(BasePlatformAdapter):
         relay_url: str,
         token_provider: TokenProvider,
         *,
-        teams: Optional[dict[str, dict[str, Any]]] = None,
         transport_factory: Optional[TransportFactory] = None,
-        history_fetcher: Optional[HistoryFetcher] = None,
         reconnect_delay: Optional[float] = None,
     ) -> None:
-        super().__init__()
         self.relay_url = relay_url
         self._token_provider = token_provider
-        # team_id -> {"bot_token", "bot_user_id"}. Mutable: a `revoked` frame or a
-        # new install updates it.
-        self._teams: dict[str, dict[str, Any]] = dict(teams or {})
         self._transport_factory = transport_factory or self._default_transport_factory
-        self._history_fetcher = history_fetcher
         self._reconnect_delay = (
             reconnect_delay if reconnect_delay is not None else self._RECONNECT_DELAY
         )
+        self._handlers: dict[str, Callable[[dict], Awaitable[None]]] = {}
         self._transport: Optional[RelayTransport] = None
         self._task: Optional[asyncio.Task] = None
         self._closing = False
         self._connections = 0  # total successful opens; reconnects == connections-1
         self._connected = False  # the desktop↔relay socket is open RIGHT NOW
         self._dispatched = 0  # frames dispatched (observable for tests)
-        self.last_event_at: Optional[float] = None  # last Slack event delivered
         self.last_error: str = ""  # last connect/reconnect failure ("" once healthy)
         self._progress = asyncio.Event()
-        # Name resolution caches, keyed PER WORKSPACE — a U…/C… id only means
-        # something inside its team, and resolution uses that team's bot token.
-        self._names: dict[str, dict[str, str]] = {}  # team_id -> {uid: name}
-        self._channels: dict[str, dict[str, str]] = {}  # team_id -> {cid: name}
+
+    def register(self, provider: str, handler: Callable[[dict], Awaitable[None]]) -> None:
+        self._handlers[provider] = handler
+
+    async def release(self, provider: str) -> None:
+        """An adapter is done; the socket closes when the last one leaves."""
+        self._handlers.pop(provider, None)
+        if not self._handlers:
+            await self.stop()
 
     # -- lifecycle -----------------------------------------------------------
-    async def connect(self) -> bool:
+    async def start(self) -> bool:
+        """Open the socket (idempotent — the second adapter joins the running
+        loop). True when the socket is up or already running."""
+        if self._task is not None and not self._task.done():
+            return True
         self._closing = False
         self._transport = self._transport_factory()
         try:
@@ -112,7 +120,6 @@ class SlackRelayAdapter(BasePlatformAdapter):
         self._connected = True
         self.last_error = ""
         self._task = asyncio.create_task(self._run())
-        logger.info("slack adapter connected (managed relay), %d team(s)", len(self._teams))
         return True
 
     async def _run(self) -> None:
@@ -125,10 +132,12 @@ class SlackRelayAdapter(BasePlatformAdapter):
                 logger.exception("relay recv error")
                 frame = None
             if frame is not None:
-                try:
-                    await self._dispatch(frame)
-                except Exception:
-                    logger.exception("relay frame dispatch failed")
+                handler = self._handlers.get(frame.get("provider") or "slack")
+                if handler is not None:
+                    try:
+                        await handler(frame)
+                    except Exception:
+                        logger.exception("relay frame dispatch failed")
                 self._dispatched += 1
                 self._progress.set()
                 continue
@@ -151,12 +160,12 @@ class SlackRelayAdapter(BasePlatformAdapter):
             self._connections += 1
             self._connected = True
             self.last_error = ""
-            logger.info("slack relay reconnected (#%d)", self._connections - 1)
+            logger.info("relay reconnected (#%d)", self._connections - 1)
         except Exception as exc:
             self.last_error = str(exc) or type(exc).__name__
             logger.exception("relay reconnect failed — will retry")
 
-    async def disconnect(self) -> None:
+    async def stop(self) -> None:
         self._closing = True
         self._connected = False
         if self._transport is not None:
@@ -172,26 +181,12 @@ class SlackRelayAdapter(BasePlatformAdapter):
     def reconnects(self) -> int:
         return max(0, self._connections - 1)
 
-    def status(self) -> dict[str, Any]:
-        """Health snapshot for the GUI: the desktop↔relay socket state plus each
-        workspace's bot-token health. Says nothing about Slack↔cloud — the desktop
-        can't observe that leg, and event silence is not an outage."""
+    def state(self) -> str:
         if self._connected:
-            state = "live"
-        elif self._task is not None and not self._closing:
-            state = "reconnecting"
-        else:
-            state = "offline"
-        return {
-            "state": state,
-            "reconnects": self.reconnects,
-            "last_event_at": self.last_event_at,
-            "last_error": self.last_error,
-            "teams": {
-                tid: {"token_ok": bool(info.get("token_ok", True))}
-                for tid, info in self._teams.items()
-            },
-        }
+            return "live"
+        if self._task is not None and not self._closing:
+            return "reconnecting"
+        return "offline"
 
     async def wait_dispatched(self, at_least: int, timeout: float = 2.0) -> None:
         """Test helper: wait until at least N frames have been dispatched."""
@@ -206,6 +201,84 @@ class SlackRelayAdapter(BasePlatformAdapter):
                 await asyncio.wait_for(self._progress.wait(), timeout=remaining)
             except asyncio.TimeoutError:
                 raise TimeoutError(f"only {self._dispatched} frames dispatched (< {at_least})")
+
+    # -- default transport ---------------------------------------------------
+    def _default_transport_factory(self) -> RelayTransport:
+        return _WebSocketsTransport(self.relay_url, self._token_provider)
+
+
+class SlackRelayAdapter(BasePlatformAdapter):
+    platform = "slack"
+
+    def __init__(
+        self,
+        relay_url: str,
+        token_provider: TokenProvider,
+        *,
+        teams: Optional[dict[str, dict[str, Any]]] = None,
+        transport_factory: Optional[TransportFactory] = None,
+        history_fetcher: Optional[HistoryFetcher] = None,
+        reconnect_delay: Optional[float] = None,
+        hub: Optional[RelayHub] = None,
+    ) -> None:
+        super().__init__()
+        self.relay_url = relay_url
+        # A shared hub arrives when several relay providers coexist; standalone
+        # construction (tests, single-provider setups) builds its own.
+        self._hub = hub or RelayHub(
+            relay_url,
+            token_provider,
+            transport_factory=transport_factory,
+            reconnect_delay=reconnect_delay,
+        )
+        # team_id -> {"bot_token", "bot_user_id"}. Mutable: a `revoked` frame or a
+        # new install updates it.
+        self._teams: dict[str, dict[str, Any]] = dict(teams or {})
+        self._history_fetcher = history_fetcher
+        self.last_event_at: Optional[float] = None  # last Slack event delivered
+        # Name resolution caches, keyed PER WORKSPACE — a U…/C… id only means
+        # something inside its team, and resolution uses that team's bot token.
+        self._names: dict[str, dict[str, str]] = {}  # team_id -> {uid: name}
+        self._channels: dict[str, dict[str, str]] = {}  # team_id -> {cid: name}
+
+    # -- lifecycle -----------------------------------------------------------
+    async def connect(self) -> bool:
+        self._hub.register(self.platform, self._dispatch)
+        ok = await self._hub.start()
+        if ok:
+            logger.info(
+                "slack adapter connected (managed relay), %d team(s)", len(self._teams)
+            )
+        return ok
+
+    async def disconnect(self) -> None:
+        await self._hub.release(self.platform)
+
+    @property
+    def reconnects(self) -> int:
+        return self._hub.reconnects
+
+    @property
+    def last_error(self) -> str:
+        return self._hub.last_error
+
+    def status(self) -> dict[str, Any]:
+        """Health snapshot for the GUI: the desktop↔relay socket state plus each
+        workspace's bot-token health. Says nothing about Slack↔cloud — the desktop
+        can't observe that leg, and event silence is not an outage."""
+        return {
+            "state": self._hub.state(),
+            "reconnects": self._hub.reconnects,
+            "last_event_at": self.last_event_at,
+            "last_error": self._hub.last_error,
+            "teams": {
+                tid: {"token_ok": bool(info.get("token_ok", True))}
+                for tid, info in self._teams.items()
+            },
+        }
+
+    async def wait_dispatched(self, at_least: int, timeout: float = 2.0) -> None:
+        await self._hub.wait_dispatched(at_least, timeout)
 
     # -- team registry -------------------------------------------------------
     def set_team(self, team_id: str, bot_token: str, bot_user_id: Optional[str] = None) -> None:
@@ -392,10 +465,6 @@ class SlackRelayAdapter(BasePlatformAdapter):
         )
         self._note_token_health(team_id or "", None if result.ok else result.error)
         return result
-
-    # -- default transport ---------------------------------------------------
-    def _default_transport_factory(self) -> RelayTransport:
-        return _WebSocketsTransport(self.relay_url, self._token_provider)
 
 
 class _WebSocketsTransport:

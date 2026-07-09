@@ -98,6 +98,14 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 a["email"] == default_email and a["managed"] for a in accounts
             )
             entry["filters"] = gmail_accounts.get_filters(secrets)
+        if d.name == "github":
+            # Managed relay is multi-installation: each `github:install:*`
+            # profile is one App installation with its OWN allow-list of
+            # sender logins. The manual PAT path stays on the default profile.
+            entry["installations"] = _github_installations(secrets)
+            if entry["installations"] and profile.get("mode") == "relay":
+                first = entry["installations"][0]
+                entry["account"] = entry["account"] or first["account_login"]
         if d.name == "hubspot":
             # Multi-portal: each `hubspot:portal:*` profile is one portal; the
             # :default profile is the default pointer + hidden-fields policy.
@@ -130,6 +138,23 @@ def _slack_workspaces(secrets: SecretStore) -> list[dict[str, Any]]:
         for team_id, profile in sorted(
             _slack_team_profiles(secrets), key=lambda t: t[0]
         )
+    ]
+
+
+def _github_installations(secrets: SecretStore) -> list[dict[str, Any]]:
+    from .github_installs import list_installs
+
+    return [
+        {
+            "installation_id": installation_id,
+            "account_login": profile.get("account_login") or installation_id,
+            "account_type": profile.get("account_type") or "",
+            "repo_selection": profile.get("repo_selection") or "",
+            "github_login": profile.get("github_login") or "",
+            "allowed_users": list(profile.get("allowed_users") or []),
+            "allow_all": bool(profile.get("allow_all")),
+        }
+        for installation_id, profile in list_installs(secrets)
     ]
 
 
@@ -332,5 +357,13 @@ def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
         for hub_id, _profile in hubspot_portals.list_portals(secrets):
             dropped_accounts = (
                 secrets.delete(hubspot_portals.PREFIX + hub_id) or dropped_accounts
+            )
+    if name == "github":
+        from . import github_installs
+
+        for installation_id, _profile in github_installs.list_installs(secrets):
+            dropped_accounts = (
+                secrets.delete(github_installs.PREFIX + installation_id)
+                or dropped_accounts
             )
     return {"ok": secrets.delete(f"{name}:default") or dropped_accounts}

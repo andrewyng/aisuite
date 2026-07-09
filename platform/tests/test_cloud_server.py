@@ -78,12 +78,13 @@ def test_oauth_callback_error_shows_failure_page(client):
 
 
 def test_oauth_callback_rejects_unmanaged_connector(client):
+    # telegram is manual-only (github gained a managed path with the App relay)
     resp = client.post(
         "/oauth/callback",
-        data={"connector": "github", "access_token": "x"},
+        data={"connector": "telegram", "access_token": "x"},
     )
     assert resp.status_code == 400
-    assert client.manager.secrets.get("github:default") is None
+    assert client.manager.secrets.get("telegram:default") is None
 
 
 def test_auth_callback_rejects_unknown_state(client):

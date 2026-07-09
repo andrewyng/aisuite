@@ -405,6 +405,8 @@ def make_adapter(
     secrets=None,
     token_provider=None,
     relay_url: Optional[str] = None,
+    relay_hub=None,
+    github_token_client=None,
 ) -> Optional[BasePlatformAdapter]:
     """Build the adapter for a connected platform from its SecretStore profile.
 
@@ -414,6 +416,10 @@ def make_adapter(
       `slack:team:*` profiles. No manual tokens.
     - otherwise → Socket Mode (`SlackAdapter`): manual bot + app tokens, one
       workspace.
+
+    Relay adapters share ONE cloud socket: pass the same `relay_hub` to every
+    relay-mode platform (the caller owns it); without one, each adapter builds
+    its own (fine for a single relay platform).
     """
     if platform == "telegram" and profile.get("bot_token"):
         return TelegramAdapter(profile["bot_token"])
@@ -428,8 +434,27 @@ def make_adapter(
             from .relay_client import SlackRelayAdapter
 
             return SlackRelayAdapter(
-                relay_url, token_provider, teams=_load_slack_teams(secrets)
+                relay_url,
+                token_provider,
+                teams=_load_slack_teams(secrets),
+                hub=relay_hub,
             )
         if profile.get("bot_token") and profile.get("app_token"):
             return SlackAdapter(profile["bot_token"], profile["app_token"])
+    if platform == "github" and profile.get("mode") == "relay":
+        if not (relay_url and token_provider):
+            logger.warning(
+                "github managed-relay configured but relay endpoint / sign-in "
+                "unavailable — sign in and set cloud_relay_ws_url; skipping"
+            )
+            return None
+        from .github_installs import list_installs
+        from .github_relay import GitHubRelayAdapter
+        from .relay_client import RelayHub
+
+        hub = relay_hub or RelayHub(relay_url, token_provider)
+        installs = {iid: prof for iid, prof in list_installs(secrets)} if secrets else {}
+        return GitHubRelayAdapter(
+            hub, installs=installs, token_client=github_token_client
+        )
     return None

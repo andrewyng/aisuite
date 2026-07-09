@@ -114,6 +114,20 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Create a GitHub issue.",
     ),
     ConnectorToolDef(
+        "github",
+        "github_reply",
+        "Reply on issue/PR",
+        "write",
+        "Comment on an issue or pull request.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_review",
+        "Review a PR",
+        "write",
+        "Submit a pull-request review (approve / request changes / comment).",
+    ),
+    ConnectorToolDef(
         "notion",
         "notion_search",
         "Search Notion",

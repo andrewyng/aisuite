@@ -47,6 +47,7 @@ PROVIDER_FOR_CONNECTOR = {
     "slack": "slack",
     "notion": "notion",
     "hubspot": "hubspot",
+    "github": "github",
 }
 
 # Pending PKCE verifiers keyed by OAuth state; in-process only. A login that
@@ -267,12 +268,18 @@ def emit_session_created(
 
 
 def begin_managed_connect(
-    secrets: SecretStore, config: Config, connector: str, *, access: str = ""
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    access: str = "",
+    flow: str = "",
 ) -> dict[str, Any]:
     """Authenticated start: returns the provider consent URL for the browser.
     Requires sign-in — the manual token path stays available regardless.
     `access` names a broker-defined consent tier (hubspot read | write); the
-    desktop never sends scopes."""
+    desktop never sends scopes. `flow` is GitHub-only: "" = the App install
+    page; "authorize" links a teammate to an existing installation."""
     provider = PROVIDER_FOR_CONNECTOR.get(connector)
     if provider is None:
         return {"ok": False, "error": f"{connector} has no managed OAuth path"}
@@ -293,6 +300,7 @@ def begin_managed_connect(
                 "redirect": f"http://127.0.0.1:{port}/oauth/callback",
                 "app_state": app_state,
                 **({"access": access} if access else {}),
+                **({"flow": flow} if flow else {}),
             },
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,
@@ -409,6 +417,84 @@ def cloud_disconnect(
     try:
         httpx.post(
             config.cloud_base_url.rstrip("/") + f"/v1/connections/{connection_id}/disconnect",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        pass
+
+
+# installation_id -> (token, expires_epoch). MEMORY ONLY by design: GitHub
+# installation tokens live ~1 h and are re-minted from the broker; they must
+# never touch the secret store (github-relay-spec §4).
+_GITHUB_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+_GITHUB_TOKEN_LEEWAY = 600  # re-mint when < 10 min of life remains
+
+
+def github_installation_token(
+    secrets: SecretStore, config: Config, installation_id: str, *, force: bool = False
+) -> str:
+    """A live installation access token for GitHub API calls, minted via the
+    authenticated broker route and cached in memory (~50 min). `force` skips
+    the cache — the 401 retry path. Empty string when unavailable (signed
+    out / revoked installation / cloud unreachable)."""
+    installation_id = str(installation_id or "").strip()
+    if not installation_id:
+        return ""
+    if not force:
+        cached = _GITHUB_TOKEN_CACHE.get(installation_id)
+        if cached and cached[1] > _now() + _GITHUB_TOKEN_LEEWAY:
+            return cached[0]
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return ""
+    try:
+        resp = httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/github/token",
+            json={"installation_id": installation_id},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+    except httpx.HTTPError:
+        return ""
+    if resp.status_code != 200:
+        return ""
+    body = resp.json()
+    minted = body.get("token", "")
+    # expires_at is ISO-8601 from GitHub; parse defensively, default 1 h.
+    expires = _now() + 3600
+    try:
+        from datetime import datetime
+
+        raw = str(body.get("expires_at", ""))
+        if raw:
+            expires = datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        pass
+    if minted:
+        _GITHUB_TOKEN_CACHE[installation_id] = (minted, expires)
+    return minted
+
+
+def clear_github_token(installation_id: str) -> None:
+    """Drop a cached installation token (disconnect / revocation)."""
+    _GITHUB_TOKEN_CACHE.pop(str(installation_id or "").strip(), None)
+
+
+def github_disconnect_installation(
+    secrets: SecretStore, config: Config, installation_id: str
+) -> None:
+    """Best-effort: delete this user's relay routing rows for one installation
+    so the cloud stops pushing its events. Local profile deletion always
+    proceeds regardless (the row only routes)."""
+    clear_github_token(installation_id)
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return
+    try:
+        httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/relay/github/disconnect",
+            json={"installation_id": installation_id},
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )

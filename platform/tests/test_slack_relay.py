@@ -17,6 +17,14 @@ from coworker.connectors.slack_addr import qualify, split
 from coworker.connectors.tools import make_send_message_tool
 from coworker.secrets import SecretStore
 
+@pytest.fixture(autouse=True)
+def _no_slack_network(monkeypatch):
+    """Name/channel resolution is best-effort; unstubbed lookups must fail
+    instantly at a dead loopback port, never reach slack.com — a slow real
+    answer was blowing the 2s wait_dispatched window intermittently."""
+    monkeypatch.setenv("SLACK_API_URL", "http://127.0.0.1:9/")
+
+
 TEAMS = {
     "T1": {"bot_token": "xoxb-team1", "bot_user_id": "UBOT1"},
     "T2": {"bot_token": "xoxb-team2", "bot_user_id": "UBOT2"},

@@ -129,7 +129,8 @@ def test_managed_profile_is_field_compatible_with_manual(secrets):
 
 
 def test_managed_connect_rejected_for_unmanaged_connector(secrets):
-    result = managed_connect_connector(secrets, "github", {"access_token": "x"})
+    # telegram is manual-only (github gained a managed path with the App relay)
+    result = managed_connect_connector(secrets, "telegram", {"access_token": "x"})
     assert not result["ok"]
 
 

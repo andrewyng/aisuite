@@ -1594,12 +1594,14 @@ class SessionManager:
         self, name: str, user_id: str, *, team_id: Optional[str] = None, add: bool
     ) -> dict[str, Any]:
         """Add/remove a sender on the allow-list. With `team_id` the edit targets that
-        workspace's `slack:team:<id>` profile (managed relay — ids are workspace-scoped);
+        scope's profile — a workspace's `slack:team:<id>`, or a GitHub App
+        installation's `github:install:<id>` (the same per-tenant pattern);
         without, the flat `<name>:default` list (manual single-workspace mode)."""
         user_id = str(user_id).strip()
         if not user_id:
             return {"ok": False, "error": "user_id required"}
-        profile_key = f"{name}:team:{team_id}" if team_id else f"{name}:default"
+        scope = "install" if name == "github" else "team"
+        profile_key = f"{name}:{scope}:{team_id}" if team_id else f"{name}:default"
         profile = self.secrets.get(profile_key)
         if not profile:
             return {
@@ -1698,6 +1700,58 @@ class SessionManager:
             "teams": teams,
         }
 
+    async def disconnect_github_installation(self, installation_id: str) -> dict[str, Any]:
+        """Stop relaying ONE GitHub installation: delete the cloud routing rows
+        (best-effort), drop the local profile, hot-reload the gateway. The Slack
+        per-workspace disconnect, GitHub flavour — a manual PAT stays untouched."""
+        installation_id = str(installation_id).strip()
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import github_installs
+
+        if not installation_id or not self.secrets.get(
+            github_installs.PREFIX + installation_id
+        ):
+            return {"ok": False, "error": "installation not connected"}
+        await asyncio.to_thread(
+            lambda: cloud.github_disconnect_installation(
+                self.secrets, load_config(), installation_id
+            )
+        )
+        result = github_installs.disconnect_install(self.secrets, installation_id)
+        await self.refresh_gateway()
+        return result
+
+    def github_status(self) -> dict[str, Any]:
+        """GitHub relay health, same three honest layers as Slack: the shared
+        relay socket, the cloud sign-in, and per-installation token health."""
+        from .. import cloud
+
+        default = self.secrets.get("github:default") or {}
+        signin = cloud.status(self.secrets)
+        relay: dict[str, Any] = {
+            "state": "offline",
+            "reconnects": 0,
+            "last_event_at": None,
+            "last_error": "",
+        }
+        installs: dict[str, Any] = {}
+        missed: dict[str, Any] = {}
+        adapter = self.gateway._adapters.get("github") if self.gateway is not None else None
+        snapshot = getattr(adapter, "status", None)
+        if callable(snapshot):
+            relay = snapshot()
+            installs = relay.pop("installs", {})
+            missed = relay.pop("missed", {})
+        return {
+            "ok": True,
+            "mode": default.get("mode") or "",
+            "relay": relay,
+            "signed_in": bool(signin.get("signed_in")),
+            "installs": installs,
+            "missed": missed,
+        }
+
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
         durable sessions: a channel message to its subscribers, a DM to the designated DM session
@@ -1736,6 +1790,22 @@ class SessionManager:
         def _relay_token() -> str:
             return fresh_access_token(self.secrets, cloud_config) or ""
 
+        # Every relay-mode platform shares ONE cloud socket; the hub fans frames
+        # out by provider tag. Built lazily on the first relay adapter.
+        relay_ws_url = getattr(cloud_config, "cloud_relay_ws_url", "") or None
+        relay_hub = None
+        if relay_ws_url:
+            from ..connectors.relay_client import RelayHub
+
+            relay_hub = RelayHub(relay_ws_url, _relay_token)
+
+        async def _github_token(installation_id: str) -> str:
+            from ..cloud import github_installation_token
+
+            return await asyncio.to_thread(
+                github_installation_token, self.secrets, cloud_config, installation_id
+            )
+
         for platform, st in settings.items():
             if not st.enabled:
                 continue
@@ -1745,7 +1815,9 @@ class SessionManager:
                 profile,
                 secrets=self.secrets,
                 token_provider=_relay_token,
-                relay_url=getattr(cloud_config, "cloud_relay_ws_url", "") or None,
+                relay_url=relay_ws_url,
+                relay_hub=relay_hub,
+                github_token_client=_github_token,
             )
             if adapter is not None:
                 self.gateway.register(adapter)

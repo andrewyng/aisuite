@@ -436,7 +436,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         icon="⌘",
         blurb="Work with issues, pull requests, repository files, and CI status.",
         auth="token",
-        two_way=False,
+        # Managed relay makes GitHub two-way: @-mentions and the agent label
+        # reach the desktop through the cloud relay (github-relay-spec §2.3);
+        # the manual PAT path stays request/response only.
+        two_way=True,
         brand_color="#1f2328",
         logo="github",
         fields=[
@@ -452,6 +455,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "For write actions, include Issues or Pull Requests write permissions as needed.",
         ],
         available=True,
+        # One-click managed path: install the GitHub App — no tokens typed.
+        managed=True,
     ),
     ConnectorDescriptor(
         name="notion",

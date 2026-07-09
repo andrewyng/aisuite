@@ -14,7 +14,7 @@ from typing import Optional
 from ..secrets import SecretStore
 from .base import SessionSource
 
-PLATFORMS = ("telegram", "slack")
+PLATFORMS = ("telegram", "slack", "github")
 
 
 @dataclass
@@ -81,10 +81,14 @@ def load_settings(
         allow_all = bool(profile.get("allow_all")) or os.environ.get(
             f"{platform.upper()}_ALLOW_ALL_USERS", ""
         ).lower() in ("1", "true", "yes")
-        # Managed Slack relay carries no bot_token in the default profile (tokens
-        # are per-team); it enables on `mode == "relay"` instead of on a token.
-        if platform == "slack" and profile.get("mode") == "relay":
+        # Managed relays carry no bot_token in the default profile (Slack tokens
+        # are per-team; GitHub tokens are minted, never stored); they enable on
+        # `mode == "relay"` instead of on a token. GitHub's manual PAT profile
+        # is a request/response connector, not a listener — never gateway-enabled.
+        if profile.get("mode") == "relay":
             enabled = bool(profile.get("enabled", True))
+        elif platform == "github":
+            enabled = False
         else:
             enabled = bool(token) and profile.get("enabled", True)
         teams: dict[str, TeamAuth] = {}
@@ -93,6 +97,14 @@ def load_settings(
                 teams[team_id] = TeamAuth(
                     allowed_users=set(team_profile.get("allowed_users") or []),
                     allow_all=bool(team_profile.get("allow_all")),
+                )
+        if platform == "github":
+            # Per-installation allow-lists: sender logins are global on GitHub,
+            # but WHO may trigger work is still scoped per installation.
+            for installation_id, install_profile in _github_install_profiles(secrets):
+                teams[installation_id] = TeamAuth(
+                    allowed_users=set(install_profile.get("allowed_users") or []),
+                    allow_all=bool(install_profile.get("allow_all")),
                 )
         out[platform] = ConnectorSettings(
             platform=platform,
@@ -116,3 +128,10 @@ def _slack_team_profiles(secrets: SecretStore) -> list[tuple[str, dict]]:
         if team_id and profile:
             out.append((team_id, profile))
     return out
+
+
+def _github_install_profiles(secrets: SecretStore) -> list[tuple[str, dict]]:
+    """(installation_id, profile) for every managed GitHub App installation."""
+    from .github_installs import list_installs
+
+    return [(iid, profile) for iid, profile in list_installs(secrets) if profile]

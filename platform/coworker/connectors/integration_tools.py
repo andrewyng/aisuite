@@ -277,6 +277,63 @@ def _github_headers(token: str) -> dict[str, str]:
     }
 
 
+def _github_base() -> str:
+    import os
+
+    return os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+
+
+def _github_auth(
+    secrets: SecretStore, install: str = "", *, force: bool = False
+) -> tuple[Optional[dict[str, str]], Optional[dict[str, str]]]:
+    """(headers, err). A manual PAT (`github:default.token`) wins, untouched;
+    a managed relay profile mints a short-lived installation token instead —
+    memory-cached, never stored (github-relay-spec §4). `install` picks the
+    installation by account login (pass the repo owner) or id; unknown values
+    fall back to the default installation."""
+    profile = secrets.get("github:default") or {}
+    if profile.get("token"):
+        return _github_headers(profile["token"]), None
+    if profile.get("mode") == "relay":
+        from ..cloud import github_installation_token
+        from ..config import load_config
+        from . import github_installs
+
+        installation_id, _prof = github_installs.resolve(secrets, install)
+        if not installation_id and install:
+            installation_id, _prof = github_installs.resolve(secrets, "")
+        if not installation_id:
+            return None, {"error": "github is not connected; no App installation"}
+        token = github_installation_token(
+            secrets, load_config(), installation_id, force=force
+        )
+        if not token:
+            return None, {
+                "error": "github installation token unavailable "
+                "(sign in to OpenCoworker Cloud and retry)"
+            }
+        return _github_headers(token), None
+    return None, {"error": "github is not connected; missing token"}
+
+
+def _github_call(
+    secrets: SecretStore, method: str, path: str, *, install: str = "", **kw: Any
+) -> dict[str, Any]:
+    """A GitHub API call that works on either auth path. A 401 on the managed
+    path re-mints once (the cached installation token may have just expired)."""
+    headers, err = _github_auth(secrets, install)
+    if err:
+        return err
+    out = _request(method, _github_base() + path, headers=headers, **kw)
+    managed = not (secrets.get("github:default") or {}).get("token")
+    if managed and out.get("error") == "HTTP 401":
+        headers, err = _github_auth(secrets, install, force=True)
+        if err:
+            return out
+        out = _request(method, _github_base() + path, headers=headers, **kw)
+    return out
+
+
 def _google_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
@@ -369,14 +426,11 @@ def make_integration_tools(
     def github_search(
         query: str, search_type: str = "issues", max_results: int = 10
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "github", "token")
-        if err:
-            return err
         kind = "repositories" if search_type == "repositories" else "issues"
-        out = _request(
+        out = _github_call(
+            secrets,
             "GET",
-            f"https://api.github.com/search/{kind}",
-            headers=_github_headers(profile["token"]),
+            f"/search/{kind}",
             params={"q": query, "per_page": max(1, min(int(max_results or 10), 20))},
         )
         if "error" in out:
@@ -403,13 +457,11 @@ def make_integration_tools(
     )
 
     def github_get_issue(owner: str, repo: str, issue_number: int) -> dict[str, Any]:
-        profile, err = _profile(secrets, "github", "token")
-        if err:
-            return err
-        return _request(
+        return _github_call(
+            secrets,
             "GET",
-            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}",
-            headers=_github_headers(profile["token"]),
+            f"/repos/{owner}/{repo}/issues/{issue_number}",
+            install=owner,
         )
 
     github_get_issue.__name__ = "github_get_issue"
@@ -433,13 +485,11 @@ def make_integration_tools(
     def github_create_issue(
         owner: str, repo: str, title: str, body: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "github", "token")
-        if err:
-            return err
-        return _request(
+        return _github_call(
+            secrets,
             "POST",
-            f"https://api.github.com/repos/{owner}/{repo}/issues",
-            headers=_github_headers(profile["token"]),
+            f"/repos/{owner}/{repo}/issues",
+            install=owner,
             json={"title": title, "body": body},
         )
 
@@ -457,6 +507,75 @@ def make_integration_tools(
                     "body": {"type": "string"},
                 },
                 ["owner", "repo", "title"],
+            ),
+            approval=True,
+            caps=["github", "write"],
+        )
+    )
+
+    # Wave-1 relay write tools (github-relay-spec §8). The write ceiling is
+    # enforced by what exists here: comments, reviews, issues — no push,
+    # branch-delete, or repo-settings tools on any auth path.
+    def github_reply(owner: str, repo: str, number: int, body: str) -> dict[str, Any]:
+        return _github_call(
+            secrets,
+            "POST",
+            f"/repos/{owner}/{repo}/issues/{number}/comments",
+            install=owner,
+            json={"body": body},
+        )
+
+    github_reply.__name__ = "github_reply"
+    tools.append(
+        _attach(
+            github_reply,
+            _schema(
+                "github_reply",
+                "Comment on a GitHub issue or pull request (as the agent's bot "
+                "identity on the managed path). Requires user approval.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "number": {"type": "integer"},
+                    "body": {"type": "string"},
+                },
+                ["owner", "repo", "number", "body"],
+            ),
+            approval=True,
+            caps=["github", "write"],
+        )
+    )
+
+    def github_review(
+        owner: str, repo: str, pull_number: int, event: str = "COMMENT", body: str = ""
+    ) -> dict[str, Any]:
+        event = (event or "COMMENT").upper()
+        if event not in ("APPROVE", "REQUEST_CHANGES", "COMMENT"):
+            return {"error": "event must be APPROVE, REQUEST_CHANGES or COMMENT"}
+        return _github_call(
+            secrets,
+            "POST",
+            f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            install=owner,
+            json={"event": event, **({"body": body} if body else {})},
+        )
+
+    github_review.__name__ = "github_review"
+    tools.append(
+        _attach(
+            github_review,
+            _schema(
+                "github_review",
+                "Submit a pull-request review (approve / request changes / "
+                "comment). Requires user approval.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "pull_number": {"type": "integer"},
+                    "event": {"type": "string"},
+                    "body": {"type": "string"},
+                },
+                ["owner", "repo", "pull_number"],
             ),
             approval=True,
             caps=["github", "write"],
