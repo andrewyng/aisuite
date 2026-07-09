@@ -25,7 +25,7 @@ export function AddConnectionModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const twoModes = c.name === "slack";
+  const twoModes = c.name === "slack" || c.name === "hubspot";
   const [pane, setPane] = useState<"one" | "manual">("one");
 
   useEffect(() => {
@@ -72,7 +72,15 @@ export function AddConnectionModal({
               </div>
             </div>
             {pane === "one" ? (
-              <SlackOneClick c={c} cloud={cloud} />
+              c.name === "hubspot" ? (
+                <HubSpotOneClick c={c} cloud={cloud} />
+              ) : (
+                <SlackOneClick c={c} cloud={cloud} />
+              )
+            ) : c.name === "hubspot" ? (
+              <div className="px-1.5 pb-2">
+                <ConnectSetup c={c} cloud={cloud} onConnected={() => { onChanged(); onClose(); }} manualOnly />
+              </div>
             ) : (
               <SlackManual onConnected={() => { onChanged(); onClose(); }} />
             )}
@@ -115,6 +123,62 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
         <span className={TAG_ACCENT}>Recommended</span> relay · tokens stay on this computer
+      </p>
+    </div>
+  );
+}
+
+function HubSpotOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
+  const [access, setAccess] = useState<"read" | "write">("read");
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setError(null);
+    const res = await connectManaged(c.name, { access });
+    if (res.ok) setWaiting(true);
+    else setError(res.error || "could not start the connect");
+  };
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <p className="text-[13px] text-muted">
+        Opens HubSpot in your browser — pick the portal there. What agents may do is chosen
+        NOW, at consent:
+      </p>
+      <div className="space-y-1.5" data-testid="hubspot-access">
+        {(
+          [
+            ["read", "Read-only", "search and read contacts, companies, deals, tickets"],
+            ["write", "Read & write", "adds: log notes and tasks, update records, create contacts — never delete"],
+          ] as const
+        ).map(([value, label, blurb]) => (
+          <label key={value} className="flex items-start gap-2 text-[13px] cursor-pointer">
+            <input
+              type="radio"
+              name="hubspot-access"
+              className="mt-0.5"
+              checked={access === value}
+              data-testid={`hubspot-access-${value}`}
+              onChange={() => setAccess(value)}
+            />
+            <span>
+              <span className="font-medium">{label}</span>
+              <span className="block text-[12px] text-muted">{blurb}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {cloud?.signed_in ? (
+        <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-connect-hubspot" onClick={go} disabled={waiting}>
+          {waiting ? "Check your browser…" : "Connect HubSpot"}
+        </button>
+      ) : (
+        <div className="text-[12.5px] text-muted">
+          Sign in to OpenCoworker Cloud (Connectors page) to use one-click — or switch to Manual.
+        </div>
+      )}
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      <p className="text-[12px] text-faint text-center">
+        Works for any number of portals · tokens stay on this computer
       </p>
     </div>
   );

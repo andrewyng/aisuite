@@ -445,13 +445,19 @@ class TurnEngine:
             message["_display"] = display
         self.messages.append(message)
         hidden = int((display or {}).get("hidden_by_filters") or 0)
-        if hidden:
+        stripped = int((display or {}).get("hidden_fields") or 0)
+        if hidden or stripped:
             # The out-of-band trace the user CAN see: rule class + count, never content.
+            parts = []
+            if hidden:
+                parts.append(f"{hidden} result(s) hidden")
+            if stripped:
+                parts.append(f"{stripped} field value(s) stripped")
             self._audit(
                 tool_call,
                 stage="filtered",
                 status="hidden",
-                reason=f"{hidden} result(s) hidden by privacy filters",
+                reason=" · ".join(parts) + " by privacy filters",
             )
         self._audit(
             tool_call,

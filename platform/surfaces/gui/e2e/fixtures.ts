@@ -102,6 +102,8 @@ const CONNECTORS = {
     { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
     // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
     { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", auth: "oauth", two_way: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
+    { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
 };
 
@@ -313,6 +315,31 @@ export async function mockApi(page: import("@playwright/test").Page) {
       account: gmailState.accounts.find((a) => a.default)?.email ?? null,
       accounts: gmailState.accounts.map((a) => ({ ...a })),
       filters: { senders: [...gmailState.filters.senders], labels: [...gmailState.filters.labels] },
+    };
+  };
+  // HubSpot — PER-TEST multi-portal state (starts disconnected; managed connects add
+  // portals instantly, mirroring the backend's hubspot:portal:<hub_id> profiles).
+  const hubspotState = {
+    portals: [] as {
+      hub_id: string; name: string; sandbox: boolean; default: boolean;
+      managed: boolean; access: string;
+    }[],
+    hidden_fields: [] as string[],
+    nextAccess: "read", // captured from the last connect-managed body
+  };
+  const HUBSPOT_NEXT = [
+    { hub_id: "111", name: "Acme Inc", sandbox: false },
+    { hub_id: "222", name: "Acme Sandbox", sandbox: true },
+  ];
+  const hubspotConnector = () => {
+    const base = CONNECTORS.connectors.find((c: any) => c.name === "hubspot");
+    return {
+      ...base,
+      connected: hubspotState.portals.length > 0,
+      enabled: hubspotState.portals.length > 0,
+      account: hubspotState.portals.find((p) => p.default)?.name ?? null,
+      portals: hubspotState.portals.map((p) => ({ ...p })),
+      hidden_fields: [...hubspotState.hidden_fields],
     };
   };
   // Installed personas — mutable so enable/surface/delete round-trip through the UI.
@@ -579,12 +606,39 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (Array.isArray(b.labels)) gmailState.filters.labels = b.labels;
       return json({ ok: true, filters: { ...gmailState.filters } });
     }
+    // HubSpot multi-portal management (M3.6 Step 4).
+    if (/\/v1\/connectors\/hubspot\/portals\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const hub = decodeURIComponent(p.split("/").slice(-2)[0]);
+      const i = hubspotState.portals.findIndex((x) => x.hub_id === hub);
+      if (i < 0) return json({ ok: false, error: "portal not connected" });
+      const wasDefault = hubspotState.portals[i].default;
+      hubspotState.portals.splice(i, 1);
+      if (wasDefault && hubspotState.portals[0]) hubspotState.portals[0].default = true;
+      return json({ ok: true, remaining_portals: hubspotState.portals.length });
+    }
+    if (/\/v1\/connectors\/hubspot\/portals\/[^/]+\/default$/.test(p) && m === "POST") {
+      const hub = decodeURIComponent(p.split("/").slice(-2)[0]);
+      if (!hubspotState.portals.some((x) => x.hub_id === hub))
+        return json({ ok: false, error: "portal not connected" });
+      for (const x of hubspotState.portals) x.default = x.hub_id === hub;
+      return json({ ok: true, default_portal: hub });
+    }
+    if (p.endsWith("/v1/connectors/hubspot/hidden-fields") && m === "PATCH") {
+      const b = req.postDataJSON() || {};
+      if (Array.isArray(b.hidden_fields))
+        hubspotState.hidden_fields = b.hidden_fields.map((f: string) => f.trim().toLowerCase());
+      return json({ ok: true, hidden_fields: [...hubspotState.hidden_fields] });
+    }
     if (p.endsWith("/v1/connectors"))
       return json({
         connectors: [
           slackConnector(),
           ...CONNECTORS.connectors.map((c: any) =>
-            c.name === "gmail" ? gmailConnector() : { ...c },
+            c.name === "gmail"
+              ? gmailConnector()
+              : c.name === "hubspot"
+                ? hubspotConnector()
+                : { ...c },
           ),
         ],
       });
@@ -616,6 +670,16 @@ export async function mockApi(page: import("@playwright/test").Page) {
         gmailState.accounts.push({
           email, default: gmailState.accounts.length === 0, managed: true,
           scopes: "gmail.readonly gmail.send", needs_reauth: false,
+        });
+      }
+      // HubSpot managed connect = add the next portal at the requested access tier.
+      if (p.includes("/connectors/hubspot/")) {
+        const access = (req.postDataJSON() || {}).access || "read";
+        const next = HUBSPOT_NEXT[hubspotState.portals.length] || {
+          hub_id: `9${hubspotState.portals.length}`, name: "extra", sandbox: false,
+        };
+        hubspotState.portals.push({
+          ...next, default: hubspotState.portals.length === 0, managed: true, access,
         });
       }
       return json({ ok: true });

@@ -123,6 +123,7 @@ function statusLine(c: Connector): string {
     return `${n} workspace${n === 1 ? "" : "s"} · relay`;
   }
   if ((c.accounts?.length ?? 0) > 1) return `${c.accounts!.length} accounts`;
+  if ((c.portals?.length ?? 0) > 1) return `${c.portals!.length} portals`;
   if (c.auth === "none") return "Built in";
   return c.account || "Connected";
 }

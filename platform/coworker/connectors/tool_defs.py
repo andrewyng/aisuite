@@ -391,6 +391,27 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Create a HubSpot contact.",
     ),
     ConnectorToolDef(
+        "hubspot",
+        "hubspot_update_object",
+        "Update record",
+        "write",
+        "Update properties on a CRM record (no deletes).",
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_log_note",
+        "Log note",
+        "write",
+        "Log a note on a record's timeline.",
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_create_task",
+        "Create task",
+        "write",
+        "Create a HubSpot task.",
+    ),
+    ConnectorToolDef(
         "dropbox", "dropbox_search", "Search files", "read", "Search Dropbox files."
     ),
     ConnectorToolDef(

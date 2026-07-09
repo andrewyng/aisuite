@@ -679,7 +679,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="hubspot",
         title="HubSpot",
         icon="⊚",
-        blurb="Search CRM contacts, companies, and deals; create contacts.",
+        blurb="Search CRM records; log notes and tasks, update records. No deletes.",
         auth="token",
         two_way=False,
         brand_color="#ff7a59",
@@ -695,10 +695,11 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "In HubSpot, go to Settings → Integrations → Private Apps and create an app.",
-            "Grant CRM object read scopes (and crm.objects.contacts.write to create contacts).",
+            "Grant CRM object read scopes (add the .write scopes for notes, tasks, and updates).",
             "Copy the access token and paste it below.",
         ],
         validate=_validate_hubspot,
+        managed=True,
     ),
     ConnectorDescriptor(
         name="dropbox",

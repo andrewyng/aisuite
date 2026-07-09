@@ -14,7 +14,7 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -608,6 +608,37 @@ def create_app(manager: SessionManager) -> FastAPI:
             return {"ok": False, "error": "labels must be a list"}
         return gmail_accounts.set_filters(manager.secrets, senders, labels)
 
+    @app.post("/v1/connectors/hubspot/portals/{hub_id}/disconnect")
+    async def hubspot_portal_disconnect(hub_id: str) -> dict[str, Any]:
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import hubspot_portals
+
+        profile_key = hubspot_portals.PREFIX + hub_id.strip()
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(
+                manager.secrets, load_config(), "hubspot", profile_key=profile_key
+            )
+        )
+        return hubspot_portals.disconnect_portal(manager.secrets, hub_id)
+
+    @app.post("/v1/connectors/hubspot/portals/{hub_id}/default")
+    def hubspot_portal_default(hub_id: str) -> dict[str, Any]:
+        from ..connectors import hubspot_portals
+
+        return hubspot_portals.set_default(manager.secrets, hub_id)
+
+    @app.patch("/v1/connectors/hubspot/hidden-fields")
+    def hubspot_hidden_fields(body: dict) -> dict[str, Any]:
+        """Replace the hidden-fields denylist (property names stripped from every
+        record agents read — model-facing policy, not a human ACL)."""
+        from ..connectors import hubspot_portals
+
+        fields = body.get("hidden_fields") if isinstance(body, dict) else None
+        if not isinstance(fields, list):
+            return {"ok": False, "error": "hidden_fields must be a list"}
+        return hubspot_portals.set_hidden_fields(manager.secrets, fields)
+
     @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
     async def connector_unauthorized_resolve(
         name: str, item_id: str, body: dict
@@ -682,17 +713,21 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
 
     @app.post("/v1/connectors/{name}/connect-managed")
-    async def connector_connect_managed(name: str) -> dict[str, Any]:
+    async def connector_connect_managed(name: str, body: Optional[dict] = None) -> dict[str, Any]:
         """One-click managed OAuth (requires cloud sign-in). Opens the provider
         consent page in the system browser; the broker's callback page will
-        form-POST the tokens to /oauth/callback below."""
+        form-POST the tokens to /oauth/callback below. `access` picks a consent
+        tier by NAME (e.g. hubspot read | write) — the broker owns the scopes."""
         import webbrowser
 
         from .. import cloud
         from ..config import load_config
 
+        access = str((body or {}).get("access") or "")
         out = await asyncio.to_thread(
-            lambda: cloud.begin_managed_connect(manager.secrets, load_config(), name)
+            lambda: cloud.begin_managed_connect(
+                manager.secrets, load_config(), name, access=access
+            )
         )
         if out.get("ok"):
             webbrowser.open(out["authorize_url"])
@@ -735,6 +770,15 @@ def create_app(manager: SessionManager) -> FastAPI:
             result = gmail_accounts.managed_connect_account(
                 manager.secrets, cloud.managed_profile_from_callback(data)
             )
+        elif connector == "hubspot" and data.get("hub_id"):
+            # Multi-portal: keyed by hub_id (broker sends it like Slack's team_id).
+            from ..connectors import hubspot_portals
+
+            profile = cloud.managed_profile_from_callback(data)
+            profile["hub_id"] = data.get("hub_id", "")
+            if data.get("sandbox"):
+                profile["sandbox"] = True
+            result = hubspot_portals.managed_connect_portal(manager.secrets, profile)
         else:
             result = managed_connect_connector(
                 manager.secrets, connector, cloud.managed_profile_from_callback(data)

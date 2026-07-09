@@ -111,6 +111,62 @@ def _gmail_profile(
     return email, profile, None
 
 
+# HubSpot-defined association type ids: note → object (v4 default associations).
+_HS_NOTE_ASSOC = {"contacts": 202, "companies": 190, "deals": 214, "tickets": 228}
+
+
+def _now_ms() -> int:
+    from time import time
+
+    return int(time() * 1000)
+
+
+def _hubspot_profile(
+    secrets: SecretStore, portal: str = ""
+) -> tuple[str, str, Optional[dict[str, str]]]:
+    """(portal name, bearer token, err) for the requested — or default — portal,
+    with a managed token refreshed in place. Multi-portal: `hubspot:portal:<id>`."""
+    from . import hubspot_portals
+
+    hub_id, key, profile = hubspot_portals.resolve(secrets, portal)
+    if profile is None:
+        hint = (
+            f"no hubspot portal matching {portal!r}"
+            if portal
+            else "hubspot is not connected"
+        )
+        return "", "", {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), "hubspot", profile_key=key)
+        profile = secrets.get(key) or profile
+    # Manual private-app profiles carry `token`; managed OAuth carries
+    # `access_token` (which is what the broker refresh rotates).
+    token = profile.get("token") or profile.get("access_token") or ""
+    if not token:
+        return "", "", {"error": f"hubspot portal {hub_id} has no usable token"}
+    name = str(profile.get("account") or f"portal {hub_id}")
+    return name, token, None
+
+
+def _hubspot_result(secrets: SecretStore, portal_name: str, result: dict) -> dict:
+    """Post-process a CRM read: strip denylisted fields (model-facing policy)
+    and name the portal so transcripts/approvals say where data came from.
+    Stripped-value counts ride `_display` → audit; agents see nothing."""
+    from . import hubspot_portals
+
+    if not result.get("ok"):
+        return result
+    hidden = hubspot_portals.get_hidden_fields(secrets)
+    data, removed = hubspot_portals.strip_hidden(result.get("data"), hidden)
+    out = {**result, "data": data, "portal": portal_name}
+    if removed:
+        out["_display"] = {"hidden_fields": removed, "connector": "hubspot"}
+    return out
+
+
 # --- "Never show agents" enforcement (desktop tool layer, silent to agents) ----
 
 
@@ -1668,23 +1724,26 @@ def make_integration_tools(
         )
     )
 
+    _PORTAL_PROP = {
+        "type": "string",
+        "description": "Portal (hub id or name) to use; omit for the default portal.",
+    }
+    _HS_KINDS = ("contacts", "companies", "deals", "tickets")
+
     def hubspot_search(
-        query: str, object_type: str = "contacts", max_results: int = 10
+        query: str, object_type: str = "contacts", max_results: int = 10, portal: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "hubspot", "token")
+        name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
-        kind = (
-            object_type
-            if object_type in ("contacts", "companies", "deals", "tickets")
-            else "contacts"
-        )
-        return _request(
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        result = _request(
             "POST",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/search",
-            headers=_bearer_headers(profile["token"]),
+            headers=_bearer_headers(token),
             json={"query": query, "limit": _clamp(max_results)},
         )
+        return _hubspot_result(secrets, name, result)
 
     hubspot_search.__name__ = "hubspot_search"
     tools.append(
@@ -1697,6 +1756,7 @@ def make_integration_tools(
                     "query": {"type": "string"},
                     "object_type": {"type": "string"},
                     "max_results": {"type": "integer"},
+                    "portal": _PORTAL_PROP,
                 },
                 ["query"],
             ),
@@ -1704,20 +1764,19 @@ def make_integration_tools(
         )
     )
 
-    def hubspot_get_object(object_type: str, object_id: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "hubspot", "token")
+    def hubspot_get_object(
+        object_type: str, object_id: str, portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
-        kind = (
-            object_type
-            if object_type in ("contacts", "companies", "deals", "tickets")
-            else "contacts"
-        )
-        return _request(
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        result = _request(
             "GET",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
-            headers=_bearer_headers(profile["token"]),
+            headers=_bearer_headers(token),
         )
+        return _hubspot_result(secrets, name, result)
 
     hubspot_get_object.__name__ = "hubspot_get_object"
     tools.append(
@@ -1726,7 +1785,11 @@ def make_integration_tools(
             _schema(
                 "hubspot_get_object",
                 "Read a HubSpot CRM record by ID.",
-                {"object_type": {"type": "string"}, "object_id": {"type": "string"}},
+                {
+                    "object_type": {"type": "string"},
+                    "object_id": {"type": "string"},
+                    "portal": _PORTAL_PROP,
+                },
                 ["object_type", "object_id"],
             ),
             caps=["hubspot", "read"],
@@ -1734,9 +1797,9 @@ def make_integration_tools(
     )
 
     def hubspot_create_contact(
-        email: str, first_name: str = "", last_name: str = ""
+        email: str, first_name: str = "", last_name: str = "", portal: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "hubspot", "token")
+        name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
         props = {"email": email}
@@ -1744,12 +1807,13 @@ def make_integration_tools(
             props["firstname"] = first_name
         if last_name:
             props["lastname"] = last_name
-        return _request(
+        result = _request(
             "POST",
             "https://api.hubapi.com/crm/v3/objects/contacts",
-            headers=_bearer_headers(profile["token"]),
+            headers=_bearer_headers(token),
             json={"properties": props},
         )
+        return _hubspot_result(secrets, name, result)
 
     hubspot_create_contact.__name__ = "hubspot_create_contact"
     tools.append(
@@ -1757,13 +1821,147 @@ def make_integration_tools(
             hubspot_create_contact,
             _schema(
                 "hubspot_create_contact",
-                "Create a HubSpot contact. Requires user approval.",
+                "Create a HubSpot contact. Requires user approval; the `portal` "
+                "argument names the portal on the approval card.",
                 {
                     "email": {"type": "string"},
                     "first_name": {"type": "string"},
                     "last_name": {"type": "string"},
+                    "portal": _PORTAL_PROP,
                 },
                 ["email"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def hubspot_update_object(
+        object_type: str, object_id: str, properties: dict, portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
+        if err:
+            return err
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        if not isinstance(properties, dict) or not properties:
+            return {"error": "properties must be a non-empty object"}
+        result = _request(
+            "PATCH",
+            f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
+            headers=_bearer_headers(token),
+            json={"properties": properties},
+        )
+        return _hubspot_result(secrets, name, result)
+
+    hubspot_update_object.__name__ = "hubspot_update_object"
+    tools.append(
+        _attach(
+            hubspot_update_object,
+            _schema(
+                "hubspot_update_object",
+                "Update properties on a HubSpot CRM record (no deletes exist). "
+                "Requires user approval.",
+                {
+                    "object_type": {"type": "string"},
+                    "object_id": {"type": "string"},
+                    "properties": {"type": "object"},
+                    "portal": _PORTAL_PROP,
+                },
+                ["object_type", "object_id", "properties"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def hubspot_log_note(
+        object_type: str, object_id: str, note: str, portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
+        if err:
+            return err
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        # Note engagement associated to the record (association type ids are
+        # HubSpot-defined per object; v4 default associations handle the rest).
+        result = _request(
+            "POST",
+            "https://api.hubapi.com/crm/v3/objects/notes",
+            headers=_bearer_headers(token),
+            json={
+                "properties": {
+                    "hs_note_body": note,
+                    "hs_timestamp": _now_ms(),
+                },
+                "associations": [
+                    {
+                        "to": {"id": object_id},
+                        "types": [
+                            {
+                                "associationCategory": "HUBSPOT_DEFINED",
+                                "associationTypeId": _HS_NOTE_ASSOC[kind],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        return _hubspot_result(secrets, name, result)
+
+    hubspot_log_note.__name__ = "hubspot_log_note"
+    tools.append(
+        _attach(
+            hubspot_log_note,
+            _schema(
+                "hubspot_log_note",
+                "Log a note on a HubSpot record's timeline. Requires user approval.",
+                {
+                    "object_type": {"type": "string"},
+                    "object_id": {"type": "string"},
+                    "note": {"type": "string"},
+                    "portal": _PORTAL_PROP,
+                },
+                ["object_type", "object_id", "note"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def hubspot_create_task(
+        title: str, due: str = "", notes: str = "", portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
+        if err:
+            return err
+        props: dict[str, Any] = {
+            "hs_task_subject": title,
+            "hs_task_status": "NOT_STARTED",
+            "hs_timestamp": due or _now_ms(),
+        }
+        if notes:
+            props["hs_task_body"] = notes
+        result = _request(
+            "POST",
+            "https://api.hubapi.com/crm/v3/objects/tasks",
+            headers=_bearer_headers(token),
+            json={"properties": props},
+        )
+        return _hubspot_result(secrets, name, result)
+
+    hubspot_create_task.__name__ = "hubspot_create_task"
+    tools.append(
+        _attach(
+            hubspot_create_task,
+            _schema(
+                "hubspot_create_task",
+                "Create a HubSpot task (due = epoch ms or ISO date). Requires user approval.",
+                {
+                    "title": {"type": "string"},
+                    "due": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "portal": _PORTAL_PROP,
+                },
+                ["title"],
             ),
             approval=True,
             caps=["hubspot", "write"],

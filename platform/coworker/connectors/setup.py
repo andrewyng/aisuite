@@ -98,6 +98,20 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 a["email"] == default_email and a["managed"] for a in accounts
             )
             entry["filters"] = gmail_accounts.get_filters(secrets)
+        if d.name == "hubspot":
+            # Multi-portal: each `hubspot:portal:*` profile is one portal; the
+            # :default profile is the default pointer + hidden-fields policy.
+            from . import hubspot_portals
+
+            portals = _hubspot_portal_list(secrets)
+            default_hub = hubspot_portals.default_portal(secrets)
+            entry["portals"] = portals
+            entry["connected"] = bool(portals)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(portals)
+            default_row = next((p for p in portals if p["hub_id"] == default_hub), None)
+            entry["account"] = (default_row or {}).get("name") or None
+            entry["managed_profile"] = bool((default_row or {}).get("managed"))
+            entry["hidden_fields"] = hubspot_portals.get_hidden_fields(secrets)
         out.append(entry)
     return out
 
@@ -137,6 +151,30 @@ def _gmail_account_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "needs_reauth": bool(
                     expires and expires < time() and not profile.get("refresh_token")
                 ),
+            }
+        )
+    return out
+
+
+def _hubspot_portal_list(secrets: SecretStore) -> list[dict[str, Any]]:
+    from . import hubspot_portals
+
+    default = hubspot_portals.default_portal(secrets)
+    out = []
+    for hub_id, profile in hubspot_portals.list_portals(secrets):
+        scope = str(profile.get("scope") or "")
+        out.append(
+            {
+                "hub_id": hub_id,
+                "name": profile.get("account") or f"portal {hub_id}",
+                "sandbox": bool(profile.get("sandbox")),
+                "default": hub_id == default,
+                "managed": bool(profile.get("managed")),
+                # Consent tier granted at connect: managed profiles reveal it in
+                # their scope grant; a manual private-app token doesn't say.
+                "access": (".write" in scope and "write")
+                or (scope and "read")
+                or "",
             }
         )
     return out
@@ -284,4 +322,11 @@ def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
 
         for email, _profile in gmail_accounts.list_accounts(secrets):
             dropped_accounts = secrets.delete(gmail_accounts.PREFIX + email) or dropped_accounts
+    if name == "hubspot":
+        from . import hubspot_portals
+
+        for hub_id, _profile in hubspot_portals.list_portals(secrets):
+            dropped_accounts = (
+                secrets.delete(hubspot_portals.PREFIX + hub_id) or dropped_accounts
+            )
     return {"ok": secrets.delete(f"{name}:default") or dropped_accounts}

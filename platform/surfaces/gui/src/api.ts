@@ -286,6 +286,16 @@ export interface SlackWorkspace {
   allowed_user_names?: Record<string, string | null>;
 }
 
+// One connected HubSpot portal (multi-portal: `hubspot:portal:<hub_id>` profiles).
+export interface HubSpotPortal {
+  hub_id: string;
+  name: string;
+  sandbox: boolean;
+  default: boolean;
+  managed: boolean;
+  access: "read" | "write" | ""; // consent tier granted ("" = manual token, unknown)
+}
+
 // One connected Gmail mailbox (multi-account: `gmail:account:<email>` profiles).
 export interface GmailAccount {
   email: string;
@@ -328,6 +338,8 @@ export interface Connector {
   workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
   accounts?: GmailAccount[]; // Gmail only: connected mailboxes (multi-account)
   filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
+  portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
+  hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
 }
 
 // --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
@@ -369,10 +381,16 @@ export async function cloudLogout(): Promise<{ ok: boolean }> {
 
 export async function connectManaged(
   name: string,
+  options?: { access?: "read" | "write" },
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // `access` names a broker-defined consent tier (hubspot read | write).
+      body: JSON.stringify(options?.access ? { access: options.access } : {}),
+    },
   );
   return res.json();
 }
@@ -1277,6 +1295,33 @@ export async function setGmailFilters(filters: { senders?: string[]; labels?: st
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(filters),
+  });
+  return res.json();
+}
+
+/** Drop ONE HubSpot portal; the default pointer moves to the next portal. */
+export async function disconnectHubSpotPortal(hubId: string): Promise<{ ok: boolean; error?: string; remaining_portals?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/hubspot/portals/${encodeURIComponent(hubId)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setHubSpotDefaultPortal(hubId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/hubspot/portals/${encodeURIComponent(hubId)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Replace the hidden-fields denylist (properties stripped from agent reads). */
+export async function setHubSpotHiddenFields(fields: string[]): Promise<{ ok: boolean; hidden_fields?: string[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/hubspot/hidden-fields`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden_fields: fields }),
   });
   return res.json();
 }

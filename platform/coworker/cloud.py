@@ -267,10 +267,12 @@ def emit_session_created(
 
 
 def begin_managed_connect(
-    secrets: SecretStore, config: Config, connector: str
+    secrets: SecretStore, config: Config, connector: str, *, access: str = ""
 ) -> dict[str, Any]:
     """Authenticated start: returns the provider consent URL for the browser.
-    Requires sign-in — the manual token path stays available regardless."""
+    Requires sign-in — the manual token path stays available regardless.
+    `access` names a broker-defined consent tier (hubspot read | write); the
+    desktop never sends scopes."""
     provider = PROVIDER_FOR_CONNECTOR.get(connector)
     if provider is None:
         return {"ok": False, "error": f"{connector} has no managed OAuth path"}
@@ -290,6 +292,7 @@ def begin_managed_connect(
                 "connector": connector,
                 "redirect": f"http://127.0.0.1:{port}/oauth/callback",
                 "app_state": app_state,
+                **({"access": access} if access else {}),
             },
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,

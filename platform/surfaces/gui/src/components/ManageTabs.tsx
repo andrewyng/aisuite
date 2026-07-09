@@ -850,10 +850,14 @@ export function ConnectSetup({
   c,
   cloud,
   onConnected,
+  manualOnly = false,
 }: {
   c: Connector;
   cloud: CloudStatus | null;
   onConnected: () => void;
+  // The add-modal's Manual pane: the one-click button lives on the sibling
+  // pill, so don't render the managed block again here.
+  manualOnly?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -880,7 +884,7 @@ export function ConnectSetup({
 
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
-      {c.managed && (
+      {c.managed && !manualOnly && (
         <div className="space-y-2" data-testid="managed-connect">
           {cloud?.signed_in ? (
             <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
