@@ -287,6 +287,18 @@ export interface SlackWorkspace {
   allowed_user_names?: Record<string, string | null>;
 }
 
+// One connected GitHub App installation (managed relay is multi-installation;
+// sender logins are global but each installation keeps its OWN allow-list).
+export interface GithubInstallation {
+  installation_id: string;
+  account_login: string; // the org/user the App is installed on
+  account_type: string; // "Organization" | "User"
+  repo_selection: string; // "all" | "selected"
+  github_login: string; // the connecting user's own login
+  allowed_users: string[]; // sender logins allowed to trigger work
+  allow_all: boolean;
+}
+
 // One connected HubSpot portal (multi-portal: `hubspot:portal:<hub_id>` profiles).
 export interface HubSpotPortal {
   hub_id: string;
@@ -341,6 +353,7 @@ export interface Connector {
   filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
   portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
   hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
+  installations?: GithubInstallation[]; // GitHub only: App installations (managed relay)
 }
 
 // --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
@@ -1297,6 +1310,31 @@ export async function setGmailFilters(filters: { senders?: string[]; labels?: st
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(filters),
   });
+  return res.json();
+}
+
+// GitHub relay health, the Slack three-layer shape: shared relay socket /
+// cloud sign-in / per-installation token health (+ missed-event counts).
+export interface GithubStatus {
+  ok: boolean;
+  mode: string;
+  relay: { state: string; reconnects: number; last_event_at: number | null; last_error: string };
+  signed_in: boolean;
+  installs: Record<string, { token_ok: boolean }>;
+  missed: Record<string, number>;
+}
+
+export async function getGithubStatus(): Promise<GithubStatus> {
+  const res = await fetch(`${httpBase()}/v1/connectors/github/status`);
+  return res.json();
+}
+
+/** Stop relaying ONE GitHub App installation to this computer. */
+export async function disconnectGithubInstallation(installationId: string): Promise<{ ok: boolean; error?: string; remaining_installs?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/github/installations/${encodeURIComponent(installationId)}/disconnect`,
+    { method: "POST" },
+  );
   return res.json();
 }
 

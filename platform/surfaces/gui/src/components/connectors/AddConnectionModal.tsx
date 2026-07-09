@@ -25,7 +25,7 @@ export function AddConnectionModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const twoModes = c.name === "slack" || c.name === "hubspot";
+  const twoModes = c.name === "slack" || c.name === "hubspot" || c.name === "github";
   const [pane, setPane] = useState<"one" | "manual">("one");
 
   useEffect(() => {
@@ -74,15 +74,17 @@ export function AddConnectionModal({
             {pane === "one" ? (
               c.name === "hubspot" ? (
                 <HubSpotOneClick c={c} cloud={cloud} />
+              ) : c.name === "github" ? (
+                <GithubOneClick c={c} cloud={cloud} />
               ) : (
                 <SlackOneClick c={c} cloud={cloud} />
               )
-            ) : c.name === "hubspot" ? (
+            ) : c.name === "slack" ? (
+              <SlackManual onConnected={() => { onChanged(); onClose(); }} />
+            ) : (
               <div className="px-1.5 pb-2">
                 <ConnectSetup c={c} cloud={cloud} onConnected={() => { onChanged(); onClose(); }} manualOnly />
               </div>
-            ) : (
-              <SlackManual onConnected={() => { onChanged(); onClose(); }} />
             )}
           </>
         ) : (
@@ -123,6 +125,38 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
         <span className={TAG_ACCENT}>Recommended</span> relay · tokens stay on this computer
+      </p>
+    </div>
+  );
+}
+
+function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setError(null);
+    const res = await connectManaged(c.name);
+    if (res.ok) setWaiting(true);
+    else setError(res.error || "could not start the install");
+  };
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <p className="text-[13px] text-muted">
+        Opens GitHub in your browser — install the @ocw App on an account or org and pick
+        the repos there. No tokens typed; the agent acts as ocw[bot].
+      </p>
+      {cloud?.signed_in ? (
+        <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={go} disabled={waiting}>
+          {waiting ? "Check your browser…" : "Install the GitHub App"}
+        </button>
+      ) : (
+        <div className="text-[12.5px] text-muted">
+          Sign in to OpenCoworker Cloud (Connectors page) to use one-click — or switch to Manual.
+        </div>
+      )}
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
+        <span className={TAG_ACCENT}>Recommended</span> relay · short-lived tokens, never stored
       </p>
     </div>
   );

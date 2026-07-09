@@ -11,6 +11,7 @@ import {
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
 import { ConnectorsList } from "./ConnectorsList";
+import { GithubDetail } from "./GithubDetail";
 import { GmailDetail } from "./GmailDetail";
 import { HubSpotDetail } from "./HubSpotDetail";
 import { SlackDetail } from "./SlackDetail";
@@ -33,6 +34,7 @@ const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
   slack: (p) => <SlackDetail {...p} />,
   gmail: (p) => <GmailDetail {...p} />,
   hubspot: (p) => <HubSpotDetail {...p} />,
+  github: (p) => <GithubDetail {...p} />,
 };
 
 export function ConnectorsSection() {

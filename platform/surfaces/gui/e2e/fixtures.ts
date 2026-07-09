@@ -297,6 +297,29 @@ export async function mockApi(page: import("@playwright/test").Page) {
     workspaces: slackState.workspaces.map((w) => ({ ...w, allowed_users: [...w.allowed_users] })),
     unauthorized: parked.map((x) => ({ ...x })),
   });
+  // GitHub — PER-TEST multi-installation state (managed relay, one installation +
+  // one parked mention) mirroring the backend's github:install:<id> profiles.
+  const githubParked: any[] = [
+    { id: "gh-pk1", platform: "github", chat_id: "acme/site#7", chat_name: "acme/site#7", user_id: "maya-dev", user_name: "maya-dev", chat_type: "channel", text: "@ocw please take a look at this flaky test", ts: Date.now() / 1000 - 90, team_id: "101" },
+  ];
+  const githubState = {
+    connected: true,
+    mode: "relay" as "" | "relay",
+    installations: [
+      { installation_id: "101", account_login: "acme", account_type: "Organization", repo_selection: "selected", github_login: "rohit-dev", allowed_users: ["rohit-dev"], allow_all: false },
+    ],
+  };
+  const githubConnector = () => ({
+    name: "github", title: "GitHub", icon: "⌘", blurb: "Work with issues, pull requests, repository files, and CI status.",
+    auth: "token", two_way: true, available: true, brand_color: "#1f2328", logo: "github",
+    fields: [{ key: "token", label: "Personal access token", secret: true, required: true, help: "", placeholder: "" }],
+    instructions: [], connected: githubState.connected,
+    account: githubState.installations[0]?.account_login ?? null,
+    enabled: githubState.connected, allowed_users: [], tools: [], managed: true,
+    managed_profile: githubState.mode === "relay", mode: githubState.mode,
+    installations: githubState.installations.map((i) => ({ ...i, allowed_users: [...i.allowed_users] })),
+    unauthorized: githubParked.map((x) => ({ ...x })),
+  });
   // Gmail — PER-TEST multi-account state (starts disconnected; managed connects add
   // mailboxes instantly, mirroring the backend's gmail:account:<email> profiles).
   const gmailState = {
@@ -582,6 +605,56 @@ export async function mockApi(page: import("@playwright/test").Page) {
       }
       return json({ ok: true, remaining_workspaces: slackState.workspaces.length });
     }
+    // GitHub relay (github-relay-spec §8): per-installation allow/disallow, parked
+    // resolution, status, per-installation disconnect.
+    if (/\/v1\/connectors\/github\/unauthorized\/[^/]+$/.test(p) && m === "POST") {
+      const id = p.split("/").pop();
+      const i = githubParked.findIndex((x) => x.id === id);
+      if (i < 0) return json({ ok: false, error: "unknown item" });
+      const b = req.postDataJSON();
+      const item = githubParked.splice(i, 1)[0];
+      if (b.action === "allow" || b.action === "allow_deliver") {
+        const pool = githubState.installations.find(
+          (x) => x.installation_id === item.team_id,
+        )?.allowed_users;
+        if (pool && !pool.includes(item.user_id)) pool.push(item.user_id);
+      }
+      return json({ ok: true });
+    }
+    if (/\/v1\/connectors\/github\/(allow|disallow)$/.test(p) && m === "POST") {
+      const b = req.postDataJSON();
+      const pool = githubState.installations.find(
+        (x) => x.installation_id === b.team_id,
+      )?.allowed_users;
+      if (!pool) return json({ ok: false, error: "installation not connected" });
+      const add = p.endsWith("/allow");
+      const i = pool.indexOf(b.user_id);
+      if (add && i < 0) pool.push(b.user_id);
+      if (!add && i >= 0) pool.splice(i, 1);
+      return json({ ok: true, allowed_users: [...pool], team_id: b.team_id ?? null });
+    }
+    if (p.endsWith("/v1/connectors/github/status"))
+      return json({
+        ok: true,
+        mode: githubState.mode,
+        relay: { state: "live", reconnects: 0, last_event_at: Date.now() / 1000 - 30, last_error: "" },
+        signed_in: CLOUD_STATE.signed_in,
+        installs: Object.fromEntries(
+          githubState.installations.map((x) => [x.installation_id, { token_ok: true }]),
+        ),
+        missed: {},
+      });
+    if (/\/v1\/connectors\/github\/installations\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const iid = decodeURIComponent(p.split("/").slice(-2)[0]);
+      const i = githubState.installations.findIndex((x) => x.installation_id === iid);
+      if (i < 0) return json({ ok: false, error: "installation not connected" });
+      githubState.installations.splice(i, 1);
+      if (githubState.installations.length === 0) {
+        githubState.connected = false;
+        githubState.mode = "";
+      }
+      return json({ ok: true, remaining_installs: githubState.installations.length });
+    }
     // Gmail multi-account management (M3.6 Step 3): per-account disconnect/default
     // + the "Never show agents" filter lists.
     if (/\/v1\/connectors\/gmail\/accounts\/[^/]+\/disconnect$/.test(p) && m === "POST") {
@@ -633,6 +706,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
       return json({
         connectors: [
           slackConnector(),
+          githubConnector(),
           ...CONNECTORS.connectors.map((c: any) =>
             c.name === "gmail"
               ? gmailConnector()
@@ -663,6 +737,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
         slackState.workspaces.push({ team_id: "T3NEW", account: "new-workspace", allowed_users: [], allow_all: false, allowed_user_names: {} });
         slackState.connected = true;
         slackState.mode = "relay";
+      }
+      // GitHub managed connect = install on the next account (instant, like Slack).
+      if (p.includes("/connectors/github/")) {
+        githubState.installations.push({
+          installation_id: "202", account_login: "hooli", account_type: "Organization",
+          repo_selection: "all", github_login: "rohit-dev", allowed_users: ["rohit-dev"], allow_all: false,
+        });
+        githubState.connected = true;
+        githubState.mode = "relay";
       }
       // Gmail managed connect = add the next mailbox; the first becomes default.
       if (p.includes("/connectors/gmail/")) {
