@@ -459,3 +459,145 @@ def test_review_event_validated(tmp_path, monkeypatch):
     secrets = SecretStore()
     out = _tool(secrets, "github_review")("acme", "site", 5, "MERGE")
     assert "event must be" in out["error"]
+
+
+# --- commits + clone/pull (activity summaries + local code exploration) --------
+
+
+def test_list_commits_filters_and_trims(tmp_path, monkeypatch):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from coworker.connectors import integration_tools
+
+    secrets = SecretStore()
+    secrets.put("github:default", {"type": "token", "token": "ghp_x"})
+    seen = {}
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        seen.update({"url": url, "params": params})
+        return {
+            "ok": True,
+            "data": [
+                {
+                    "sha": "a" * 40,
+                    "commit": {
+                        "author": {"name": "Rohit", "date": "2026-07-08T10:00:00Z"},
+                        "message": "Fix the flaky relay test\n\nlong body " * 40,
+                    },
+                    "author": {"login": "rohit-dev"},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(integration_tools, "_request", fake_request)
+    out = _tool(secrets, "github_list_commits")(
+        "acme", "site", since="2026-07-06T00:00:00Z", author="rohit-dev", max_results=200
+    )
+    assert seen["url"].endswith("/repos/acme/site/commits")
+    assert seen["params"]["since"] == "2026-07-06T00:00:00Z"
+    assert seen["params"]["author"] == "rohit-dev"
+    assert seen["params"]["per_page"] == 100  # capped
+    (c,) = out["commits"]
+    assert c["sha"] == "a" * 12 and c["author"] == "Rohit"
+    assert len(c["message"]) <= 500  # trimmed for the model
+
+
+def _git(args, cwd):
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=cwd, check=True, capture_output=True, text=True,
+    )
+
+
+@pytest.fixture
+def _origin(tmp_path):
+    """A local 'GitHub': a bare repo at <base>/acme/site.git reachable via the
+    GITHUB_GIT_URL override, plus a work repo to push new commits from."""
+    base = tmp_path / "githost"
+    bare = base / "acme" / "site.git"
+    bare.mkdir(parents=True)
+    _git(["init", "--bare", "--initial-branch=main", str(bare)], cwd=tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    _git(["init", "--initial-branch=main"], cwd=work)
+    (work / "README.md").write_text("hello")
+    _git(["add", "."], cwd=work)
+    _git(["commit", "-m", "first"], cwd=work)
+    _git(["remote", "add", "origin", str(bare)], cwd=work)
+    _git(["push", "origin", "main"], cwd=work)
+    return {"base": base, "work": work}
+
+
+def _clone_tools(secrets, tmp_path):
+    from coworker.connectors.integration_tools import make_integration_tools
+    from coworker.roots import RootDir
+
+    granted = tmp_path / "granted"
+    granted.mkdir(exist_ok=True)
+    tools = make_integration_tools(secrets, roots=[RootDir(granted, writable=True)])
+    by_name = {t.__name__: t for t in tools}
+    return granted, by_name
+
+
+def test_clone_pull_roundtrip_and_no_token_at_rest(tmp_path, monkeypatch, _origin):
+    """Clone into the granted root, then pull a new upstream commit. The
+    minted-token header must never persist anywhere in the clone."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("GITHUB_GIT_URL", f"file://{_origin['base']}")
+    secrets = SecretStore()
+    github_installs.managed_connect_install(secrets, _install_form("101"))
+    monkeypatch.setattr(
+        cloud, "github_installation_token", lambda s, c, iid, *, force=False: "ghs_live"
+    )
+    granted, tools = _clone_tools(secrets, tmp_path)
+
+    out = tools["github_clone"]("acme", "site")
+    assert out.get("ok") is True, out
+    clone = granted / "site"
+    assert (clone / "README.md").read_text() == "hello"
+    # The no-token-at-rest rule, verified on disk (not just in code review):
+    for f in (clone / ".git").rglob("*"):
+        if f.is_file() and f.stat().st_size < 100_000:
+            blob = f.read_bytes()
+            assert b"ghs_" not in blob and b"AUTHORIZATION" not in blob, f
+
+    (_origin["work"] / "next.txt").write_text("more")
+    _git(["add", "."], cwd=_origin["work"])
+    _git(["commit", "-m", "second"], cwd=_origin["work"])
+    _git(["push", "origin", "main"], cwd=_origin["work"])
+
+    out = tools["github_pull"](str(clone))
+    assert out.get("ok") is True, out
+    assert (clone / "next.txt").read_text() == "more"
+
+
+def test_clone_refuses_paths_outside_granted_roots(tmp_path, monkeypatch, _origin):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("GITHUB_GIT_URL", f"file://{_origin['base']}")
+    secrets = SecretStore()
+    _granted, tools = _clone_tools(secrets, tmp_path)
+
+    out = tools["github_clone"]("acme", "site", directory=str(tmp_path / "elsewhere"))
+    assert "outside the session's writable directories" in out["error"]
+    assert not (tmp_path / "elsewhere").exists()
+
+    # and with no writable root at all → a clear error, no filesystem writes
+    from coworker.connectors.integration_tools import make_integration_tools
+
+    bare_tools = {t.__name__: t for t in make_integration_tools(secrets, roots=[])}
+    out = bare_tools["github_clone"]("acme", "site")
+    assert "no writable session directory" in out["error"]
+
+
+def test_clone_refuses_non_empty_target(tmp_path, monkeypatch, _origin):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("GITHUB_GIT_URL", f"file://{_origin['base']}")
+    secrets = SecretStore()
+    granted, tools = _clone_tools(secrets, tmp_path)
+    (granted / "site").mkdir()
+    (granted / "site" / "keep.txt").write_text("existing work")
+
+    out = tools["github_clone"]("acme", "site")
+    assert "not empty" in out["error"]
+    assert (granted / "site" / "keep.txt").read_text() == "existing work"

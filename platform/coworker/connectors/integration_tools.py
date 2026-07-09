@@ -316,6 +316,48 @@ def _github_auth(
     return None, {"error": "github is not connected; missing token"}
 
 
+def _github_git_auth_args(secrets: SecretStore, owner: str) -> list[str]:
+    """Per-invocation git auth: the token rides an HTTP header on the command
+    line only — it must NEVER land in .git/config or a credential store (the
+    no-token-at-rest rule; github-relay-spec §4). Empty for the tokenless case
+    (public repos clone fine without auth)."""
+    import base64
+
+    headers, err = _github_auth(secrets, owner)
+    if err:
+        return ["-c", "credential.helper="]
+    token = headers["Authorization"].split(" ", 1)[1]
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return [
+        "-c", f"http.extraHeader=AUTHORIZATION: basic {basic}",
+        "-c", "credential.helper=",
+    ]
+
+
+def _run_git(args: list[str], *, cwd: Any = None, timeout: int = 600) -> tuple[str, str]:
+    """(stdout, error). Never raises; the error string is capped and carries no
+    auth material (git never echoes header values)."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
+    except FileNotFoundError:
+        return "", "git is not installed"
+    except subprocess.TimeoutExpired:
+        return "", "git timed out"
+    if proc.returncode != 0:
+        return "", (proc.stderr or proc.stdout).strip()[-500:]
+    return proc.stdout.strip(), ""
+
+
+def _github_git_base() -> str:
+    import os
+
+    return os.environ.get("GITHUB_GIT_URL", "https://github.com").rstrip("/")
+
+
 def _github_call(
     secrets: SecretStore, method: str, path: str, *, install: str = "", **kw: Any
 ) -> dict[str, Any]:
@@ -579,6 +621,158 @@ def make_integration_tools(
             ),
             approval=True,
             caps=["github", "write"],
+        )
+    )
+
+    def github_list_commits(
+        owner: str,
+        repo: str,
+        since: str = "",
+        until: str = "",
+        author: str = "",
+        max_results: int = 30,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"per_page": max(1, min(int(max_results or 30), 100))}
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
+        if author:
+            params["author"] = author
+        out = _github_call(
+            secrets, "GET", f"/repos/{owner}/{repo}/commits", install=owner, params=params
+        )
+        if "error" in out:
+            return out
+        commits = [
+            {
+                "sha": (c.get("sha") or "")[:12],
+                "author": ((c.get("commit") or {}).get("author") or {}).get("name")
+                or (c.get("author") or {}).get("login", ""),
+                "date": ((c.get("commit") or {}).get("author") or {}).get("date", ""),
+                "message": ((c.get("commit") or {}).get("message") or "")[:500],
+            }
+            for c in (out["data"] if isinstance(out["data"], list) else [])
+        ]
+        return {"commits": commits, "count": len(commits)}
+
+    github_list_commits.__name__ = "github_list_commits"
+    tools.append(
+        _attach(
+            github_list_commits,
+            _schema(
+                "github_list_commits",
+                "List a repository's commits (newest first), optionally filtered "
+                "by ISO-8601 since/until dates or author — the raw material for "
+                "activity summaries.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "since": {"type": "string", "description": "ISO-8601, e.g. 2026-07-06T00:00:00Z"},
+                    "until": {"type": "string"},
+                    "author": {"type": "string", "description": "GitHub login"},
+                    "max_results": {"type": "integer"},
+                },
+                ["owner", "repo"],
+            ),
+            approval=False,
+            caps=["github", "read"],
+        )
+    )
+
+    def _writable_target(raw: str, *, default_name: str = "") -> tuple[Any, dict[str, Any] | None]:
+        """Resolve a directory inside a WRITABLE granted root — clones and pulls
+        never touch anything the user hasn't shared with the session."""
+        from pathlib import Path as _Path
+
+        writable = [r.path for r in (roots or []) if r.writable]
+        if not writable:
+            return None, {"error": "no writable session directory to clone into"}
+        path = (
+            _Path(str(raw)).expanduser().resolve()
+            if raw
+            else (writable[0] / default_name).resolve()
+        )
+        if not any(path.is_relative_to(root) for root in writable):
+            return None, {"error": f"{path} is outside the session's writable directories"}
+        return path, None
+
+    def github_clone(owner: str, repo: str, directory: str = "") -> dict[str, Any]:
+        target, err = _writable_target(directory, default_name=repo)
+        if err:
+            return err
+        if target.exists() and any(target.iterdir()):
+            return {"error": f"{target} already exists and is not empty (use github_pull?)"}
+        url = f"{_github_git_base()}/{owner}/{repo}.git"
+        _out, git_err = _run_git(
+            [*_github_git_auth_args(secrets, owner), "clone", url, str(target)]
+        )
+        if git_err:
+            return {"error": f"clone failed: {git_err}"}
+        # Belt and braces for the no-token-at-rest rule: header auth is
+        # process-only, so nothing secret can be in the clone's config — verify.
+        config = (target / ".git" / "config").read_text()
+        if "AUTHORIZATION" in config or "x-access-token" in config:
+            import shutil
+
+            shutil.rmtree(target)
+            return {"error": "clone aborted: credentials would have persisted"}
+        head, _ = _run_git(["rev-parse", "--short", "HEAD"], cwd=target)
+        return {"ok": True, "path": str(target), "head": head}
+
+    github_clone.__name__ = "github_clone"
+    tools.append(
+        _attach(
+            github_clone,
+            _schema(
+                "github_clone",
+                "Clone a GitHub repository into a session folder so the agent can "
+                "explore the code locally. Private repos use a short-lived token "
+                "that is never written to disk. Requires user approval.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "directory": {"type": "string", "description": "target path inside a granted folder (default: <primary>/<repo>)"},
+                },
+                ["owner", "repo"],
+            ),
+            approval=True,
+            caps=["github", "read"],
+        )
+    )
+
+    def github_pull(directory: str) -> dict[str, Any]:
+        target, err = _writable_target(directory)
+        if err:
+            return err
+        if not (target / ".git").exists():
+            return {"error": f"{target} is not a git repository"}
+        remote, git_err = _run_git(["remote", "get-url", "origin"], cwd=target)
+        if git_err:
+            return {"error": f"no origin remote: {git_err}"}
+        m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", remote)
+        owner = m.group(1) if m else ""
+        _out, git_err = _run_git(
+            [*_github_git_auth_args(secrets, owner), "-C", str(target), "pull", "--ff-only"]
+        )
+        if git_err:
+            return {"error": f"pull failed: {git_err}"}
+        head, _ = _run_git(["rev-parse", "--short", "HEAD"], cwd=target)
+        return {"ok": True, "path": str(target), "head": head}
+
+    github_pull.__name__ = "github_pull"
+    tools.append(
+        _attach(
+            github_pull,
+            _schema(
+                "github_pull",
+                "Fast-forward an existing clone in a session folder to the latest "
+                "upstream commits. Requires user approval.",
+                {"directory": {"type": "string"}},
+                ["directory"],
+            ),
+            approval=True,
+            caps=["github", "read"],
         )
     )
 

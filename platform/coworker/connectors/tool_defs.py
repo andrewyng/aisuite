@@ -128,6 +128,27 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Submit a pull-request review (approve / request changes / comment).",
     ),
     ConnectorToolDef(
+        "github",
+        "github_list_commits",
+        "List commits",
+        "read",
+        "List a repository's recent commits (for activity summaries).",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_clone",
+        "Clone a repo",
+        "read",
+        "Clone a repository into a session folder to explore the code.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_pull",
+        "Update a clone",
+        "read",
+        "Fast-forward an existing clone to the latest commits.",
+    ),
+    ConnectorToolDef(
         "notion",
         "notion_search",
         "Search Notion",
