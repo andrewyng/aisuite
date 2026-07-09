@@ -283,8 +283,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
     account: "deeplearning.ai",
     allowed_users: [] as string[], // flat list (manual Socket Mode only)
     workspaces: [
-      { team_id: "T1DL", account: "deeplearning.ai", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null> },
-      { team_id: "T2AC", account: "acme-partners", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null> },
+      { team_id: "T1DL", account: "deeplearning.ai", domain: "dlaiteam", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null> },
+      { team_id: "T2AC", account: "acme-partners", domain: "acmehq", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null> },
     ],
   };
   const slackConnector = () => ({

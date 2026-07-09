@@ -16,6 +16,9 @@ test("lists every connected workspace as its own group", async ({ page }) => {
   await openSlackPage(page);
   await expect(page.getByTestId("slack-workspace-T1DL")).toContainText("deeplearning.ai");
   await expect(page.getByTestId("slack-workspace-T2AC")).toContainText("acme-partners");
+  // The workspace domain is the visible differentiator (ids demote to hover).
+  await expect(page.getByTestId("slack-workspace-T1DL")).toContainText("· dlaiteam");
+  await expect(page.getByTestId("slack-workspace-T2AC")).toContainText("· acmehq");
   // the workspace with people/parked shows the People row; the quiet one shows the hint
   await expect(page.getByTestId("slack-workspace-T1DL")).toContainText("People");
   await expect(page.getByTestId("slack-workspace-T2AC")).toContainText("No one allowed yet");

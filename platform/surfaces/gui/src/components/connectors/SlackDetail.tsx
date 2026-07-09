@@ -185,7 +185,12 @@ function WorkspaceGroup({
     <div data-testid={`slack-workspace-${w.team_id}`}>
       <div className={GRP_H + " flex items-center gap-2"}>
         <span>
-          {w.account || w.team_id} <span className="font-normal text-faint">· {w.team_id}</span>
+          {/* Domain beats raw id as the differentiator (names can collide across
+              workspaces; domains can't). The id stays reachable on hover. */}
+          {w.account || w.team_id}{" "}
+          <span className="font-normal text-faint" title={w.team_id}>
+            · {w.domain || w.team_id}
+          </span>
         </span>
         {!tokenOk && (
           <span className={TAG_WARN} data-testid={`token-warn-${w.team_id}`}>

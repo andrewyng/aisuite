@@ -123,6 +123,7 @@ def _slack_workspaces(secrets: SecretStore) -> list[dict[str, Any]]:
         {
             "team_id": team_id,
             "account": profile.get("account") or team_id,
+            "domain": profile.get("domain") or "",
             "allowed_users": list(profile.get("allowed_users") or []),
             "allow_all": bool(profile.get("allow_all")),
         }
@@ -303,6 +304,9 @@ def managed_connect_slack_install(
             "bot_user_id": form.get("bot_user_id", ""),
             "team_id": team_id,
             "account": form.get("account", ""),
+            # The workspace's slack.com subdomain (broker resolves it via auth.test)
+            # — the unique human handle when two workspaces share a display name.
+            "domain": form.get("team_domain", ""),
             "scope": form.get("scope", ""),
             "connection_id": form.get("connection_id", ""),
         },

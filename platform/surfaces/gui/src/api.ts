@@ -281,6 +281,7 @@ export interface ParkedMessage {
 export interface SlackWorkspace {
   team_id: string;
   account: string;
+  domain?: string; // slack.com subdomain — unique even when display names collide
   allowed_users: string[];
   allow_all: boolean;
   allowed_user_names?: Record<string, string | null>;
