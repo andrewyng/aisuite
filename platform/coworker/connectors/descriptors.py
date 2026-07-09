@@ -398,6 +398,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Read availability, summarize schedules, and create events.",
         auth="oauth",
         two_way=False,
+        brand_color="#4285f4",
+        logo="google_calendar",
         fields=[
             Field(
                 "access_token",
@@ -420,6 +422,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Let agents navigate, read, and act on websites with approval.",
         auth="none",
         two_way=False,
+        brand_color="#0ea5e9",
+        logo="browser",
         fields=[],
         instructions=[
             "No setup required. Browser tools are available to Cowork sessions."

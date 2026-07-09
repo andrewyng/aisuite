@@ -272,6 +272,66 @@ export function Sidebar(props: Props) {
     .filter(matches)
     .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
 
+  // Hover action cluster (pin / rename / archive / delete) shared by BOTH row styles — the
+  // chronological cardRow must offer the same actions as the persona accordion's sessionRow
+  // (owner ask 2026-07-09; it previously had pin only).
+  const rowActions = (s: SessionInfo, title: string) => (
+    <span
+      className="hidden group-hover:flex items-center gap-0.5 shrink-0"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        title={s.pinned ? "Unpin" : "Pin to top"}
+        className={
+          "w-5 h-5 grid place-items-center rounded hover:bg-paper " +
+          (s.pinned ? "text-accent" : "text-faint hover:text-ink")
+        }
+        onClick={() => props.onTogglePin(s.session_id, !s.pinned)}
+      >
+        <Icon name="pin" size={12} />
+      </button>
+      <button
+        title="Rename"
+        className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
+        onClick={() => {
+          setEditingId(s.session_id);
+          setEditValue(title);
+        }}
+      >
+        <Icon name="pencil" size={12} />
+      </button>
+      <button
+        title={s.archived ? "Unarchive" : "Archive (reversible)"}
+        className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
+        onClick={() => props.onArchiveSession(s.session_id, !s.archived)}
+      >
+        <Icon name="archive" size={12} />
+      </button>
+      {confirmDelId === s.session_id ? (
+        <button
+          title="Click to permanently delete"
+          className="px-1.5 h-5 grid place-items-center rounded bg-danger text-white text-[10.5px] font-medium"
+          onBlur={() => setConfirmDelId(null)}
+          onMouseLeave={() => setConfirmDelId(null)}
+          onClick={() => {
+            setConfirmDelId(null);
+            props.onDeleteSession(s.session_id);
+          }}
+        >
+          Delete?
+        </button>
+      ) : (
+        <button
+          title="Delete permanently"
+          className="w-5 h-5 grid place-items-center rounded text-faint hover:text-danger hover:bg-paper leading-none"
+          onClick={() => setConfirmDelId(s.session_id)}
+        >
+          ×
+        </button>
+      )}
+    </span>
+  );
+
   // A compact session row (mock §141 grouped/recent rows): one-line title + right-side indicators,
   // with the pin/rename/delete actions revealed on hover. Used in accordion bodies + grouped cards.
   const sessionRow = (s: SessionInfo, opts: { showTime?: boolean } = {}) => {
@@ -329,60 +389,7 @@ export function Sidebar(props: Props) {
               <LiveDot state={s.liveness} />
               <AttnBadge n={s.attention || 0} />
             </span>
-            <span
-              className="hidden group-hover:flex items-center gap-0.5 shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                title={s.pinned ? "Unpin" : "Pin to top"}
-                className={
-                  "w-5 h-5 grid place-items-center rounded hover:bg-paper " +
-                  (s.pinned ? "text-accent" : "text-faint hover:text-ink")
-                }
-                onClick={() => props.onTogglePin(s.session_id, !s.pinned)}
-              >
-                <Icon name="pin" size={12} />
-              </button>
-              <button
-                title="Rename"
-                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
-                onClick={() => {
-                  setEditingId(s.session_id);
-                  setEditValue(title);
-                }}
-              >
-                <Icon name="pencil" size={12} />
-              </button>
-              <button
-                title={s.archived ? "Unarchive" : "Archive (reversible)"}
-                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
-                onClick={() => props.onArchiveSession(s.session_id, !s.archived)}
-              >
-                <Icon name="archive" size={12} />
-              </button>
-              {confirmDelId === s.session_id ? (
-                <button
-                  title="Click to permanently delete"
-                  className="px-1.5 h-5 grid place-items-center rounded bg-danger text-white text-[10.5px] font-medium"
-                  onBlur={() => setConfirmDelId(null)}
-                  onMouseLeave={() => setConfirmDelId(null)}
-                  onClick={() => {
-                    setConfirmDelId(null);
-                    props.onDeleteSession(s.session_id);
-                  }}
-                >
-                  Delete?
-                </button>
-              ) : (
-                <button
-                  title="Delete permanently"
-                  className="w-5 h-5 grid place-items-center rounded text-faint hover:text-danger hover:bg-paper leading-none"
-                  onClick={() => setConfirmDelId(s.session_id)}
-                >
-                  ×
-                </button>
-              )}
-            </span>
+            {rowActions(s, title)}
           </>
         )}
       </div>
@@ -395,6 +402,12 @@ export function Sidebar(props: Props) {
   const cardRow = (s: SessionInfo) => {
     const active = s.session_id === props.activeSession;
     const title = s.title || s.session_id;
+    const editing = editingId === s.session_id;
+    const commitRename = () => {
+      const next = editValue.trim();
+      if (next && next !== title) props.onRenameSession(s.session_id, next);
+      setEditingId(null);
+    };
     // Subtitle (deliberately quiet): just the persona label + the workspace basename for
     // project-scoped personas (a real folder). No channel/subscription detail — connectors show as
     // the dot indicator on the right, so the subtitle stays clean. Scratch/orphan personas omit the
@@ -410,33 +423,41 @@ export function Sidebar(props: Props) {
             ? "bg-ink/[0.055]"
             : "hover:bg-paper")
         }
-        title={title}
-        onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
+        title={editing ? undefined : title}
+        onClick={() => {
+          if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
+        }}
       >
         {/* No leading glyph on session rows — the persona shows in the subtitle (Rohit's call
             2026-07-07: the per-session icon read as noise in both grouped and chronological). */}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium">{title}</span>
-          <span className="block truncate text-[11px] text-faint">{subParts.join(" · ")}</span>
-        </span>
-        <span className="flex items-center gap-1.5 shrink-0">
-          <ConnectorDot subs={s.subscriptions} />
-          <LiveDot state={s.liveness} />
-          <AttnBadge n={s.attention || 0} />
-          <button
-            className={
-              "hidden group-hover:grid w-5 h-5 place-items-center rounded hover:bg-paper " +
-              (s.pinned ? "text-accent" : "text-faint hover:text-ink")
-            }
-            title={s.pinned ? "Unpin" : "Pin to top"}
-            onClick={(e) => {
+        {editing ? (
+          <input
+            className="flex-1 min-w-0 px-1.5 py-0.5 rounded-md bg-panel border border-accent text-[13px] text-ink outline-none"
+            value={editValue}
+            autoFocus
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
               e.stopPropagation();
-              props.onTogglePin(s.session_id, !s.pinned);
+              if (e.key === "Enter") commitRename();
+              else if (e.key === "Escape") setEditingId(null);
             }}
-          >
-            <Icon name="pin" size={11} />
-          </button>
-        </span>
+          />
+        ) : (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium">{title}</span>
+              <span className="block truncate text-[11px] text-faint">{subParts.join(" · ")}</span>
+            </span>
+            <span className="flex items-center gap-1.5 shrink-0 group-hover:hidden">
+              <ConnectorDot subs={s.subscriptions} />
+              <LiveDot state={s.liveness} />
+              <AttnBadge n={s.attention || 0} />
+            </span>
+            {rowActions(s, title)}
+          </>
+        )}
       </div>
     );
   };
@@ -956,23 +977,32 @@ function NewSessionSplit({
 }) {
   const [open, setOpen] = useState(false);
   const enabled = (personas || []).filter((p) => p.enabled);
+  // With a single enabled persona there is nothing to pick — the split collapses to a plain
+  // button (owner ask 2026-07-09). `personas === null` (still loading) keeps the split so the
+  // control doesn't visibly change shape once the list arrives with 2+.
+  const solo = personas !== null && enabled.length <= 1;
   return (
     <div className="px-3 pt-2 relative">
       <div className="flex">
         <button
-          className="newsplit-primary flex-1 text-left px-3 py-2 rounded-l-lg bg-accent text-white text-[13px] font-medium hover:opacity-95 flex items-center gap-2"
-          onClick={() => onNew(current)}
+          className={
+            "newsplit-primary flex-1 text-left px-3 py-2 bg-accent text-white text-[13px] font-medium hover:opacity-95 flex items-center gap-2 " +
+            (solo ? "rounded-lg" : "rounded-l-lg")
+          }
+          onClick={() => onNew(solo && enabled.length === 1 ? enabled[0].id : current)}
         >
           <Icon name="plus" size={15} className="shrink-0" /> New session
         </button>
-        <button
-          className="px-2.5 rounded-r-lg bg-accent text-white border-l border-white/25 hover:opacity-95 flex items-center"
-          title="Start with a specific persona"
-          aria-label="Choose a persona"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Icon name="chevronDown" size={13} />
-        </button>
+        {!solo && (
+          <button
+            className="px-2.5 rounded-r-lg bg-accent text-white border-l border-white/25 hover:opacity-95 flex items-center"
+            title="Start with a specific persona"
+            aria-label="Choose a persona"
+            onClick={() => setOpen((v) => !v)}
+          >
+            <Icon name="chevronDown" size={13} />
+          </button>
+        )}
       </div>
       {open && (
         <>
