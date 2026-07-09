@@ -567,6 +567,11 @@ def create_app(manager: SessionManager) -> FastAPI:
         best-effort, local per-team token removed, gateway hot-reloaded."""
         return await manager.disconnect_slack_workspace(team_id)
 
+    @app.get("/v1/connectors/slack/status")
+    async def slack_status() -> dict[str, Any]:
+        """Slack health, three layers: relay socket / cloud sign-in / per-team tokens."""
+        return manager.slack_status()
+
     @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
     async def connector_unauthorized_resolve(
         name: str, item_id: str, body: dict

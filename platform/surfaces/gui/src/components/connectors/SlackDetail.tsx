@@ -8,6 +8,7 @@ import {
   unsubscribeChannel,
   type Connector,
   type ParkedMessage,
+  type SlackStatus,
   type SlackWorkspace,
   type Subscription,
 } from "../../api";
@@ -15,7 +16,7 @@ import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AddConnectionModal } from "./AddConnectionModal";
 import type { DetailProps } from "./ConnectorsSection";
 import { ToolsDisclosure } from "./ToolsDisclosure";
-import { FOOT, GRP, GRP_H, PILL_ACCENT, PILL_LINE, ROW, XBTN } from "./ui";
+import { FOOT, GRP, GRP_H, PILL_ACCENT, PILL_LINE, ROW, TAG_WARN, XBTN } from "./ui";
 
 // The Slack detail page (UX-DECISIONS §21): one group per connected workspace —
 // People (allow-list) · Waiting (parked senders) · Listening (session ↔ channel) ·
@@ -33,7 +34,20 @@ function initials(name: string): string {
 
 const LABEL = "text-[12.5px] text-muted w-24 shrink-0";
 
-export function SlackDetail({ c, cloud, onChanged }: DetailProps) {
+/** The relay status line, one honest layer at a time: sign-in → socket → live.
+ * Dot color + text; never a synthetic "Slack is down" claim. */
+function relayHealth(slack: SlackStatus | null): { dot: string; text: string } {
+  if (!slack) return { dot: "bg-ok", text: "Live · managed relay" };
+  if (!slack.signed_in)
+    return { dot: "bg-warnInk", text: "Sign-in needed — relaying is paused" };
+  if (slack.relay.state === "offline")
+    return { dot: "bg-faint/60", text: "Offline — can't reach the relay" };
+  if (slack.relay.state === "reconnecting")
+    return { dot: "bg-warnInk", text: "Reconnecting to the relay…" };
+  return { dot: "bg-ok", text: "Live · managed relay" };
+}
+
+export function SlackDetail({ c, cloud, slack, onChanged }: DetailProps) {
   const [adding, setAdding] = useState(false);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const loadSubs = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
@@ -57,9 +71,15 @@ export function SlackDetail({ c, cloud, onChanged }: DetailProps) {
           <div className="text-[12.5px] text-muted flex items-center gap-1.5">
             {c.connected ? (
               <>
-                <span className="w-2 h-2 rounded-full bg-ok" />
+                <span
+                  className={
+                    "w-2 h-2 rounded-full " + (relay ? relayHealth(slack).dot : "bg-ok")
+                  }
+                />
                 <span data-testid="slack-mode-badge">
-                  {relay ? "Live · managed relay" : "Connected · Socket Mode (manual tokens)"}
+                  {relay
+                    ? relayHealth(slack).text
+                    : "Connected · Socket Mode (manual tokens)"}
                 </span>
               </>
             ) : (
@@ -85,7 +105,14 @@ export function SlackDetail({ c, cloud, onChanged }: DetailProps) {
 
       {relay &&
         workspaces.map((w) => (
-          <WorkspaceGroup key={w.team_id} c={c} w={w} subs={subs} onChanged={changed} />
+          <WorkspaceGroup
+            key={w.team_id}
+            c={c}
+            w={w}
+            subs={subs}
+            tokenOk={slack?.teams?.[w.team_id]?.token_ok !== false}
+            onChanged={changed}
+          />
         ))}
 
       {/* Manual Socket Mode: one workspace, the flat allow-list (unchanged semantics). */}
@@ -133,11 +160,13 @@ function WorkspaceGroup({
   c,
   w,
   subs,
+  tokenOk,
   onChanged,
 }: {
   c: Connector;
   w: SlackWorkspace;
   subs: Subscription[];
+  tokenOk: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -154,8 +183,15 @@ function WorkspaceGroup({
 
   return (
     <div data-testid={`slack-workspace-${w.team_id}`}>
-      <div className={GRP_H}>
-        {w.account || w.team_id} <span className="font-normal text-faint">· {w.team_id}</span>
+      <div className={GRP_H + " flex items-center gap-2"}>
+        <span>
+          {w.account || w.team_id} <span className="font-normal text-faint">· {w.team_id}</span>
+        </span>
+        {!tokenOk && (
+          <span className={TAG_WARN} data-testid={`token-warn-${w.team_id}`}>
+            ⚠ Token revoked — reinstall
+          </span>
+        )}
       </div>
       <div className={GRP}>
         {empty ? (

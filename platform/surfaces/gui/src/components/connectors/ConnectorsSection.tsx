@@ -3,8 +3,10 @@ import {
   disconnectConnector,
   getCloudStatus,
   getConnectors,
+  getSlackStatus,
   type CloudStatus,
   type Connector,
+  type SlackStatus,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
@@ -20,6 +22,7 @@ import { GRP } from "./ui";
 export interface DetailProps {
   c: Connector;
   cloud: CloudStatus | null;
+  slack: SlackStatus | null; // live Slack health (relay/sign-in/tokens); null elsewhere
   onChanged: () => void;
 }
 
@@ -32,10 +35,12 @@ export function ConnectorsSection() {
   const [detail, setDetail] = useState<string | null>(null);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [slack, setSlack] = useState<SlackStatus | null>(null);
 
   const refresh = () => {
     getConnectors().then(setConnectors).catch(() => setConnectors([]));
     getCloudStatus().then(setCloud).catch(() => setCloud(null));
+    getSlackStatus().then(setSlack).catch(() => setSlack(null));
   };
   useEffect(() => {
     refresh();
@@ -60,16 +65,28 @@ export function ConnectorsSection() {
         {!c ? (
           <div className="text-[13px] text-muted">Loading…</div>
         ) : Page ? (
-          <Page c={c} cloud={cloud} onChanged={refresh} />
+          <Page c={c} cloud={cloud} slack={slack} onChanged={refresh} />
         ) : (
-          <GenericDetail c={c} cloud={cloud} onChanged={refresh} onGone={() => setDetail(null)} />
+          <GenericDetail
+            c={c}
+            cloud={cloud}
+            slack={slack}
+            onChanged={refresh}
+            onGone={() => setDetail(null)}
+          />
         )}
       </div>
     );
   }
 
   return (
-    <ConnectorsList connectors={connectors} cloud={cloud} onOpen={setDetail} onChanged={refresh} />
+    <ConnectorsList
+      connectors={connectors}
+      cloud={cloud}
+      slack={slack}
+      onOpen={setDetail}
+      onChanged={refresh}
+    />
   );
 }
 
@@ -79,6 +96,7 @@ export function ConnectorsSection() {
 function GenericDetail({
   c,
   cloud: _cloud,
+  slack: _slack,
   onChanged,
   onGone,
 }: DetailProps & { onGone: () => void }) {

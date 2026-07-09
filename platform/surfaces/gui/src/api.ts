@@ -1236,6 +1236,24 @@ export async function disconnectSlackWorkspace(teamId: string): Promise<{ ok: bo
   return res.json();
 }
 
+/** Slack health, three honest layers: relay socket / cloud sign-in / per-team tokens. */
+export interface SlackStatus {
+  mode: string; // "relay" | "" (manual/off)
+  relay: {
+    state: "live" | "reconnecting" | "offline";
+    reconnects: number;
+    last_event_at: number | null;
+    last_error: string;
+  };
+  signed_in: boolean;
+  teams: Record<string, { token_ok: boolean }>;
+}
+
+export async function getSlackStatus(): Promise<SlackStatus> {
+  const res = await fetch(`${httpBase()}/v1/connectors/slack/status`);
+  return res.json();
+}
+
 export type Handlers = {
   onEvent: (event: WsEvent) => void;
   onOpen?: () => void;

@@ -5,10 +5,11 @@ import {
   setCloudTelemetry,
   type CloudStatus,
   type Connector,
+  type SlackStatus,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AddConnectionModal } from "./AddConnectionModal";
-import { CHIP_OK, GRP, GRP_H, FOOT, PILL_QUIET, ROW } from "./ui";
+import { CHIP_OK, CHIP_OFF, CHIP_WARN, GRP, GRP_H, FOOT, PILL_QUIET, ROW } from "./ui";
 
 // The Connectors LIST (UX-DECISIONS §21): connected first in their own inset group —
 // rows navigate to the connector's detail subpage; problems surface as a chip in the
@@ -19,11 +20,13 @@ const AVAILABLE_FOLD = 8; // rows shown before "show all"
 export function ConnectorsList({
   connectors,
   cloud,
+  slack,
   onOpen,
   onChanged,
 }: {
   connectors: Connector[];
   cloud: CloudStatus | null;
+  slack: SlackStatus | null;
   onOpen: (name: string) => void;
   onChanged: () => void;
 }) {
@@ -65,7 +68,7 @@ export function ConnectorsList({
                   <span className="font-medium text-[13.5px]">{c.title}</span>
                   <span className="block text-[12px] text-muted">{statusLine(c)}</span>
                 </span>
-                {healthChip(c)}
+                {healthChip(c, slack)}
                 <span className="text-faint text-[15px] shrink-0">›</span>
               </button>
             ))}
@@ -123,11 +126,19 @@ function statusLine(c: Connector): string {
   return c.account || "Connected";
 }
 
-function healthChip(c: Connector) {
-  // Static until the per-connector status endpoints land (M3.6 Step 2): connected
-  // two-way relay reads Live; everything else connected reads Ready.
-  if (c.name === "slack" && c.mode === "relay")
+function healthChip(c: Connector, slack: SlackStatus | null) {
+  // Slack relay gets a LIVE chip from /v1/connectors/slack/status — problems
+  // surface in the list, never one click deep. Named honestly per layer; we
+  // never claim "Slack↔cloud down" (the desktop can't see that leg).
+  if (c.name === "slack" && c.mode === "relay" && slack) {
+    if (!slack.signed_in) return <span className={CHIP_WARN}>● Sign-in needed</span>;
+    if (slack.relay.state === "offline") return <span className={CHIP_OFF}>● Offline</span>;
+    if (slack.relay.state === "reconnecting")
+      return <span className={CHIP_WARN}>● Reconnecting</span>;
+    if (Object.values(slack.teams).some((t) => !t.token_ok))
+      return <span className={CHIP_WARN}>⚠ Token</span>;
     return <span className={CHIP_OK}>● Live</span>;
+  }
   if (c.two_way && c.connected) return <span className={CHIP_OK}>● Live</span>;
   return <span className={CHIP_OK}>● Ready</span>;
 }

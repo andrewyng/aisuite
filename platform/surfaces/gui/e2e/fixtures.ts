@@ -510,6 +510,19 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (!add && i >= 0) pool.splice(i, 1);
       return json({ ok: true, allowed_users: [...pool], team_id: b.team_id ?? null });
     }
+    // Slack health, three layers (M3.6 Step 2): socket live + all tokens good by
+    // default; sign-in mirrors CLOUD_STATE. Specs force reconnecting/offline/dead
+    // tokens by registering a later page.route override (later routes match first).
+    if (p.endsWith("/v1/connectors/slack/status"))
+      return json({
+        ok: true,
+        mode: slackState.mode,
+        relay: { state: "live", reconnects: 0, last_event_at: Date.now() / 1000 - 30, last_error: "" },
+        signed_in: CLOUD_STATE.signed_in,
+        teams: Object.fromEntries(
+          slackState.workspaces.map((w) => [w.team_id, { token_ok: true }]),
+        ),
+      });
     // Stop relaying one workspace; removing the last flips the connector off (backend parity).
     if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/disconnect$/.test(p) && m === "POST") {
       const teamId = decodeURIComponent(p.split("/").slice(-2)[0]);

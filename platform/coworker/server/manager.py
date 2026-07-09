@@ -1654,6 +1654,37 @@ class SessionManager:
         await self.refresh_gateway()
         return {"ok": True, "remaining_workspaces": len(remaining)}
 
+    def slack_status(self) -> dict[str, Any]:
+        """Slack connection health in three honest layers (UX-DECISIONS §21):
+        the desktop↔relay socket, the cloud sign-in that authorizes it, and each
+        workspace's bot token. The desktop can't see the Slack↔cloud leg, so no
+        layer here ever claims it — event silence ≠ outage."""
+        from .. import cloud
+
+        default = self.secrets.get("slack:default") or {}
+        mode = default.get("mode") or ""
+        signin = cloud.status(self.secrets)
+
+        relay: dict[str, Any] = {
+            "state": "offline",
+            "reconnects": 0,
+            "last_event_at": None,
+            "last_error": "",
+        }
+        teams: dict[str, Any] = {}
+        adapter = self.gateway._adapters.get("slack") if self.gateway is not None else None
+        snapshot = getattr(adapter, "status", None)  # relay adapter only; Socket Mode has none
+        if callable(snapshot):
+            relay = snapshot()
+            teams = relay.pop("teams", {})
+        return {
+            "ok": True,
+            "mode": mode,
+            "relay": relay,
+            "signed_in": bool(signin.get("signed_in")),
+            "teams": teams,
+        }
+
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
         durable sessions: a channel message to its subscribers, a DM to the designated DM session
