@@ -295,6 +295,26 @@ export async function mockApi(page: import("@playwright/test").Page) {
     workspaces: slackState.workspaces.map((w) => ({ ...w, allowed_users: [...w.allowed_users] })),
     unauthorized: parked.map((x) => ({ ...x })),
   });
+  // Gmail — PER-TEST multi-account state (starts disconnected; managed connects add
+  // mailboxes instantly, mirroring the backend's gmail:account:<email> profiles).
+  const gmailState = {
+    accounts: [] as {
+      email: string; default: boolean; managed: boolean; scopes: string; needs_reauth: boolean;
+    }[],
+    filters: { senders: [] as string[], labels: [] as string[] },
+  };
+  const GMAIL_NEXT = ["rohit@gmail.com", "work@dlai.com", "third@x.com"];
+  const gmailConnector = () => {
+    const base = CONNECTORS.connectors.find((c: any) => c.name === "gmail");
+    return {
+      ...base,
+      connected: gmailState.accounts.length > 0,
+      enabled: gmailState.accounts.length > 0,
+      account: gmailState.accounts.find((a) => a.default)?.email ?? null,
+      accounts: gmailState.accounts.map((a) => ({ ...a })),
+      filters: { senders: [...gmailState.filters.senders], labels: [...gmailState.filters.labels] },
+    };
+  };
   // Installed personas — mutable so enable/surface/delete round-trip through the UI.
   const personas: any[] = PERSONAS.personas.map((p) => ({ ...p }));
   // Sessions — mutable so archive (PATCH), rename (PATCH), and delete round-trip.
@@ -535,9 +555,38 @@ export async function mockApi(page: import("@playwright/test").Page) {
       }
       return json({ ok: true, remaining_workspaces: slackState.workspaces.length });
     }
+    // Gmail multi-account management (M3.6 Step 3): per-account disconnect/default
+    // + the "Never show agents" filter lists.
+    if (/\/v1\/connectors\/gmail\/accounts\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const email = decodeURIComponent(p.split("/").slice(-2)[0]);
+      const i = gmailState.accounts.findIndex((a) => a.email === email);
+      if (i < 0) return json({ ok: false, error: "account not connected" });
+      const wasDefault = gmailState.accounts[i].default;
+      gmailState.accounts.splice(i, 1);
+      if (wasDefault && gmailState.accounts[0]) gmailState.accounts[0].default = true;
+      return json({ ok: true, remaining_accounts: gmailState.accounts.length });
+    }
+    if (/\/v1\/connectors\/gmail\/accounts\/[^/]+\/default$/.test(p) && m === "POST") {
+      const email = decodeURIComponent(p.split("/").slice(-2)[0]);
+      if (!gmailState.accounts.some((a) => a.email === email))
+        return json({ ok: false, error: "account not connected" });
+      for (const a of gmailState.accounts) a.default = a.email === email;
+      return json({ ok: true, default_account: email });
+    }
+    if (p.endsWith("/v1/connectors/gmail/filters") && m === "PATCH") {
+      const b = req.postDataJSON() || {};
+      if (Array.isArray(b.senders)) gmailState.filters.senders = b.senders;
+      if (Array.isArray(b.labels)) gmailState.filters.labels = b.labels;
+      return json({ ok: true, filters: { ...gmailState.filters } });
+    }
     if (p.endsWith("/v1/connectors"))
       return json({
-        connectors: [slackConnector(), ...CONNECTORS.connectors.map((c: any) => ({ ...c }))],
+        connectors: [
+          slackConnector(),
+          ...CONNECTORS.connectors.map((c: any) =>
+            c.name === "gmail" ? gmailConnector() : { ...c },
+          ),
+        ],
       });
     if (p.endsWith("/v1/cloud/status")) return json({ ...CLOUD_STATE });
     if (p.endsWith("/v1/cloud/login") && m === "POST") {
@@ -560,6 +609,14 @@ export async function mockApi(page: import("@playwright/test").Page) {
         slackState.workspaces.push({ team_id: "T3NEW", account: "new-workspace", allowed_users: [], allow_all: false, allowed_user_names: {} });
         slackState.connected = true;
         slackState.mode = "relay";
+      }
+      // Gmail managed connect = add the next mailbox; the first becomes default.
+      if (p.includes("/connectors/gmail/")) {
+        const email = GMAIL_NEXT[gmailState.accounts.length] || `acct${gmailState.accounts.length}@x.com`;
+        gmailState.accounts.push({
+          email, default: gmailState.accounts.length === 0, managed: true,
+          scopes: "gmail.readonly gmail.send", needs_reauth: false,
+        });
       }
       return json({ ok: true });
     }

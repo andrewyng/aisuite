@@ -121,9 +121,11 @@ def test_managed_profile_is_field_compatible_with_manual(secrets):
     listed = {c["name"]: c for c in connector_list(secrets)}
     gmail = listed["gmail"]
     assert gmail["connected"] and gmail["managed"] and gmail["managed_profile"]
-    profile = secrets.get("gmail:default")
+    # Multi-account era: listing migrates the tokens into the account profile.
+    profile = secrets.get("gmail:account:a@b.c")
     assert profile["access_token"] == "ya29.x"  # same key manual paste writes
     assert profile["connection_id"] == "conn_1"
+    assert gmail["accounts"][0]["email"] == "a@b.c" and gmail["accounts"][0]["default"]
 
 
 def test_managed_connect_rejected_for_unmanaged_connector(secrets):

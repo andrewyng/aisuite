@@ -122,6 +122,7 @@ function statusLine(c: Connector): string {
     const n = c.workspaces?.length ?? 0;
     return `${n} workspace${n === 1 ? "" : "s"} · relay`;
   }
+  if ((c.accounts?.length ?? 0) > 1) return `${c.accounts!.length} accounts`;
   if (c.auth === "none") return "Built in";
   return c.account || "Connected";
 }

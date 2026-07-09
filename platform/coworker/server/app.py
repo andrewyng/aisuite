@@ -572,6 +572,42 @@ def create_app(manager: SessionManager) -> FastAPI:
         """Slack health, three layers: relay socket / cloud sign-in / per-team tokens."""
         return manager.slack_status()
 
+    @app.post("/v1/connectors/gmail/accounts/{email}/disconnect")
+    async def gmail_account_disconnect(email: str) -> dict[str, Any]:
+        """Drop ONE mailbox (cloud metadata best-effort first, like a full
+        disconnect); the default pointer moves to the next account."""
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import gmail_accounts
+
+        profile_key = gmail_accounts.PREFIX + email.strip().lower()
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(
+                manager.secrets, load_config(), "gmail", profile_key=profile_key
+            )
+        )
+        return gmail_accounts.disconnect_account(manager.secrets, email)
+
+    @app.post("/v1/connectors/gmail/accounts/{email}/default")
+    def gmail_account_default(email: str) -> dict[str, Any]:
+        from ..connectors import gmail_accounts
+
+        return gmail_accounts.set_default(manager.secrets, email)
+
+    @app.patch("/v1/connectors/gmail/filters")
+    def gmail_filters(body: dict) -> dict[str, Any]:
+        """Replace the "Never show agents" lists. Enforced in the local tool
+        layer; agents see silent omissions, the user sees counts + audit."""
+        from ..connectors import gmail_accounts
+
+        senders = body.get("senders") if isinstance(body, dict) else None
+        labels = body.get("labels") if isinstance(body, dict) else None
+        if senders is not None and not isinstance(senders, list):
+            return {"ok": False, "error": "senders must be a list"}
+        if labels is not None and not isinstance(labels, list):
+            return {"ok": False, "error": "labels must be a list"}
+        return gmail_accounts.set_filters(manager.secrets, senders, labels)
+
     @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
     async def connector_unauthorized_resolve(
         name: str, item_id: str, body: dict
@@ -691,6 +727,14 @@ def create_app(manager: SessionManager) -> FastAPI:
                 # Hot-add: rebuild the gateway so the new workspace's token loads
                 # (and the relay socket opens on a first-ever install) right away.
                 await manager.refresh_gateway()
+        elif connector == "gmail":
+            # Multi-account: each sign-in lands in its own gmail:account:<email>
+            # profile; the first becomes the default mailbox.
+            from ..connectors import gmail_accounts
+
+            result = gmail_accounts.managed_connect_account(
+                manager.secrets, cloud.managed_profile_from_callback(data)
+            )
         else:
             result = managed_connect_connector(
                 manager.secrets, connector, cloud.managed_profile_from_callback(data)

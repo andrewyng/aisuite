@@ -554,7 +554,15 @@ export function App() {
           ]);
           break;
         case "tool_finished":
-          setItems((p) => updateLastTool(p, d.name, d.status, d.result_preview || d.reason));
+          setItems((p) =>
+            updateLastTool(
+              p,
+              d.name,
+              d.status,
+              d.result_preview || d.reason,
+              d.display?.hidden_by_filters,
+            ),
+          );
           // Refresh the right rail when something it shows may have changed: browser state, or a
           // file write that should appear under Artifacts immediately (not only after the turn).
           if (String(d.name || "").startsWith("browser_") || FILE_WRITE_TOOLS.has(d.name)) {
@@ -1338,12 +1346,18 @@ function WaitingForAgent() {
   );
 }
 
-function updateLastTool(items: Item[], name: string, status: string, preview?: string): Item[] {
+function updateLastTool(
+  items: Item[],
+  name: string,
+  status: string,
+  preview?: string,
+  hidden?: number,
+): Item[] {
   const copy = [...items];
   for (let i = copy.length - 1; i >= 0; i--) {
     const it = copy[i];
     if (it.kind === "tool" && it.name === name && it.status === "…") {
-      copy[i] = { ...it, status, preview };
+      copy[i] = { ...it, status, preview, ...(hidden ? { hidden } : {}) };
       break;
     }
   }

@@ -83,6 +83,21 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             # Managed relay is multi-workspace: each `slack:team:*` profile is one
             # connected workspace with its OWN allow-list (ids are workspace-scoped).
             entry["workspaces"] = _slack_workspaces(secrets)
+        if d.name == "gmail":
+            # Multi-account: each `gmail:account:*` profile is one mailbox; the
+            # :default profile is just the default pointer + privacy filters.
+            from . import gmail_accounts
+
+            accounts = _gmail_account_list(secrets)
+            default_email = gmail_accounts.default_account(secrets)
+            entry["accounts"] = accounts
+            entry["connected"] = bool(accounts)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(accounts)
+            entry["account"] = default_email or None
+            entry["managed_profile"] = any(
+                a["email"] == default_email and a["managed"] for a in accounts
+            )
+            entry["filters"] = gmail_accounts.get_filters(secrets)
         out.append(entry)
     return out
 
@@ -101,6 +116,30 @@ def _slack_workspaces(secrets: SecretStore) -> list[dict[str, Any]]:
             _slack_team_profiles(secrets), key=lambda t: t[0]
         )
     ]
+
+
+def _gmail_account_list(secrets: SecretStore) -> list[dict[str, Any]]:
+    from time import time
+
+    from . import gmail_accounts
+
+    default = gmail_accounts.default_account(secrets)
+    out = []
+    for email, profile in gmail_accounts.list_accounts(secrets):
+        expires = float(profile.get("expires") or 0)
+        out.append(
+            {
+                "email": email,
+                "default": email == default,
+                "managed": bool(profile.get("managed")),
+                "scopes": profile.get("scope") or "",
+                # Expired with no way to renew silently → the GUI offers Reauthorize.
+                "needs_reauth": bool(
+                    expires and expires < time() and not profile.get("refresh_token")
+                ),
+            }
+        )
+    return out
 
 
 def update_connector_tools(
@@ -237,4 +276,12 @@ def managed_connect_slack_install(
 
 
 def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
-    return {"ok": secrets.delete(f"{name}:default")}
+    dropped_accounts = False
+    if name == "gmail":
+        # Whole-connector disconnect drops every mailbox (per-account removal
+        # lives on the Gmail page); filters go too — an explicit full reset.
+        from . import gmail_accounts
+
+        for email, _profile in gmail_accounts.list_accounts(secrets):
+            dropped_accounts = secrets.delete(gmail_accounts.PREFIX + email) or dropped_accounts
+    return {"ok": secrets.delete(f"{name}:default") or dropped_accounts}

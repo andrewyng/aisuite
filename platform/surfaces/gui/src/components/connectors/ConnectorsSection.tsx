@@ -11,6 +11,7 @@ import {
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
 import { ConnectorsList } from "./ConnectorsList";
+import { GmailDetail } from "./GmailDetail";
 import { SlackDetail } from "./SlackDetail";
 import { GRP } from "./ui";
 
@@ -26,9 +27,10 @@ export interface DetailProps {
   onChanged: () => void;
 }
 
-// Bespoke pages register here (Slack now; Gmail/HubSpot land in later M3.6 steps).
+// Bespoke pages register here (HubSpot lands in M3.6 Step 4).
 const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
   slack: (p) => <SlackDetail {...p} />,
+  gmail: (p) => <GmailDetail {...p} />,
 };
 
 export function ConnectorsSection() {

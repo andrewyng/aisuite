@@ -85,6 +85,83 @@ def _profile(
     return profile, None
 
 
+def _gmail_profile(
+    secrets: SecretStore, account: str = ""
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
+    """(email, profile, err) for the requested — or default — mailbox, with the
+    managed token refreshed in place. Multi-account: `gmail:account:<email>`."""
+    from . import gmail_accounts
+
+    email, key, profile = gmail_accounts.resolve(secrets, account)
+    if profile is None:
+        hint = (
+            f"no gmail account matching {account!r}"
+            if account
+            else "gmail is not connected"
+        )
+        return "", None, {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), "gmail", profile_key=key)
+        profile = secrets.get(key) or profile
+    if not profile.get("access_token"):
+        return "", None, {"error": f"gmail account {email} has no usable token"}
+    return email, profile, None
+
+
+# --- "Never show agents" enforcement (desktop tool layer, silent to agents) ----
+
+
+def _gmail_filters(secrets: SecretStore) -> Optional[dict[str, list[str]]]:
+    from . import gmail_accounts
+
+    f = gmail_accounts.get_filters(secrets)
+    return f if (f["senders"] or f["labels"]) else None
+
+
+def _gmail_from_address(message: dict[str, Any]) -> str:
+    from email.utils import parseaddr
+
+    for h in (message.get("payload") or {}).get("headers") or []:
+        if str(h.get("name", "")).lower() == "from":
+            return parseaddr(str(h.get("value") or ""))[1]
+    return ""
+
+
+def _gmail_label_map(token: str) -> dict[str, str]:
+    """Label id → name for the mailbox (names are what the user filters on)."""
+    resp = _request(
+        "GET",
+        "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        headers=_google_headers(token),
+    )
+    if not resp.get("ok"):
+        return {}
+    labels = (resp.get("data") or {}).get("labels") or []
+    return {str(l.get("id") or ""): str(l.get("name") or "") for l in labels}
+
+
+def _gmail_is_hidden(
+    message: dict[str, Any],
+    filters: dict[str, list[str]],
+    label_map: dict[str, str],
+) -> bool:
+    from .gmail_accounts import sender_matches
+
+    if filters["senders"] and sender_matches(
+        _gmail_from_address(message), filters["senders"]
+    ):
+        return True
+    if filters["labels"]:
+        wanted = {name.lower() for name in filters["labels"]}
+        for lid in message.get("labelIds") or []:
+            if label_map.get(str(lid), "").lower() in wanted or str(lid).lower() in wanted:
+                return True
+    return False
+
+
 def _request(
     method: str, url: str, *, headers=None, params=None, json=None, auth=None
 ) -> dict[str, Any]:
@@ -438,16 +515,58 @@ def make_integration_tools(
         )
     )
 
-    def gmail_search_messages(query: str, max_results: int = 10) -> dict[str, Any]:
-        profile, err = _profile(secrets, "gmail", "access_token")
+    _ACCOUNT_PROP = {
+        "type": "string",
+        "description": "Mailbox email to use; omit for the default account.",
+    }
+
+    def gmail_search_messages(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        email, profile, err = _gmail_profile(secrets, account)
         if err:
             return err
-        return _request(
+        token = profile["access_token"]
+        result = _request(
             "GET",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-            headers=_google_headers(profile["access_token"]),
+            headers=_google_headers(token),
             params={"q": query, "maxResults": max(1, min(int(max_results or 10), 20))},
         )
+        filters = _gmail_filters(secrets)
+        if result.get("ok") and filters:
+            # Enforce "Never show agents" HERE, silently: matching hits are
+            # omitted (no tombstone); the count rides the `_display` sidecar for
+            # the user's tool card + audit — never the agent-visible content.
+            data = dict(result.get("data") or {})
+            label_map = _gmail_label_map(token) if filters["labels"] else {}
+            kept, hidden = [], 0
+            for m in data.get("messages") or []:
+                meta = _request(
+                    "GET",
+                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m.get('id')}",
+                    headers=_google_headers(token),
+                    params={"format": "metadata", "metadataHeaders": "From"},
+                )
+                detail = meta.get("data") if meta.get("ok") else None
+                # Fail-open on a metadata miss: ids alone reveal nothing, and
+                # gmail_get_message re-enforces before any content flows.
+                if isinstance(detail, dict) and _gmail_is_hidden(detail, filters, label_map):
+                    hidden += 1
+                else:
+                    kept.append(m)
+            if hidden:
+                data["messages"] = kept
+                if isinstance(data.get("resultSizeEstimate"), int):
+                    data["resultSizeEstimate"] = max(0, data["resultSizeEstimate"] - hidden)
+                result = {
+                    "ok": True,
+                    "data": data,
+                    "_display": {"hidden_by_filters": hidden, "connector": "gmail"},
+                }
+        if result.get("ok"):
+            result["account"] = email
+        return result
 
     gmail_search_messages.__name__ = "gmail_search_messages"
     tools.append(
@@ -456,23 +575,43 @@ def make_integration_tools(
             _schema(
                 "gmail_search_messages",
                 "Search Gmail messages using Gmail query syntax.",
-                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _ACCOUNT_PROP,
+                },
                 ["query"],
             ),
             caps=["gmail", "read"],
         )
     )
 
-    def gmail_get_message(message_id: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "gmail", "access_token")
+    def gmail_get_message(message_id: str, account: str = "") -> dict[str, Any]:
+        email, profile, err = _gmail_profile(secrets, account)
         if err:
             return err
-        return _request(
+        token = profile["access_token"]
+        result = _request(
             "GET",
             f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}",
-            headers=_google_headers(profile["access_token"]),
+            headers=_google_headers(token),
             params={"format": "full"},
         )
+        filters = _gmail_filters(secrets)
+        if result.get("ok") and filters:
+            data = result.get("data") or {}
+            label_map = _gmail_label_map(token) if filters["labels"] else {}
+            if isinstance(data, dict) and _gmail_is_hidden(data, filters, label_map):
+                # Indistinguishable from a real miss — the agent must not be able
+                # to tell "filtered" from "gone" (a tombstone invites probing).
+                return {
+                    "error": "HTTP 404",
+                    "details": {"error": {"code": 404, "message": "Not Found"}},
+                    "_display": {"hidden_by_filters": 1, "connector": "gmail"},
+                }
+        if result.get("ok"):
+            result["account"] = email
+        return result
 
     gmail_get_message.__name__ = "gmail_get_message"
     tools.append(
@@ -481,7 +620,7 @@ def make_integration_tools(
             _schema(
                 "gmail_get_message",
                 "Read a Gmail message by ID.",
-                {"message_id": {"type": "string"}},
+                {"message_id": {"type": "string"}, "account": _ACCOUNT_PROP},
                 ["message_id"],
             ),
             caps=["gmail", "read"],
@@ -489,9 +628,9 @@ def make_integration_tools(
     )
 
     def gmail_send_email(
-        to: str, subject: str, body: str, cc: str = ""
+        to: str, subject: str, body: str, cc: str = "", account: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "gmail", "access_token")
+        email, profile, err = _gmail_profile(secrets, account)
         if err:
             return err
         msg = EmailMessage()
@@ -500,12 +639,15 @@ def make_integration_tools(
             msg["Cc"] = cc
         msg.set_content(body)
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")
-        return _request(
+        result = _request(
             "POST",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
             headers=_google_headers(profile["access_token"]),
             json={"raw": raw},
         )
+        if result.get("ok"):
+            result["account"] = email
+        return result
 
     gmail_send_email.__name__ = "gmail_send_email"
     tools.append(
@@ -513,12 +655,14 @@ def make_integration_tools(
             gmail_send_email,
             _schema(
                 "gmail_send_email",
-                "Send an email through Gmail. Requires user approval.",
+                "Send an email through Gmail. Requires user approval; the "
+                "`account` argument names the sending mailbox on the approval card.",
                 {
                     "to": {"type": "string"},
                     "subject": {"type": "string"},
                     "body": {"type": "string"},
                     "cc": {"type": "string"},
+                    "account": _ACCOUNT_PROP,
                 },
                 ["to", "subject", "body"],
             ),

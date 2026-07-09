@@ -325,12 +325,18 @@ def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
 
 
 def refresh_managed_token(
-    secrets: SecretStore, config: Config, connector: str
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    profile_key: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """Renew a managed connector token through the broker. Returns the updated
     profile, or None if this profile can't be (or doesn't need to be) renewed
-    that way. Manual profiles are never touched."""
-    profile = secrets.get(f"{connector}:default") or {}
+    that way. Manual profiles are never touched. `profile_key` targets an
+    account-keyed profile (`gmail:account:<email>`); default = `<name>:default`."""
+    key = profile_key or f"{connector}:default"
+    profile = secrets.get(key) or {}
     if not (profile.get("managed") and profile.get("refresh_token")):
         return None
     provider = profile.get("provider") or PROVIDER_FOR_CONNECTOR.get(connector)
@@ -357,28 +363,40 @@ def refresh_managed_token(
     if fresh.get("refresh_token"):
         profile["refresh_token"] = fresh["refresh_token"]
     profile["expires"] = _now() + int(fresh.get("expires_in") or 3600) - 60
-    secrets.put(f"{connector}:default", profile)
+    secrets.put(key, profile)
     return profile
 
 
 def ensure_fresh_connector_token(
-    secrets: SecretStore, config: Config, connector: str, *, leeway: int = 120
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    profile_key: Optional[str] = None,
+    leeway: int = 120,
 ) -> None:
     """Refresh-on-expiry hook for connector tools: if this is a managed profile
     about to expire, renew it in place. No-op for manual profiles."""
-    profile = secrets.get(f"{connector}:default") or {}
+    key = profile_key or f"{connector}:default"
+    profile = secrets.get(key) or {}
     if not profile.get("managed"):
         return
     expires = float(profile.get("expires") or 0)
     if expires and expires > _now() + leeway:
         return
-    refresh_managed_token(secrets, config, connector)
+    refresh_managed_token(secrets, config, connector, profile_key=profile_key)
 
 
-def cloud_disconnect(secrets: SecretStore, config: Config, connector: str) -> None:
+def cloud_disconnect(
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    profile_key: Optional[str] = None,
+) -> None:
     """Best-effort: tell the cloud a managed connection is gone so its metadata
     flips to disconnected. Local deletion always proceeds regardless."""
-    profile = secrets.get(f"{connector}:default") or {}
+    profile = secrets.get(profile_key or f"{connector}:default") or {}
     connection_id = profile.get("connection_id")
     if not (profile.get("managed") and connection_id):
         return

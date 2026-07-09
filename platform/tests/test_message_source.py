@@ -174,6 +174,41 @@ def test_outbound_strips_source_with_and_without_context(tmp_path):
     assert engine2.messages[-1]["source"] == src  # original untouched
 
 
+def test_tool_display_sidecar_is_agent_invisible(tmp_path):
+    """`_display` on a tool result (e.g. gmail filter-hidden counts) mirrors the
+    `source` contract: lifted onto the message for the GUI, audited as a rule+count
+    row, and stripped from every provider feed — the agent sees no tombstone."""
+    from coworker.providers.base import ToolCall
+
+    audits: list[dict] = []
+    engine = TurnEngine(
+        provider=CapturingProvider([]),
+        registry=ToolRegistry(),
+        permissions=PermissionEngine(workspace_root=tmp_path),
+        model="gpt-5.5",
+        audit_sink=audits.append,
+    )
+    tc = ToolCall(id="t1", name="gmail_search_messages", arguments={"query": "q"})
+    engine._record_result(
+        tc,
+        {"ok": True, "data": {"messages": [{"id": "m2"}]},
+         "_display": {"hidden_by_filters": 2, "connector": "gmail"}},
+        "ok",
+    )
+
+    msg = engine.messages[-1]
+    assert msg["_display"] == {"hidden_by_filters": 2, "connector": "gmail"}
+    assert "_display" not in msg["content"] and "hidden" not in msg["content"]
+
+    out = engine._outbound_messages()
+    assert all("_display" not in m for m in out)
+    assert engine.messages[-1]["_display"]  # persisted for the tool card
+
+    filtered = [a for a in audits if a.get("stage") == "filtered"]
+    assert len(filtered) == 1
+    assert "2 result(s) hidden" in filtered[0]["reason"]
+
+
 def test_turn_start_carries_source(tmp_path):
     mgr = SessionManager(workspace=tmp_path, provider=CapturingProvider([_text("ok")]))
     _connect_slack(mgr)

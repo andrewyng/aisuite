@@ -286,6 +286,22 @@ export interface SlackWorkspace {
   allowed_user_names?: Record<string, string | null>;
 }
 
+// One connected Gmail mailbox (multi-account: `gmail:account:<email>` profiles).
+export interface GmailAccount {
+  email: string;
+  default: boolean;
+  managed: boolean;
+  scopes: string;
+  needs_reauth: boolean;
+}
+
+// "Never show agents" — enforced locally in the tool layer; agents see silent
+// omissions, the user sees counts on tool cards + Activity rows.
+export interface GmailFilters {
+  senders: string[];
+  labels: string[];
+}
+
 export interface Connector {
   name: string;
   title: string;
@@ -310,6 +326,8 @@ export interface Connector {
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
   mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
   workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
+  accounts?: GmailAccount[]; // Gmail only: connected mailboxes (multi-account)
+  filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
 }
 
 // --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
@@ -1233,6 +1251,33 @@ export async function disconnectSlackWorkspace(teamId: string): Promise<{ ok: bo
     `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/disconnect`,
     { method: "POST" },
   );
+  return res.json();
+}
+
+/** Drop ONE Gmail mailbox; the default pointer moves to the next account. */
+export async function disconnectGmailAccount(email: string): Promise<{ ok: boolean; error?: string; remaining_accounts?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/gmail/accounts/${encodeURIComponent(email)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setGmailDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/gmail/accounts/${encodeURIComponent(email)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Replace the "Never show agents" lists (senders and/or labels; omit to keep). */
+export async function setGmailFilters(filters: { senders?: string[]; labels?: string[] }): Promise<{ ok: boolean; filters?: GmailFilters; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/filters`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(filters),
+  });
   return res.json();
 }
 
