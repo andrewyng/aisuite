@@ -1,6 +1,7 @@
-// The dedicated Slack workspaces page (M3.5): multi-workspace list, Add workspace via
-// managed connect, per-workspace disconnect (stop-relaying-only), and the manual
-// Socket-Mode card (flat allow-list) so neither connect path regresses.
+// The Slack detail page (M3.6, UX-DECISIONS §21): one group per workspace with
+// People / Waiting / Listening rows, add-workspace via the header-button MODAL
+// (One click | Manual), per-workspace disconnect (stop-relaying-only), and the
+// manual Socket-Mode card so neither connect path regresses.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -11,36 +12,38 @@ async function openSlackPage(page) {
   await page.getByTestId("connector-slack").click();
 }
 
-test("lists every connected workspace with its own allow-list block", async ({ page }) => {
+test("lists every connected workspace as its own group", async ({ page }) => {
   await openSlackPage(page);
   await expect(page.getByTestId("slack-workspace-T1DL")).toContainText("deeplearning.ai");
   await expect(page.getByTestId("slack-workspace-T2AC")).toContainText("acme-partners");
-  // each card carries its own allow-list section
-  await expect(
-    page.getByTestId("slack-workspace-T1DL").getByText("Allowed to message"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("slack-workspace-T2AC").getByText("Allowed to message"),
-  ).toBeVisible();
+  // the workspace with people/parked shows the People row; the quiet one shows the hint
+  await expect(page.getByTestId("slack-workspace-T1DL")).toContainText("People");
+  await expect(page.getByTestId("slack-workspace-T2AC")).toContainText("No one allowed yet");
 });
 
-test("Add workspace needs cloud sign-in; signed in it installs another workspace", async ({
+test("Add workspace opens the modal; signed out shows the sign-in hint, signed in installs", async ({
   page,
 }) => {
   await openSlackPage(page);
-  // signed out: no Add button, a sign-in hint instead
-  await expect(page.getByTestId("add-workspace")).toHaveCount(0);
-  await expect(page.getByTestId("slack-workspaces")).toContainText("Sign in to OpenCoworker Cloud");
+  await page.getByTestId("add-workspace-btn").click();
+  const modal = page.getByTestId("add-connection-modal");
+  await expect(modal).toContainText("Sign in to OpenCoworker Cloud"); // signed out
+  // Manual pane is right there too — both modes, one entry point
+  await modal.getByTestId("modal-pane-manual").click();
+  await expect(modal.getByPlaceholder("Bot token · xoxb-…")).toBeVisible();
+  await page.keyboard.press("Escape");
 
-  // sign in from the list's cloud strip (breadcrumb back), then reopen the page
+  // sign in from the list's cloud strip, then install one-click
   await page.getByTestId("connectors-breadcrumb").click();
   await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
   await page.getByTestId("connector-slack").click();
-
-  await page.getByTestId("add-workspace").click();
-  // the mock completes the browser install instantly; the page's refresh shows it
-  await expect(page.getByTestId("slack-workspace-T3NEW")).toContainText("new-workspace");
+  await page.getByTestId("add-workspace-btn").click();
+  await page.getByTestId("modal-add-to-slack").click();
+  // the mock completes the browser install instantly; the page's poll shows it
+  await expect(page.getByTestId("slack-workspace-T3NEW")).toContainText("new-workspace", {
+    timeout: 10_000,
+  });
   await expect(page.getByTestId("slack-workspace-T1DL")).toBeVisible(); // existing ones stay
 });
 

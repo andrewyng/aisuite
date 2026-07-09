@@ -8,8 +8,8 @@ import {
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
-import { SlackWorkspacesTab } from "../SlackWorkspacesTab";
 import { ConnectorsList } from "./ConnectorsList";
+import { SlackDetail } from "./SlackDetail";
 import { GRP } from "./ui";
 
 // Connectors surface = LIST ⇄ per-connector DETAIL SUBPAGE (UX-DECISIONS §21). The
@@ -25,7 +25,7 @@ export interface DetailProps {
 
 // Bespoke pages register here (Slack now; Gmail/HubSpot land in later M3.6 steps).
 const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
-  slack: () => <SlackWorkspacesTab />, // interim: replaced by SlackDetail in Step 1
+  slack: (p) => <SlackDetail {...p} />,
 };
 
 export function ConnectorsSection() {
@@ -57,14 +57,12 @@ export function ConnectorsSection() {
         >
           ‹ Connectors
         </button>
-        {Page ? (
-          c || detail === "slack" ? (
-            <Page c={c as Connector} cloud={cloud} onChanged={refresh} />
-          ) : null
-        ) : c ? (
-          <GenericDetail c={c} cloud={cloud} onChanged={refresh} onGone={() => setDetail(null)} />
-        ) : (
+        {!c ? (
           <div className="text-[13px] text-muted">Loading…</div>
+        ) : Page ? (
+          <Page c={c} cloud={cloud} onChanged={refresh} />
+        ) : (
+          <GenericDetail c={c} cloud={cloud} onChanged={refresh} onGone={() => setDetail(null)} />
         )}
       </div>
     );

@@ -262,9 +262,9 @@ const PROVIDERS = [
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
   const subscriptions: any[] = [
-    // One existing subscription (a non-pinned session) so the connector card's
-    // "Sessions listening" block has a row without touching the pinned session's drawer.
-    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:C0AAA111", channel_name: "ocw-test", routing_target: null, collision: false },
+    // One existing subscription (a non-pinned session) so the Slack page's per-workspace
+    // "Listening" row has an entry. Relay-mode channels are team-qualified (slack:T…/C…).
+    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:T1DL/C0AAA111", channel_name: "ocw-test", routing_target: null, collision: false },
   ];
   // Parked unauthorized messages (§19) — mutable so Allow/Dismiss round-trip through the UI.
   // The relay is multi-workspace: parked items carry their team so the Slack page files them

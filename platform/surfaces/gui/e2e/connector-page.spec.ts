@@ -1,7 +1,6 @@
 // Slack config is a detail SUBPAGE under Connectors (UX-DECISIONS §21): the list row
-// navigates to it, and the §19 blocks — parked messages (Allow & deliver / Allow only /
-// Dismiss) and "sessions listening" — live on the page, filed under the workspace they
-// belong to (the relay is multi-workspace).
+// navigates to it, and the §19 flows — parked senders (Allow & deliver / Allow / ×)
+// and "listening" sessions — are filed under the workspace they belong to.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -24,42 +23,39 @@ test("list row status + navigation to the Slack page", async ({ page }) => {
   await expect(page.getByTestId("slack-mode-badge")).toContainText("managed relay");
 });
 
-test("parked message files under ITS workspace; Allow & deliver adds to that allow-list only", async ({
+test("parked sender files under ITS workspace; Allow & deliver adds to that allow-list only", async ({
   page,
 }) => {
   await openSlackPage(page);
 
-  // pk1 belongs to T1DL — it renders in that workspace's card, not the other's.
-  const block = page.getByTestId("unauthorized-slack-T1DL");
-  await expect(block).toContainText("Messages from senders you haven't allowed · 1");
-  await expect(block).toContainText("Maya");
-  await expect(block).toContainText("in #ocw-test");
-  await expect(block).toContainText("hey ocw, can you summarize this thread?");
-  await expect(page.getByTestId("unauthorized-slack-T2AC")).toHaveCount(0);
+  // pk1 belongs to T1DL — its Waiting row renders in that workspace's group only.
+  const t1 = page.getByTestId("slack-workspace-T1DL");
+  await expect(t1.getByTestId("waiting-pk1")).toContainText("Maya");
+  await expect(t1.getByTestId("waiting-pk1")).toContainText("in #ocw-test");
+  await expect(t1.getByTestId("waiting-pk1")).toContainText("hey ocw, can you summarize this thread?");
+  await expect(page.getByTestId("slack-workspace-T2AC").getByTestId("waiting-pk1")).toHaveCount(0);
 
   await page.getByTestId("parked-allow-deliver-pk1").click();
-  await expect(page.getByTestId("unauthorized-slack-T1DL")).toHaveCount(0);
+  await expect(page.getByTestId("waiting-pk1")).toHaveCount(0);
   // The sender lands on the T1DL allow-list; the sibling workspace stays empty.
-  await expect(page.getByTestId("slack-workspace-T1DL")).toContainText("U0NEW");
+  await expect(t1).toContainText("U0NEW");
   await expect(page.getByTestId("slack-workspace-T2AC")).not.toContainText("U0NEW");
 });
 
-test("parked message can be dismissed without allowing the sender", async ({ page }) => {
+test("parked sender can be dismissed without allowing", async ({ page }) => {
   await openSlackPage(page);
   await page.getByTestId("parked-dismiss-pk1").click();
-  await expect(page.getByTestId("unauthorized-slack-T1DL")).toHaveCount(0);
+  await expect(page.getByTestId("waiting-pk1")).toHaveCount(0);
   await expect(page.getByTestId("slack-workspace-T1DL")).not.toContainText("U0NEW");
 });
 
-test("sessions listening to Slack channels: listed with unsubscribe", async ({ page }) => {
+test("sessions listening in a workspace: listed with unsubscribe", async ({ page }) => {
   await openSlackPage(page);
 
-  const block = page.getByTestId("listening-slack");
-  await expect(block).toContainText("Sessions listening to Slack channels · 1");
-  await expect(block).toContainText("Weekly plan 1");
-  await expect(block).toContainText("#ocw-test"); // named channel (address in the tooltip)
+  const t1 = page.getByTestId("slack-workspace-T1DL");
+  await expect(t1.getByTestId("listening-slack")).toContainText("Weekly plan 1");
+  await expect(t1.getByTestId("listening-slack")).toContainText("#ocw-test");
 
-  await block.getByTitle("Unsubscribe this session").click();
-  await expect(block).toContainText("Sessions listening to Slack channels · 0");
-  await expect(block).toContainText("None yet");
+  await t1.getByTitle("Unsubscribe this session").click();
+  await expect(t1.getByTestId("listening-slack")).toHaveCount(0); // row hides when empty
 });
