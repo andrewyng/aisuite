@@ -1240,22 +1240,17 @@ class SessionManager:
 
     def _suggested_models(self, name: str) -> list[str]:
         """Bare model-name suggestions for the 'add model' form (datalist), per provider.
-        OpenAI → the built-in list; Ollama → live `/api/tags` (best-effort)."""
-        if name == "openai":
-            return list(self.KNOWN_MODELS)
-        if name == "anthropic":
-            return ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"]
-        if name == "gemini":
-            return ["gemini-2.5-flash", "gemini-2.5-pro"]
+        Ollama → live `/api/tags` (best-effort); everyone else → the curated matrix,
+        topped up with the compat-vendor extras the matrix doesn't vouch for."""
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
-        if name in ("together", "fireworks"):
-            # Resellers suggest exactly the curated matrix (their catalogs are 200+ models;
-            # we vouch for the agent-capable handful — anything else is add-by-hand).
-            from ..providers.matrix import models_for_provider
+        from ..providers.matrix import models_for_provider
 
-            return models_for_provider(name)
-        return list(self.COMPAT_MODELS.get(name, []))
+        return list(
+            dict.fromkeys(
+                [*models_for_provider(name), *self.COMPAT_MODELS.get(name, [])]
+            )
+        )
 
     def set_provider(
         self, name: str, fields: Optional[dict[str, Any]]
@@ -1344,8 +1339,6 @@ class SessionManager:
         )
 
     # -- settings / prefs (model API key, default model, onboarding) -------------
-    KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini"]
-
     def _prefs_path(self) -> Path:
         return self._data_base / "prefs.json"
 
@@ -1397,34 +1390,54 @@ class SessionManager:
             return []
 
     def _curated_models(self) -> list[str]:
-        """The user-curated model list shown in the composer's selector. Persisted in prefs;
-        defaults to the built-in OpenAI models on first run. The active default model is always
-        included so it stays selectable."""
-        models = self._prefs.get("models")
-        if not isinstance(models, list) or not models:
-            models = list(self.KNOWN_MODELS)
+        """The models offered in the composer's selector: every curated-matrix model
+        (`get_settings` culls the ones whose provider has no key) plus custom ids the user
+        added, minus matrix models they removed. Deliberately NO built-in seed list — a
+        fresh install offers nothing until a provider key exists, and then exactly that
+        provider's matrix models appear. The active default is always kept selectable."""
+        from ..providers.matrix import MATRIX
+
+        user = self._prefs.get("models")
+        user = user if isinstance(user, list) else []
+        hidden = set(self._prefs.get("hidden_models") or [])
+        models = [m for m in [*MATRIX, *user] if m not in hidden]
         return list(dict.fromkeys([self.model, *models]))
 
     def add_model(self, model: str) -> dict[str, Any]:
-        """Add a model id (e.g. `gpt-4o`, `ollama:qwen2.5-coder:32b`) to the curated list."""
+        """Add a model id (e.g. `gpt-4o`, `ollama:qwen2.5-coder:32b`) to the picker.
+        Custom ids persist in prefs; a previously removed matrix model is just unhidden
+        (storing it too would shadow future matrix updates)."""
+        from ..providers.matrix import MATRIX
+
         model = (model or "").strip()
         if not model:
             return {"ok": False, "error": "empty model"}
+        hidden = [m for m in self._prefs.get("hidden_models") or [] if m != model]
+        if hidden:
+            self._prefs["hidden_models"] = hidden
+        else:
+            self._prefs.pop("hidden_models", None)
         models = self._prefs.get("models")
-        if not isinstance(models, list):
-            models = list(self.KNOWN_MODELS)
-        if model not in models:
+        models = models if isinstance(models, list) else []
+        if model not in models and model not in MATRIX:
             models.append(model)
         self._prefs["models"] = models
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
     def remove_model(self, model: str) -> dict[str, Any]:
-        """Remove a model id from the curated list."""
+        """Remove a model id from the picker. Custom ids are dropped; matrix models are
+        hidden by id (the matrix is derived, not stored, so a bare drop would resurrect
+        them on the next read)."""
+        from ..providers.matrix import MATRIX
+
         models = self._prefs.get("models")
-        if not isinstance(models, list):
-            models = list(self.KNOWN_MODELS)
+        models = models if isinstance(models, list) else []
         self._prefs["models"] = [m for m in models if m != model]
+        if model in MATRIX:
+            hidden = self._prefs.get("hidden_models") or []
+            if model not in hidden:
+                self._prefs["hidden_models"] = [*hidden, model]
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
@@ -1434,9 +1447,9 @@ class SessionManager:
 
         env_key = bool(os.environ.get("OPENAI_API_KEY"))
         stored = bool((self.secrets.get("provider:openai") or {}).get("api_key"))
-        # Only surface models whose provider is actually configured — the composer picker should
-        # reflect what's connected, not the built-in seed list. The active default is always kept
-        # selectable (it's hidden behind the "No model" state until a provider is connected anyway).
+        # Only surface models whose provider is actually configured — the composer picker
+        # reflects exactly what's connected. The active default is always kept selectable
+        # (it's hidden behind the "No model" state until a provider is connected anyway).
         selectable = [
             m
             for m in self._curated_models()
