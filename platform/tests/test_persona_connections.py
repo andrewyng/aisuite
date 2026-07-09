@@ -65,7 +65,7 @@ def test_persona_detail_endpoint(tmp_path, monkeypatch):
     # identity + capabilities (from the manifest/entry)
     assert detail["id"] == "ops"
     assert detail["name"] == "Ops Coworker"
-    assert detail["enabled"] is True
+    assert detail["enabled"] is False  # non-default personas ship disabled (opt-in)
     assert detail["workspace"] == "deliverable"  # §16 collapse: ops is a scratch persona now
     assert detail["default_permission_mode"] == "interactive"
     assert "anthropic:claude-opus-4-8" in detail["recommended_models"]
@@ -129,23 +129,23 @@ def test_persona_enable_toggle(tmp_path, monkeypatch):
     client = TestClient(create_app(mgr))
 
     before = {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}
-    assert before["ops"]["enabled"] is True
+    assert before["ops"]["enabled"] is False  # ships disabled; only cowork starts on
+    assert before["cowork"]["enabled"] is True
 
-    resp = client.post("/v1/personas/ops/enable", json={"enabled": False}).json()
+    resp = client.post("/v1/personas/ops/enable", json={"enabled": True}).json()
     assert resp["ok"] is True
-    # list_all keeps the row but marks it disabled (the picker filters on `enabled`)
     after = {p["id"]: p for p in resp["personas"]}
-    assert after["ops"]["enabled"] is False
+    assert after["ops"]["enabled"] is True
     # a fresh GET agrees
     assert {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}["ops"][
         "enabled"
-    ] is False
+    ] is True
 
-    # re-enabling flips it back
-    assert client.post("/v1/personas/ops/enable", json={"enabled": True}).json()["ok"]
+    # disabling flips it back off; list_all keeps the row (the picker filters on `enabled`)
+    assert client.post("/v1/personas/ops/enable", json={"enabled": False}).json()["ok"]
     assert {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}["ops"][
         "enabled"
-    ] is True
+    ] is False
 
     # unknown id → error
     assert (

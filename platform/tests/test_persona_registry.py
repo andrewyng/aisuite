@@ -20,24 +20,29 @@ def test_builtins_present(tmp_path):
     assert reg.get("code").manifest is None
 
 
-def test_sidebar_default_first_and_chat_hidden(tmp_path):
+def test_sidebar_defaults_to_cowork_only(tmp_path):
     reg = _reg(tmp_path)
     sidebar = reg.sidebar()
     ids = [e["name"] for e in sidebar]
-    # Default persona (Cowork) leads; Chat is hidden from the picker by default.
-    assert ids[0] == "cowork"
-    assert "chat" not in ids
-    assert set(ids) == {"cowork", "code", "ops"}
+    # A fresh install offers ONLY the default persona (owner call 2026-07-09);
+    # everything else is opt-in from Settings ▸ Personas.
+    assert ids == ["cowork"]
     assert sidebar[0]["default"] is True
+    # Enabling adds to the picker (enable implies surface).
+    reg.set_enabled("code", True)
+    reg.set_enabled("ops", True)
+    ids = [e["name"] for e in reg.sidebar()]
+    assert ids[0] == "cowork"
+    assert set(ids) == {"cowork", "code", "ops"}
 
 
-def test_chat_hidden_but_enabled_and_resolvable(tmp_path):
+def test_chat_disabled_by_default_but_resolvable(tmp_path):
     reg = _reg(tmp_path)
     assert reg.is_surfaced("chat") is False  # default-hidden
-    assert reg.is_enabled("chat") is True  # still usable / recoverable
-    assert reg.agent("chat").name == "chat"
-    # The user can surface it from the Personas tab.
-    reg.set_surfaced("chat", True)
+    assert reg.is_enabled("chat") is False  # opt-in like every non-default persona
+    assert reg.agent("chat").name == "chat"  # live sessions keep resolving
+    # The user can enable it from the Personas tab (enable implies surface).
+    reg.set_enabled("chat", True)
     assert "chat" in [e["name"] for e in reg.sidebar()]
 
 
@@ -54,6 +59,7 @@ def test_surface_toggle_filters_picker_but_keeps_resolvable(tmp_path):
 def test_disable_default_falls_back(tmp_path):
     reg = _reg(tmp_path)
     assert reg.default_id() == DEFAULT_PERSONA_ID  # cowork
+    reg.set_enabled("ops", True)  # another persona must be enabled to fall back to
     reg.set_enabled("cowork", False)
     # Cowork off → default resolves to another enabled persona, not cowork.
     assert reg.default_id() != "cowork"

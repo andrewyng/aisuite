@@ -60,10 +60,10 @@ def test_chat_completions_openai_shape(tmp_path):
 def test_agents_and_memory_rest(tmp_path):
     client = _client(tmp_path, [])
     agents = client.get("/v1/agents").json()["agents"]
-    # The picker lists surfaced personas, default (cowork) first; Chat is hidden by default.
+    # The picker lists enabled+surfaced personas — a fresh install is cowork-only
+    # (non-default personas ship disabled, opt-in from Settings ▸ Personas).
     names = [a["name"] for a in agents]
-    assert names and names[0] == "cowork"
-    assert {"cowork", "code"} <= set(names)
+    assert names == ["cowork"]
     assert "skills" in client.get("/v1/skills").json()  # catalog (may be empty)
 
     added = client.post("/v1/memory", json={"content": "prefer pathlib"}).json()
