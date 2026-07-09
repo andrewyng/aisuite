@@ -8,7 +8,7 @@ async function openSlackPage(page) {
   await page.goto("/");
   await page.getByRole("button", { name: /Settings & more/i }).click();
   await page.getByRole("button", { name: "Integrations", exact: true }).click();
-  await page.getByRole("button", { name: "Slack workspaces" }).click();
+  await page.getByTestId("connector-slack").click();
 }
 
 test("lists every connected workspace with its own allow-list block", async ({ page }) => {
@@ -32,11 +32,11 @@ test("Add workspace needs cloud sign-in; signed in it installs another workspace
   await expect(page.getByTestId("add-workspace")).toHaveCount(0);
   await expect(page.getByTestId("slack-workspaces")).toContainText("Sign in to OpenCoworker Cloud");
 
-  // sign in via the Connectors tab card, then come back (the sub-nav button's
-  // accessible name carries the connector-count badge, so match by prefix)
-  await page.getByRole("button", { name: /^Connectors/ }).click();
+  // sign in from the list's cloud strip (breadcrumb back), then reopen the page
+  await page.getByTestId("connectors-breadcrumb").click();
   await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await page.getByRole("button", { name: "Slack workspaces" }).click();
+  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
+  await page.getByTestId("connector-slack").click();
 
   await page.getByTestId("add-workspace").click();
   // the mock completes the browser install instantly; the page's refresh shows it

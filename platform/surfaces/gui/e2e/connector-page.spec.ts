@@ -1,7 +1,7 @@
-// Slack config moved to a dedicated Integrations tab (M3.5): the connector card is a
-// COMPACT status row with "Manage workspaces →", and the §19 blocks — parked messages
-// (Allow & deliver / Allow only / Dismiss) and "sessions listening" — live on the page,
-// filed under the workspace they belong to (the relay is multi-workspace).
+// Slack config is a detail SUBPAGE under Connectors (UX-DECISIONS §21): the list row
+// navigates to it, and the §19 blocks — parked messages (Allow & deliver / Allow only /
+// Dismiss) and "sessions listening" — live on the page, filed under the workspace they
+// belong to (the relay is multi-workspace).
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -9,19 +9,17 @@ async function openSlackPage(page) {
   await page.goto("/");
   await page.getByRole("button", { name: /Settings & more/i }).click();
   await page.getByRole("button", { name: "Integrations", exact: true }).click();
-  await page.getByRole("button", { name: "Slack workspaces" }).click();
+  await page.getByTestId("connector-slack").click();
 }
 
-test("connector card is compact: status + Manage workspaces link to the page", async ({
-  page,
-}) => {
+test("list row status + navigation to the Slack page", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Settings & more/i }).click();
   await page.getByRole("button", { name: "Integrations", exact: true }).click();
 
-  const card = page.getByTestId("connector-slack");
-  await expect(card).toContainText("2 workspaces · managed relay");
-  await page.getByTestId("manage-slack-workspaces").click();
+  const row = page.getByTestId("connector-slack");
+  await expect(row).toContainText("2 workspaces · relay");
+  await row.click();
   await expect(page.getByTestId("slack-workspaces")).toBeVisible();
   await expect(page.getByTestId("slack-mode-badge")).toContainText("managed relay");
 });

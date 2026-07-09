@@ -1,0 +1,154 @@
+import { useEffect, useState } from "react";
+import { connectConnector, connectManaged, type CloudStatus, type Connector } from "../../api";
+import { ConnectorBadge } from "../../connectors/ConnectorIcon";
+import { ConnectSetup } from "../ManageTabs";
+import { PILL_ACCENT, PILL_LINE, TAG_ACCENT } from "./ui";
+
+// The ONE place a connection gets added (UX-DECISIONS §21): the detail page's header
+// button (or the list's Connect pill) opens this sheet. Connectors with two connect
+// modes get a One click | Manual pill switcher; single-mode connectors render their
+// existing ConnectSetup directly (Gmail's managed flow skips the modal entirely).
+
+const INPUT =
+  "w-full px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
+
+export function AddConnectionModal({
+  c,
+  cloud,
+  title,
+  onClose,
+  onChanged,
+}: {
+  c: Connector;
+  cloud: CloudStatus | null;
+  title?: string; // e.g. "Add a workspace" — defaults to "Connect {title}"
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const twoModes = c.name === "slack";
+  const [pane, setPane] = useState<"one" | "manual">("one");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-40" data-testid="add-connection-modal">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div
+        className="absolute left-1/2 top-[14%] -translate-x-1/2 w-[480px] max-w-[calc(100vw-2rem)] bg-panel rounded-2xl border border-line shadow-2xl"
+        role="dialog"
+        aria-label={title || `Connect ${c.title}`}
+      >
+        <div className="flex items-center gap-3 px-5 pt-5">
+          <ConnectorBadge connector={c} size={34} title={c.title} />
+          <div className="flex-1 font-semibold text-[16px] tracking-tight">
+            {title || `Connect ${c.title}`}
+          </div>
+          <button className="text-faint hover:text-ink text-[18px] leading-none" onClick={onClose} title="Close">
+            ×
+          </button>
+        </div>
+
+        {twoModes ? (
+          <>
+            <div className="px-5 pt-4">
+              <div className="inline-flex rounded-full p-0.5 bg-paper text-[12.5px] font-medium">
+                {(["one", "manual"] as const).map((p) => (
+                  <button
+                    key={p}
+                    data-testid={`modal-pane-${p}`}
+                    className={
+                      "px-3.5 py-1 rounded-full " +
+                      (pane === p ? "bg-panel shadow-sm text-ink border border-line" : "text-muted")
+                    }
+                    onClick={() => setPane(p)}
+                  >
+                    {p === "one" ? "One click" : "Manual"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {pane === "one" ? (
+              <SlackOneClick c={c} cloud={cloud} />
+            ) : (
+              <SlackManual onConnected={() => { onChanged(); onClose(); }} />
+            )}
+          </>
+        ) : (
+          <div className="px-1.5 pb-2">
+            {/* Existing combined setup (managed button + manual fields) for everything else. */}
+            <ConnectSetup c={c} cloud={cloud} onConnected={() => { onChanged(); onClose(); }} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setError(null);
+    const res = await connectManaged(c.name);
+    if (res.ok) setWaiting(true);
+    else setError(res.error || "could not start the install");
+  };
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <p className="text-[13px] text-muted">
+        Opens Slack in your browser — approve @ocw for the workspace. No tokens; works for any
+        number of workspaces.
+      </p>
+      {cloud?.signed_in ? (
+        <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-add-to-slack" onClick={go} disabled={waiting}>
+          {waiting ? "Check your browser…" : "Add to Slack"}
+        </button>
+      ) : (
+        <div className="text-[12.5px] text-muted">
+          Sign in to OpenCoworker Cloud (Connectors page) to use one-click — or switch to Manual.
+        </div>
+      )}
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
+        <span className={TAG_ACCENT}>Recommended</span> relay · tokens stay on this computer
+      </p>
+    </div>
+  );
+}
+
+function SlackManual({ onConnected }: { onConnected: () => void }) {
+  const [bot, setBot] = useState("");
+  const [app, setApp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await connectConnector("slack", { bot_token: bot.trim(), app_token: app.trim() });
+    setBusy(false);
+    if (res.ok) onConnected();
+    else setError(res.error || "could not connect");
+  };
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <ol className="list-decimal pl-4 text-[13px] text-muted space-y-1">
+        <li>Create an app at api.slack.com/apps</li>
+        <li>Enable Socket Mode, add bot scopes, install it to your workspace</li>
+        <li>Paste both tokens</li>
+      </ol>
+      <input className={INPUT} type="password" placeholder="Bot token · xoxb-…" value={bot} spellCheck={false} onChange={(e) => setBot(e.target.value)} />
+      <input className={INPUT} type="password" placeholder="App token · xapp-…" value={app} spellCheck={false} onChange={(e) => setApp(e.target.value)} />
+      <button className={PILL_LINE + " w-full !py-2"} onClick={submit} disabled={busy || !bot.trim() || !app.trim()}>
+        {busy ? "Validating…" : "Connect"}
+      </button>
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      <p className="text-[12px] text-warnInk text-center">
+        One mode at a time — this pauses any relay workspaces.
+      </p>
+    </div>
+  );
+}
