@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { connectConnector, connectManaged, type CloudStatus, type Connector } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { ConnectSetup } from "../ManageTabs";
+import { CloudSignInInline } from "./CloudSignIn";
 import { PILL_ACCENT, PILL_LINE, TAG_ACCENT } from "./ui";
 
 // The ONE place a connection gets added (UX-DECISIONS §21): the detail page's header
@@ -118,9 +119,7 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
           {waiting ? "Check your browser…" : "Add to Slack"}
         </button>
       ) : (
-        <div className="text-[12.5px] text-muted">
-          Sign in to OpenCoworker Cloud (Connectors page) to use one-click — or switch to Manual.
-        </div>
+        <CloudSignInInline />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
@@ -150,9 +149,7 @@ function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null 
           {waiting ? "Check your browser…" : "Install the GitHub App"}
         </button>
       ) : (
-        <div className="text-[12.5px] text-muted">
-          Sign in to OpenCoworker Cloud (Connectors page) to use one-click — or switch to Manual.
-        </div>
+        <CloudSignInInline />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
@@ -206,9 +203,7 @@ function HubSpotOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null
           {waiting ? "Check your browser…" : "Connect HubSpot"}
         </button>
       ) : (
-        <div className="text-[12.5px] text-muted">
-          Sign in to OpenCoworker Cloud (Connectors page) to use one-click — or switch to Manual.
-        </div>
+        <CloudSignInInline />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center">

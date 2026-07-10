@@ -52,6 +52,11 @@ export function ConnectorsList({
         />
       </div>
 
+      {/* The cloud account leads the page: sign-in gates every one-click connect,
+          so it can't live below the fold of a 25-row list (a fresh install would
+          never find it — that shipped once as a de-facto regression). */}
+      <CloudStrip cloud={cloud} onChanged={onChanged} />
+
       {connected.length > 0 && (
         <>
           <div className={GRP_H + " !mt-0"}>Connected · {connected.length}</div>
@@ -102,8 +107,6 @@ export function ConnectorsList({
           </button>
         </div>
       )}
-
-      <CloudStrip cloud={cloud} onChanged={onChanged} />
 
       {connectingC && (
         <AddConnectionModal
@@ -161,7 +164,7 @@ function CloudStrip({ cloud, onChanged }: { cloud: CloudStatus | null; onChanged
   };
 
   return (
-    <div className={GRP + " mt-8"} data-testid="cloud-account">
+    <div className={GRP + " mb-6"} data-testid="cloud-account">
       <div className={ROW}>
         <span
           className={

@@ -25,6 +25,7 @@ import {
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
+import { CloudSignInInline } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
 import { SelectMenu } from "./SelectMenu";
 import { Toggle } from "./Toggle";
@@ -891,10 +892,9 @@ export function ConnectSetup({
               {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
             </button>
           ) : (
-            <div className="text-[12.5px] text-muted">
-              Sign in to OpenCoworker Cloud (above) to connect {c.title} with one click —
-              or connect manually below.
-            </div>
+            <CloudSignInInline
+              blurb={`Sign-in unlocks the one-click ${c.title} connect — or connect manually below.`}
+            />
           )}
           {cloud?.signed_in && (
             <div className="text-[11.5px] text-faint">or connect manually:</div>
