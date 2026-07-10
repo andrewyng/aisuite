@@ -10,6 +10,7 @@ import {
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
+import { CalendarDetail } from "./CalendarDetail";
 import { ConnectorsList } from "./ConnectorsList";
 import { GithubDetail } from "./GithubDetail";
 import { GmailDetail } from "./GmailDetail";
@@ -33,6 +34,7 @@ export interface DetailProps {
 const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
   slack: (p) => <SlackDetail {...p} />,
   gmail: (p) => <GmailDetail {...p} />,
+  google_calendar: (p) => <CalendarDetail {...p} />,
   hubspot: (p) => <HubSpotDetail {...p} />,
   github: (p) => <GithubDetail {...p} />,
 };

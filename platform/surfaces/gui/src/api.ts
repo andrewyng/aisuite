@@ -309,7 +309,8 @@ export interface HubSpotPortal {
   access: "read" | "write" | ""; // consent tier granted ("" = manual token, unknown)
 }
 
-// One connected Gmail mailbox (multi-account: `gmail:account:<email>` profiles).
+// One connected Google account (multi-account: `gmail:account:<email>` /
+// `google_calendar:account:<email>` profiles — same shape for both).
 export interface GmailAccount {
   email: string;
   default: boolean;
@@ -349,7 +350,7 @@ export interface Connector {
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
   mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
   workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
-  accounts?: GmailAccount[]; // Gmail only: connected mailboxes (multi-account)
+  accounts?: GmailAccount[]; // Gmail + Google Calendar: connected accounts (multi-account)
   filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
   portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
   hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
@@ -1298,6 +1299,23 @@ export async function disconnectGmailAccount(email: string): Promise<{ ok: boole
 export async function setGmailDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/gmail/accounts/${encodeURIComponent(email)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Drop ONE Google Calendar account; the default pointer moves to the next one. */
+export async function disconnectGcalAccount(email: string): Promise<{ ok: boolean; error?: string; remaining_accounts?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/google_calendar/accounts/${encodeURIComponent(email)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setGcalDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/google_calendar/accounts/${encodeURIComponent(email)}/default`,
     { method: "POST" },
   );
   return res.json();

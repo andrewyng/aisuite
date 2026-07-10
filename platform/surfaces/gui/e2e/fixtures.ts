@@ -102,6 +102,7 @@ const CONNECTORS = {
     { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
     // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
     { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", auth: "oauth", two_way: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
     { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
@@ -338,6 +339,23 @@ export async function mockApi(page: import("@playwright/test").Page) {
       account: gmailState.accounts.find((a) => a.default)?.email ?? null,
       accounts: gmailState.accounts.map((a) => ({ ...a })),
       filters: { senders: [...gmailState.filters.senders], labels: [...gmailState.filters.labels] },
+    };
+  };
+  // Google Calendar — PER-TEST multi-account state (gmail's shape, no filters).
+  const gcalState = {
+    accounts: [] as {
+      email: string; default: boolean; managed: boolean; scopes: string; needs_reauth: boolean;
+    }[],
+  };
+  const GCAL_NEXT = ["rohit@gmail.com", "work@dlai.com", "third@x.com"];
+  const gcalConnector = () => {
+    const base = CONNECTORS.connectors.find((c: any) => c.name === "google_calendar");
+    return {
+      ...base,
+      connected: gcalState.accounts.length > 0,
+      enabled: gcalState.accounts.length > 0,
+      account: gcalState.accounts.find((a) => a.default)?.email ?? null,
+      accounts: gcalState.accounts.map((a) => ({ ...a })),
     };
   };
   // HubSpot — PER-TEST multi-portal state (starts disconnected; managed connects add
@@ -666,6 +684,22 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (wasDefault && gmailState.accounts[0]) gmailState.accounts[0].default = true;
       return json({ ok: true, remaining_accounts: gmailState.accounts.length });
     }
+    if (/\/v1\/connectors\/google_calendar\/accounts\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const email = decodeURIComponent(p.split("/accounts/")[1].split("/")[0]);
+      const i = gcalState.accounts.findIndex((a) => a.email === email);
+      if (i < 0) return json({ ok: false, error: "account not connected" });
+      const wasDefault = gcalState.accounts[i].default;
+      gcalState.accounts.splice(i, 1);
+      if (wasDefault && gcalState.accounts[0]) gcalState.accounts[0].default = true;
+      return json({ ok: true, remaining_accounts: gcalState.accounts.length });
+    }
+    if (/\/v1\/connectors\/google_calendar\/accounts\/[^/]+\/default$/.test(p) && m === "POST") {
+      const email = decodeURIComponent(p.split("/accounts/")[1].split("/")[0]);
+      if (!gcalState.accounts.some((a) => a.email === email))
+        return json({ ok: false, error: "account not connected" });
+      for (const a of gcalState.accounts) a.default = a.email === email;
+      return json({ ok: true, default_account: email });
+    }
     if (/\/v1\/connectors\/gmail\/accounts\/[^/]+\/default$/.test(p) && m === "POST") {
       const email = decodeURIComponent(p.split("/").slice(-2)[0]);
       if (!gmailState.accounts.some((a) => a.email === email))
@@ -710,9 +744,11 @@ export async function mockApi(page: import("@playwright/test").Page) {
           ...CONNECTORS.connectors.map((c: any) =>
             c.name === "gmail"
               ? gmailConnector()
-              : c.name === "hubspot"
-                ? hubspotConnector()
-                : { ...c },
+              : c.name === "google_calendar"
+                ? gcalConnector()
+                : c.name === "hubspot"
+                  ? hubspotConnector()
+                  : { ...c },
           ),
         ],
       });
@@ -753,6 +789,14 @@ export async function mockApi(page: import("@playwright/test").Page) {
         gmailState.accounts.push({
           email, default: gmailState.accounts.length === 0, managed: true,
           scopes: "gmail.readonly gmail.send", needs_reauth: false,
+        });
+      }
+      // Google Calendar managed connect = add the next account (gmail's flow).
+      if (p.includes("/connectors/google_calendar/")) {
+        const email = GCAL_NEXT[gcalState.accounts.length] || `acct${gcalState.accounts.length}@x.com`;
+        gcalState.accounts.push({
+          email, default: gcalState.accounts.length === 0, managed: true,
+          scopes: "calendar", needs_reauth: false,
         });
       }
       // HubSpot managed connect = add the next portal at the requested access tier.

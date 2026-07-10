@@ -620,6 +620,28 @@ def create_app(manager: SessionManager) -> FastAPI:
             return {"ok": False, "error": "labels must be a list"}
         return gmail_accounts.set_filters(manager.secrets, senders, labels)
 
+    @app.post("/v1/connectors/google_calendar/accounts/{email}/disconnect")
+    async def gcal_account_disconnect(email: str) -> dict[str, Any]:
+        """Drop ONE Google Calendar account (cloud metadata best-effort first);
+        the default pointer moves to the next account."""
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import gcal_accounts
+
+        profile_key = gcal_accounts.PREFIX + email.strip().lower()
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(
+                manager.secrets, load_config(), "google_calendar", profile_key=profile_key
+            )
+        )
+        return gcal_accounts.disconnect_account(manager.secrets, email)
+
+    @app.post("/v1/connectors/google_calendar/accounts/{email}/default")
+    def gcal_account_default(email: str) -> dict[str, Any]:
+        from ..connectors import gcal_accounts
+
+        return gcal_accounts.set_default(manager.secrets, email)
+
     @app.post("/v1/connectors/hubspot/portals/{hub_id}/disconnect")
     async def hubspot_portal_disconnect(hub_id: str) -> dict[str, Any]:
         from .. import cloud
@@ -801,6 +823,13 @@ def create_app(manager: SessionManager) -> FastAPI:
             from ..connectors import gmail_accounts
 
             result = gmail_accounts.managed_connect_account(
+                manager.secrets, cloud.managed_profile_from_callback(data)
+            )
+        elif connector == "google_calendar":
+            # Multi-account, same shape as gmail: google_calendar:account:<email>.
+            from ..connectors import gcal_accounts
+
+            result = gcal_accounts.managed_connect_account(
                 manager.secrets, cloud.managed_profile_from_callback(data)
             )
         elif connector == "hubspot" and data.get("hub_id"):

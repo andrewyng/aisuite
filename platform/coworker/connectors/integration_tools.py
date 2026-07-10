@@ -111,6 +111,35 @@ def _gmail_profile(
     return email, profile, None
 
 
+def _gcal_profile(
+    secrets: SecretStore, account: str = ""
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
+    """(email, profile, err) for the requested — or default — Google account,
+    with the managed token refreshed in place. Multi-account:
+    `google_calendar:account:<email>`."""
+    from . import gcal_accounts
+
+    email, key, profile = gcal_accounts.resolve(secrets, account)
+    if profile is None:
+        hint = (
+            f"no google calendar account matching {account!r}"
+            if account
+            else "google calendar is not connected"
+        )
+        return "", None, {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(
+            secrets, load_config(), "google_calendar", profile_key=key
+        )
+        profile = secrets.get(key) or profile
+    if not profile.get("access_token"):
+        return "", None, {"error": f"google calendar account {email} has no usable token"}
+    return email, profile, None
+
+
 # HubSpot-defined association type ids: note → object (v4 default associations).
 _HS_NOTE_ASSOC = {"contacts": 202, "companies": 190, "deals": 214, "tickets": 228}
 
@@ -1040,13 +1069,26 @@ def make_integration_tools(
         )
     )
 
+    _CAL_ACCOUNT_PROP = {
+        "type": "string",
+        "description": "Google account email to use; omit for the default account.",
+    }
+
+    def _gcal_result(email: str, result: dict[str, Any]) -> dict[str, Any]:
+        # Name the account on every success so approvals/transcripts say whose
+        # calendar was touched (same contract as the gmail tools).
+        if result.get("ok"):
+            result["account"] = email
+        return result
+
     def gcal_list_events(
         calendar_id: str = "primary",
         time_min: str = "",
         time_max: str = "",
         max_results: int = 10,
+        account: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "google_calendar", "access_token")
+        email, profile, err = _gcal_profile(secrets, account)
         if err:
             return err
         params: dict[str, Any] = {
@@ -1058,11 +1100,14 @@ def make_integration_tools(
             params["timeMin"] = time_min
         if time_max:
             params["timeMax"] = time_max
-        return _request(
-            "GET",
-            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
-            headers=_google_headers(profile["access_token"]),
-            params=params,
+        return _gcal_result(
+            email,
+            _request(
+                "GET",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
+                headers=_google_headers(profile["access_token"]),
+                params=params,
+            ),
         )
 
     gcal_list_events.__name__ = "gcal_list_events"
@@ -1077,8 +1122,58 @@ def make_integration_tools(
                     "time_min": {"type": "string"},
                     "time_max": {"type": "string"},
                     "max_results": {"type": "integer"},
+                    "account": _CAL_ACCOUNT_PROP,
                 },
                 [],
+            ),
+            caps=["calendar", "read"],
+        )
+    )
+
+    def gcal_free_busy(
+        time_min: str,
+        time_max: str,
+        calendars: str = "primary",
+        timezone: str = "UTC",
+        account: str = "",
+    ) -> dict[str, Any]:
+        email, profile, err = _gcal_profile(secrets, account)
+        if err:
+            return err
+        items = [
+            {"id": c.strip()} for c in str(calendars or "primary").split(",") if c.strip()
+        ]
+        return _gcal_result(
+            email,
+            _request(
+                "POST",
+                "https://www.googleapis.com/calendar/v3/freeBusy",
+                headers=_google_headers(profile["access_token"]),
+                json={
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                    "timeZone": timezone,
+                    "items": items,
+                },
+            ),
+        )
+
+    gcal_free_busy.__name__ = "gcal_free_busy"
+    tools.append(
+        _attach(
+            gcal_free_busy,
+            _schema(
+                "gcal_free_busy",
+                "Look up busy intervals (availability) for one or more calendars. "
+                "time_min/time_max are RFC3339 timestamps; calendars is a comma-separated list of calendar ids.",
+                {
+                    "time_min": {"type": "string"},
+                    "time_max": {"type": "string"},
+                    "calendars": {"type": "string"},
+                    "timezone": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
+                },
+                ["time_min", "time_max"],
             ),
             caps=["calendar", "read"],
         )
@@ -1091,8 +1186,9 @@ def make_integration_tools(
         calendar_id: str = "primary",
         timezone: str = "UTC",
         description: str = "",
+        account: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "google_calendar", "access_token")
+        email, profile, err = _gcal_profile(secrets, account)
         if err:
             return err
         payload = {
@@ -1101,11 +1197,14 @@ def make_integration_tools(
             "start": {"dateTime": start, "timeZone": timezone},
             "end": {"dateTime": end, "timeZone": timezone},
         }
-        return _request(
-            "POST",
-            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
-            headers=_google_headers(profile["access_token"]),
-            json=payload,
+        return _gcal_result(
+            email,
+            _request(
+                "POST",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
+                headers=_google_headers(profile["access_token"]),
+                json=payload,
+            ),
         )
 
     gcal_create_event.__name__ = "gcal_create_event"
@@ -1122,8 +1221,102 @@ def make_integration_tools(
                     "calendar_id": {"type": "string"},
                     "timezone": {"type": "string"},
                     "description": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
                 },
                 ["summary", "start", "end"],
+            ),
+            approval=True,
+            caps=["calendar", "write"],
+        )
+    )
+
+    def gcal_update_event(
+        event_id: str,
+        calendar_id: str = "primary",
+        summary: str = "",
+        start: str = "",
+        end: str = "",
+        timezone: str = "UTC",
+        description: str = "",
+        account: str = "",
+    ) -> dict[str, Any]:
+        email, profile, err = _gcal_profile(secrets, account)
+        if err:
+            return err
+        # PATCH semantics: only the provided fields change.
+        payload: dict[str, Any] = {}
+        if summary:
+            payload["summary"] = summary
+        if description:
+            payload["description"] = description
+        if start:
+            payload["start"] = {"dateTime": start, "timeZone": timezone}
+        if end:
+            payload["end"] = {"dateTime": end, "timeZone": timezone}
+        if not payload:
+            return {"error": "nothing to update — pass summary, description, start, or end"}
+        return _gcal_result(
+            email,
+            _request(
+                "PATCH",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+                headers=_google_headers(profile["access_token"]),
+                json=payload,
+            ),
+        )
+
+    gcal_update_event.__name__ = "gcal_update_event"
+    tools.append(
+        _attach(
+            gcal_update_event,
+            _schema(
+                "gcal_update_event",
+                "Update fields of a Google Calendar event (only the provided fields change). Requires user approval.",
+                {
+                    "event_id": {"type": "string"},
+                    "calendar_id": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "timezone": {"type": "string"},
+                    "description": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
+                },
+                ["event_id"],
+            ),
+            approval=True,
+            caps=["calendar", "write"],
+        )
+    )
+
+    def gcal_delete_event(
+        event_id: str, calendar_id: str = "primary", account: str = ""
+    ) -> dict[str, Any]:
+        email, profile, err = _gcal_profile(secrets, account)
+        if err:
+            return err
+        return _gcal_result(
+            email,
+            _request(
+                "DELETE",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+                headers=_google_headers(profile["access_token"]),
+            ),
+        )
+
+    gcal_delete_event.__name__ = "gcal_delete_event"
+    tools.append(
+        _attach(
+            gcal_delete_event,
+            _schema(
+                "gcal_delete_event",
+                "Delete a Google Calendar event. Requires user approval.",
+                {
+                    "event_id": {"type": "string"},
+                    "calendar_id": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
+                },
+                ["event_id"],
             ),
             approval=True,
             caps=["calendar", "write"],

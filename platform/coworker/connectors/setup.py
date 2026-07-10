@@ -98,6 +98,20 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 a["email"] == default_email and a["managed"] for a in accounts
             )
             entry["filters"] = gmail_accounts.get_filters(secrets)
+        if d.name == "google_calendar":
+            # Multi-account, same shape as gmail: each `google_calendar:account:*`
+            # profile is one Google account; :default is just the default pointer.
+            from . import gcal_accounts
+
+            accounts = _gcal_account_list(secrets)
+            default_email = gcal_accounts.default_account(secrets)
+            entry["accounts"] = accounts
+            entry["connected"] = bool(accounts)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(accounts)
+            entry["account"] = default_email or None
+            entry["managed_profile"] = any(
+                a["email"] == default_email and a["managed"] for a in accounts
+            )
         if d.name == "github":
             # Managed relay is multi-installation: each `github:install:*`
             # profile is one App installation with its OWN allow-list of
@@ -166,6 +180,30 @@ def _gmail_account_list(secrets: SecretStore) -> list[dict[str, Any]]:
     default = gmail_accounts.default_account(secrets)
     out = []
     for email, profile in gmail_accounts.list_accounts(secrets):
+        expires = float(profile.get("expires") or 0)
+        out.append(
+            {
+                "email": email,
+                "default": email == default,
+                "managed": bool(profile.get("managed")),
+                "scopes": profile.get("scope") or "",
+                # Expired with no way to renew silently → the GUI offers Reauthorize.
+                "needs_reauth": bool(
+                    expires and expires < time() and not profile.get("refresh_token")
+                ),
+            }
+        )
+    return out
+
+
+def _gcal_account_list(secrets: SecretStore) -> list[dict[str, Any]]:
+    from time import time
+
+    from . import gcal_accounts
+
+    default = gcal_accounts.default_account(secrets)
+    out = []
+    for email, profile in gcal_accounts.list_accounts(secrets):
         expires = float(profile.get("expires") or 0)
         out.append(
             {
@@ -351,6 +389,13 @@ def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
 
         for email, _profile in gmail_accounts.list_accounts(secrets):
             dropped_accounts = secrets.delete(gmail_accounts.PREFIX + email) or dropped_accounts
+    if name == "google_calendar":
+        from . import gcal_accounts
+
+        for email, _profile in gcal_accounts.list_accounts(secrets):
+            dropped_accounts = (
+                secrets.delete(gcal_accounts.PREFIX + email) or dropped_accounts
+            )
     if name == "hubspot":
         from . import hubspot_portals
 

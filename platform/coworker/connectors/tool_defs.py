@@ -226,10 +226,31 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
     ),
     ConnectorToolDef(
         "google_calendar",
+        "gcal_free_busy",
+        "Check availability",
+        "read",
+        "Look up busy intervals across calendars.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
         "gcal_create_event",
         "Create event",
         "write",
         "Create a Google Calendar event.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
+        "gcal_update_event",
+        "Update event",
+        "write",
+        "Change fields of an existing event.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
+        "gcal_delete_event",
+        "Delete event",
+        "write",
+        "Delete a calendar event.",
     ),
     ConnectorToolDef(
         "outlook",
