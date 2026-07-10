@@ -69,17 +69,26 @@ def _now() -> float:
 
 def begin_login(config: Config) -> dict[str, Any]:
     """Create a PKCE login and return the browser URL. The sidecar's
-    GET /auth/callback completes it."""
+    GET /auth/callback completes it.
+
+    The redirect goes through the BROKER's stable callback, which bounces the
+    browser to our actual loopback port (carried as state's `.port` suffix —
+    Auth0 echoes state untouched). Direct loopback redirects can't work in the
+    packaged app: Auth0's allow-list rejects unregistered ports, and the
+    desktop shell binds the sidecar to a RANDOM free port. This shipped once
+    as "Firefox can't connect to 127.0.0.1:8765" right after Auth0 finished.
+    """
     verifier = _b64url(_secrets.token_bytes(48))
     challenge = _b64url(hashlib.sha256(verifier.encode()).digest())
-    state = _secrets.token_urlsafe(16)
+    port = os.environ.get("COWORKER_PORT") or config.port
+    state = f"{_secrets.token_urlsafe(16)}.{port}"
 
     for key, pending in list(_pending_logins.items()):  # expire stale attempts
         if float(pending["created"]) < _now() - _PENDING_TTL:
             _pending_logins.pop(key, None)
     _pending_logins[state] = {"verifier": verifier, "created": _now()}
 
-    redirect_uri = f"http://127.0.0.1:{config.port}/auth/callback"
+    redirect_uri = config.cloud_base_url.rstrip("/") + "/v1/auth/callback"
     authorize_url = f"https://{config.cloud_auth_domain}/authorize?" + urllib.parse.urlencode(
         {
             "response_type": "code",

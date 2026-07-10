@@ -50,14 +50,25 @@ class FakeResponse:
 # --- sign-in -------------------------------------------------------------------
 
 
-def test_begin_login_builds_pkce_authorize_url(config):
+def test_begin_login_builds_pkce_authorize_url(config, monkeypatch):
+    monkeypatch.delenv("COWORKER_PORT", raising=False)
     out = cloud.begin_login(config)
     url = out["authorize_url"]
     assert url.startswith("https://tenant.auth0.test/authorize?")
     assert "code_challenge_method=S256" in url
     assert "client_id=client123" in url
-    assert "8765%2Fauth%2Fcallback" in url
+    # The redirect is the BROKER's stable callback (Auth0 rejects unregistered
+    # loopback ports, and the packaged sidecar binds a random one) …
+    assert "cloud.test%2Fv1%2Fauth%2Fcallback" in url
     assert out["state"] in url
+    # … and state carries the actual loopback port for the bounce back.
+    assert out["state"].endswith(".8765")
+
+
+def test_begin_login_state_carries_the_actually_bound_port(config, monkeypatch):
+    monkeypatch.setenv("COWORKER_PORT", "52341")
+    out = cloud.begin_login(config)
+    assert out["state"].endswith(".52341")
 
 
 def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
