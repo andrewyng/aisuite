@@ -40,6 +40,9 @@ export function SourcesBar({
     reload();
   }, [reload]);
 
+  // Refetched on every drawer OPEN, not once per mount: this map gates the
+  // drawer's "Channels ·" links (two_way lookup), and a single failed/racing
+  // fetch at mount used to silently hide them for the session's whole lifetime.
   useEffect(() => {
     let live = true;
     getConnectors()
@@ -48,7 +51,7 @@ export function SourcesBar({
     return () => {
       live = false;
     };
-  }, []);
+  }, [open]);
 
   // The avatar stack shows only the effective-ENABLED connectors; muted ones stay in the
   // drawer (toggled off) but shouldn't advertise themselves in the header.
