@@ -120,6 +120,19 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             if entry["installations"] and profile.get("mode") == "relay":
                 first = entry["installations"][0]
                 entry["account"] = entry["account"] or first["account_login"]
+        if d.account_field:
+            # Generic multi-account (batch-2 connectors): each
+            # `<name>:account:*` profile is one account; :default is pointer-only.
+            from . import accounts as _accounts
+
+            rows = _accounts.account_rows(secrets, d.name)
+            default_id = _accounts.default_account(secrets, d.name)
+            entry["accounts"] = rows
+            entry["connected"] = bool(rows)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(rows)
+            default_row = next((r for r in rows if r["account_id"] == default_id), None)
+            entry["account"] = (default_row or {}).get("name") or None
+            entry["managed_profile"] = bool((default_row or {}).get("managed"))
         if d.name == "hubspot":
             # Multi-portal: each `hubspot:portal:*` profile is one portal; the
             # :default profile is the default pointer + hidden-fields policy.
@@ -316,6 +329,16 @@ def connect_connector(
         profile["allowed_users"] = allowed
     if identity:
         profile["account"] = identity
+    if d.account_field:
+        # Account-patterned connector: connecting ADDS an account (a second
+        # submit with different creds is a second account, not an overwrite).
+        from . import accounts as _accounts
+
+        account_id = _accounts.derive_account_id(d, profile)
+        result = _accounts.add_account(secrets, name, account_id, profile)
+        if not result.get("ok"):
+            return result
+        return {"ok": True, "account": identity or account_id, "account_id": account_id}
     secrets.put(f"{name}:default", profile)
     return {"ok": True, "account": identity}
 
@@ -334,6 +357,18 @@ def managed_connect_connector(
         return {"ok": False, "error": "unknown or unavailable connector"}
     if not d.managed:
         return {"ok": False, "error": f"{name} does not support managed connect"}
+    if d.account_field:
+        from . import accounts as _accounts
+
+        account_id = _accounts.derive_account_id(d, profile)
+        result = _accounts.add_account(secrets, name, account_id, profile)
+        if not result.get("ok"):
+            return result
+        return {
+            "ok": True,
+            "account": profile.get("account") or account_id,
+            "account_id": account_id,
+        }
     existing = secrets.get(f"{name}:default") or {}
     if existing.get("allowed_users"):
         profile = {**profile, "allowed_users": list(existing["allowed_users"])}
@@ -382,6 +417,13 @@ def managed_connect_slack_install(
 
 def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
     dropped_accounts = False
+    from . import accounts as _accounts
+
+    if _accounts.is_account_connector(name):
+        for account_id, _profile in _accounts.list_accounts(secrets, name):
+            dropped_accounts = (
+                secrets.delete(_accounts.prefix(name) + account_id) or dropped_accounts
+            )
     if name == "gmail":
         # Whole-connector disconnect drops every mailbox (per-account removal
         # lives on the Gmail page); filters go too — an explicit full reset.

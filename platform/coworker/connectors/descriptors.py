@@ -68,6 +68,11 @@ class ConnectorDescriptor:
     # is an extra path, never a replacement (local-only open-source flow is
     # sacred).
     managed: bool = False
+    # Multi-account (accounts.py generic layer): the creds field that names an
+    # account (e.g. "project_id"), or "@identity" = the validator's identity
+    # string. Non-empty → profiles live at `<name>:account:<id>` and the
+    # `:default` profile is pointer-only. Empty → single-profile connector.
+    account_field: str = ""
 
 
 # -- validators (sync httpx, one-shot) -----------------------------------------
