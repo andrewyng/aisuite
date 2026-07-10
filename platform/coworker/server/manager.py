@@ -1581,9 +1581,19 @@ class SessionManager:
 
     # -- gateway + connector allow-list (inbound messaging) ---------------------
     def allow_user(
-        self, name: str, user_id: str, team_id: Optional[str] = None
+        self,
+        name: str,
+        user_id: str,
+        team_id: Optional[str] = None,
+        *,
+        display_name: str = "",
     ) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, team_id=team_id, add=True)
+        out = self._set_allowed(name, user_id, team_id=team_id, add=True)
+        # Directory picks arrive with the name in hand — record it so the chip
+        # is readable immediately (message-driven allows learn it on arrival).
+        if out.get("ok") and display_name:
+            self._note_person(name, user_id, display_name)
+        return out
 
     def disallow_user(
         self, name: str, user_id: str, team_id: Optional[str] = None

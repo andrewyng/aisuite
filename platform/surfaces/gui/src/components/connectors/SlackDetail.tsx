@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   allowUser,
   disallowUser,
   disconnectSlackWorkspace,
+  getSlackDirectory,
   getSubscriptions,
   resolveUnauthorized,
   unsubscribeChannel,
   type Connector,
   type ParkedMessage,
+  type SlackMember,
   type SlackStatus,
   type SlackWorkspace,
   type Subscription,
@@ -123,7 +125,9 @@ export function SlackDetail({ c, cloud, slack, onChanged }: DetailProps) {
             <PeopleRow
               allowed={c.allowed_users}
               names={c.allowed_user_names}
+              teamId={null}
               onRemove={(u) => disallowUser("slack", u).then(changed)}
+              onChanged={changed}
             />
             {(c.unauthorized ?? [])
               .filter((m) => !m.team_id)
@@ -201,8 +205,9 @@ function WorkspaceGroup({
       <div className={GRP}>
         {empty ? (
           <div className={ROW}>
-            <span className="min-w-0 flex-1 text-[12.5px] text-muted">
-              No one allowed yet — mentions of the bot show up here for your OK.
+            <span className="min-w-0 flex-1 text-[12.5px] text-muted flex items-center gap-2 flex-wrap">
+              <span>No one allowed yet — mentions of the bot show up here for your OK.</span>
+              <PersonPicker teamId={w.team_id} allowed={[]} onChanged={onChanged} />
             </span>
             <DisconnectBtn teamId={w.team_id} busy={busy} onClick={disconnect} />
           </div>
@@ -211,8 +216,9 @@ function WorkspaceGroup({
             <PeopleRow
               allowed={w.allowed_users}
               names={w.allowed_user_names}
+              teamId={w.team_id}
               onRemove={(u) => disallowUser("slack", u, w.team_id).then(onChanged)}
-              onAllowRecent={(u) => allowUser("slack", u, w.team_id).then(onChanged)}
+              onChanged={onChanged}
             />
             {parked.map((m) => (
               <WaitingRow key={m.id} m={m} onChanged={onChanged} />
@@ -246,19 +252,22 @@ function DisconnectBtn({ teamId, busy, onClick }: { teamId: string; busy: boolea
 function PeopleRow({
   allowed,
   names,
+  teamId,
   onRemove,
+  onChanged,
 }: {
   allowed: string[];
   names?: Record<string, string | null>;
+  teamId: string | null; // null = manual flat list (directory queries as "default")
   onRemove: (userId: string) => void;
-  onAllowRecent?: (userId: string) => void;
+  onChanged: () => void;
 }) {
   return (
     <div className={ROW}>
       <span className={LABEL}>People</span>
       <span className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5">
         {allowed.length === 0 && (
-          <span className="text-[12px] text-faint">nobody yet — approve a waiting sender below</span>
+          <span className="text-[12px] text-faint">nobody yet — pick a name, or approve a waiting sender below</span>
         )}
         {allowed.map((u) => (
           <span
@@ -275,8 +284,134 @@ function PeopleRow({
             </button>
           </span>
         ))}
+        <PersonPicker teamId={teamId} allowed={allowed} onChanged={onChanged} />
       </span>
     </div>
+  );
+}
+
+// "Find your name in a list": typeahead over the workspace directory (users.list,
+// cached on the desktop). A pick lands on the allow-list with the display name in
+// hand — the park→approve flow stays as the path for senders nobody pre-added.
+function PersonPicker({
+  teamId,
+  allowed,
+  onChanged,
+}: {
+  teamId: string | null;
+  allowed: string[];
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState<SlackMember[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const wrap = useRef<HTMLSpanElement | null>(null);
+  const btn = useRef<HTMLButtonElement | null>(null);
+  // Fixed-position drop: the group cards clip overflow (GRP is overflow-hidden),
+  // so an absolute popover inside them would be cut off after the first row.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const toggle = () => {
+    if (open) return setOpen(false);
+    const r = btn.current?.getBoundingClientRect();
+    setPos(r ? { top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 300) } : null);
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => {
+      getSlackDirectory(teamId || "default", q)
+        .then((r) => {
+          if (r.ok) {
+            setRows(r.members || []);
+            setErr(null);
+          } else setErr(r.error || "directory unavailable");
+        })
+        .catch(() => setErr("directory unavailable"));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [open, q, teamId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const pick = async (m: SlackMember) => {
+    await allowUser("slack", m.id, teamId, m.name);
+    setOpen(false);
+    setQ("");
+    onChanged();
+  };
+  const candidates = rows.filter((m) => !allowed.includes(m.id));
+
+  return (
+    <span className="relative" ref={wrap}>
+      <button
+        ref={btn}
+        className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-line text-[12.5px] text-muted hover:text-ink hover:border-faint"
+        data-testid={`add-person-${teamId || "default"}`}
+        title="Pick from the workspace directory"
+        onClick={toggle}
+      >
+        ＋ Add person
+      </button>
+      {open && (
+        <div
+          className="fixed z-50 w-72 rounded-xl border border-line bg-panel shadow-lg p-1"
+          style={{ top: pos?.top, left: pos?.left }}
+          data-testid="person-picker"
+        >
+          <input
+            autoFocus
+            className="w-full bg-paper border border-line rounded-lg px-2 py-1 text-[12.5px] outline-none placeholder:text-faint"
+            placeholder="Type a name…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setOpen(false);
+            }}
+          />
+          <div className="max-h-56 overflow-y-auto py-1">
+            {err ? (
+              <div className="px-2 py-1.5 text-[12px] text-warnInk">{err}</div>
+            ) : candidates.length === 0 ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">no matches</div>
+            ) : (
+              candidates.map((m) => (
+                <button
+                  key={m.id}
+                  className="block w-full text-left px-2 py-1.5 rounded-lg hover:bg-paper"
+                  data-testid={`pick-person-${m.id}`}
+                  title={`id ${m.id}`}
+                  onMouseDown={(e) => {
+                    // mousedown (not click) so the pick lands before the input's blur
+                    e.preventDefault();
+                    pick(m);
+                  }}
+                >
+                  <span className="text-[12.5px] font-medium">{m.name}</span>{" "}
+                  <span className="text-[11.5px] text-faint">@{m.handle}</span>
+                  {m.guest && (
+                    <span className="ml-1.5 text-[10.5px] text-warnInk bg-warnSoft/70 border border-warnInk/15 rounded px-1 py-0.5">
+                      guest
+                    </span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="px-2 pb-1 text-[10.5px] text-faint">
+            From your workspace directory — stays on this computer.
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 

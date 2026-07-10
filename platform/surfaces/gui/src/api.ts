@@ -1243,12 +1243,61 @@ export async function finalizeAutomationRun(id: string, runId: string) {
   return res.json();
 }
 
-export async function allowUser(name: string, userId: string, teamId?: string | null) {
+export async function allowUser(
+  name: string,
+  userId: string,
+  teamId?: string | null,
+  displayName?: string,
+) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/allow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(teamId ? { user_id: userId, team_id: teamId } : { user_id: userId }),
+    body: JSON.stringify({
+      user_id: userId,
+      ...(teamId ? { team_id: teamId } : {}),
+      // Directory picks carry the display name so the chip is readable at once.
+      ...(displayName ? { name: displayName } : {}),
+    }),
   });
+  return res.json();
+}
+
+// One workspace member from the roster (people picker; users:read, cached locally).
+export interface SlackMember {
+  id: string;
+  name: string;
+  handle: string;
+  guest: boolean;
+}
+
+// One channel from the workspace roster. Private channels appear only where the
+// bot is a member (Slack API constraint); is_member=false → "invite @ocw" hint.
+export interface SlackChannelEntry {
+  id: string;
+  name: string;
+  is_private: boolean;
+  is_member: boolean;
+}
+
+/** Workspace member roster for the people picker (teamId "default" = manual Socket Mode). */
+export async function getSlackDirectory(
+  teamId: string,
+  q = "",
+): Promise<{ ok: boolean; error?: string; members?: SlackMember[] }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/directory?q=${encodeURIComponent(q)}`,
+  );
+  return res.json();
+}
+
+/** Channel roster for the channel typeahead (name → id resolution). */
+export async function getSlackChannels(
+  teamId: string,
+  q = "",
+): Promise<{ ok: boolean; error?: string; channels?: SlackChannelEntry[] }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/channels?q=${encodeURIComponent(q)}`,
+  );
   return res.json();
 }
 

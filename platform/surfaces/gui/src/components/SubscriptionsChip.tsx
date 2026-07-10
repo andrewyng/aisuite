@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  getConnectors,
   getRecentChannels,
+  getSlackChannels,
   subscribeChannel,
   unsubscribeChannel,
   type RecentChannel,
 } from "../api";
 import { Icon } from "./Icon";
+
+// A workspace roster hit for the typeahead: type a channel NAME, we resolve the
+// id (conversations.list, cached on the desktop) and compose the address.
+interface RosterHit {
+  address: string;
+  name: string;
+  workspace: string; // labeled only when >1 workspace is connected
+  is_private: boolean;
+  is_member: boolean;
+}
 
 // A channel input with a popover of recently-seen channels (the "recent list + type-the-id"
 // picker). Free typing is allowed (a slack:C0123 address or a channel Copy-link URL). The
@@ -33,6 +45,58 @@ export function ChannelPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
+  // Slack workspaces for the roster lookup, learned lazily on first open (relay =
+  // per-team; manual Socket Mode = the "default" flat workspace; [] = not connected).
+  const [teams, setTeams] = useState<{ team_id: string; account: string }[] | null>(null);
+  useEffect(() => {
+    if (!open || teams !== null) return;
+    getConnectors()
+      .then((cs) => {
+        const s = cs.find((c) => c.name === "slack");
+        if (!s?.connected) return setTeams([]);
+        setTeams(
+          s.mode === "relay"
+            ? (s.workspaces || []).map((w) => ({
+                team_id: w.team_id,
+                account: w.account || w.team_id,
+              }))
+            : [{ team_id: "default", account: s.account || "workspace" }],
+        );
+      })
+      .catch(() => setTeams([]));
+  }, [open, teams]);
+
+  // Type a NAME → live roster suggestions (debounced; addresses/URLs skip the lookup).
+  const [roster, setRoster] = useState<RosterHit[]>([]);
+  useEffect(() => {
+    const name = value.trim().replace(/^#/, "");
+    if (!open || !teams || teams.length === 0 || !name || name.includes(":") || name.includes("/")) {
+      setRoster([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const rows = await Promise.all(
+        teams.map(async (tm) => {
+          try {
+            const r = await getSlackChannels(tm.team_id, name);
+            return (r.ok ? r.channels || [] : []).map((c) => ({
+              address:
+                tm.team_id === "default" ? `slack:${c.id}` : `slack:${tm.team_id}/${c.id}`,
+              name: c.name,
+              workspace: teams.length > 1 ? tm.account : "",
+              is_private: c.is_private,
+              is_member: c.is_member,
+            }));
+          } catch {
+            return [] as RosterHit[];
+          }
+        }),
+      );
+      setRoster(rows.flat().slice(0, 12));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [value, open, teams]);
+
   // Filter as the user types (name, address, or last-message text); full list on focus.
   const q = value.trim().toLowerCase();
   const options = recent.filter(
@@ -42,6 +106,9 @@ export function ChannelPicker({
       (c.name || "").toLowerCase().includes(q) ||
       (c.last_text || "").toLowerCase().includes(q),
   );
+  // Roster hits the recent list already covers would be duplicates — drop them.
+  const seen = new Set(options.map((c) => c.channel));
+  const lookups = roster.filter((r) => !seen.has(r.address));
 
   return (
     <div className="relative flex-1 min-w-0" ref={wrap}>
@@ -62,7 +129,7 @@ export function ChannelPicker({
           }
         }}
       />
-      {open && options.length > 0 && (
+      {open && (options.length > 0 || lookups.length > 0) && (
         <div
           className="absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border border-line bg-panel shadow-lg py-1 max-h-56 overflow-y-auto"
           role="listbox"
@@ -88,6 +155,33 @@ export function ChannelPicker({
                 <span className="block text-[11px] text-faint truncate">
                   {c.last_from ? `${c.last_from}: ` : ""}
                   {c.last_text}
+                </span>
+              )}
+            </button>
+          ))}
+          {/* Live workspace-roster hits: type the NAME, we resolved the id. */}
+          {lookups.map((r) => (
+            <button
+              key={r.address}
+              role="option"
+              className="block w-full text-left px-3 py-1.5 hover:bg-paper"
+              data-testid={`roster-channel-${r.address}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(r.address);
+                setOpen(false);
+              }}
+            >
+              <span className="text-[12.5px] text-ink">
+                {r.is_private ? "🔒 " : "#"}
+                {r.name}
+              </span>
+              {r.workspace && (
+                <span className="ml-1.5 text-[11px] text-faint">{r.workspace}</span>
+              )}
+              {!r.is_member && (
+                <span className="block text-[11px] text-warnInk">
+                  invite @ocw to this channel in Slack so it can listen
                 </span>
               )}
             </button>

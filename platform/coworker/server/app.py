@@ -865,8 +865,33 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/connectors/{name}/allow")
     def connector_allow(name: str, body: dict) -> dict[str, Any]:
         # `team_id` scopes the edit to one workspace (managed relay); absent → flat list.
+        # `name` (optional) seeds the people directory so a directory-picked user's
+        # chip shows their display name before they've ever sent a message.
         return manager.allow_user(
-            name, str(body.get("user_id", "")), str(body.get("team_id", "")) or None
+            name,
+            str(body.get("user_id", "")),
+            str(body.get("team_id", "")) or None,
+            display_name=str(body.get("name", "")),
+        )
+
+    @app.get("/v1/connectors/slack/workspaces/{team_id}/directory")
+    async def slack_directory(team_id: str, q: str = "", limit: int = 25) -> dict[str, Any]:
+        """Workspace member roster for the people picker (team_id "default" =
+        the manual Socket-Mode workspace). Cached locally; never leaves this machine."""
+        from ..connectors import slack_directory as roster
+
+        return await asyncio.to_thread(
+            lambda: roster.list_members(manager.secrets, team_id, q, limit)
+        )
+
+    @app.get("/v1/connectors/slack/workspaces/{team_id}/channels")
+    async def slack_channels(team_id: str, q: str = "", limit: int = 25) -> dict[str, Any]:
+        """Channel roster for the channel typeahead: all public channels, private
+        ones only where the bot is a member (Slack API constraint)."""
+        from ..connectors import slack_directory as roster
+
+        return await asyncio.to_thread(
+            lambda: roster.list_channels(manager.secrets, team_id, q, limit)
         )
 
     @app.post("/v1/connectors/{name}/disallow")

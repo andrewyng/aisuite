@@ -589,14 +589,37 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (/\/v1\/connectors\/slack\/(allow|disallow)$/.test(p) && m === "POST") {
       const b = req.postDataJSON();
       const add = p.endsWith("/allow");
-      const pool = b.team_id
-        ? slackState.workspaces.find((w) => w.team_id === b.team_id)?.allowed_users
-        : slackState.allowed_users;
+      const ws = b.team_id
+        ? slackState.workspaces.find((w) => w.team_id === b.team_id)
+        : null;
+      const pool = b.team_id ? ws?.allowed_users : slackState.allowed_users;
       if (!pool) return json({ ok: false, error: "workspace not connected" });
       const i = pool.indexOf(b.user_id);
       if (add && i < 0) pool.push(b.user_id);
       if (!add && i >= 0) pool.splice(i, 1);
+      // Directory picks carry the display name — backend seeds the people directory.
+      if (add && b.name && ws) ws.allowed_user_names[b.user_id] = b.name;
       return json({ ok: true, allowed_users: [...pool], team_id: b.team_id ?? null });
+    }
+    // Workspace rosters for the pickers (users.list / conversations.list, mocked).
+    if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/directory$/.test(p) && m === "GET") {
+      const q = (new URL(req.url()).searchParams.get("q") || "").toLowerCase();
+      const members = [
+        { id: "U9MAYA", name: "Maya Chen", handle: "maya", guest: false },
+        { id: "U8ROHIT", name: "Rohit Prasad", handle: "rohit", guest: false },
+        { id: "U7CAL", name: "Contractor Cal", handle: "cal", guest: true },
+      ].filter((mem) => !q || mem.name.toLowerCase().includes(q) || mem.handle.includes(q));
+      return json({ ok: true, members });
+    }
+    if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/channels$/.test(p) && m === "GET") {
+      const team = decodeURIComponent(p.split("/workspaces/")[1].split("/")[0]);
+      const q = (new URL(req.url()).searchParams.get("q") || "").toLowerCase();
+      const channels = [
+        { id: "C9LAUNCH", name: "launch-team", is_private: false, is_member: true },
+        { id: "C8LEADS", name: "leads", is_private: true, is_member: true },
+        { id: "C7LOBBY", name: "lobby", is_private: false, is_member: false },
+      ].filter((c) => !q || c.name.includes(q));
+      return json({ ok: true, channels, team });
     }
     // Slack health, three layers (M3.6 Step 2): socket live + all tokens good by
     // default; sign-in mirrors CLOUD_STATE. Specs force reconnecting/offline/dead
