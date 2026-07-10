@@ -22,8 +22,11 @@ from typing import Any, Optional
 from ..secrets import SecretStore
 
 _TTL = 900.0  # 15 min — rosters drift slowly; a Refresh affordance can force it
+# users.list: Slack recommends ≤200/page. conversations.list allows 1000 — use it:
+# the cold sweep is user-visible latency (a big workspace took ~11 s at 200/page).
 _PAGE_LIMIT = 200
-_MAX_PAGES = 25  # 5k users / channels — beyond that, type more letters
+_CHANNEL_PAGE_LIMIT = 999
+_MAX_PAGES = 25  # caps both sweeps — beyond that, type more letters
 
 # (team_id, kind) → (fetched_at, rows). Module-level on purpose: survives
 # request handlers but not the process — nothing roster-shaped is persisted.
@@ -44,14 +47,16 @@ def _bot_token(secrets: SecretStore, team_id: str) -> str:
     return str((secrets.get("slack:default") or {}).get("bot_token") or "")
 
 
-def _get_pages(token: str, method: str, params: dict[str, Any], key: str) -> list[dict]:
+def _get_pages(
+    token: str, method: str, params: dict[str, Any], key: str, page_limit: int = _PAGE_LIMIT
+) -> list[dict]:
     """Cursor-paginated GET; raises RuntimeError with Slack's error string."""
     import httpx
 
     rows: list[dict] = []
     cursor = ""
     for _ in range(_MAX_PAGES):
-        q = {**params, "limit": _PAGE_LIMIT}
+        q = {**params, "limit": page_limit}
         if cursor:
             q["cursor"] = cursor
         resp = httpx.get(
@@ -148,6 +153,7 @@ def list_channels(
             "conversations.list",
             {"types": "public_channel,private_channel", "exclude_archived": "true"},
             "channels",
+            page_limit=_CHANNEL_PAGE_LIMIT,
         )
         return [
             {

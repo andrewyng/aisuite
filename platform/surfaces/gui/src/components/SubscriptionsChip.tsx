@@ -67,13 +67,19 @@ export function ChannelPicker({
   }, [open, teams]);
 
   // Type a NAME → live roster suggestions (debounced; addresses/URLs skip the lookup).
+  // `searching` keeps the wait VISIBLE: the first lookup per workspace is a cold
+  // paginated conversations.list sweep — seconds on a big workspace — and a silent
+  // gap reads as "the typeahead doesn't work" (owner report, 2026-07-09).
   const [roster, setRoster] = useState<RosterHit[]>([]);
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     const name = value.trim().replace(/^#/, "");
     if (!open || !teams || teams.length === 0 || !name || name.includes(":") || name.includes("/")) {
       setRoster([]);
+      setSearching(false);
       return;
     }
+    setSearching(true);
     const t = setTimeout(async () => {
       const rows = await Promise.all(
         teams.map(async (tm) => {
@@ -93,6 +99,7 @@ export function ChannelPicker({
         }),
       );
       setRoster(rows.flat().slice(0, 12));
+      setSearching(false);
     }, 250);
     return () => clearTimeout(t);
   }, [value, open, teams]);
@@ -129,7 +136,7 @@ export function ChannelPicker({
           }
         }}
       />
-      {open && (options.length > 0 || lookups.length > 0) && (
+      {open && (options.length > 0 || lookups.length > 0 || searching) && (
         <div
           className="absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border border-line bg-panel shadow-lg py-1 max-h-56 overflow-y-auto"
           role="listbox"
@@ -159,6 +166,16 @@ export function ChannelPicker({
               )}
             </button>
           ))}
+          {/* The wait is visible: the first lookup per workspace sweeps the full
+              channel roster (seconds on a big workspace; cached 15 min after). */}
+          {searching && lookups.length === 0 && (
+            <div
+              className="px-3 py-1.5 text-[12px] text-faint"
+              data-testid="roster-searching"
+            >
+              searching your workspace’s channels…
+            </div>
+          )}
           {/* Live workspace-roster hits: type the NAME, we resolved the id. */}
           {lookups.map((r) => (
             <button

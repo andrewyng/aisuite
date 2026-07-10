@@ -35,7 +35,7 @@ def _fake_pages(monkeypatch, pages_by_method: dict[str, list[dict]]):
     """Stub the paginated fetch; records (method, token) per call."""
     calls: list[tuple[str, str]] = []
 
-    def fake(token, method, params, key):
+    def fake(token, method, params, key, page_limit=200):
         calls.append((method, token))
         return pages_by_method[method]
 
