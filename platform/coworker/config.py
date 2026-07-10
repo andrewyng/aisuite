@@ -57,10 +57,12 @@ class Config:
     cloud_auth_domain: str = "opencoworker.us.auth0.com"
     cloud_client_id: str = "g1l4Q1lhYWmyS03qPSf4KEJGrgq02Qam"
     cloud_audience: str = "https://api.opencoworker.app"
-    # Managed Slack relay WebSocket endpoint (wss://…execute-api…/<stage>). Empty
-    # until the relay is deployed; empty ⇒ managed Slack unavailable, Socket Mode
-    # (manual tokens) still works. Set post-`terraform apply`.
-    cloud_relay_ws_url: str = ""
+    # Managed relay WebSocket endpoint (Slack/GitHub inbound). Defaults to the
+    # PRODUCTION relay so a fresh install relays out of the box — an empty
+    # default shipped once as "connected but relay OFF" on every machine
+    # without a hand-edited config.toml. Empty override ⇒ relay disabled
+    # (manual Socket Mode still works); dev/BYO deployments point elsewhere.
+    cloud_relay_ws_url: str = "wss://l4z1paxb83.execute-api.us-east-1.amazonaws.com/ocw-connect"
 
 
 _FIELDS = {
