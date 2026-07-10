@@ -2237,17 +2237,43 @@ def make_integration_tools(
     _HS_KINDS = ("contacts", "companies", "deals", "tickets")
 
     def hubspot_search(
-        query: str, object_type: str = "contacts", max_results: int = 10, portal: str = ""
+        query: str = "",
+        object_type: str = "contacts",
+        max_results: int = 10,
+        properties: str = "",
+        filters: str = "",
+        portal: str = "",
     ) -> dict[str, Any]:
         name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
         kind = object_type if object_type in _HS_KINDS else "contacts"
+        # The search API only returns HubSpot's default properties unless asked,
+        # and free-text `query` never matches custom properties — so property
+        # filters are the only way to select on them (e.g. an "org_type" field).
+        body: dict[str, Any] = {"limit": _clamp(max_results, ceiling=100)}
+        if query:
+            body["query"] = query
+        if properties:
+            body["properties"] = [p.strip() for p in properties.split(",") if p.strip()]
+        if filters:
+            try:
+                parsed = json.loads(filters)
+            except ValueError:
+                return {"error": "filters must be a JSON array of filter objects"}
+            if not isinstance(parsed, list) or not all(
+                isinstance(f, dict) and f.get("property") and f.get("operator")
+                for f in parsed
+            ):
+                return {"error": "each filter needs at least 'property' and 'operator'"}
+            body["filterGroups"] = [{"filters": parsed}]
+        if not query and not filters:
+            return {"error": "provide a query, filters, or both"}
         result = _request(
             "POST",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/search",
             headers=_bearer_headers(token),
-            json={"query": query, "limit": _clamp(max_results)},
+            json=body,
         )
         return _hubspot_result(secrets, name, result)
 
@@ -2257,30 +2283,53 @@ def make_integration_tools(
             hubspot_search,
             _schema(
                 "hubspot_search",
-                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type).",
+                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type). "
+                "Custom properties are only returned if named in `properties`, and only "
+                "matchable via `filters` (free-text query searches default fields only).",
                 {
-                    "query": {"type": "string"},
+                    "query": {"type": "string", "description": "Free-text search"},
                     "object_type": {"type": "string"},
                     "max_results": {"type": "integer"},
+                    "properties": {
+                        "type": "string",
+                        "description": "Comma-separated property names to return "
+                        "(include custom properties here)",
+                    },
+                    "filters": {
+                        "type": "string",
+                        "description": 'JSON array of {"property", "operator", "value"} '
+                        "objects, ANDed together. Operators: EQ, NEQ, LT, LTE, GT, GTE, "
+                        "CONTAINS_TOKEN, HAS_PROPERTY, NOT_HAS_PROPERTY, IN",
+                    },
                     "portal": _PORTAL_PROP,
                 },
-                ["query"],
+                [],
             ),
             caps=["hubspot", "read"],
         )
     )
 
     def hubspot_get_object(
-        object_type: str, object_id: str, portal: str = ""
+        object_type: str,
+        object_id: str,
+        properties: str = "",
+        associations: str = "",
+        portal: str = "",
     ) -> dict[str, Any]:
         name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
         kind = object_type if object_type in _HS_KINDS else "contacts"
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = properties  # API takes the comma string as-is
+        if associations:
+            params["associations"] = associations
         result = _request(
             "GET",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
             headers=_bearer_headers(token),
+            params=params or None,
         )
         return _hubspot_result(secrets, name, result)
 
@@ -2290,10 +2339,21 @@ def make_integration_tools(
             hubspot_get_object,
             _schema(
                 "hubspot_get_object",
-                "Read a HubSpot CRM record by ID.",
+                "Read a HubSpot CRM record by ID. Custom properties are only "
+                "returned if named in `properties`; pass `associations` to also get "
+                "linked record ids.",
                 {
                     "object_type": {"type": "string"},
                     "object_id": {"type": "string"},
+                    "properties": {
+                        "type": "string",
+                        "description": "Comma-separated property names to return",
+                    },
+                    "associations": {
+                        "type": "string",
+                        "description": "Comma-separated object types to return "
+                        "associated ids for (e.g. companies,contacts)",
+                    },
                     "portal": _PORTAL_PROP,
                 },
                 ["object_type", "object_id"],

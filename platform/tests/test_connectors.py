@@ -812,6 +812,46 @@ def test_new_tools_request_routing(tmp_path, monkeypatch):
     }
 
 
+def test_hubspot_search_properties_and_filters(tmp_path, monkeypatch):
+    """Custom properties (VC-thesis fields etc.) are invisible to the search API
+    unless requested, and unmatchable by free-text query — the properties/filters
+    params are what make property-driven workflows possible at all."""
+    calls = []
+    tools = _connected_tools(tmp_path, monkeypatch, calls)
+
+    tools["hubspot_search"](
+        object_type="companies",
+        properties="org_type, check_min,check_max",
+        filters='[{"property":"org_type","operator":"EQ","value":"VC"}]',
+        max_results=50,
+    )
+    body = calls[-1]["json"]
+    assert body["properties"] == ["org_type", "check_min", "check_max"]
+    assert body["filterGroups"] == [
+        {"filters": [{"property": "org_type", "operator": "EQ", "value": "VC"}]}
+    ]
+    assert body["limit"] == 50 and "query" not in body
+
+    tools["hubspot_search"]("acme")  # plain free-text still works
+    assert calls[-1]["json"]["query"] == "acme"
+
+    n = len(calls)  # none of the error paths below may reach the network
+    assert "JSON array" in tools["hubspot_search"](filters="not json")["error"]
+    assert "property" in tools["hubspot_search"](filters='[{"value":"x"}]')["error"]
+    assert "query" in tools["hubspot_search"]()["error"]
+    assert len(calls) == n
+
+    tools["hubspot_get_object"](
+        "deals", "42", properties="round,portfolio_company", associations="companies"
+    )
+    assert calls[-1]["params"] == {
+        "properties": "round,portfolio_company",
+        "associations": "companies",
+    }
+    tools["hubspot_get_object"]("deals", "42")  # no params → none sent
+    assert calls[-1]["params"] is None
+
+
 def test_new_write_tools_require_approval(tmp_path, monkeypatch):
     # every connector tool is approval-gated in this codebase (see _attach default);
     # the write tools matter most, so pin them explicitly
