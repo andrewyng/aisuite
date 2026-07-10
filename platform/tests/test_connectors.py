@@ -663,6 +663,14 @@ _NEW_CONNECTORS = {
     "box": {"access_token": "boxtok"},
     "quickbooks": {"access_token": "qbo", "realm_id": "9341453"},
     "whatsapp": {"access_token": "wa_tok", "phone_number_id": "555111"},
+    # Batch-2 account-patterned connectors: stored as legacy flat :default
+    # profiles on purpose — the accounts layer migrates them lazily, so these
+    # also regression-pin the migration on the tool path.
+    "posthog": {"api_key": "phx_x", "project_id": "77"},
+    "mixpanel": {"username": "svc.user", "secret": "mp_sec", "project_id": "88"},
+    "amplitude": {"api_key": "amp_key_abc123", "secret_key": "amp_sec"},
+    "apollo": {"api_key": "apo_x"},
+    "hunter": {"api_key": "hun_x"},
 }
 
 
@@ -717,6 +725,11 @@ def test_new_tools_error_when_not_connected(tmp_path):
     assert "not connected" in tools["stripe_search_customers"]("e:'a'")["error"]
     assert "not connected" in tools["asana_get_task"]("1")["error"]
     assert "not connected" in tools["hubspot_search"]("acme")["error"]
+    assert "not connected" in tools["posthog_query"]("SELECT 1")["error"]
+    assert "not connected" in tools["mixpanel_top_events"]()["error"]
+    assert "not connected" in tools["amplitude_active_users"]("20260701", "20260707")["error"]
+    assert "not connected" in tools["apollo_enrich_company"]("acme.io")["error"]
+    assert "not connected" in tools["hunter_verify_email"]("a@b.co")["error"]
     assert "not connected" in tools["dropbox_list_folder"]()["error"]
     assert "not connected" in tools["box_read_file"]("1")["error"]
     assert "not connected" in tools["quickbooks_query"]("SELECT * FROM Bill")["error"]
@@ -810,6 +823,96 @@ def test_new_tools_request_routing(tmp_path, monkeypatch):
         "name": "order_update",
         "language": {"code": "en_US"},
     }
+
+
+def test_batch2_tools_request_routing(tmp_path, monkeypatch):
+    """The five key-based batch-2 connectors: right endpoints, right auth style,
+    and every result stamped with the serving account (legacy flat profiles
+    migrate on first use — see _NEW_CONNECTORS)."""
+    calls = []
+    tools = _connected_tools(tmp_path, monkeypatch, calls)
+
+    out = tools["posthog_query"]("SELECT event FROM events")
+    assert calls[-1]["url"] == "https://us.posthog.com/api/projects/77/query"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer phx_x"
+    assert calls[-1]["json"]["query"]["kind"] == "HogQLQuery"
+    assert out["account"] == "77"  # stamped for approvals/transcripts
+
+    tools["posthog_list_insights"]("signups", max_results=5)
+    assert calls[-1]["url"].endswith("/api/projects/77/insights")
+    assert calls[-1]["params"] == {"limit": 5, "search": "signups"}
+
+    tools["mixpanel_segmentation"]("purchase", "2026-07-01", "2026-07-07", unit="bogus")
+    assert calls[-1]["url"] == "https://mixpanel.com/api/query/segmentation"
+    assert calls[-1]["params"]["project_id"] == "88"
+    assert calls[-1]["params"]["unit"] == "day"  # bogus unit falls back
+
+    tools["mixpanel_top_events"]()
+    assert calls[-1]["url"].endswith("/api/query/events/top")
+
+    tools["amplitude_active_users"]("2026-07-01", "2026-07-07", metric="new")
+    assert calls[-1]["url"] == "https://amplitude.com/api/2/users"
+    assert calls[-1]["params"]["start"] == "20260701"  # dashes normalized
+    assert calls[-1]["params"]["m"] == "new"
+
+    tools["amplitude_event_totals"]("signup", "20260701", "20260707")
+    assert calls[-1]["url"].endswith("/api/2/events/segmentation")
+    assert '"event_type": "signup"' in calls[-1]["params"]["e"]
+
+    tools["apollo_enrich_person"](email="maya@acme.io")
+    assert calls[-1]["url"] == "https://api.apollo.io/api/v1/people/match"
+    assert calls[-1]["headers"]["X-Api-Key"] == "apo_x"
+    assert "provide an email" in tools["apollo_enrich_person"]()["error"]
+
+    tools["apollo_enrich_company"]("acme.io")
+    assert calls[-1]["params"] == {"domain": "acme.io"}
+
+    tools["apollo_search_people"]("VP engineering fintech", max_results=7)
+    assert calls[-1]["json"]["per_page"] == 7
+
+    tools["hunter_domain_search"]("acme.io", max_results=3)
+    assert calls[-1]["url"] == "https://api.hunter.io/v2/domain-search"
+    assert calls[-1]["params"] == {"domain": "acme.io", "limit": 3, "api_key": "hun_x"}
+
+    tools["hunter_find_email"]("acme.io", "Maya", "Chen")
+    assert calls[-1]["params"]["first_name"] == "Maya"
+
+    tools["hunter_verify_email"]("maya@acme.io")
+    assert calls[-1]["url"].endswith("/email-verifier")
+
+
+def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):
+    """Two PostHog projects connected → the account param routes the call; the
+    default pointer serves bare calls; unknown accounts fail closed."""
+    import coworker.connectors.integration_tools as it
+    from coworker.connectors import accounts
+
+    calls = []
+    secrets = SecretStore(tmp_path / "secrets.json")
+    accounts.add_account(
+        secrets, "posthog", "11", {"api_key": "k11", "project_id": "11"}
+    )
+    accounts.add_account(
+        secrets, "posthog", "22", {"api_key": "k22", "project_id": "22"}
+    )
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"url": url, "headers": headers or {}})
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+
+    out = tools["posthog_query"]("SELECT 1", account="22")
+    assert "/projects/22/" in calls[-1]["url"]
+    assert calls[-1]["headers"]["Authorization"] == "Bearer k22"
+    assert out["account"] == "22"
+
+    out = tools["posthog_query"]("SELECT 1")  # default = first added
+    assert "/projects/11/" in calls[-1]["url"] and out["account"] == "11"
+
+    out = tools["posthog_query"]("SELECT 1", account="99")
+    assert "no posthog account matching" in out["error"]
 
 
 def test_hubspot_search_properties_and_filters(tmp_path, monkeypatch):
