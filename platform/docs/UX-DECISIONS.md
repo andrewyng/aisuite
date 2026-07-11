@@ -61,6 +61,9 @@ the HTML mock), **Built** (in the real React/Python app).
 - **Rationale:** Turns an empty integration state into a capability story; progressive setup the user
   can finish later (explicitly *not* gating onboarding). Per-session scope keeps it contextual; the
   drawer reuses the global Integrations visual language so it's one mental model.
+- ↪ **Superseded (2026-07-11):** the always-visible bar + `⚠ N` badge is replaced by the
+  session-settings row (rest = one icon; the nudge moves into the drawer) — see §23. The drawer
+  itself lives on, renamed "Session settings" and extended with working directories.
 
 ## 4. Connection hierarchy: persona-level vs session-level enablement  *(Decided — data-model change)*
 - **Decision (Decided 2026-06-29 by owner):** Today connectors are enabled **per persona**. We're
@@ -379,8 +382,70 @@ the interim "Slack workspaces" Integrations tab was the wrong shape. One pattern
   org-blocked = Teams' native "Request approval" asks IT once. No tenant-admin Graph permissions
   by design — same per-actor privacy posture as the Slack relay.
 
+## 22. Session screen cleanup: contextual top-left cluster, facts subtitle, three-control composer  *(Decided 2026-07-11 by owner; mocks: `ocw-context/docs/ux-improvements/mocks/UX-002-session-screen.html`)*
+
+Owner sketch (hand-drawn) → discussed and resolved in the UX ledger (ocw-context, UX-002). Both the
+fresh-session and in-progress screens shed chrome:
+
+- **Top-left cluster `[sidebar] [+ new session] [search]` renders only when the sidebar is
+  collapsed** — the expanded sidebar already owns those actions; never duplicate them. Build note:
+  the cluster sits inside §20's hover-peek zone — the peek must not fire while the cursor is on
+  these icons (start the zone below the icon row or add a short delay; the pin/reveal co-location
+  logic already handles this corner). Keyboard shortcuts stay global regardless of sidebar state.
+- **Centered title with a facts subtitle** beneath: `(Coworker · Opus 4.8)`; code sessions include
+  the workspace folder. The subtitle is the session's **fixed facts, not controls** — it replaces
+  the locked-model pill (§17's lock expressed spatially) and the topbar "About this persona"
+  sliders button (subtitle click → the coworker page). ⋮ conversation menu unchanged. Topbar
+  right: session-settings icon (§23) + panel toggle; the right rail absorbs **artifacts only**.
+- **Composer = `[+ attach] [Mode ⌄] [send]`.** The **Mode menu** carries the five permission
+  options (Discuss / Plan / Ask for approval / Full access / Custom) **plus the
+  Unattended/send-approvals-to-Inbox toggle** at the bottom — "who approves, and when" is one
+  mental model; the separate InboxControl leaves the row.
+- **The model picker appears only on a fresh session** (quiet chip on the composer's right);
+  after the first turn the fact moves up to the subtitle. No interactive-then-disabled control.
+- **Folder/roots control and branch chip leave the composer** → the session-settings drawer
+  (§23). Folder access is standing session config, not per-message attachment — the same
+  reasoning §14 used to keep channels out of the `+` menu. The `+` menu stays attachments-only.
+- **Open at build time:** fresh-session greeting copy; whether suggestion chips survive.
+
+## 23. Session settings row: hover to glance, click to manage  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-003-session-row.html`)*
+
+Replaces §3's always-visible SourcesBar (ledger UX-003). One sub-header row above the conversation
+whose contract is **rest = icon · hover/focus = glance · click = manage**:
+
+- **Rest:** a single quiet icon, constant row height. **No nudge text at rest, ever** — the
+  "recommended source not connected" nudge lives only in the drawer.
+- **Hover/focus** (~150–200ms reveal delay so mouse-crossing doesn't flicker; reveals on keyboard
+  focus too): a glance strip — **connected source icons in brand color**, persona-**recommended
+  but unavailable ones in grayscale** (the gray icon IS the nudge, wordless), a **folder count**
+  ("2 folders"; code sessions show the folder *name* — the workspace is the session's identity),
+  and a trailing **"Configure ›"**. Icons only, no labels or chips. **No reflow** — row height is
+  identical resting and hovered.
+- **Gray covers both** "not connected" and "connected but muted for this session" (§4 override):
+  the strip answers "what can *this session* touch right now"; tooltips disambiguate. Only
+  persona-recommended connectors ever appear gray — never the whole catalog.
+- **Everything in the glance is a shortcut:** icons and the folder count click straight into the
+  matching drawer section. Tooltips are load-bearing once labels are gone (per-icon name + state;
+  folder paths on the count).
+- **Click:** opens the drawer, renamed **"Session settings"** — sources (connect-in-context,
+  channels child panel §14, mute toggles §4) plus a new **working directories** section (roots
+  list, add/remove, branch). ⚠ recommendations render here.
+- **Rejected:** the icon morphing to "Click to configure" on hover (self-narrating UI, layout
+  shift, permanent noise — affordance comes from the glance's content being clickable); at-rest
+  nudge text (owner call: drawer only); placing the icon in the topbar with an anchored popover
+  (max-clean but spatially disconnected — in-place morph keeps discoverability; cf. the
+  cloud-sign-in placement regression, 2026-07-09).
+
 ## Change log (requests, newest first)
 
+- **2026-07-11** — Owner (hand-drawn sketch → UX ledger `ocw-context/docs/ux-improvements/`,
+  entries UX-002/UX-003, mocks reviewed + approved): session-screen cleanup — contextual
+  `[sidebar][+][search]` cluster (collapsed-sidebar only), facts subtitle replacing the locked
+  pill + persona button, composer reduced to `[+][Mode ⌄][send]` with Unattended folded into the
+  Mode menu, fresh-only model chip → §22. SourcesBar → session-settings row (hover glance, click
+  manage; gray icon = the nudge; drawer renamed "Session settings" + working directories) → §23,
+  superseding §3's bar. Naming (ledger UX-001, partial): in-app nav noun = **"Coworkers"**;
+  **"Specialist"** reserved for marketing/gallery voice; internals keep `persona`.
 - **2026-07-08** — Owner, reviewing the M3.5 Slack-workspaces tab: wanted connector detail as a
   subpage under Connectors (not a nav item), connected-first Connectors list, Apple-quiet styling,
   one add-connection entry point (header-button modal with One click | Manual pills), collapsed
