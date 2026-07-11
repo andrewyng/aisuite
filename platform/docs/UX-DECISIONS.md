@@ -396,7 +396,10 @@ fresh-session and in-progress screens shed chrome:
   the workspace folder. The subtitle is the session's **fixed facts, not controls** — it replaces
   the locked-model pill (§17's lock expressed spatially) and the topbar "About this persona"
   sliders button (subtitle click → the coworker page). ⋮ conversation menu unchanged. Topbar
-  right: session-settings icon (§23) + panel toggle; the right rail absorbs **artifacts only**.
+  right: the **panel toggle only** (mirrored variant of the left nav's sidebar glyph, one glyph
+  both states); the right rail absorbs **artifacts only**. *(Revised at visual review
+  2026-07-11: the topbar session-settings icon was dropped as redundant — §23's row owns the
+  drawer.)*
 - **Composer = `[+ attach] [Mode ⌄] [send]`.** The **Mode menu** carries the five permission
   options (Discuss / Plan / Ask for approval / Full access / Custom) **plus the
   Unattended/send-approvals-to-Inbox toggle** at the bottom — "who approves, and when" is one
