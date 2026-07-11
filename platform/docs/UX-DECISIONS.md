@@ -436,8 +436,38 @@ whose contract is **rest = icon · hover/focus = glance · click = manage**:
   (max-clean but spatially disconnected — in-place morph keeps discoverability; cf. the
   cloud-sign-in placement regression, 2026-07-09).
 
+## 24. First-run onboarding: model → recipe → tips  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-004-onboarding.html`; ledger UX-004)*
+
+Replaces the settings-shaped first run. Three steps; **only step 1 gates** (§10's
+progressive-never-gating rule):
+
+- **1 — Connect a model.** Fields adapt per provider from the existing descriptors: key-only
+  (Anthropic/OpenAI/Gemini, each with a create-a-key deep-link), endpoint-only (Ollama, prefilled
+  — the free/local escape hatch), endpoint+key (Fireworks etc.). One **default-model dropdown**
+  per provider (curated matrix, recommended pre-selected) — deliberately *not* an
+  enable-checklist; curation stays in Settings ▸ Models. Inline Test/verify.
+- **2 — Get your first automation running** (skippable). **Role tabs — Engineering · Sales ·
+  Everyday** — each with a recipe one-liner, two connect rows, then the recipe card (source ·
+  channel/time · cadence · consent). **One Cloud sign-in, lazily triggered by the first Connect**
+  — never per-integration; tokens-stay-local copy on the pane. **Connections persist across
+  tabs.** Channel fields carry the invite-@ocw hint. **Everyday** = morning brief (Calendar +
+  Gmail) delivered in-app, Slack DM secondary. **Create automation enables only when the tab's
+  connectors are connected.** The consent line — "post the digest to #X without asking each time;
+  anything else still asks first" — is a **standing scoped approval: ledger UX-005, design
+  pending — this section's BUILD IS BLOCKED on it.**
+- **3 — You're set up.** Recap card of the created automation (absent if skipped) → Specialist
+  coworkers tip (Show me → gallery) → one quiet session-control line, with **"Start working"
+  opening the first session with the session-settings panel (§23) open** — teaching by landing,
+  not telling.
+- **Deferred (owner):** tab choice seeding which specialists the gallery features — revisit after
+  the UI cleanup lands.
+
 ## Change log (requests, newest first)
 
+- **2026-07-11 (2)** — Owner (boss-flow study: new install → recurring GitHub→Slack digest;
+  ledger UX-004, mock v2 approved): onboarding restructured to model → role-tabbed recipe →
+  tips → §24. Recipe consent = standing scoped approval (ledger UX-005, design pending; §24
+  build blocked on it). Gallery-seeding-by-tab parked until after UI cleanup.
 - **2026-07-11** — Owner (hand-drawn sketch → UX ledger `ocw-context/docs/ux-improvements/`,
   entries UX-002/UX-003, mocks reviewed + approved): session-screen cleanup — contextual
   `[sidebar][+][search]` cluster (collapsed-sidebar only), facts subtitle replacing the locked
