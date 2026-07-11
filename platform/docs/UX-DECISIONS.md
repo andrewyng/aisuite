@@ -169,6 +169,9 @@ the HTML mock), **Built** (in the real React/Python app).
 - **Not chosen:** moving Inbox to the top cluster (kept it bottom-adjacent to its badge); keeping
   Integrations/Automations visible (folded them in for a cleaner bottom — promotable later if usage
   warrants).
+- ↪ **Superseded (2026-07-11):** the no-account premise went stale when Phase 3 shipped cloud
+  sign-in — the bottom is now a single account row with a state-driven inbox chip, and the ⚙
+  menu became the account menu. See §26.
 
 ---
 
@@ -494,8 +497,47 @@ the `ScheduledTask` record (revocation on the task detail page; deleted with the
   `permissions` create-field, the task-persistent Allow-every-time, and lifting `permissions.py`'s
   connector exclusion **for task-scoped, target-matched rules only**.
 
+## 26. Sidebar bottom: one account row; Connectors renamed; Activity dedup  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-006-sidebar-account.html`; ledger UX-006)*
+
+Supersedes §12's bottom cluster. §12's rationale ("we have no account, so the bottom menu holds
+app destinations") went stale when Phase 3 shipped cloud sign-in two days later; the slot becomes
+the **account anchor** and the bottom is **exactly one row**:
+
+- **Account row:** avatar/initials + first name (email lives in the menu header, never on the
+  row) + a green dot when signed in to OpenCoworker Cloud; signed out = "Not signed in" and the
+  menu leads with the sign-in CTA. No workspace-path header (the path lives in Settings ▸ Files).
+  Telemetry toggle moves to Settings. "Settings & more", the Inbox row, and any Connectors row
+  are retired.
+- **State-driven inbox chip with a sticky unlock** (owner: many users never park an item or use
+  Unattended — a permanent Inbox row is dead chrome for them). Absent until the first item ever
+  parks or Unattended is first enabled, then permanent: quiet icon when empty, accent + count
+  when pending — §12's glanceability requirement, paid only when there's something to glance.
+  Auth-independent (Inbox is local). **Two click targets:** the chip → Inbox directly; anywhere
+  else on the row → the menu.
+- **Menu (fixed):** email header · **Inbox** (with count) · **Connectors** · Settings (⌘,) ·
+  Automations · Activity · Sign out. Inbox + Connectors are always listed — the permanent
+  discoverable path regardless of chip state. **"Integrations" is renamed "Connectors"**
+  everywhere (the findability complaint was the "& more" label; users think "connect Slack";
+  MCP servers sit fine under the Connectors roof). "Inbox" keeps its name — "Approvals" was
+  considered and rejected: the queue also holds questions, plan reviews, and folder-grant
+  requests.
+- **Activity dedup:** two unrelated pages were both named "Activity". The Integrations
+  dead-letter page dissolves into **Messaging routing** as an "Unrouted" section (badge kept);
+  the one remaining Activity = the audit log, in the account menu.
+- **Automations** stays in the menu for now (owner: deserves a visible row, deferred). The
+  Connectors-page sign-in strip retires — the account row supersedes it; connect-modal inline
+  sign-in panes stay (§24's lazy trigger). Designed-not-built: Messaging routing keeps
+  shrinking (§19/§21 moved per-connector cuts onto detail pages; the residual global table may
+  later dissolve entirely).
+
 ## Change log (requests, newest first)
 
+- **2026-07-11 (4)** — Owner (Settings audit; ledger UX-006, mock v2 approved): sidebar bottom
+  → one account row (name + cloud status dot + state-driven sticky-unlock inbox chip);
+  "Settings & more" retired; Integrations renamed Connectors and lives in the account menu with
+  Inbox; the two same-named "Activity" pages deduped (dead-letter → Messaging routing ▸
+  Unrouted; audit log keeps the name); "Approvals" rename rejected → §26. Supersedes §12's
+  bottom cluster.
 - **2026-07-11 (3)** — Owner (UX-005 design discussion): per-automation standing scoped
   approvals — tool+target+task rules on the ScheduledTask record, minted only at the creation
   consent card (agent proposes via a `permissions` field) or a run card's "Allow every time";
