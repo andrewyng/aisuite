@@ -539,27 +539,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         managed=True,
     ),
     ConnectorDescriptor(
-        name="notion",
-        title="Notion",
-        icon="□",
-        blurb="Search pages, summarize knowledge bases, and draft updates.",
-        auth="token",
-        two_way=False,
-        fields=[
-            Field(
-                "token",
-                "Integration token",
-                secret=True,
-                help="Internal integration secret from Notion.",
-            ),
-        ],
-        instructions=[
-            "Create a Notion internal integration and copy its secret.",
-            "Share the relevant pages/databases with that integration.",
-        ],
-        available=True,
-    ),
-    ConnectorDescriptor(
         name="outlook",
         title="Outlook",
         icon="◎",

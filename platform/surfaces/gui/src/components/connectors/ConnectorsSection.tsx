@@ -10,6 +10,7 @@ import {
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
+import { AccountsDetail } from "./AccountsDetail";
 import { CalendarDetail } from "./CalendarDetail";
 import { ConnectorsList } from "./ConnectorsList";
 import { GithubDetail } from "./GithubDetail";
@@ -37,6 +38,14 @@ const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
   google_calendar: (p) => <CalendarDetail {...p} />,
   hubspot: (p) => <HubSpotDetail {...p} />,
   github: (p) => <GithubDetail {...p} />,
+  // Generic multi-account connectors (accounts.py layer) share one page.
+  notion: (p) => <AccountsDetail {...p} />,
+  attio: (p) => <AccountsDetail {...p} />,
+  posthog: (p) => <AccountsDetail {...p} />,
+  mixpanel: (p) => <AccountsDetail {...p} />,
+  amplitude: (p) => <AccountsDetail {...p} />,
+  apollo: (p) => <AccountsDetail {...p} />,
+  hunter: (p) => <AccountsDetail {...p} />,
 };
 
 export function ConnectorsSection() {

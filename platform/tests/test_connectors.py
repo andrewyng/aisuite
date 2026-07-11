@@ -827,6 +827,19 @@ def test_new_tools_request_routing(tmp_path, monkeypatch):
     }
 
 
+def test_registry_has_no_duplicate_names():
+    """A new full descriptor once coexisted with a stale placeholder (both
+    named "notion") — the Connectors page showed the connector twice and the
+    tool registry carried colliding tool names. Guard both registries."""
+    from coworker.connectors.descriptors import DESCRIPTORS
+    from coworker.connectors.tool_defs import TOOL_DEFS
+
+    names = [d.name for d in DESCRIPTORS]
+    assert len(names) == len(set(names)), sorted(n for n in names if names.count(n) > 1)
+    tools = [t.name for t in TOOL_DEFS]
+    assert len(tools) == len(set(tools)), sorted(t for t in tools if tools.count(t) > 1)
+
+
 def test_batch2_tools_request_routing(tmp_path, monkeypatch):
     """The five key-based batch-2 connectors: right endpoints, right auth style,
     and every result stamped with the serving account (legacy flat profiles

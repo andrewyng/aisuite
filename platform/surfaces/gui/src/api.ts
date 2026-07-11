@@ -326,6 +326,16 @@ export interface GmailFilters {
   labels: string[];
 }
 
+// One account of a generic multi-account connector (`<name>:account:<id>`
+// profiles — Notion workspaces, PostHog projects, …). Gmail/Calendar predate
+// the generic layer and keep their email-keyed shape above.
+export interface AccountRow {
+  account_id: string;
+  name: string; // display identity captured at connect (workspace name, email, …)
+  default: boolean;
+  managed: boolean;
+}
+
 export interface Connector {
   name: string;
   title: string;
@@ -350,7 +360,9 @@ export interface Connector {
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
   mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
   workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
-  accounts?: GmailAccount[]; // Gmail + Google Calendar: connected accounts (multi-account)
+  // Gmail/Calendar: email-keyed rows; generic account connectors (notion,
+  // attio, posthog, …): AccountRow. The detail pages narrow by connector.
+  accounts?: GmailAccount[] | AccountRow[];
   filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
   portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
   hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
@@ -1365,6 +1377,24 @@ export async function disconnectGcalAccount(email: string): Promise<{ ok: boolea
 export async function setGcalDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/google_calendar/accounts/${encodeURIComponent(email)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Drop ONE account of a generic multi-account connector (notion, attio,
+ * posthog, …); the default pointer moves to the next account. */
+export async function disconnectAccount(connector: string, accountId: string): Promise<{ ok: boolean; error?: string; remaining_accounts?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(connector)}/accounts/${encodeURIComponent(accountId)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setDefaultAccount(connector: string, accountId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(connector)}/accounts/${encodeURIComponent(accountId)}/default`,
     { method: "POST" },
   );
   return res.json();

@@ -149,23 +149,6 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Fast-forward an existing clone to the latest commits.",
     ),
     ConnectorToolDef(
-        "notion",
-        "notion_search",
-        "Search Notion",
-        "read",
-        "Search Notion pages and databases.",
-    ),
-    ConnectorToolDef(
-        "notion", "notion_get_page", "Read page", "read", "Read a Notion page."
-    ),
-    ConnectorToolDef(
-        "notion",
-        "notion_create_page",
-        "Create page",
-        "write",
-        "Create a Notion child page.",
-    ),
-    ConnectorToolDef(
         "email",
         "email_list_folders",
         "List folders",

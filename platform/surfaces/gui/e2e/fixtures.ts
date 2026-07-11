@@ -105,6 +105,8 @@ const CONNECTORS = {
     { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
     { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    // Generic multi-account connector (accounts.py layer): one-click OR integration token.
+    { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
 };
 
@@ -356,6 +358,24 @@ export async function mockApi(page: import("@playwright/test").Page) {
       enabled: gcalState.accounts.length > 0,
       account: gcalState.accounts.find((a) => a.default)?.email ?? null,
       accounts: gcalState.accounts.map((a) => ({ ...a })),
+    };
+  };
+  // Notion — PER-TEST generic multi-account state (accounts.py layer: AccountRow shape).
+  const notionState = {
+    accounts: [] as { account_id: string; name: string; default: boolean; managed: boolean }[],
+  };
+  const NOTION_NEXT = [
+    { account_id: "ws-1", name: "Rohit's Workspace" },
+    { account_id: "ws-2", name: "Ops Space" },
+  ];
+  const notionConnector = () => {
+    const base = CONNECTORS.connectors.find((c: any) => c.name === "notion");
+    return {
+      ...base,
+      connected: notionState.accounts.length > 0,
+      enabled: notionState.accounts.length > 0,
+      account: notionState.accounts.find((a) => a.default)?.name ?? null,
+      accounts: notionState.accounts.map((a) => ({ ...a })),
     };
   };
   // HubSpot — PER-TEST multi-portal state (starts disconnected; managed connects add
@@ -736,6 +756,23 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (Array.isArray(b.labels)) gmailState.filters.labels = b.labels;
       return json({ ok: true, filters: { ...gmailState.filters } });
     }
+    // Generic multi-account management (accounts.py layer; notion in fixtures).
+    if (/\/v1\/connectors\/notion\/accounts\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const id = decodeURIComponent(p.split("/accounts/")[1].split("/")[0]);
+      const i = notionState.accounts.findIndex((a) => a.account_id === id);
+      if (i < 0) return json({ ok: false, error: "account not connected" });
+      const wasDefault = notionState.accounts[i].default;
+      notionState.accounts.splice(i, 1);
+      if (wasDefault && notionState.accounts[0]) notionState.accounts[0].default = true;
+      return json({ ok: true, remaining_accounts: notionState.accounts.length });
+    }
+    if (/\/v1\/connectors\/notion\/accounts\/[^/]+\/default$/.test(p) && m === "POST") {
+      const id = decodeURIComponent(p.split("/accounts/")[1].split("/")[0]);
+      if (!notionState.accounts.some((a) => a.account_id === id))
+        return json({ ok: false, error: "account not connected" });
+      for (const a of notionState.accounts) a.default = a.account_id === id;
+      return json({ ok: true, default_account: id });
+    }
     // HubSpot multi-portal management (M3.6 Step 4).
     if (/\/v1\/connectors\/hubspot\/portals\/[^/]+\/disconnect$/.test(p) && m === "POST") {
       const hub = decodeURIComponent(p.split("/").slice(-2)[0]);
@@ -771,7 +808,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
                 ? gcalConnector()
                 : c.name === "hubspot"
                   ? hubspotConnector()
-                  : { ...c },
+                  : c.name === "notion"
+                    ? notionConnector()
+                    : { ...c },
           ),
         ],
       });
@@ -820,6 +859,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
         gcalState.accounts.push({
           email, default: gcalState.accounts.length === 0, managed: true,
           scopes: "calendar", needs_reauth: false,
+        });
+      }
+      // Notion managed connect = add the next workspace (generic accounts layer).
+      if (p.includes("/connectors/notion/")) {
+        const next = NOTION_NEXT[notionState.accounts.length] || {
+          account_id: `ws-${notionState.accounts.length + 1}`, name: "extra",
+        };
+        notionState.accounts.push({
+          ...next, default: notionState.accounts.length === 0, managed: true,
         });
       }
       // HubSpot managed connect = add the next portal at the requested access tier.
