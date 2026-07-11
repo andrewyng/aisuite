@@ -462,8 +462,41 @@ progressive-never-gating rule):
 - **Deferred (owner):** tab choice seeding which specialists the gallery features — revisit after
   the UI cleanup lands.
 
+## 25. Standing scoped approvals for automations  *(Decided 2026-07-11 by owner; ledger UX-005 — unblocks §24's build)*
+
+Recurring automations using gated tools (e.g. `send_message`) park an approval **every run** —
+a weekly summary needing a weekly click isn't an automation. The fix is a remembered,
+narrowly-scoped rule: *"this automation may call this tool against this exact target without
+asking"* — **tool + target + owner (task id)**, none optional, no wildcards in v1. Rules live on
+the `ScheduledTask` record (revocation on the task detail page; deleted with the task).
+
+- **Minted on exactly two human-only surfaces — the model can never mint a rule:**
+  1. **The creation consent card** (already exists — `create_scheduled_task` is approval-gated).
+     Every automation surfaces its needs at creation: reads render as *disclosure* lines
+     (read-only, no gating), writes are the *grants*, pre-set to allow. The agent path proposes
+     the set via a new `permissions` field on the create-tool schema; the existing card renders
+     it. **Rejected:** the agent writing `config.toml` — model-authored permission expansion in a
+     global file, invisible in UI, outlives the automation.
+  2. **"Allow every time"** on a recurring run's approval card — persists to the task record
+     (unlike the session-scoped Always-allow). In-app only; not offered on Slack-mirrored
+     buttons. The retrofit path.
+- **Graceful degradation:** no grants → the automation still works; runs park approvals in the
+  Inbox as today.
+- **Invariants:** never offered for `risk=exec`/destructive tools (shell asks forever); additive
+  on top of the run's permission mode — never a silent full-access upgrade; every auto-allowed
+  call audits the rule; cards/audit name the account acted on (§21); persona install consent
+  stays availability-only — installs never ship pre-approved writes.
+- **Infra note:** `always_allowed_tools` + creation gating + run-time wiring already exist
+  (`automation/models.py`, `manager.py`); the build is target-shaping those entries, the
+  `permissions` create-field, the task-persistent Allow-every-time, and lifting `permissions.py`'s
+  connector exclusion **for task-scoped, target-matched rules only**.
+
 ## Change log (requests, newest first)
 
+- **2026-07-11 (3)** — Owner (UX-005 design discussion): per-automation standing scoped
+  approvals — tool+target+task rules on the ScheduledTask record, minted only at the creation
+  consent card (agent proposes via a `permissions` field) or a run card's "Allow every time";
+  agent-written config.toml rejected → §25. Unblocks §24's build.
 - **2026-07-11 (2)** — Owner (boss-flow study: new install → recurring GitHub→Slack digest;
   ledger UX-004, mock v2 approved): onboarding restructured to model → role-tabbed recipe →
   tips → §24. Recipe consent = standing scoped approval (ledger UX-005, design pending; §24
