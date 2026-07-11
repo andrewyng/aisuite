@@ -671,6 +671,8 @@ _NEW_CONNECTORS = {
     "amplitude": {"api_key": "amp_key_abc123", "secret_key": "amp_sec"},
     "apollo": {"api_key": "apo_x"},
     "hunter": {"api_key": "hun_x"},
+    "notion": {"access_token": "ntn_x"},
+    "attio": {"access_token": "attio_x"},
 }
 
 
@@ -880,6 +882,98 @@ def test_batch2_tools_request_routing(tmp_path, monkeypatch):
     tools["hunter_verify_email"]("maya@acme.io")
     assert calls[-1]["url"].endswith("/email-verifier")
 
+    tools["notion_search"]("roadmap", max_results=5)
+    assert calls[-1]["url"] == "https://api.notion.com/v1/search"
+    assert calls[-1]["headers"]["Notion-Version"] == "2022-06-28"
+    assert calls[-1]["json"] == {"query": "roadmap", "page_size": 5}
+
+    tools["notion_query_database"]("db1")
+    assert calls[-1]["url"].endswith("/v1/databases/db1/query")
+    assert "must be a Notion filter" in tools["notion_query_database"]("db1", "nope")["error"]
+
+    tools["notion_create_page"]("pg1", "Weekly notes", "line one\n\nline two")
+    assert calls[-1]["json"]["parent"] == {"page_id": "pg1"}
+    assert len(calls[-1]["json"]["children"]) == 2  # blank lines dropped
+
+    tools["attio_list_objects"]()
+    assert calls[-1]["url"] == "https://api.attio.com/v2/objects"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer attio_x"
+
+    tools["attio_query_records"]("companies", max_results=50)
+    assert calls[-1]["url"].endswith("/v2/objects/companies/records/query")
+    assert calls[-1]["json"] == {"limit": 50}
+
+    tools["attio_get_record"]("people", "r1")
+    assert calls[-1]["url"].endswith("/v2/objects/people/records/r1")
+
+    tools["attio_create_note"]("companies", "r1", "Call notes", "went well")
+    assert calls[-1]["url"] == "https://api.attio.com/v2/notes"
+    assert calls[-1]["json"]["data"]["parent_record_id"] == "r1"
+    assert calls[-1]["json"]["data"]["format"] == "plaintext"
+
+
+def test_notion_read_page_flattens_blocks(tmp_path, monkeypatch):
+    import coworker.connectors.integration_tools as it
+    from coworker.connectors import accounts
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    accounts.add_account(secrets, "notion", "ws1", {"access_token": "t"})
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        if "/blocks/" in url:
+            return {
+                "ok": True,
+                "data": {
+                    "results": [
+                        {
+                            "type": "heading_1",
+                            "heading_1": {"rich_text": [{"plain_text": "Title"}]},
+                        },
+                        {
+                            "type": "paragraph",
+                            "paragraph": {"rich_text": [{"plain_text": "Body text"}]},
+                        },
+                        {"type": "divider", "divider": {}},
+                    ]
+                },
+            }
+        return {"ok": True, "data": {"properties": {"p": 1}, "url": "https://n/x"}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    out = tools["notion_read_page"]("pg1")
+    assert out["text"] == "Title\nBody text"
+    assert out["account"] == "ws1" and out["url"] == "https://n/x"
+
+
+def test_managed_callback_profile_keys_by_account_id(tmp_path):
+    """Managed OAuth on an account-patterned connector: the broker's account_id
+    keys the profile; a second workspace is a second account."""
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    p1 = managed_profile_from_callback(
+        {
+            "access_token": "t1",
+            "account": "Rohit's Workspace",
+            "account_id": "ws-1",
+            "provider": "notion",
+            "connection_id": "c1",
+        }
+    )
+    out = managed_connect_connector(secrets, "notion", p1)
+    assert out["ok"] and out["account_id"] == "ws-1"
+    p2 = managed_profile_from_callback(
+        {"access_token": "t2", "account": "Ops Space", "account_id": "ws-2"}
+    )
+    managed_connect_connector(secrets, "notion", p2)
+    assert [a for a, _ in accounts.list_accounts(secrets, "notion")] == ["ws-1", "ws-2"]
+    # display names survive; default stays the first workspace
+    rows = accounts.account_rows(secrets, "notion")
+    assert rows[0]["name"] == "Rohit's Workspace" and rows[0]["default"]
+
 
 def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):
     """Two PostHog projects connected → the account param routes the call; the
@@ -970,6 +1064,8 @@ def test_new_write_tools_require_approval(tmp_path, monkeypatch):
         "box_search",
         "whatsapp_send_message",
         "whatsapp_send_template",
+        "notion_create_page",
+        "attio_create_note",
     ):
         assert tools[name].__aisuite_tool_metadata__.requires_approval is True, name
 

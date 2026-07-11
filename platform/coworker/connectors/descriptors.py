@@ -148,6 +148,27 @@ def _validate_whoami(
         return ValidationResult(False, error="unexpected response from API")
 
 
+def _validate_notion(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.notion.com/v1/users/me",
+        headers={
+            "Authorization": f"Bearer {creds.get('access_token', '')}",
+            "Notion-Version": "2022-06-28",
+        },
+        identity=lambda d: (d.get("bot") or {}).get("workspace_name") or d["name"],
+    )
+
+
+def _validate_attio(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.attio.com/v2/self",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d.get("workspace_name") or d["workspace_id"],
+    )
+
+
 def _validate_posthog(creds: dict) -> ValidationResult:
     base = str(creds.get("base_url") or "https://us.posthog.com").rstrip("/")
     return _validate_whoami(
@@ -904,6 +925,60 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         available=False,
         brand_color="#00a1e0",
         logo="salesforce",
+    ),
+    ConnectorDescriptor(
+        name="notion",
+        title="Notion",
+        icon="◰",
+        blurb="Search pages, read content, query databases, create pages.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "Integration secret",
+                secret=True,
+                help="From an internal integration at notion.so/my-integrations; "
+                "share the pages it should see with the integration.",
+                placeholder="ntn_…",
+            ),
+        ],
+        instructions=[
+            "One click connects via OpenCoworker Cloud (recommended).",
+            "Manual: create an internal integration at notion.so/my-integrations,",
+            "copy its secret, and share the relevant pages with the integration.",
+        ],
+        validate=_validate_notion,
+        brand_color="#1f2328",
+        managed=True,
+        # Managed profiles key by the workspace id the broker sends
+        # (account_id); a manual integration token falls back to the
+        # validator's workspace name.
+        account_field="account_id",
+    ),
+    ConnectorDescriptor(
+        name="attio",
+        title="Attio",
+        icon="◵",
+        blurb="Read your Attio CRM: objects, records, notes.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "API key",
+                secret=True,
+                help="Workspace Settings → Developers → API keys.",
+            ),
+        ],
+        instructions=[
+            "One click connects via OpenCoworker Cloud (recommended).",
+            "Manual: create an API key under Workspace Settings → Developers.",
+        ],
+        validate=_validate_attio,
+        brand_color="#2d7ff9",
+        managed=True,
+        account_field="account_id",
     ),
     ConnectorDescriptor(
         name="posthog",

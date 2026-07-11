@@ -46,6 +46,7 @@ PROVIDER_FOR_CONNECTOR = {
     "google_drive": "google",
     "slack": "slack",
     "notion": "notion",
+    "attio": "attio",
     "hubspot": "hubspot",
     "github": "github",
 }
@@ -339,6 +340,10 @@ def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
         "provider": form.get("provider", ""),
         "account": form.get("account", ""),
     }
+    if form.get("account_id"):
+        # The stable id behind the display name (workspace/portal id) — what
+        # the generic accounts layer keys multi-account profiles by.
+        profile["account_id"] = form["account_id"]
     if form.get("expires_in"):  # absent ⇒ non-expiring token (e.g. Slack bot tokens)
         profile["expires"] = _now() + int(form["expires_in"]) - 60
     return profile
