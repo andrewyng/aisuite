@@ -18,14 +18,18 @@ test("model step: configured provider fast-path; unconfigured gates until Test p
 }) => {
   await openOnboarding(page);
 
-  // The configured provider (OpenAI in fixtures) is auto-picked: no re-typing a key.
-  await expect(page.getByText("✓ Already connected")).toBeVisible();
+  // The configured provider (OpenAI in fixtures) is auto-picked: no re-typing a key. The
+  // success state lives ON the Test button (no separate status line), and OpenAI's optional
+  // endpoint hides behind the disclosure link even though it has no vendor default.
+  await expect(page.getByTestId("ob-test")).toHaveText("✓ Connected");
+  await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
-  // Switching to an unconfigured vendor gates Continue. The picker is the same SelectMenu the
-  // Settings Models page uses (custom listbox, not a native select).
+  // Switching to an unconfigured vendor gates Continue (and the button reads Test again).
+  // The picker is the same SelectMenu the Settings Models page uses (custom listbox).
   await page.getByRole("button", { name: "Provider" }).click();
   await page.getByRole("option", { name: "Z AI (GLM)" }).click();
+  await expect(page.getByTestId("ob-test")).toHaveText("Test");
   await expect(page.getByTestId("ob-continue")).toBeDisabled();
   // The optional endpoint is an expert option: hidden behind "Configure custom endpoint",
   // prefilled with the vendor default once revealed.
@@ -39,7 +43,7 @@ test("model step: configured provider fast-path; unconfigured gates until Test p
   await expect(page.getByTestId("ob-continue")).toBeDisabled();
   await page.getByTestId("ob-field-api_key").fill("zk-good");
   await page.getByTestId("ob-test").click();
-  await expect(page.getByText("✓ Connected")).toBeVisible();
+  await expect(page.getByTestId("ob-test")).toHaveText("✓ Connected");
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 });
 

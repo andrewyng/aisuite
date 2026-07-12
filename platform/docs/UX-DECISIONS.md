@@ -614,6 +614,15 @@ channel was editable in TWO places (that page's card + Inbox's inline configurat
 
 ## Change log (requests, newest first)
 
+- **2026-07-12 (11)** — Owner (walkthrough, simplification pass on onboarding → §24 revision):
+  key fields lose the "Stored locally (0600)" help line (manual territory, removed at the
+  provider registry so Settings ▸ Models loses it too); OpenAI's optional endpoint joins the
+  "Configure custom endpoint ›" disclosure (ANY base_url on a keyed provider collapses now,
+  not just defaulted ones); the success state moves ONTO the Test button ("✓ Connected" —
+  the status line keeps only errors); the done step HIDES the Specialist-coworkers gallery
+  card (returns later; `finish("gallery")` plumbing kept) and drops the per-session-scope
+  line; the modal height is FIXED at 700px across all three steps (sized to the tallest —
+  the recipe at ~593px content — action rows pin to the bottom, overflow scrolls inside).
 - **2026-07-12 (10)** — Owner (walkthrough, screenshots of three pages): Automations /
   Activity / Inbox must share one look; Messaging routing belongs in Inbox → §28 (one page
   shell everywhere; Inbox tabs Pending / Configure; Connectors sub-nav = Connectors · MCP).

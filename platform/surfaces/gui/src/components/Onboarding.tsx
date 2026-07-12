@@ -136,6 +136,8 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
 
   const credentialed = !!info?.configured && !!info?.needs_key;
   const ready = credentialed || verify.state === "ok";
+  // What the Test button shows: a fresh pass OR already-stored credentials read "✓ Connected".
+  const verified = verify.state === "ok" || (credentialed && verify.state === "idle");
 
   const saveAndContinue = async () => {
     if (!info?.configured || Object.values(fields).some(Boolean)) {
@@ -279,11 +281,16 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
 
   return (
     <div className="fixed inset-0 z-50 bg-ink/30 grid place-items-center" data-testid="onboarding">
-      <div className="w-[600px] max-w-[92vw] max-h-[88vh] overflow-y-auto rounded-2xl border border-line bg-panel shadow-2xl p-8">
+      {/* FIXED height across all three steps (owner call 2026-07-12: the modal resizing per
+          step felt unsettled). Steps are flex columns; each action row `mt-auto`-pins to the
+          bottom; taller content scrolls inside the step. */}
+      {/* 700px fits the tallest step (the recipe, ~593px content) with headroom; shorter
+          windows cap at 88vh and the step scrolls inside. */}
+      <div className="w-[600px] max-w-[92vw] h-[700px] max-h-[88vh] rounded-2xl border border-line bg-panel shadow-2xl p-8 flex flex-col">
         {dots}
 
         {step === 0 && (
-          <section data-testid="ob-step-model">
+          <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
             <h1 className="text-[19px] font-semibold">Welcome to OpenCoworker</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-5">
               Connect a model to get started — OpenCoworker runs on your own API key, and your
@@ -314,15 +321,16 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
             {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
 
             {(info?.fields || []).map((f) => {
-              // A base_url WITH a default on a keyed provider is an expert option: collapsed
-              // behind a link. Keyless providers (Ollama) keep it visible — the endpoint IS
-              // the connection there.
+              // ANY base_url on a keyed provider is an expert option: collapsed behind a link
+              // (owner catch 2026-07-12: OpenAI's endpoint has no default, so the earlier
+              // default-only condition left it visible on the first pass). Keyless providers
+              // (Ollama) keep it visible — the endpoint IS the connection there.
               const keyed = (info?.fields || []).some((x) => x.secret);
-              if (f.key === "base_url" && f.default && keyed && !showEndpoint) {
+              if (f.key === "base_url" && keyed && !showEndpoint) {
                 return (
                   <button
                     key={f.key}
-                    className="block text-[12px] text-accent hover:underline mt-3"
+                    className="block self-start text-[12px] text-accent hover:underline mt-3"
                     onClick={() => setShowEndpoint(true)}
                     data-testid="ob-endpoint-link"
                   >
@@ -368,16 +376,14 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               Models can be enabled or hidden anytime in Settings ▸ Models.
             </p>
 
-            {/* Status line: fixed height so verify results never reflow the form. */}
+            {/* Error line: fixed height so verify failures never reflow the form. Success is
+                NOT a line — the Test button itself flips to "✓ Connected" (owner call
+                2026-07-12: the green status text was louder than the moment deserved). */}
             <div className="mt-3 min-h-[19px] text-[12.5px]">
-              {verify.state === "ok" && <span className="text-ok">✓ Connected</span>}
-              {credentialed && verify.state === "idle" && (
-                <span className="text-ok">✓ Already connected</span>
-              )}
               {verify.state === "error" && <span className="text-warnInk">{verify.msg}</span>}
             </div>
 
-            <div className="flex items-center gap-3 mt-5">
+            <div className="flex items-center gap-3 mt-auto pt-5">
               {!skipConfirm ? (
                 <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setSkipConfirm(true)}>
                   Skip setup
@@ -391,12 +397,15 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                 </span>
               )}
               <button
-                className="ml-auto px-4 py-2 rounded-full border border-line text-[13px] hover:bg-paper disabled:opacity-40"
+                className={
+                  "ml-auto px-4 py-2 rounded-full border text-[13px] disabled:opacity-40 " +
+                  (verified ? "border-ok/40 text-ok" : "border-line hover:bg-paper")
+                }
                 onClick={runTest}
                 disabled={verify.state === "testing"}
                 data-testid="ob-test"
               >
-                {verify.state === "testing" ? "Testing…" : "Test"}
+                {verify.state === "testing" ? "Testing…" : verified ? "✓ Connected" : "Test"}
               </button>
               <button
                 className="px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
@@ -411,7 +420,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
         )}
 
         {step === 1 && (
-          <section data-testid="ob-step-recipe">
+          <section data-testid="ob-step-recipe" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
             <h1 className="text-[19px] font-semibold">Get your first automation running</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-4">Pick what sounds most like your week:</p>
 
@@ -563,7 +572,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               </div>
             )}
 
-            <div className="flex items-center mt-6">
+            <div className="flex items-center mt-auto pt-6">
               <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setStep(2)}>
                 Skip for now
               </button>
@@ -580,7 +589,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
         )}
 
         {step === 2 && (
-          <section data-testid="ob-step-done">
+          <section data-testid="ob-step-done" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
             <div className="text-center">
               <div className="w-12 h-12 rounded-full bg-okSoft text-ok grid place-items-center mx-auto mb-3 text-[22px]">
                 ✓
@@ -598,30 +607,11 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               </div>
             )}
 
-            <div className="flex items-start gap-3 border border-line rounded-xl px-4 py-3">
-              <Icon name="sparkle" size={16} className="text-accent mt-0.5 shrink-0" />
-              <span className="text-[12.5px] flex-1">
-                <b className="block text-[13px]">Specialist coworkers</b>
-                <span className="text-muted">
-                  Pre-scoped coworkers for sales, ops, code review and more — browse the gallery
-                  and enable the ones you want.
-                </span>
-              </span>
-              <button
-                className="px-3.5 py-1 rounded-full border border-line text-[12.5px] hover:bg-paper shrink-0"
-                onClick={() => finish("gallery")}
-                data-testid="ob-gallery"
-              >
-                Show me
-              </button>
-            </div>
+            {/* The Specialist-coworkers gallery card and the per-session-scope line are HIDDEN
+                for now (owner call 2026-07-12, simplification pass) — the gallery gets its
+                entry point back later; `finish("gallery")` plumbing stays for that. */}
 
-            <p className="text-[12px] text-muted text-center mt-5">
-              Every session shows what it can touch — sources and folders — and you can switch any
-              of them off, just for that session.
-            </p>
-
-            <div className="text-center mt-5">
+            <div className="text-center mt-auto pt-5">
               <button
                 className="px-5 py-2 rounded-full bg-ink text-panel text-[13px]"
                 onClick={() => finish("work")}
