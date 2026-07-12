@@ -6,13 +6,14 @@ import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
 }
 
 async function signIn(page) {
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
 }
 
 test("connect via modal: access radios pick the consent tier; tags reflect it", async ({

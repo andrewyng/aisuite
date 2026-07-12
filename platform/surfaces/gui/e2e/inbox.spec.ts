@@ -6,8 +6,9 @@ import { test, expect } from "./fixtures";
 
 async function openInbox(page: import("@playwright/test").Page) {
   await page.goto("/");
-  // The sidebar's Inbox row (its accessible name includes the attention badge count).
-  await page.locator(".sidebar").getByRole("button", { name: /Inbox/ }).click();
+  // §26: the fixtures seed pending items, so the account row's inbox chip is unlocked and
+  // pending — clicking it goes STRAIGHT to Inbox (the menu is the row's target, not the chip's).
+  await page.getByTestId("inbox-chip").click();
   await expect(page.getByText("Approve: run_shell")).toBeVisible();
 }
 

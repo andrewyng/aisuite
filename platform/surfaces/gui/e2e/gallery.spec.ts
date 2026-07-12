@@ -7,7 +7,7 @@ import { test } from "./fixtures";
 
 async function openPersonas(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Personas", exact: true }).click();
   await expect(page.getByTestId("gallery-link")).toBeVisible();

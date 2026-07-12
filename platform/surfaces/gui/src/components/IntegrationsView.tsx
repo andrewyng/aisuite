@@ -21,13 +21,12 @@ import { ConnectorsSection } from "./connectors/ConnectorsSection";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
 
-// The Integrations surface restructured (§7 / UX §6) into a left sub-nav so it's no longer one long
-// scroll: Connectors · Messaging routing · Activity · MCP. The connector cards (with the Slack
-// allow-list inline) live under Connectors; the DM-route / channel-subscriptions / approvals-routing
-// controls move under Messaging routing; the Unrouted/dead-letter panel under Activity; MCP servers
-// under MCP. Restyled to the mock (redesign.html §view-integrations) with Tailwind utilities — no
-// functionality is lost; the existing tab components are just regrouped and re-skinned.
-type IntTab = "connectors" | "messaging" | "activity" | "mcp";
+// The Connectors surface (renamed from "Integrations", §26) keeps the left sub-nav:
+// Connectors · Messaging routing · MCP. The old fourth tab — a dead-letter table ALSO named
+// "Activity", colliding with the audit-log page — dissolved into Messaging routing as the
+// "Unrouted" section (§26): routing failures belong with routing. The one remaining Activity
+// is the audit log, reached from the account menu.
+type IntTab = "connectors" | "messaging" | "mcp";
 
 // Shared utility strings (mock parity — mirrors PersonaView's constants).
 const CARD = "rounded-xl2 border border-line bg-panel";
@@ -36,24 +35,23 @@ const BTN_ACCENT_SM = "text-[12px] px-2.5 py-1 rounded-md bg-accent text-white d
 
 // Fixed sub-nav (UX-DECISIONS §21): connector detail lives as a SUBPAGE under
 // Connectors, never as a nav item — the nav must not grow per connector.
-const INT_TABS: { key: IntTab; label: string; icon: "plug" | "chat" | "audit" | "code" }[] = [
+const INT_TABS: { key: IntTab; label: string; icon: "plug" | "chat" | "code" }[] = [
   { key: "connectors", label: "Connectors", icon: "plug" },
   { key: "messaging", label: "Messaging routing", icon: "chat" },
-  { key: "activity", label: "Activity", icon: "audit" },
   { key: "mcp", label: "MCP servers", icon: "code" },
 ];
 
 export function IntegrationsView() {
   const [tab, setTab] = useState<IntTab>("connectors");
   // Sub-nav counts: how many connectors exist, and how many unrouted/failed items are parked (the
-  // ⚠ N on Activity). Polled like the panels so the badges stay live.
+  // ⚠ N rides Messaging routing, whose Unrouted section holds them). Polled so badges stay live.
   const [connCount, setConnCount] = useState<number | null>(null);
-  const [activityCount, setActivityCount] = useState(0);
+  const [unroutedCount, setUnroutedCount] = useState(0);
 
   useEffect(() => {
     const load = () => {
       getConnectors().then((cs) => setConnCount(cs.length)).catch(() => {});
-      getUnrouted().then((u) => setActivityCount(u.length)).catch(() => setActivityCount(0));
+      getUnrouted().then((u) => setUnroutedCount(u.length)).catch(() => setUnroutedCount(0));
     };
     load();
     const t = setInterval(load, 5000);
@@ -64,7 +62,7 @@ export function IntegrationsView() {
     <main className="flex-1 min-w-0 flex bg-paper">
       <nav className="w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
         <div className="px-2 text-[13.5px] font-semibold mb-3 flex items-center gap-2">
-          <Icon name="plug" size={16} /> Integrations
+          <Icon name="plug" size={16} /> Connectors
         </div>
         {INT_TABS.map((t) => {
           const active = tab === t.key;
@@ -87,9 +85,9 @@ export function IntegrationsView() {
                   {connCount}
                 </span>
               )}
-              {t.key === "activity" && activityCount > 0 && (
+              {t.key === "messaging" && unroutedCount > 0 && (
                 <span className="text-[11px] text-white bg-warnInk/90 rounded-full px-1.5 leading-[15px] shrink-0">
-                  {activityCount}
+                  {unroutedCount}
                 </span>
               )}
             </button>
@@ -118,14 +116,16 @@ export function IntegrationsView() {
                 <DmRouteTab />
                 <InboxRoutingTab />
               </div>
-            </section>
-          ) : tab === "activity" ? (
-            <section>
-              <PanelHead
-                title="Activity"
-                sub="Unrouted inbound and background-turn failures — nothing vanishes silently."
-              />
-              <UnroutedTab />
+              {/* Unrouted = routing FAILURES, so it lives with routing (§26 — this was the
+                  second page named "Activity"; the audit log keeps that name). */}
+              <div className="mt-6" data-testid="unrouted-section">
+                <h3 className="text-[14px] font-semibold mb-1">Unrouted</h3>
+                <p className="text-[12.5px] text-muted mb-3">
+                  Inbound messages and background-turn failures nothing claimed — nothing vanishes
+                  silently.
+                </p>
+                <UnroutedTab />
+              </div>
             </section>
           ) : (
             <section>

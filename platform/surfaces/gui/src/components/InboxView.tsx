@@ -172,7 +172,7 @@ export function InboxView({
             </span>
           ) : (
             <>
-              Delivered here only. Connect Slack (Integrations ▸ Connectors) to also get these in a
+              Delivered here only. Connect Slack (Connectors page) to also get these in a
               channel — more platforms later.
             </>
           )}

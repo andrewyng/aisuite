@@ -1,28 +1,30 @@
-// Regression guard (shipped once, 2026-07-09): the cloud sign-in must be
-// reachable by a FRESH user. The strip leads the Connectors page (it once sat
-// below 25 rows — de-facto invisible), and every signed-out one-click pane
-// carries a real Sign-in button, not a hint pointing at another page.
+// Regression guard (shipped once, 2026-07-09; reshaped by §26): cloud sign-in must be
+// reachable by a FRESH user. The sidebar account row is the permanent sign-in home —
+// always visible, never below any fold — and every signed-out one-click pane carries a
+// real Sign-in button, not a hint pointing at another page.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-menu").getByRole("button", { name: "Connectors", exact: true }).click();
 }
 
-test("the cloud strip leads the connectors list (above the first row)", async ({
-  page,
-}) => {
-  await openConnectors(page);
-  const strip = await page.getByTestId("cloud-account").boundingBox();
-  const firstRow = await page.getByTestId("connector-browser").boundingBox();
-  expect(strip!.y).toBeLessThan(firstRow!.y);
-  // Sign out is available right there once signed in.
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
+test("the account row is always visible and signs in from its menu", async ({ page }) => {
+  await page.goto("/");
+  const row = page.getByTestId("account-row");
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Not signed in");
+
+  await row.click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(row).toContainText("Rohit", { timeout: 10_000 });
+
+  // Sign out is right there in the same menu once signed in.
+  await row.click();
   await expect(
-    page.getByTestId("cloud-account").getByRole("button", { name: "Sign out" }),
+    page.getByTestId("account-menu").getByRole("button", { name: "Sign out" }),
   ).toBeVisible();
 });
 

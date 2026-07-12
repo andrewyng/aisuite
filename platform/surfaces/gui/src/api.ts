@@ -601,6 +601,20 @@ export async function setNavLayout(
   return res.json();
 }
 
+// Fired after a cloud sign-in/out completes so the account row (§26) refreshes without
+// waiting for the next window focus.
+export const CLOUD_CHANGED = "coworker:cloud-changed";
+export function announceCloudChanged() {
+  window.dispatchEvent(new CustomEvent(CLOUD_CHANGED));
+}
+
+// Fired the first time Inbox machinery is engaged (an item parks, or a session goes
+// Unattended) — the account row's inbox chip unlocks stickily on it (§26).
+export const INBOX_UNLOCK = "coworker:inbox-unlock";
+export function announceInboxUnlock() {
+  window.dispatchEvent(new CustomEvent(INBOX_UNLOCK));
+}
+
 // -- Personas -----------------------------------------------------------------
 
 // Fired after any persona mutation (enable/disable/install/delete) so always-mounted

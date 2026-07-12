@@ -6,14 +6,15 @@ import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
 }
 
 async function signInAndConnectFirstWorkspace(page) {
   await openConnectors(page);
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
   // Available row → modal with One click | Manual pills → generic one-click
   await page
     .getByTestId("connector-notion")

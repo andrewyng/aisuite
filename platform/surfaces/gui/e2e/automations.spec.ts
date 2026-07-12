@@ -7,7 +7,7 @@ test("scheduled run session shows the run banner; Back returns to the task detai
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Automations", exact: true }).click();
 
   // Task list → detail (runs list).

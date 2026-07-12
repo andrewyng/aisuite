@@ -5,6 +5,8 @@ export type IconName =
   | "sparkle"
   | "logo"
   | "sidebar"
+  | "sidebarRight"
+  | "signOut"
   | "chat"
   | "diamond"
   | "search"
@@ -84,6 +86,24 @@ export function Icon({
           <path d="M9 4.5v15" />
         </svg>
       );
+<<<<<<< HEAD
+=======
+    case "sidebarRight":
+      // Right-panel counterpart of "sidebar" — same rounded rect + divider, mirrored.
+      return (
+        <svg {...s}>
+          <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+          <path d="M15 4.5v15" />
+        </svg>
+      );
+    case "signOut":
+      return (
+        <svg {...s}>
+          <path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H9" />
+          <path d="M15 8l4 4-4 4M19 12H9" />
+        </svg>
+      );
+>>>>>>> d465c89 (Sidebar bottom becomes one account row (UX-DECISIONS §26))
     case "folder":
       // Clean single-tab folder (Lucide-style) — no internal divider line.
       return (

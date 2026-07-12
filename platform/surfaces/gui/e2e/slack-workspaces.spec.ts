@@ -7,8 +7,8 @@ import { test } from "./fixtures";
 
 async function openSlackPage(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
   await page.getByTestId("connector-slack").click();
 }
 
@@ -38,8 +38,9 @@ test("Add workspace opens the modal; signed out shows the sign-in hint, signed i
 
   // sign in from the list's cloud strip, then install one-click
   await page.getByTestId("connectors-breadcrumb").click();
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
   await page.getByTestId("connector-slack").click();
   await page.getByTestId("add-workspace-btn").click();
   await page.getByTestId("modal-add-to-slack").click();

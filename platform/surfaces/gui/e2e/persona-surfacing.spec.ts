@@ -19,7 +19,7 @@ test("enabling an installed persona surfaces it in picker + sidebar without relo
   await expect(sidebar.getByText("Acme Notes")).toHaveCount(0);
 
   // Enable it on the Personas page.
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Personas", exact: true }).click();
   const row = page.locator(".divide-y > div").filter({ hasText: "Acme Notes" });
@@ -45,7 +45,7 @@ test("disabling a persona with conversations asks first, then archives them", as
   const sidebar = page.locator(".sidebar");
   await expect(sidebar.getByText("Ops", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Personas", exact: true }).click();
   const row = page.locator(".divide-y > div").filter({ hasText: "Ops Coworker" });
@@ -71,7 +71,7 @@ test("disabling a persona with conversations asks first, then archives them", as
 
 test("disabling a persona with no conversations skips the confirm", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Personas", exact: true }).click();
   const row = page.locator(".divide-y > div").filter({ hasText: "Code" });

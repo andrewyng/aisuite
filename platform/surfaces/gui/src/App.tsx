@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
+  announceInboxUnlock,
   finalizeAutomationRun,
   getArtifacts,
   getHealth,
@@ -225,6 +226,11 @@ export function App() {
         e.preventDefault();
         toggleNav();
       }
+      // ⌘, — the platform Settings shortcut (advertised in the account menu, §26).
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSurface("settings");
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -260,6 +266,14 @@ export function App() {
     unattendedRef.current = on;
     setUnattendedState(on);
   }, []);
+
+  // The Mode menu's "Send approvals to Inbox" toggle (§22 — the old InboxControl, folded in).
+  const toggleUnattended = async (on: boolean) => {
+    await setUnattended(sessionId, on);
+    markUnattended(on);
+    // First Unattended enable = Inbox machinery engaged → the account row's chip unlocks (§26).
+    if (on) announceInboxUnlock();
+  };
   const resolveSessionInbox = async (id: string, resolution: string) => {
     await resolveInboxItem(id, resolution);
     getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
