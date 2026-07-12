@@ -472,13 +472,12 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                       The bot must be a member of the channel — invite @ocw in Slack if it isn't.
                     </p>
                     <label className={label}>When</label>
-                    <select className={input} value={cadence} onChange={(e) => setCadence(e.target.value)}>
-                      {Object.entries(CADENCES).map(([k, v]) => (
-                        <option key={k} value={k}>
-                          {v.label}
-                        </option>
-                      ))}
-                    </select>
+                    <SelectMenu
+                      ariaLabel="Cadence"
+                      value={cadence}
+                      options={Object.entries(CADENCES).map(([k, v]) => ({ value: k, label: v.label }))}
+                      onChange={setCadence}
+                    />
                     <label className="flex items-start gap-2.5 mt-3.5 text-[12.5px] text-muted select-none">
                       <input
                         type="checkbox"
@@ -504,10 +503,15 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                       onChange={(e) => setBriefTime(e.target.value)}
                     />
                     <label className={label}>Deliver to</label>
-                    <select className={input} value={deliver} onChange={(e) => setDeliver(e.target.value as any)}>
-                      <option value="app">In the app</option>
-                      <option value="slack">Slack DM (connect Slack later)</option>
-                    </select>
+                    <SelectMenu
+                      ariaLabel="Deliver to"
+                      value={deliver}
+                      options={[
+                        { value: "app", label: "In the app" },
+                        { value: "slack", label: "Slack DM (connect Slack later)" },
+                      ]}
+                      onChange={(v) => setDeliver(v as "app" | "slack")}
+                    />
                     <p className="text-[12.5px] text-muted mt-3">
                       This brief only <b className="text-ink">reads</b> Calendar and Gmail on
                       schedule — reading never needs approval.
