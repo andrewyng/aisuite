@@ -583,6 +583,13 @@ Extends §22's start-screen half and composes with §23. The fresh-Cowork empty 
 
 ## Change log (requests, newest first)
 
+- **2026-07-11 (9)** — Owner (walkthrough, step 2 recipe): the channel box must show the
+  channel NAME, not `slack:T…/C…` — ChannelPicker now separates display (#name at rest,
+  raw address while editing + in the tooltip) from the stored target, on BOTH its surfaces
+  (onboarding + session channel subscriptions); the consent line uses the name too. The
+  fixed day+time cadence pairs → a day SelectMenu (Mon–Sun, Weekdays, Every day) × a free
+  time field; digest instructions re-worded cadence-neutral ("since the last digest") →
+  §24 revision.
 - **2026-07-11 (8)** — Owner (Mac-app onboarding walkthrough): step 1 warms up ("Welcome to
   OpenCoworker" + connect-to-get-started sub-line); native selects → SelectMenu (the Settings
   Models control); default-model picker dropped (per-session anyway; never persisted);

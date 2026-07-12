@@ -35,11 +35,22 @@ const KEY_HELP: Record<string, { url: string; label: string }> = {
 
 // The role tabs (§24 step 2): each names its recipe, the two connectors it needs, and how the
 // recipe card assembles. Cron strings are explicit — the user picks a phrase, we map it.
-const CADENCES: Record<string, { label: string; cron: string }> = {
-  mon9: { label: "Mondays, 9:00", cron: "0 9 * * 1" },
-  daily9: { label: "Daily, 9:00", cron: "0 9 * * *" },
-  fri17: { label: "Fridays, 17:00", cron: "0 17 * * 5" },
-  mon830: { label: "Mondays, 8:30", cron: "30 8 * * 1" },
+// "When" = day choice × free time (owner call 2026-07-11: the fixed day+time pairs were
+// limiting). The cron assembles from the two.
+const DAYS: Record<string, { label: string; dow: string }> = {
+  mon: { label: "Mondays", dow: "1" },
+  tue: { label: "Tuesdays", dow: "2" },
+  wed: { label: "Wednesdays", dow: "3" },
+  thu: { label: "Thursdays", dow: "4" },
+  fri: { label: "Fridays", dow: "5" },
+  sat: { label: "Saturdays", dow: "6" },
+  sun: { label: "Sundays", dow: "0" },
+  weekdays: { label: "Weekdays", dow: "1-5" },
+  daily: { label: "Every day", dow: "*" },
+};
+const cronFor = (dayKey: string, hhmm: string) => {
+  const [h, m] = hhmm.split(":");
+  return `${Number(m) || 0} ${Number(h) || 9} * * ${DAYS[dayKey].dow}`;
 };
 
 type TabKey = "eng" | "sales" | "everyday";
@@ -141,7 +152,8 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
   const [recent, setRecent] = useState<RecentChannel[]>([]);
   const [repo, setRepo] = useState("");
   const [channel, setChannel] = useState("");
-  const [cadence, setCadence] = useState("mon9");
+  const [day, setDay] = useState("mon");
+  const [digestTime, setDigestTime] = useState("09:00");
   const [briefTime, setBriefTime] = useState("08:00");
   const [deliver, setDeliver] = useState<"app" | "slack">("app");
   const [consent, setConsent] = useState(true);
@@ -165,6 +177,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
   }, [step]);
 
   const connState = (name: string) => connectors.find((c) => c.name === name);
+  // Human copy shows the channel NAME when known; the raw address stays the stored target.
+  const channelName = recent.find((c) => c.channel === channel)?.name;
+  const channelLabel = channelName ? `#${channelName}` : channel;
   const tabConns = TABS[tab].conns;
   const allConnected = tabConns.every((c) => connState(c.name)?.connected);
 
@@ -203,22 +218,22 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
     let payload: Parameters<typeof createAutomation>[0] & { permissions?: unknown[] };
     if (tab === "eng") {
       payload = {
-        title: "Weekly GitHub digest",
+        title: "GitHub digest",
         instructions:
-          `Summarize the past week in the GitHub repository ${repo || "(the connected repository)"}: ` +
+          `Summarize activity since the last digest in the GitHub repository ${repo || "(the connected repository)"}: ` +
           `merged pull requests, notable commits, and anything needing attention. ` +
           `Post the digest to the Slack channel ${channel} using send_message.`,
-        cron: CADENCES[cadence].cron,
+        cron: cronFor(day, digestTime),
         permissions: consent && channel ? [{ tool: "send_message", target: channel, access: "write" }] : [],
       };
     } else if (tab === "sales") {
       payload = {
-        title: "Weekly pipeline digest",
+        title: "Pipeline digest",
         instructions:
-          `Review HubSpot for the past week: deals that changed stage, deals going quiet, and ` +
-          `deals past their close date. Post a short pipeline digest to the Slack channel ` +
-          `${channel} using send_message.`,
-        cron: CADENCES[cadence].cron,
+          `Review HubSpot activity since the last digest: deals that changed stage, deals going ` +
+          `quiet, and deals past their close date. Post a short pipeline digest to the Slack ` +
+          `channel ${channel} using send_message.`,
+        cron: cronFor(day, digestTime),
         permissions: consent && channel ? [{ tool: "send_message", target: channel, access: "write" }] : [],
       };
     } else {
@@ -236,7 +251,8 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
     const res = await createAutomation(payload as any).catch(() => ({ ok: false }) as any);
     setCreating(false);
     if (res.ok) {
-      const when = tab === "everyday" ? `every day ${briefTime}` : CADENCES[cadence].label;
+      const when =
+        tab === "everyday" ? `every day ${briefTime}` : `${DAYS[day].label} at ${digestTime}`;
       setRecap(`${payload.title} · ${when} · manage under Automations`);
       setStep(2);
     }
@@ -487,12 +503,23 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                       The bot must be a member of the channel — invite @ocw in Slack if it isn't.
                     </p>
                     <label className={label}>When</label>
-                    <SelectMenu
-                      ariaLabel="Cadence"
-                      value={cadence}
-                      options={Object.entries(CADENCES).map(([k, v]) => ({ value: k, label: v.label }))}
-                      onChange={setCadence}
-                    />
+                    <div className="flex gap-2">
+                      <div className="flex-1 min-w-0">
+                        <SelectMenu
+                          ariaLabel="Day"
+                          value={day}
+                          options={Object.entries(DAYS).map(([k, v]) => ({ value: k, label: v.label }))}
+                          onChange={setDay}
+                        />
+                      </div>
+                      <input
+                        className="w-28 px-3 py-2 rounded-lg border border-line bg-panel text-[13.5px] outline-none focus:border-accent"
+                        type="time"
+                        aria-label="Time"
+                        value={digestTime}
+                        onChange={(e) => setDigestTime(e.target.value)}
+                      />
+                    </div>
                     <label className="flex items-start gap-2.5 mt-3.5 text-[12.5px] text-muted select-none">
                       <input
                         type="checkbox"
@@ -503,7 +530,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                       />
                       <span>
                         Allow this automation to post its digest to{" "}
-                        <b className="text-ink">{channel || "the channel"}</b> without asking each
+                        <b className="text-ink">{channelLabel || "the channel"}</b> without asking each
                         time. Anything else still asks first.
                       </span>
                     </label>

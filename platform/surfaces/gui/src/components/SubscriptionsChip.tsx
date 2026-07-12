@@ -117,17 +117,40 @@ export function ChannelPicker({
   const seen = new Set(options.map((c) => c.channel));
   const lookups = roster.filter((r) => !seen.has(r.address));
 
+  // Display ≠ value (owner catch 2026-07-11: the box showed `slack:T…/C…`): the stored value
+  // stays the raw address, but at rest the input shows the channel's NAME when we know it —
+  // from a pick (remembered), the recent list, or a roster hit. Focus flips back to the raw
+  // address for editing; the tooltip always carries it.
+  const [focused, setFocused] = useState(false);
+  const [pickedName, setPickedName] = useState<Record<string, string>>({});
+  const knownName =
+    pickedName[value] ||
+    recent.find((c) => c.channel === value)?.name ||
+    roster.find((r) => r.address === value)?.name ||
+    "";
+  const display = !focused && knownName ? `#${knownName}` : value;
+
+  // A pick is a commit: blur the input so the display flips to the channel name (focus is
+  // otherwise held by the mousedown-preventDefault that protects the pick from the blur).
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
   return (
     <div className="relative flex-1 min-w-0" ref={wrap}>
       <input
+        ref={inputRef}
         className="chan-input w-full"
         placeholder="slack:C0123 or channel link"
-        value={value}
+        value={display}
+        title={value || undefined}
         onChange={(e) => {
           onChange(e.target.value);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setFocused(true);
+          setOpen(true);
+        }}
+        onBlur={() => setFocused(false)}
         onKeyDown={(e) => {
           if (e.key === "Escape") setOpen(false);
           if (e.key === "Enter" && onSubmit) {
@@ -151,7 +174,9 @@ export function ChannelPicker({
                 // mousedown (not click) so the pick lands before the input's blur
                 e.preventDefault();
                 onChange(c.channel);
+                if (c.name) setPickedName((m) => ({ ...m, [c.channel]: c.name! }));
                 setOpen(false);
+                inputRef.current?.blur();
               }}
             >
               <span className="text-[12.5px] text-ink">
@@ -186,7 +211,9 @@ export function ChannelPicker({
               onMouseDown={(e) => {
                 e.preventDefault();
                 onChange(r.address);
+                if (r.name) setPickedName((m) => ({ ...m, [r.address]: r.name }));
                 setOpen(false);
+                inputRef.current?.blur();
               }}
             >
               <span className="text-[12.5px] text-ink">

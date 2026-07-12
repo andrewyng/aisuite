@@ -62,13 +62,18 @@ test("recipe: lazy single sign-in completes the pending connect; consent mints t
   await page.getByTestId("ob-cloud-signin").click();
   await expect(page.getByTestId("ob-recipe")).toBeVisible({ timeout: 15_000 });
 
-  // The recipe assembles: channel, cadence, and the §25 consent (pre-checked).
-  await page.locator('[data-testid="ob-channel"] input').fill("slack:T1/C0123");
+  // The recipe assembles: channel picked BY NAME (the box shows #name; the raw address is
+  // only the stored target), day+time cadence, and the §25 consent (pre-checked).
+  const chan = page.locator('[data-testid="ob-channel"] input');
+  await chan.click();
+  await page.getByTestId("channel-suggestions").getByText("#ocw-test").click();
+  await expect(chan).toHaveValue("#ocw-test");
   await expect(page.getByTestId("ob-consent")).toBeChecked();
   await page.getByTestId("ob-create").click();
 
   // Done step: recap card, then Start working lands in a session with the panel open.
-  await expect(page.getByTestId("ob-recap")).toContainText("Weekly pipeline digest");
+  await expect(page.getByTestId("ob-recap")).toContainText("Pipeline digest");
+  await expect(page.getByTestId("ob-recap")).toContainText("Mondays at 09:00");
   await page.getByTestId("ob-start").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Session settings" })).toBeVisible();
