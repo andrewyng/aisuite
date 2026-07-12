@@ -666,20 +666,33 @@ button.btn.danger { color: var(--accent); }
 .intro .suggestions.intro-setup { margin-top: 30px; }
 .intro .suggest-head { margin-bottom: 6px; }
 
-/* Lead-with-tasks: prominent one-click task cards on the Cowork start screen */
-.intro-tasks { margin-top: 28px; display: grid; grid-template-columns: 1fr; gap: 10px; }
+/* Lead-with-tasks on the Cowork start screen. Task rows share the "Set me up" list's
+   visual language (owner call 2026-07-11: the bordered white cards read as noise) —
+   flat hairline rows; hover colors the row and reveals the action hint. */
+.intro-tasks { margin-top: 28px; display: flex; flex-direction: column; }
 .task-card {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 11px;
   width: 100%; text-align: left; cursor: pointer;
-  padding: 14px 16px;
-  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px;
-  font: inherit; color: var(--ink);
-  transition: border-color 0.12s, box-shadow 0.12s;
+  padding: 11px 6px;
+  background: none; border: none; border-top: 1px solid var(--line);
+  font: inherit; color: var(--ink); font-size: 14.5px;
+  transition: color 0.12s;
 }
-.task-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.task-card-ico { color: var(--accent); font-size: 18px; width: 22px; text-align: center; flex: none; }
-.task-card-text { flex: 1; font-size: 14px; }
-.task-card-hint { color: var(--faint); font-size: 12.5px; flex: none; }
+.task-card:first-child { border-top: none; }
+.task-card:hover { color: var(--accent); }
+.task-card-ico {
+  width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 7px;
+  display: grid; place-items: center; background: var(--panel);
+  color: var(--muted); font-size: 14px; flex: none;
+  transition: color 0.12s, border-color 0.12s;
+}
+.task-card:hover .task-card-ico { color: var(--accent); border-color: var(--accent); }
+.task-card-text { flex: 1; }
+.task-card-hint {
+  color: var(--faint); font-size: 12.5px; flex: none;
+  opacity: 0; transition: opacity 0.12s;
+}
+.task-card:hover .task-card-hint { opacity: 1; color: var(--accent); }
 
 /* Topbar "Artifacts (N)" affordance, shown when the side panel is hidden */
 .topbar-artifacts-btn {
