@@ -119,7 +119,11 @@ def complete_login(
             "client_id": config.cloud_client_id,
             "code": code,
             "code_verifier": pending["verifier"],
-            "redirect_uri": f"http://127.0.0.1:{config.port}/auth/callback",
+            # MUST byte-match begin_login's authorize redirect_uri (RFC 6749 §4.1.3) — the
+            # broker bounce, not the loopback. The bounce change (eda23c9) updated only the
+            # authorize leg; the stale loopback here made Auth0 reject every exchange
+            # ("token exchange failed" on all sign-ins from 07-09 to 07-11).
+            "redirect_uri": config.cloud_base_url.rstrip("/") + "/v1/auth/callback",
         },
         timeout=15,
     )
