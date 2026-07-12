@@ -22,9 +22,15 @@ test("model step: configured provider fast-path; unconfigured gates until Test p
   await expect(page.getByText("✓ Already connected")).toBeVisible();
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
-  // Switching to an unconfigured vendor gates Continue; its endpoint field prefills.
-  await page.locator("select").first().selectOption("zai");
+  // Switching to an unconfigured vendor gates Continue. The picker is the same SelectMenu the
+  // Settings Models page uses (custom listbox, not a native select).
+  await page.getByRole("button", { name: "Provider" }).click();
+  await page.getByRole("option", { name: "Z AI (GLM)" }).click();
   await expect(page.getByTestId("ob-continue")).toBeDisabled();
+  // The optional endpoint is an expert option: hidden behind "Configure custom endpoint",
+  // prefilled with the vendor default once revealed.
+  await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
+  await page.getByTestId("ob-endpoint-link").click();
   await expect(page.getByTestId("ob-field-base_url")).toHaveValue(/api\.z\.ai/);
 
   // Bad key fails the live check; a good key verifies and unlocks Continue.

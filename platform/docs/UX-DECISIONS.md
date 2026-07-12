@@ -467,6 +467,15 @@ progressive-never-gating rule):
   — the free/local escape hatch), endpoint+key (Fireworks etc.). One **default-model dropdown**
   per provider (curated matrix, recommended pre-selected) — deliberately *not* an
   enable-checklist; curation stays in Settings ▸ Models. Inline Test/verify.
+  *(Revised 2026-07-11 at owner's Mac-app walkthrough: headline = **"Welcome to
+  OpenCoworker"** with "connect a model to get started" as the sub-line; native `<select>`s
+  → the Settings-Models **SelectMenu** (sectioned Ready-to-use / Needs-setup, key-set dots);
+  the **default-model dropdown is DROPPED** — the model is per-session (§17) and the old
+  select never persisted anything — replaced by one pointer line to Settings ▸ Models; an
+  optional endpoint (base_url with a default, on a keyed provider) collapses behind a
+  **"Configure custom endpoint ›"** link (keyless providers keep it visible — the endpoint IS
+  the connection); Test joins the action row: Skip setup … [Test] [Continue], status line
+  fixed-height above it.)*
 - **2 — Get your first automation running** (skippable). **Role tabs — Engineering · Sales ·
   Everyday** — each with a recipe one-liner, two connect rows, then the recipe card (source ·
   channel/time · cadence · consent). **One Cloud sign-in, lazily triggered by the first Connect**
@@ -574,6 +583,11 @@ Extends §22's start-screen half and composes with §23. The fresh-Cowork empty 
 
 ## Change log (requests, newest first)
 
+- **2026-07-11 (8)** — Owner (Mac-app onboarding walkthrough): step 1 warms up ("Welcome to
+  OpenCoworker" + connect-to-get-started sub-line); native selects → SelectMenu (the Settings
+  Models control); default-model picker dropped (per-session anyway; never persisted);
+  optional endpoints behind "Configure custom endpoint ›"; Test joins the Skip/Continue
+  action row → §24 revision.
 - **2026-07-11 (7)** — Owner (ledger UX-008, mock approved): the §23 session-settings row
   docks into the topbar's left region — one bar instead of two strips; contract untouched
   (rest = icon · hover/focus = glance · click = drawer). Expanded nav: icon first after the

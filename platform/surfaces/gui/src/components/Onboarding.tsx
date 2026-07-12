@@ -19,6 +19,7 @@ import { openExternal } from "../tauri";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
+import { SelectMenu } from "./SelectMenu";
 
 // First-run onboarding (UX-DECISIONS §24): model → recipe → tips. Only step 1 gates;
 // steps 2–3 are skippable. Replayable anytime from Settings ▸ Appearance ▸ "Run setup again".
@@ -82,7 +83,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [prov, setProv] = useState("anthropic");
   const [fields, setFields] = useState<Record<string, string>>({});
-  const [model, setModel] = useState("");
+  // Optional endpoint (a base_url WITH a default, on a keyed provider) collapses behind a
+  // "Configure custom endpoint" link (owner call 2026-07-11) — most users never touch it.
+  const [showEndpoint, setShowEndpoint] = useState(false);
   const [verify, setVerify] = useState<Verify>({ state: "idle" });
   const [skipConfirm, setSkipConfirm] = useState(false);
 
@@ -108,10 +111,10 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
     const p = (list || providers).find((x) => x.name === name);
     setProv(name);
     setVerify({ state: "idle" });
+    setShowEndpoint(false);
     const next: Record<string, string> = {};
     for (const f of p?.fields || []) next[f.key] = p?.values?.[f.key] || f.default || "";
     setFields(next);
-    setModel(p?.recommended_model || p?.suggested_models?.[0] || "");
   };
 
   const runTest = async () => {
@@ -263,25 +266,55 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
 
         {step === 0 && (
           <section data-testid="ob-step-model">
-            <h1 className="text-[19px] font-semibold">Connect a model</h1>
+            <h1 className="text-[19px] font-semibold">Welcome to OpenCoworker</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-5">
-              OpenCoworker runs on your own API key — your key and your data stay on this Mac.
+              Connect a model to get started — OpenCoworker runs on your own API key, and your
+              key and your data stay on this Mac.
             </p>
             <label className={label}>Provider</label>
-            <select className={input} value={prov} onChange={(e) => pickProvider(e.target.value)}>
-              {providers.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.title}
-                  {p.configured && p.needs_key ? " — connected" : ""}
-                </option>
-              ))}
-            </select>
+            {/* The same SelectMenu Settings ▸ Models uses (owner call 2026-07-11: the native
+                <select> read as a raw OS control) — sections + green key-set dots included. */}
+            <SelectMenu
+              ariaLabel="Provider"
+              value={prov}
+              options={[...providers]
+                .sort(
+                  (a, b) =>
+                    Number(b.configured && b.needs_key) - Number(a.configured && a.needs_key),
+                )
+                .map((p) => {
+                  const ready = p.configured && p.needs_key;
+                  return {
+                    value: p.name,
+                    label: p.title,
+                    group: ready ? "Ready to use" : "Needs setup",
+                    dot: ready,
+                  };
+                })}
+              onChange={(name) => pickProvider(name)}
+            />
             {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
 
-            {(info?.fields || []).map((f) => (
-              <div key={f.key}>
-                <label className={label}>{f.label}</label>
-                <div className="flex gap-2">
+            {(info?.fields || []).map((f) => {
+              // A base_url WITH a default on a keyed provider is an expert option: collapsed
+              // behind a link. Keyless providers (Ollama) keep it visible — the endpoint IS
+              // the connection there.
+              const keyed = (info?.fields || []).some((x) => x.secret);
+              if (f.key === "base_url" && f.default && keyed && !showEndpoint) {
+                return (
+                  <button
+                    key={f.key}
+                    className="block text-[12px] text-accent hover:underline mt-3"
+                    onClick={() => setShowEndpoint(true)}
+                    data-testid="ob-endpoint-link"
+                  >
+                    Configure custom endpoint ›
+                  </button>
+                );
+              }
+              return (
+                <div key={f.key}>
+                  <label className={label}>{f.label}</label>
                   <input
                     className={input}
                     type={f.secret ? "password" : "text"}
@@ -293,10 +326,10 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                       setVerify({ state: "idle" });
                     }}
                   />
+                  {f.help && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
                 </div>
-                {f.help && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
-              </div>
-            ))}
+              );
+            })}
 
             {KEY_HELP[prov] && (
               <p className="text-[11.5px] text-faint mt-2">
@@ -311,38 +344,22 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               </p>
             )}
 
-            <label className={label}>Default model</label>
-            <select className={input} value={model} onChange={(e) => setModel(e.target.value)} data-testid="ob-model">
-              {Array.from(new Set([info?.recommended_model, ...(info?.suggested_models || []), model].filter(Boolean))).map(
-                (m) => (
-                  <option key={m as string} value={m as string}>
-                    {m}
-                    {m === info?.recommended_model ? " — recommended" : ""}
-                  </option>
-                ),
-              )}
-            </select>
-            <p className="text-[11.5px] text-faint mt-1">Add or hide models later under Settings ▸ Models.</p>
+            {/* No model picker here (owner call 2026-07-11): the model is chosen per session,
+                and the old select never persisted anything anyway. One pointer instead. */}
+            <p className="text-[11.5px] text-faint mt-3">
+              Models can be enabled or hidden anytime in Settings ▸ Models.
+            </p>
 
-            <div className="flex items-center gap-3 mt-4">
-              <button
-                className="px-4 py-1.5 rounded-full border border-line text-[13px] hover:bg-paper"
-                onClick={runTest}
-                disabled={verify.state === "testing"}
-                data-testid="ob-test"
-              >
-                {verify.state === "testing" ? "Testing…" : "Test"}
-              </button>
-              {verify.state === "ok" && <span className="text-[12.5px] text-ok">✓ Connected</span>}
+            {/* Status line: fixed height so verify results never reflow the form. */}
+            <div className="mt-3 min-h-[19px] text-[12.5px]">
+              {verify.state === "ok" && <span className="text-ok">✓ Connected</span>}
               {credentialed && verify.state === "idle" && (
-                <span className="text-[12.5px] text-ok">✓ Already connected</span>
+                <span className="text-ok">✓ Already connected</span>
               )}
-              {verify.state === "error" && (
-                <span className="text-[12.5px] text-warnInk">{verify.msg}</span>
-              )}
+              {verify.state === "error" && <span className="text-warnInk">{verify.msg}</span>}
             </div>
 
-            <div className="flex items-center mt-7">
+            <div className="flex items-center gap-3 mt-5">
               {!skipConfirm ? (
                 <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setSkipConfirm(true)}>
                   Skip setup
@@ -356,7 +373,15 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
                 </span>
               )}
               <button
-                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                className="ml-auto px-4 py-2 rounded-full border border-line text-[13px] hover:bg-paper disabled:opacity-40"
+                onClick={runTest}
+                disabled={verify.state === "testing"}
+                data-testid="ob-test"
+              >
+                {verify.state === "testing" ? "Testing…" : "Test"}
+              </button>
+              <button
+                className="px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
                 disabled={!ready}
                 onClick={saveAndContinue}
                 data-testid="ob-continue"
