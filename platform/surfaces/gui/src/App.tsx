@@ -891,17 +891,6 @@ export function App() {
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
   const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
   const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
-<<<<<<< HEAD
-  const activeInfo = sessions.find((s) => s.session_id === sessionId);
-  const activeTitle = activeInfo?.title || "New chat";
-  // Topbar trim: the active persona's short display name (mock's "· SRE persona").
-  const personaName = shortPersonaName(personaOf(agent)?.name, agent);
-  const commitTitleRename = () => {
-    const next = renameDraft.trim();
-    if (next && next !== activeTitle) renameConversation(sessionId, next);
-    setRenamingTitle(false);
-  };
-=======
   // Topbar trim: the active persona's short display name (mock's "· SRE persona").
   const personaName = shortPersonaName(personaOf(agent)?.name, agent);
   // Facts subtitle (§22): the session's FIXED facts, not controls — persona · model (+ the
@@ -917,7 +906,6 @@ export function App() {
   if (isProjectScoped(personaOf(agent)) && workspace) subtitleParts.push(baseName(workspace));
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New session";
->>>>>>> 97cd537 (Session topbar: drop the conversation menu, go edgeless; mode chip names its choice (§22 amendments))
 
   const desktop = isTauri();
   // Dev-only: `?overlay=1` simulates the desktop overlay layout in the browser (adds the
@@ -1171,6 +1159,27 @@ export function App() {
                 </button>
               </div>
             )}
+            {/* Session-settings row (§23), DOCKED into the bar's left region (§22/§23 amendment
+                2026-07-11: the standalone strip under the bar is gone — one bar, not two). The
+                contract is unchanged: rest = icon · hover/focus = glance · click = the drawer. */}
+            {agent !== "chat" && (
+              <div className="flex-1 min-w-0" onPointerDown={(e) => e.stopPropagation()}>
+                <SessionSettingsRow
+                  sessionId={sessionId}
+                  personaId={agent}
+                  projectScoped={isProjectScoped(personaOf(agent))}
+                  workspace={workspace || undefined}
+                  branch={branch}
+                  scratchPrimary={agent === "cowork"}
+                  open={sessionSettings !== null}
+                  section={sessionSettings ?? "sources"}
+                  onOpen={setSessionSettings}
+                  onClose={() => setSessionSettings(null)}
+                  onOpenIntegrations={() => setSurface("integrations")}
+                  onOpenPersona={(id) => openPersona(id, "session")}
+                />
+              </div>
+            )}
           </div>
           {/* Center: title + facts subtitle (§22, amended: the ⋯ menu removed — the nav row's
               hover cluster owns pin/rename/archive/delete). The title stays: with the sidebar
@@ -1266,6 +1275,7 @@ export function App() {
                 </button>
               </div>
             )}
+<<<<<<< HEAD
             {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute
                 glass topbar), as a fixed sub-header above the scrolling conversation — mock §6. */}
             {agent !== "chat" && (
@@ -1276,6 +1286,8 @@ export function App() {
                 onOpenPersona={(id) => openPersona(id, "session")}
               />
             )}
+=======
+>>>>>>> 48acdf2 (Session-settings row docks into the topbar (§22/§23 amendment))
             <div className="main-scroll" ref={scrollRef}>
               {idle ? (
                 agent === "cowork" ? (

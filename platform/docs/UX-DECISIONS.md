@@ -406,7 +406,11 @@ fresh-session and in-progress screens shed chrome:
   pin/rename/archive/delete, so the topbar menu was a strict subset; the title STAYS (with
   the sidebar collapsed it is the only session identifier, and the subtitle orphans without
   it). The topbar goes edgeless: no bottom border, paper-tinted glass — invisible at rest,
-  frosts only when the transcript scrolls under it.)*
+  frosts only when the transcript scrolls under it.)* *(Revised 2026-07-11, third pass —
+  ledger UX-008, mock `UX-008-merged-topbar.html`: the §23 session-settings row DOCKS into
+  the bar's left region — one bar, not two strips. With the nav expanded the settings icon
+  is the first element after the panel edge; collapsed, it follows the [sidebar][+][search]
+  cluster. The §23 contract is unchanged.)*
 - **Composer = `[+ attach] [Mode ⌄] [send]`.** The **Mode menu** carries the five permission
   options (Discuss / Plan / Ask for approval / Full access / Custom) **plus the
   Unattended/send-approvals-to-Inbox toggle** at the bottom — "who approves, and when" is one
@@ -424,6 +428,11 @@ fresh-session and in-progress screens shed chrome:
 
 Replaces §3's always-visible SourcesBar (ledger UX-003). One sub-header row above the conversation
 whose contract is **rest = icon · hover/focus = glance · click = manage**:
+
+> **↪ Geometry revised 2026-07-11 (ledger UX-008):** the row DOCKS into the topbar's left
+> region — the standalone strip under the bar is gone (one 48px bar, ~36px returned to the
+> conversation). Everything below — the rest/glance/click contract, gray-is-the-nudge, zero
+> reflow, deep links — is unchanged; only where the row renders moved.
 
 - **Rest:** a single quiet icon, constant row height. **No nudge text at rest, ever** — the
   "recommended source not connected" nudge lives only in the drawer.
@@ -565,6 +574,10 @@ Extends §22's start-screen half and composes with §23. The fresh-Cowork empty 
 
 ## Change log (requests, newest first)
 
+- **2026-07-11 (7)** — Owner (ledger UX-008, mock approved): the §23 session-settings row
+  docks into the topbar's left region — one bar instead of two strips; contract untouched
+  (rest = icon · hover/focus = glance · click = drawer). Expanded nav: icon first after the
+  panel edge; collapsed: after the §22 cluster → §22/§23 amendments.
 - **2026-07-11 (6)** — Owner (visual pass on the new shell): topbar ⋮ conversation menu
   removed (nav row's hover cluster covers it; title kept — sole identifier when the nav is
   collapsed); topbar goes edgeless glass (border dropped, paper-tinted blur); composer Mode
