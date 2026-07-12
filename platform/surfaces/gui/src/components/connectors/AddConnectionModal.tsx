@@ -176,9 +176,9 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
 function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const go = async () => {
+  const go = async (flow?: "authorize") => {
     setError(null);
-    const res = await connectManaged(c.name);
+    const res = await connectManaged(c.name, flow ? { flow } : undefined);
     if (res.ok) setWaiting(true);
     else setError(res.error || "could not start the install");
   };
@@ -189,9 +189,23 @@ function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null 
         pick the repos there. No tokens typed; the agent acts as ocw-agent[bot].
       </p>
       {cloud?.signed_in ? (
-        <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={go} disabled={waiting}>
-          {waiting ? "Check your browser…" : "Install the GitHub App"}
-        </button>
+        <>
+          <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={() => go()} disabled={waiting}>
+            {waiting ? "Check your browser…" : "Install the GitHub App"}
+          </button>
+          {/* Already-installed escape hatch: GitHub's install page shows "Configure" for an
+              existing installation and never fires our callback (owner hit this on a fresh
+              state dir, 2026-07-11). The authorize flow links the existing installation via
+              plain OAuth instead. */}
+          <button
+            className="w-full text-[12.5px] text-accent hover:underline"
+            data-testid="modal-link-github-install"
+            onClick={() => go("authorize")}
+            disabled={waiting}
+          >
+            Already installed on GitHub? Link your installation ›
+          </button>
+        </>
       ) : (
         <CloudSignInInline />
       )}

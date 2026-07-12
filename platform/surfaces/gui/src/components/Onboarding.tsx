@@ -168,12 +168,14 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
   const tabConns = TABS[tab].conns;
   const allConnected = tabConns.every((c) => connState(c.name)?.connected);
 
-  const startConnect = async (name: string) => {
+  const startConnect = async (name: string, flow?: "authorize") => {
     if (!cloud?.signed_in) {
       setPendingConn(name); // the pane appears; sign-in completes it
       return;
     }
-    await connectManaged(name).catch(() => {});
+    // flow="authorize" (GitHub only) links an EXISTING App installation — the install page
+    // dead-ends on "Configure" when the App is already installed and never fires a callback.
+    await connectManaged(name, flow ? { flow } : undefined).catch(() => {});
     refreshStep2();
   };
 
@@ -409,21 +411,34 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
             {tabConns.map(({ name, why }) => {
               const c = connState(name);
               return (
-                <div key={name} className="flex items-center gap-3 py-2.5 border-b border-line last:border-b-0">
-                  {c && <ConnectorBadge connector={c} size={26} title={c.title} />}
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13.5px] font-medium">{c?.title || name}</span>
-                    <span className="block text-[11.5px] text-faint">{why}</span>
-                  </span>
-                  {c?.connected ? (
-                    <span className="text-[12.5px] text-ok">✓ Connected</span>
-                  ) : (
+                <div key={name} className="border-b border-line last:border-b-0">
+                  <div className="flex items-center gap-3 py-2.5">
+                    {c && <ConnectorBadge connector={c} size={26} title={c.title} />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-medium">{c?.title || name}</span>
+                      <span className="block text-[11.5px] text-faint">{why}</span>
+                    </span>
+                    {c?.connected ? (
+                      <span className="text-[12.5px] text-ok">✓ Connected</span>
+                    ) : (
+                      <button
+                        className="px-3.5 py-1 rounded-full border border-line text-[12.5px] hover:bg-paper"
+                        onClick={() => startConnect(name)}
+                        data-testid={`ob-connect-${name}`}
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                  {/* Already-installed escape hatch: GitHub's install page shows "Configure"
+                      for an existing installation and never calls back. */}
+                  {name === "github" && !c?.connected && cloud?.signed_in && (
                     <button
-                      className="px-3.5 py-1 rounded-full border border-line text-[12.5px] hover:bg-paper"
-                      onClick={() => startConnect(name)}
-                      data-testid={`ob-connect-${name}`}
+                      className="block pb-2.5 -mt-1 text-[11.5px] text-accent hover:underline"
+                      onClick={() => startConnect("github", "authorize")}
+                      data-testid="ob-link-github-install"
                     >
-                      Connect
+                      Already installed on GitHub? Link it ›
                     </button>
                   )}
                 </div>

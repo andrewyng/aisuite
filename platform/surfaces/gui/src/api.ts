@@ -408,7 +408,7 @@ export async function cloudLogout(): Promise<{ ok: boolean }> {
 
 export async function connectManaged(
   name: string,
-  options?: { access?: "read" | "write" },
+  options?: { access?: "read" | "write"; flow?: "authorize" },
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
@@ -416,7 +416,13 @@ export async function connectManaged(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // `access` names a broker-defined consent tier (hubspot read | write).
-      body: JSON.stringify(options?.access ? { access: options.access } : {}),
+      // `flow` is GitHub-only: "authorize" links to an EXISTING App installation via plain
+      // OAuth — the install page dead-ends when the App is already installed (its
+      // "Configure" path never fires the callback).
+      body: JSON.stringify({
+        ...(options?.access ? { access: options.access } : {}),
+        ...(options?.flow ? { flow: options.flow } : {}),
+      }),
     },
   );
   return res.json();
