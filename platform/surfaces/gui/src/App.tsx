@@ -962,10 +962,19 @@ export function App() {
       )}
       {onboarding && (
         <Onboarding
-          onDone={() => {
+          onDone={(next) => {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
+            if (next === "gallery") {
+              // The specialists tip: land on Settings ▸ Personas, where the Gallery link lives.
+              openSettings("personas");
+            } else if (next === "work") {
+              // "Start working" teaches by landing (§24): a fresh session with the session-
+              // settings panel open. The drawer state clears on session change, so open it after.
+              startNewSession();
+              setTimeout(() => setSessionSettings("sources"), 80);
+            }
           }}
         />
       )}

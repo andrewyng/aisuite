@@ -1216,6 +1216,9 @@ export async function createAutomation(payload: {
   cron?: string;
   fire_at?: string;
   timezone?: string;
+  // §25 standing grants (the creating surface rendered them; submit IS the consent).
+  // Only target-bound write entries survive server-side validation.
+  permissions?: { tool: string; target: string; access: "read" | "write" }[];
 }): Promise<{ ok: boolean; error?: string; task?: Automation }> {
   const res = await fetch(`${httpBase()}/v1/automations`, {
     method: "POST",

@@ -1012,7 +1012,31 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (i >= 0) automations.splice(i, 1);
       return json({ ok: true });
     }
+    if (p.endsWith("/v1/automations") && m === "POST") {
+      // GUI/onboarding-recipe create (§24) — mirrors the server: title+instructions+cron
+      // required; §25 permissions become always_allowed entries (write grants only).
+      const body = req.postDataJSON() || {};
+      if (!body.title || !body.instructions || !(body.cron || body.fire_at))
+        return json({ ok: false, error: "missing fields" });
+      const grants = (body.permissions || [])
+        .filter((g: any) => g && g.access === "write" && g.tool && g.target)
+        .map((g: any) => ({ entry: `${g.tool} ${g.target}`, tool: g.tool, target: g.target }));
+      const task = {
+        ...AUTOMATION,
+        id: `task-ob-${automations.length}`,
+        title: body.title,
+        instructions: body.instructions,
+        schedule: body.cron || body.fire_at,
+        always_allowed: grants,
+        run_count: 0,
+      };
+      automations.push(task);
+      return json({ ok: true, task });
+    }
     if (p.endsWith("/v1/automations")) return json({ tasks: automations });
+    if (p.endsWith("/v1/settings/onboarded") && m === "POST") {
+      return json({ ok: true, onboarded: !!(req.postDataJSON() || {}).value });
+    }
     if (p.endsWith("/v1/mcp")) return json({ servers: [] });
     if (p.endsWith("/v1/unrouted")) return json([]);
 

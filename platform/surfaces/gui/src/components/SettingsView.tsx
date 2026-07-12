@@ -192,13 +192,18 @@ function AppearanceSection() {
               <span className="block text-[12px] text-muted">Prevent idle sleep so scheduled tasks fire on time.</span>
             </span>
           </label>
-          <div className="mt-3 pt-3 border-t border-line">
-            <button className={BTN_BORDERED} onClick={runSetupAgain}>
-              Run setup again
-            </button>
-          </div>
         </div>
       )}
+
+      {/* The onboarding replay entry (§24) — every build, not just desktop: the browser dev
+          shell runs the same first-run flow, and owner testing replays it here. */}
+      <div className={CARD + " p-4 mt-4"}>
+        <div className={FIELD_LABEL + " mb-2"}>Setup</div>
+        <button className={BTN_BORDERED} onClick={runSetupAgain}>
+          Run setup again
+        </button>
+        <div className={FIELD_HELP}>Replays the first-run setup: model, first automation, tips.</div>
+      </div>
     </section>
   );
 }
