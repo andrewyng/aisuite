@@ -1,123 +1,131 @@
-import { useEffect, useRef, useState } from "react";
-import { getConnectors, getMcpServers } from "../api";
+import { useEffect, useState } from "react";
+import { getConnectors, getSessionConnections } from "../api";
 import type { Attachment } from "../types";
-import { readFile } from "../attach";
+import { ConnectorIcon } from "../connectors/ConnectorIcon";
+import { indexConnectors, visualFor, type ConnectorMap } from "../connectors/visuals";
 import { useRoots } from "../useRoots";
 import { AddFolderForm } from "./AddFolderForm";
-import { Icon } from "./Icon";
 
-// Empty-state for a fresh Cowork session. Deliberately quiet: a greeting, then two suggestion
-// lists in the same visual language — "Set me up" (the lead-in to sharing folders and connecting
-// mail/calendar/tools) and "Try a task". No cards or status panels: the temporary-space details
-// live in the composer's directory chip; active integrations show as a muted suffix.
+// Empty-state for a fresh Cowork session (§27): a greeting, exactly three concrete template
+// tasks, and the composer — nothing else. Each task carries its own setup: no icon tiles (the
+// title is the row), connector dots on the sub-line (brand color = connected and enabled for
+// this session, grayscale = not — §23's vocabulary), and sub-line copy that is always the task's
+// OUTCOME, never connection state. Sources ready → "Start →" on hover, click prefills the
+// composer. Not ready → "Configure ›" always visible (for a gated row the setup action IS the
+// row's meaning), opening the §23 Session settings drawer — no second setup surface here.
 
-interface Task {
-  ico: string;
-  text: string;
-  prompt: string;
-  pickFile?: boolean; // open a file picker and attach the chosen file to the composer
-}
-
-const TASKS: Task[] = [
-  { ico: "✦", text: "Research a topic and write a one-page brief", prompt: "Research this topic and write me a one-page brief: " },
-  { ico: "▦", text: "Analyze a CSV and summarize the key trends", prompt: "Analyze this CSV and summarize the key trends.", pickFile: true },
-  { ico: "✎", text: "Draft a project plan with milestones", prompt: "Draft a project plan with milestones for: " },
-];
+const FOLDER_PROMPT = "Analyze the files in this folder and summarize what matters.";
+const HUBSPOT_PROMPT =
+  "Create a report on my recent HubSpot leads: sources, stages, and who needs follow-up.";
+const GH_SLACK_PROMPT =
+  "Set up a weekly progress report: summarize activity in my GitHub repos and post it to Slack every Friday morning.";
 
 export function SessionIntro({
   sessionId,
-  onOpenIntegrations,
+  onOpenSessionSettings,
   onPrefill,
 }: {
   sessionId: string;
-  onOpenIntegrations: () => void;
+  // Opens the §23 Session settings drawer (sources section) — the gated rows' Configure target.
+  onOpenSessionSettings: () => void;
   onPrefill: (text: string, attachments?: Attachment[]) => void;
 }) {
   const { roots, busy, error, addRoot } = useRoots(sessionId);
-  const [active, setActive] = useState<string[]>([]);
+  const [live, setLive] = useState<Set<string>>(new Set());
+  const [byName, setByName] = useState<ConnectorMap>({});
   const [addingFolder, setAddingFolder] = useState(false);
-  const fileInput = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    // Active integrations = connected+enabled connectors and enabled MCP servers.
-    Promise.all([getConnectors().catch(() => []), getMcpServers().catch(() => [])]).then(([conns, mcp]) => {
-      setActive([
-        ...conns.filter((c) => c.connected && c.enabled).map((c) => c.title || c.name),
-        ...mcp.filter((m) => m.enabled).map((m) => m.name),
-      ]);
-    });
-  }, []);
+    // Live = what this session can touch right now (connected AND not muted here) — the same
+    // truth the §23 glance renders, so the dots here can never disagree with the row above.
+    getSessionConnections(sessionId)
+      .then((c) => setLive(new Set(c.connected.filter((x) => x.enabled).map((x) => x.connector))))
+      .catch(() => {});
+    getConnectors()
+      .then((list) => setByName(indexConnectors(list)))
+      .catch(() => {});
+  }, [sessionId]);
 
   const shared = roots.filter((r) => !r.primary);
+  const hubspotReady = live.has("hubspot");
+  const ghSlackReady = live.has("github") && live.has("slack");
 
-  const runTask = (t: Task) => {
-    if (t.pickFile) fileInput.current?.click();
-    else onPrefill(t.prompt);
-  };
-  const onFile = async (files: FileList | null) => {
-    const f = files?.[0];
-    if (!f) return;
-    const att = await readFile(f);
-    onPrefill("Analyze this CSV and summarize the key trends.", att ? [att] : undefined);
+  const dot = (name: string, on: boolean) => (
+    <span className={"task-dot" + (on ? "" : " off")} key={name}>
+      <ConnectorIcon connector={visualFor(name, "connector", byName)} size={12} />
+    </span>
+  );
+
+  const pickFolder = () => {
+    // A shared folder already exists → straight to the prompt; otherwise share one first.
+    if (shared.length > 0) onPrefill(FOLDER_PROMPT);
+    else setAddingFolder((v) => !v);
   };
 
   return (
     <div className="intro">
       <h1 className="greeting">
-        <span className="mark">✳</span> What should we produce?
+        <span className="mark">✦</span> What should we produce?
       </h1>
       <p className="intro-lede">
-        Pick a task to start — I'll do the work and save the result. Or just type what you need below.
+        Pick a task to start — I'll do the work and save the result. Or just type what you need
+        below.
       </p>
 
-      {/* Lead with one-click tasks (the fastest path to value); setup comes after. */}
       <div className="intro-tasks">
-        {TASKS.map((t, i) => (
-          <button className="task-card" key={i} onClick={() => runTask(t)}>
-            <span className="task-card-ico">{t.ico}</span>
-            <span className="task-card-text">{t.text}</span>
-            <span className="task-card-hint">{t.pickFile ? "Pick a file →" : "Start →"}</span>
-          </button>
-        ))}
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,.tsv,.txt,text/csv"
-          style={{ display: "none" }}
-          onChange={(e) => {
-            onFile(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </div>
-
-      <div className="suggestions intro-setup">
-        <div className="suggest-head">Set me up (optional)</div>
-        <div className="suggest" onClick={() => setAddingFolder((v) => !v)}>
-          <span className="ico"><Icon name="folderPlus" size={16} /></span>
-          Give me access to a folder
-          {shared.length > 0 && (
-            <span className="suggest-hint">
-              · {shared.length} folder{shared.length === 1 ? "" : "s"} shared
-            </span>
-          )}
-        </div>
+        <button className="task-card" data-testid="intro-task-folder" onClick={pickFolder}>
+          <span className="task-card-body">
+            <span className="task-card-title">Analyze the files in a directory</span>
+            <span className="task-card-sub">I'll read them and summarize what matters</span>
+          </span>
+          <span className="task-card-act">Pick a folder →</span>
+        </button>
         {addingFolder && (
           <div className="intro-addfolder">
             <AddFolderForm
               startOpen
               busy={busy}
-              onAdd={addRoot}
+              onAdd={async (path, writable) => {
+                const ok = await addRoot(path, writable);
+                if (ok !== false) onPrefill(FOLDER_PROMPT);
+                return ok;
+              }}
               onDismiss={() => setAddingFolder(false)}
             />
             {error && <div className="roots-err">{error}</div>}
           </div>
         )}
-        <div className="suggest" onClick={onOpenIntegrations}>
-          <span className="ico"><Icon name="plug" size={16} /></span>
-          Connect Gmail, Calendar, Drive…
-          {active.length > 0 && <span className="suggest-hint">· {active.join(" ✓ · ")} ✓</span>}
-        </div>
+
+        <button
+          className={"task-card" + (hubspotReady ? "" : " gated")}
+          data-testid="intro-task-hubspot"
+          onClick={() => (hubspotReady ? onPrefill(HUBSPOT_PROMPT) : onOpenSessionSettings())}
+        >
+          <span className="task-card-body">
+            <span className="task-card-title">Create a report from my HubSpot leads</span>
+            <span className="task-card-sub">
+              {dot("hubspot", hubspotReady)}
+              Sources, stages, and who needs follow-up
+            </span>
+          </span>
+          <span className="task-card-act">{hubspotReady ? "Start →" : "Configure ›"}</span>
+        </button>
+
+        <button
+          className={"task-card" + (ghSlackReady ? "" : " gated")}
+          data-testid="intro-task-github-slack"
+          onClick={() => (ghSlackReady ? onPrefill(GH_SLACK_PROMPT) : onOpenSessionSettings())}
+        >
+          <span className="task-card-body">
+            <span className="task-card-title">Automate a weekly GitHub progress report to Slack</span>
+            <span className="task-card-sub">
+              {dot("github", live.has("github"))}
+              {dot("slack", live.has("slack"))}
+              Repo activity, summarized and posted every Friday
+            </span>
+          </span>
+          <span className="task-card-act">{ghSlackReady ? "Start →" : "Configure ›"}</span>
+        </button>
       </div>
     </div>
   );

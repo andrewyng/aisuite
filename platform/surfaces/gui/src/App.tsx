@@ -919,7 +919,7 @@ export function App() {
             </span>
           </div>
         )}
-        <div className="boot-mark">✳</div>
+        <div className="boot-mark">✦</div>
         <div className="boot-text">{resumedExisting ? "Restoring your session…" : "Starting coworker…"}</div>
       </div>
     );
@@ -1202,13 +1202,13 @@ export function App() {
                 agent === "cowork" ? (
                   <SessionIntro
                     sessionId={sessionId}
-                    onOpenIntegrations={() => setSurface("integrations")}
+                    onOpenSessionSettings={() => setSessionSettings("sources")}
                     onPrefill={prefillComposer}
                   />
                 ) : (
                   <div className="hero">
                     <h1 className="greeting">
-                      <span className="mark">✳</span>
+                      <span className="mark">✦</span>
                       {agent === "chat" ? "How can I help?" : "Let's build something."}
                     </h1>
                     {needsWorkspace(agent) && (

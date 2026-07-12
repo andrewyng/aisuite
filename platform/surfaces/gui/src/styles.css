@@ -662,37 +662,50 @@ button.btn.danger { color: var(--accent); }
 .intro .greeting { font-size: 26px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
 .intro .greeting .mark { color: var(--accent); }
 .intro-lede { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 8px 0 0; }
-.intro .suggestions { margin-top: 36px; }
-.intro .suggestions.intro-setup { margin-top: 30px; }
-.intro .suggest-head { margin-bottom: 6px; }
 
-/* Lead-with-tasks on the Cowork start screen. Task rows share the "Set me up" list's
-   visual language (owner call 2026-07-11: the bordered white cards read as noise) —
-   flat hairline rows; hover colors the row and reveals the action hint. */
-.intro-tasks { margin-top: 28px; display: flex; flex-direction: column; }
+/* Template tasks on the Cowork start screen (§27): flat hairline rows, no icon tiles — the
+   title is the row. Connector dots on the sub-line (brand color = live for this session,
+   grayscale = not; §23's vocabulary); sub-line copy is the task's OUTCOME, never connection
+   state. Ready row: hover colors the title and reveals the action. Gated row: "Configure ›"
+   stays visible at rest — the setup action IS the row's meaning. Staggered entrance. */
+.intro-tasks { margin-top: 30px; display: flex; flex-direction: column; }
 .task-card {
-  display: flex; align-items: center; gap: 11px;
+  display: flex; align-items: center; gap: 14px;
   width: 100%; text-align: left; cursor: pointer;
-  padding: 11px 6px;
+  padding: 13px 6px;
   background: none; border: none; border-top: 1px solid var(--line);
-  font: inherit; color: var(--ink); font-size: 14.5px;
-  transition: color 0.12s;
+  font: inherit; color: var(--ink);
+  opacity: 0; transform: translateY(4px);
+  animation: task-rise 0.35s ease forwards;
+}
+.task-card:nth-of-type(1) { animation-delay: 0.10s; }
+.task-card:nth-of-type(2) { animation-delay: 0.22s; }
+.task-card:nth-of-type(3) { animation-delay: 0.34s; }
+@keyframes task-rise { to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .task-card { animation: none; opacity: 1; transform: none; }
 }
 .task-card:first-child { border-top: none; }
-.task-card:hover { color: var(--accent); }
-.task-card-ico {
-  width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 7px;
-  display: grid; place-items: center; background: var(--panel);
-  color: var(--muted); font-size: 14px; flex: none;
-  transition: color 0.12s, border-color 0.12s;
+.task-card-body { flex: 1; min-width: 0; }
+.task-card-title { display: block; font-size: 14.5px; transition: color 0.12s; }
+.task-card:hover .task-card-title { color: var(--accent); }
+.task-card-sub {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--faint); margin-top: 3px;
 }
-.task-card:hover .task-card-ico { color: var(--accent); border-color: var(--accent); }
-.task-card-text { flex: 1; }
-.task-card-hint {
+.task-dot {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.task-dot + .task-dot { margin-left: -4px; }
+.task-dot.off { filter: grayscale(1); opacity: 0.7; }
+.task-card-act {
   color: var(--faint); font-size: 12.5px; flex: none;
   opacity: 0; transition: opacity 0.12s;
 }
-.task-card:hover .task-card-hint { opacity: 1; color: var(--accent); }
+.task-card:hover .task-card-act { opacity: 1; color: var(--accent); }
+.task-card.gated .task-card-act { opacity: 1; color: var(--accent); }
 
 /* Topbar "Artifacts (N)" affordance, shown when the side panel is hidden */
 .topbar-artifacts-btn {
@@ -707,9 +720,8 @@ button.btn.danger { color: var(--accent); }
   min-width: 17px; padding: 0 5px; border-radius: 9px;
   background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; text-align: center;
 }
-/* the inline add-folder form sits indented under its "Give me access…" row */
-.intro-addfolder { padding: 4px 6px 14px 45px; border-top: 1px solid var(--line); }
-.suggest-hint { color: var(--faint); font-size: 12px; margin-left: 4px; }
+/* the inline add-folder form sits under the "Analyze the files in a directory" task row */
+.intro-addfolder { padding: 4px 6px 14px 6px; border-top: 1px solid var(--line); }
 
 /* request_directory prompt (agent-initiated) */
 .dirreq-card {

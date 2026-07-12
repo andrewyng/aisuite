@@ -39,7 +39,7 @@ export function FolderGate({ onChoose, onCancel, create }: Props) {
   return (
     <div className="gate-overlay">
       <div className="gate">
-        <div className="gate-mark">✳</div>
+        <div className="gate-mark">✦</div>
         <h2>{create ? "New project" : "Choose a project folder"}</h2>
         <p className="gate-sub">
           {create

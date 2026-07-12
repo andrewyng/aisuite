@@ -530,8 +530,40 @@ the **account anchor** and the bottom is **exactly one row**:
   shrinking (§19/§21 moved per-connector cuts onto detail pages; the residual global table may
   later dissolve entirely).
 
+## 27. Start screen: template tasks carry their own setup  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-007-start-tasks.html`; ledger UX-007)*
+
+Extends §22's start-screen half and composes with §23. The fresh-Cowork empty state becomes
+**exactly three concrete template tasks** — flat hairline rows (the de-boxed grammar), staggered
+~300ms entrance — and nothing else between the greeting and the composer:
+
+1. **Analyze the files in a directory** — action "Pick a folder →": shares a folder (inline
+   add-folder form; straight to prefill when one is already shared), then prefills the composer.
+2. **Create a report from my HubSpot leads** — gated on HubSpot.
+3. **Automate a weekly GitHub progress report to Slack** — gated on GitHub + Slack; funnels
+   into §24/§25's recipe + consent machinery.
+
+- **No leading icon tiles** — the title is the row. Connector dots sit on the **sub-line**:
+  brand color = connected and enabled for this session, grayscale = not (§23's vocabulary).
+- **Sub-line copy is always the task's outcome** ("Sources, stages, and who needs follow-up"),
+  never connection state — the dots and the trailing action carry that.
+- **Row action contract:** sources ready → "Start →" revealed on hover, click prefills the
+  composer with the template stem. Not ready → **"Configure ›" always visible** (for a gated
+  row the setup action IS the row's meaning) and it opens the §23 Session settings drawer —
+  the start screen adds **no second setup surface**.
+- **"Set me up (optional)" is removed** — setup rides the task that needs it.
+- Rejected on the way (competitor comparison): boxed category tiles expanding into template
+  lists (reintroduces boxes + a navigation level); a specialist-coworker picker line on the
+  composer edge and a tip/picker under the tasks (placement + "X is on this session" copy).
+  The specialist entry point is **deliberately absent** — owner sketch to come.
+- Same day: the ✳ greeting/boot/gate mark (read as a competitor's logo) → **✦** app-wide.
+
 ## Change log (requests, newest first)
 
+- **2026-07-11 (5)** — Owner (competitor new-session comparison; ledger UX-007, mock v3
+  approved): start screen → three concrete template tasks that carry their own setup (no icon
+  tiles; outcome-voiced sub-lines with connector dots; ready = hover "Start →" + prefill,
+  gated = always-visible "Configure ›" → the §23 drawer); "Set me up (optional)" removed;
+  specialist entry point deferred to an owner sketch → §27. Also: ✳ mark → ✦ app-wide.
 - **2026-07-11 (4)** — Owner (Settings audit; ledger UX-006, mock v2 approved): sidebar bottom
   → one account row (name + cloud status dot + state-driven sticky-unlock inbox chip);
   "Settings & more" retired; Integrations renamed Connectors and lives in the account menu with
