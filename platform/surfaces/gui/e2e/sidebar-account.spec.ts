@@ -37,7 +37,7 @@ test("the account menu: Inbox + Connectors always listed; Settings carries the s
   await expect(menu.getByRole("button", { name: "Activity", exact: true })).toBeVisible();
 });
 
-test("Activity in the menu is the audit log; Unrouted lives under Messaging routing", async ({
+test("Activity in the menu is the audit log; Unrouted lives under Inbox ▸ Configure", async ({
   page,
 }) => {
   await page.goto("/");
@@ -45,10 +45,17 @@ test("Activity in the menu is the audit log; Unrouted lives under Messaging rout
   await page.getByTestId("account-menu").getByRole("button", { name: "Activity", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
 
+  // §28: Messaging routing left the Connectors sub-nav entirely (Connectors · MCP only)…
   await page.getByTestId("account-row").click();
   await page.getByTestId("account-menu").getByRole("button", { name: "Connectors", exact: true }).click();
-  await page.getByRole("button", { name: /Messaging routing/ }).click();
-  await expect(page.getByTestId("unrouted-section")).toBeVisible();
+  await expect(page.getByRole("button", { name: "MCP servers" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Messaging routing/ })).toHaveCount(0);
   // The old fourth sub-nav tab is gone — exactly one page is named Activity now.
   await expect(page.getByRole("button", { name: "Activity", exact: true })).toHaveCount(0);
+
+  // …and Unrouted rides the Inbox's Configure tab.
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-menu").getByRole("button", { name: "Inbox" }).click();
+  await page.getByTestId("inbox-tab-configure").click();
+  await expect(page.getByTestId("unrouted-section")).toBeVisible();
 });

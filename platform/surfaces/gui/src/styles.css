@@ -157,11 +157,9 @@ body {
    traffic lights — reveal/pin, the wordmark, and the topbar title all on that line. */
 .app.tauri-overlay .nav-reveal-btn { top: 16px; left: 84px; }
 .app.tauri-overlay .main-topbar { padding-top: 12px; }
-/* Make room for the reveal button so it never overlaps the topbar / page-view header content. */
-.app.nav-collapsed .main-topbar,
-.app.nav-collapsed .sa-view-head { padding-left: 46px; }
-.app.nav-collapsed.tauri-overlay .main-topbar,
-.app.nav-collapsed.tauri-overlay .sa-view-head { padding-left: 120px; }
+/* The session topbar's collapsed-state cluster is INLINE (§22), so only the overlay build pads
+   it — to clear the traffic lights. */
+.app.nav-collapsed.tauri-overlay .main-topbar { padding-left: 84px; }
 
 .tabs { display: flex; gap: 4px; background: var(--paper); padding: 4px; border-radius: 10px; }
 .tab {
@@ -842,41 +840,9 @@ button.btn.sm { padding: 5px 13px; font-size: 12.5px; }
 .sa-sub { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
 .dim { color: var(--faint); }
 
-/* -- Super-agent view (full surface) ---------------------------------------- */
-/* Document-style views (Automations, Integrations, Audit): chrome-less page on the same dotted
-   surface as the sessions. `page-col` is an invisible content column (left-aligned, capped width)
-   that both the header and body share, so the page title lines up with its content. */
-.page-col {
-  flex: 1 1 auto; min-height: 0; width: 100%; max-width: 1080px;
-  display: flex; flex-direction: column; overflow: hidden;
-}
-.page-col .main-scroll { padding: 6px 40px 44px; }
-
-.sa-view-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
-  padding: 34px 40px 18px; background: transparent;
-}
-.sa-view-heading { min-width: 0; }
-/* Big, quiet page title with a small monochrome inline icon — no badge, no bar. */
-.sa-view-title { display: flex; align-items: center; gap: 9px; font-size: 25px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); line-height: 1.2; }
-.sa-view-title svg { color: var(--muted); flex: none; }
-.sa-view-sub { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
-.sa-back { background: none; border: none; padding: 0; font: inherit; font-size: 13.5px; color: var(--muted); cursor: pointer; }
-.sa-back:hover { color: var(--ink); }
-/* Quiet outline action in the header (e.g. "+ New automation"). */
-button.btn.new-action { font-size: 13px; padding: 7px 13px; border-radius: 9px; color: var(--ink); border: 1px solid var(--line-strong); background: var(--panel); }
-button.btn.new-action:hover { border-color: var(--accent); color: var(--accent); }
-
-/* -- Scheduled view --------------------------------------------------------- */
-.sched-list { display: flex; flex-direction: column; gap: 9px; max-width: 820px; margin: 16px 0; }
-.sched-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 13px 16px; cursor: pointer; transition: border-color 0.12s; }
-.sched-card:hover { border-color: var(--line-strong); }
-.sched-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
-.sched-card-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-.sched-card-meta .sched-clock { color: var(--faint); flex: none; }
-.sched-detail { max-width: 760px; margin: 14px auto; width: calc(100% - 44px); display: flex; flex-direction: column; gap: 10px; }
+/* -- Scheduled view (page shell + head are Tailwind, §28) -------------------- */
+.sched-detail { display: flex; flex-direction: column; gap: 10px; }
 .sched-detail-head { display: flex; align-items: center; justify-content: space-between; }
-.sched-detail-head h2 { font-family: var(--serif); font-size: 22px; margin: 0; }
 .sched-actions { display: flex; align-items: center; gap: 12px; }
 .sched-instructions { font-size: 13.5px; color: var(--ink); white-space: pre-wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; line-height: 1.5; }
 /* Quick-delete on a list card: revealed on hover, never steals the row click. */
@@ -903,10 +869,6 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
 .sched-run.open .sched-run-row { cursor: pointer; }
 .sched-run-go { color: var(--accent); font-size: 12.5px; font-weight: 500; }
 .sched-run-peek { font-size: 12.5px; color: var(--muted); line-height: 1.45; max-height: 2.9em; overflow: hidden; margin-top: 2px; }
-
-.sched-banner { max-width: 820px; margin: 14px 0 0; display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; color: var(--muted); line-height: 1.5; background: var(--paper); border: 1px solid var(--line); border-radius: 11px; padding: 10px 13px; }
-.sched-banner .ico { color: var(--accent); flex: none; margin-top: 1px; }
-.sched-banner strong { color: var(--ink); font-weight: 600; }
 
 /* Desktop boot splash — shown while the Tauri sidecar server comes up. */
 .boot-splash {
@@ -1155,28 +1117,9 @@ button.btn.ghost:hover { color: var(--ink); }
 .msg-img { max-width: 220px; max-height: 220px; border-radius: 10px; border: 1px solid var(--line-strong); display: block; }
 .msg-file { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
 
-/* ---- Automation templates ---- */
+/* ---- Automation form inputs (the form/template cards themselves are Tailwind, §28) ---- */
 
-.tmpl-wrap { max-width: 820px; margin: 18px 0 0; }
-.tmpl-head { margin-bottom: 10px; font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.05em; }
-.tmpl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.tmpl-card {
-  display: flex; flex-direction: column; gap: 5px;
-  border: 1px solid var(--line); border-radius: 13px; background: var(--panel); padding: 15px 16px;
-  transition: border-color 0.12s;
-}
-.tmpl-card:hover { border-color: var(--line-strong); }
-.tmpl-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
-.tmpl-blurb { font-size: 12.5px; color: var(--muted); line-height: 1.45; flex: 1; }
-.tmpl-when { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--faint); margin-top: 2px; }
-.tmpl-when svg { flex: none; }
-.tmpl-add { align-self: flex-start; margin-top: 10px; }
-
-.tmpl-form {
-  max-width: 760px; margin: 14px auto 0; width: calc(100% - 44px);
-  display: flex; flex-direction: column; gap: 9px;
-  border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 14px 16px;
-}
+.tmpl-form { display: flex; flex-direction: column; gap: 9px; }
 .tmpl-input {
   font: inherit; font-size: 13px; color: var(--ink); background: var(--panel);
   border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 10px; outline: none;
@@ -1189,7 +1132,6 @@ button.btn.ghost:hover { color: var(--ink); }
 .tmpl-time, .tmpl-select { padding: 6px 9px; }
 .tmpl-form-actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
 
-.tmpl-empty { margin-top: 18px; }
 
 /* Inbox view */
 /* "Go to session" chip: persona icon + session title, links back for context. */

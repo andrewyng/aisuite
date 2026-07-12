@@ -554,6 +554,10 @@ the **account anchor** and the bottom is **exactly one row**:
   shrinking (§19/§21 moved per-connector cuts onto detail pages; the residual global table may
   later dissolve entirely).
 
+> **Revision 2026-07-12 (§28):** Messaging routing did dissolve — the whole page (mirror
+> channel, DM route, channel subscriptions, Unrouted with its ⚠ badge) moved to
+> **Inbox ▸ Configure**; the Connectors sub-nav is now just Connectors · MCP servers.
+
 ## 27. Start screen: template tasks carry their own setup  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-007-start-tasks.html`; ledger UX-007)*
 
 Extends §22's start-screen half and composes with §23. The fresh-Cowork empty state becomes
@@ -581,8 +585,38 @@ Extends §22's start-screen half and composes with §23. The fresh-Cowork empty 
   The specialist entry point is **deliberately absent** — owner sketch to come.
 - Same day: the ✳ greeting/boot/gate mark (read as a competitor's logo) → **✦** app-wide.
 
+## 28. One page shell; Inbox absorbs Messaging routing  *(Decided 2026-07-12 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-009-inbox-merge.html`; ledger UX-009)*
+
+Owner walkthrough: Automations, Activity, and Inbox each had their own indentation and head
+style; and "Messaging routing" hid inbox-delivery config under Connectors while the mirror
+channel was editable in TWO places (that page's card + Inbox's inline configurator).
+
+- **One page shell for every top-level page** — the Connectors/Activity pattern: full-bleed
+  `main`, centered ≤4xl column, `PanelHead` (18px title, 12.5px muted subtitle BELOW it),
+  card-based content. Page-level actions ("+ New automation") right-align with the head.
+  Automations drops its icon-in-title and the boxed ⓘ banner (now a one-line muted note);
+  Inbox drops its title+subtitle-on-one-line head. No page invents its own indentation again.
+- **Inbox = two page-level tabs**, underline style — one visual level above the filter chips:
+  - **Pending** (default): approvals/questions exactly as before (kind chips, persona chips,
+    resolve-releases-agent). Badge = pending count. The routing status is a read-only line
+    ("Also delivered to #ops-alerts — replies there resolve items here. Configure ›") whose
+    link switches tabs; the inline editor is deleted — the mirror setting has ONE editor now.
+  - **Configure**: the former Messaging-routing page moved whole — Unattended-approvals
+    mirror + Direct-messages route (two-card row), Channel subscriptions, Unrouted. The ⚠
+    unrouted count rides this tab. Rationale: Unrouted is "messages that never reached you" —
+    the user asking "why didn't I get pinged?" looks in Inbox, not Connectors.
+  - Tab name: owner offered "Destination"/"Configure" over the drafted "Delivery" —
+    **Configure** won (honest umbrella for mixed settings; "Destination" names only the
+    mirror card). Mirror target and routing line show the channel **name** when the recent
+    list knows it (§24 revision 9's names-over-ids rule).
+- **Connectors sub-nav shrinks to Connectors · MCP servers** (amends §26, which had already
+  predicted the dissolution).
+
 ## Change log (requests, newest first)
 
+- **2026-07-12 (10)** — Owner (walkthrough, screenshots of three pages): Automations /
+  Activity / Inbox must share one look; Messaging routing belongs in Inbox → §28 (one page
+  shell everywhere; Inbox tabs Pending / Configure; Connectors sub-nav = Connectors · MCP).
 - **2026-07-11 (9)** — Owner (walkthrough, step 2 recipe): the channel box must show the
   channel NAME, not `slack:T…/C…` — ChannelPicker now separates display (#name at rest,
   raw address while editing + in the tooltip) from the stored target, on BOTH its surfaces

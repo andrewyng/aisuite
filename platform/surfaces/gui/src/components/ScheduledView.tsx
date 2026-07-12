@@ -9,6 +9,10 @@ import {
   type AutomationRun,
 } from "../api";
 import { Icon } from "./Icon";
+import { PanelHead } from "./IntegrationsView";
+
+// Shared utility strings (the §28 page shell — mirrors IntegrationsView's constants).
+const CARD = "rounded-xl2 border border-line bg-panel";
 
 // Parse a simple "min hour * * dow" cron back into the time + frequency the editor uses.
 // Falls back to 09:00 / daily for anything it doesn't recognize (e.g. agent-written crons).
@@ -68,6 +72,17 @@ function toCron(time: string, freq: string): string {
   const [h, m] = (time || "09:00").split(":").map((x) => parseInt(x, 10) || 0);
   const dow = freq === "weekdays" ? "1-5" : freq === "weekends" ? "0,6" : "*";
   return `${m} ${h} * * ${dow}`;
+}
+
+// The §28 page shell: full-bleed main, centered ≤4xl column — same as Connectors/Activity/Inbox.
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex-1 min-w-0 flex bg-paper">
+      <div className="flex-1 min-w-0 overflow-y-auto hairline-scroll">
+        <div className="max-w-4xl mx-auto px-7 py-6">{children}</div>
+      </div>
+    </main>
+  );
 }
 
 interface Props {
@@ -131,98 +146,103 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const empty = tasks.length === 0;
 
   return (
-    <div className="main page-view">
-      <div className="page-col">
-      <div className="sa-view-head">
-        <div className="sa-view-heading">
-          <div className="sa-view-title"><Icon name="clock" size={21} /> Automations</div>
-          <div className="sa-view-sub">Recurring tasks OpenCoworker runs on a schedule.</div>
+    <Shell>
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <PanelHead title="Automations" sub="Recurring tasks OpenCoworker runs on a schedule." />
         </div>
-        <button className="btn new-action" onClick={() => setShowForm((v) => !v)}>
+        <button
+          className="text-[12.5px] px-3 py-1.5 rounded-lg border border-lineStrong bg-panel hover:border-accent hover:text-accent shrink-0"
+          onClick={() => setShowForm((v) => !v)}
+        >
           + New automation
         </button>
       </div>
-      <div className="main-scroll">
-        <div className="sched-banner">
-          <span className="ico">ⓘ</span>
-          <span>
-            Scheduled tasks only run while <strong>coworker-server</strong> is running. If it's off at
-            the scheduled time, the task runs once when the server next starts (catch-up).
-          </span>
-        </div>
 
-        {showForm && (
-          <NewAutomationForm
-            busy={busy !== null}
-            onCancel={() => setShowForm(false)}
-            onCreate={create}
-          />
-        )}
+      <div className="text-[12px] text-faint flex gap-1.5 mb-4">
+        <span aria-hidden>ⓘ</span>
+        <span>
+          Runs only while coworker-server is up — a missed schedule catches up once when it next
+          starts.
+        </span>
+      </div>
 
-        {(empty || showForm) && (
-          <div className="tmpl-wrap">
-            <div className="sa-sub tmpl-head">Start from a template</div>
-            <div className="tmpl-grid">
-              {TEMPLATES.map((t) => (
-                <div className="tmpl-card" key={t.key}>
-                  <div className="tmpl-title">{t.title}</div>
-                  <div className="tmpl-blurb">{t.blurb}</div>
-                  <div className="tmpl-when"><Icon name="clock" size={12} /> {t.when}</div>
-                  <button
-                    className="btn sm tmpl-add"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      create({ title: t.title, instructions: t.instructions, cron: t.cron })
-                    }
-                  >
-                    {busy === t.title ? "Creating…" : "Use this"}
-                  </button>
-                </div>
-              ))}
-            </div>
+      {showForm && (
+        <NewAutomationForm
+          busy={busy !== null}
+          onCancel={() => setShowForm(false)}
+          onCreate={create}
+        />
+      )}
+
+      {(empty || showForm) && (
+        <div className="mb-4">
+          <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
+            Start from a template
           </div>
-        )}
-
-        {empty ? (
-          !showForm && (
-            <div className="hero tmpl-empty">
-              <div className="suggest-head">
-                No scheduled tasks yet — use a template above, click <strong>+ New automation</strong>,
-                or just ask OpenCoworker in a session.
-              </div>
-            </div>
-          )
-        ) : (
-          <div className="sched-list">
-            {tasks.map((t) => (
-              <div className="sched-card" key={t.id} onClick={() => setOpenId(t.id)}>
-                <div className="sched-card-top">
-                  <span className="conn-name">{t.title}</span>
-                  <button
-                    className="sched-card-del"
-                    title="Delete automation"
-                    aria-label={`Delete ${t.title}`}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      await deleteAutomation(t.id);
-                      refresh();
-                    }}
-                  >
-                    <Icon name="trash" size={14} />
-                  </button>
+          <div className="grid grid-cols-3 gap-3.5">
+            {TEMPLATES.map((t) => (
+              <div className={CARD + " p-4 flex flex-col gap-1.5"} key={t.key}>
+                <div className="text-[13.5px] font-semibold">{t.title}</div>
+                <div className="text-[12.5px] text-muted flex-1">{t.blurb}</div>
+                <div className="text-[11.5px] text-faint flex items-center gap-1.5">
+                  <Icon name="clock" size={12} /> {t.when}
                 </div>
-                <div className="sched-card-meta">
-                  <Icon name="clock" size={13} className="sched-clock" />
-                  {t.enabled ? t.schedule : "Paused"} · next {fmt(t.next_run)} · {t.run_count} run{t.run_count === 1 ? "" : "s"}
-                  {t.last_status ? ` · last ${t.last_status}` : ""}
-                </div>
+                <button
+                  className="self-start mt-1 text-[12px] px-2.5 py-1 rounded-md border border-line hover:border-accent hover:text-accent disabled:opacity-50"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    create({ title: t.title, instructions: t.instructions, cron: t.cron })
+                  }
+                >
+                  {busy === t.title ? "Creating…" : "Use this"}
+                </button>
               </div>
             ))}
           </div>
-        )}
-      </div>
-      </div>
-    </div>
+        </div>
+      )}
+
+      {empty ? (
+        !showForm && (
+          <div className={CARD + " p-4 text-[12.5px] text-muted"}>
+            No scheduled tasks yet — use a template above, click <strong>+ New automation</strong>,
+            or just ask OpenCoworker in a session.
+          </div>
+        )
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {tasks.map((t) => (
+            <div
+              className={CARD + " sched-card px-4 py-3 cursor-pointer hover:border-lineStrong transition-colors"}
+              key={t.id}
+              onClick={() => setOpenId(t.id)}
+            >
+              <div className="flex items-center justify-between gap-2.5 mb-1">
+                <span className="text-[13.5px] font-semibold truncate">{t.title}</span>
+                <button
+                  className="sched-card-del"
+                  title="Delete automation"
+                  aria-label={`Delete ${t.title}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await deleteAutomation(t.id);
+                    refresh();
+                  }}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 text-[12px] text-muted">
+                <Icon name="clock" size={13} className="text-faint shrink-0" />
+                {t.enabled ? t.schedule : "Paused"} · next {fmt(t.next_run)} · {t.run_count} run{t.run_count === 1 ? "" : "s"}
+                {t.last_status ? ` · last ${t.last_status}` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Shell>
   );
 }
 
@@ -243,8 +263,10 @@ function NewAutomationForm({
   const valid = title.trim() && instructions.trim();
 
   return (
-    <div className="tmpl-form">
-      <div className="sa-sub tmpl-head">New automation</div>
+    <div className={CARD + " tmpl-form p-4 mb-4"}>
+      <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
+        New automation
+      </div>
       <input
         className="tmpl-input"
         placeholder="Title (e.g. Daily standup notes)"
@@ -336,7 +358,12 @@ function TaskDetail({
     refresh();
   }, [id]);
 
-  if (!task) return <div className="main"><div className="main-scroll"><div className="manage-empty">Loading…</div></div></div>;
+  if (!task)
+    return (
+      <Shell>
+        <div className="text-[13px] text-muted">Loading…</div>
+      </Shell>
+    );
 
   const startEdit = () => {
     setTitle(task.title);
@@ -370,116 +397,141 @@ function TaskDetail({
   };
 
   return (
-    <div className="main page-view">
-      <div className="page-col">
-      <div className="sa-view-head">
-        <button className="sa-back" onClick={onBack}>← Automations</button>
-      </div>
-      <div className="main-scroll">
-        <div className="sched-detail">
-          <div className="sched-detail-head">
-            {editing ? (
-              <input
-                className="tmpl-input sched-edit-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Title"
-              />
-            ) : (
-              <h2>{task.title}</h2>
-            )}
-            <div className="sched-actions">
-              {editing ? (
-                <>
-                  <button className="btn-primary sm" disabled={saving || !title.trim() || !instructions.trim()} onClick={saveEdit}>
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  <button className="link" onClick={() => setEditing(false)}>cancel</button>
-                </>
-              ) : (
-                <>
-                  <button className="btn-primary sm" onClick={() => onRunNow(id, task.title)}>
-                    ▶ Run now
-                  </button>
-                  <button className="btn sm" onClick={startEdit}>Edit</button>
-                  <button className="btn sm danger-btn" onClick={remove}>
-                    <Icon name="trash" size={14} /> Delete
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
+    <Shell>
+      <button className="text-[13px] text-muted hover:text-ink mb-3" onClick={onBack}>
+        ← Automations
+      </button>
+      <div className="sched-detail">
+        <div className="sched-detail-head">
           {editing ? (
-            <div className="tmpl-sched sched-edit-sched">
-              <label className="tmpl-field">
-                <span>At</span>
-                <input type="time" className="tmpl-input tmpl-time" value={time} onChange={(e) => setTime(e.target.value)} />
-              </label>
-              <label className="tmpl-field">
-                <span>Repeat</span>
-                <select className="tmpl-input tmpl-select" value={freq} onChange={(e) => setFreq(e.target.value)}>
-                  <option value="daily">Every day</option>
-                  <option value="weekdays">Weekdays</option>
-                  <option value="weekends">Weekends</option>
-                </select>
-              </label>
-            </div>
-          ) : (
-            <div className="conn-meta">
-              <label className="switch">
-                <input type="checkbox" checked={task.enabled} onChange={toggle} />
-                <span className="slider" />
-              </label>{" "}
-              {task.enabled ? `Active · next ${fmt(task.next_run)}` : "Paused"} · {task.schedule}
-            </div>
-          )}
-
-          <div className="sa-sub">Instructions</div>
-          {editing ? (
-            <textarea
-              className="tmpl-input tmpl-textarea sched-edit-instr"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
+            <input
+              className="tmpl-input sched-edit-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Title"
             />
           ) : (
-            <div className="sched-instructions">{task.instructions}</div>
+            <h2 className="text-[18px] font-semibold tracking-tight">{task.title}</h2>
           )}
-
-          <div className="sa-sub">Runs</div>
-          <div className="dim" style={{ marginBottom: 8, fontSize: 12.5 }}>
-            Each run is a live conversation — open one to see what the agent did and ask a follow-up.
+          <div className="sched-actions">
+            {editing ? (
+              <>
+                <button className="btn-primary sm" disabled={saving || !title.trim() || !instructions.trim()} onClick={saveEdit}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button className="link" onClick={() => setEditing(false)}>cancel</button>
+              </>
+            ) : (
+              <>
+                <button className="btn-primary sm" onClick={() => onRunNow(id, task.title)}>
+                  ▶ Run now
+                </button>
+                <button className="btn sm" onClick={startEdit}>Edit</button>
+                <button className="btn sm danger-btn" onClick={remove}>
+                  <Icon name="trash" size={14} /> Delete
+                </button>
+              </>
+            )}
           </div>
-          {runs.length === 0 && <div className="dim">No runs yet.</div>}
-          {runs.map((r) => (
-            <div
-              className="sched-run open"
-              key={r.run_id}
-              onClick={() =>
-                r.session_id &&
-                onOpenRun(r.session_id, task.workspace, task.agent, {
-                  id: task.id,
-                  title: task.title,
-                })
-              }
-              title="Open this run's conversation"
-            >
-              <div className="sched-run-row">
-                <span>
-                  {fmt(r.started_at)} · <span className={"run-" + r.status}>{r.status}</span> · {r.trigger}
-                  {r.artifacts.length > 0 && <span className="dim"> · {r.artifacts.length} file(s)</span>}
-                </span>
-                <span className="sched-run-go" aria-hidden>
-                  Open ›
-                </span>
-              </div>
-              {r.result_text && <div className="sched-run-peek">{r.result_text}</div>}
-              {r.error && <div className="mcp-error">{r.error}</div>}
-            </div>
-          ))}
         </div>
+
+        {editing ? (
+          <div className="tmpl-sched sched-edit-sched">
+            <label className="tmpl-field">
+              <span>At</span>
+              <input type="time" className="tmpl-input tmpl-time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </label>
+            <label className="tmpl-field">
+              <span>Repeat</span>
+              <select className="tmpl-input tmpl-select" value={freq} onChange={(e) => setFreq(e.target.value)}>
+                <option value="daily">Every day</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="weekends">Weekends</option>
+              </select>
+            </label>
+          </div>
+        ) : (
+          <div className="conn-meta">
+            <label className="switch">
+              <input type="checkbox" checked={task.enabled} onChange={toggle} />
+              <span className="slider" />
+            </label>{" "}
+            {task.enabled ? `Active · next ${fmt(task.next_run)}` : "Paused"} · {task.schedule}
+          </div>
+        )}
+
+        <div className="sa-sub">Instructions</div>
+        {editing ? (
+          <textarea
+            className="tmpl-input tmpl-textarea sched-edit-instr"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+          />
+        ) : (
+          <div className="sched-instructions">{task.instructions}</div>
+        )}
+
+        {(task.always_allowed || []).length > 0 && (
+          <>
+            <div className="sa-sub">Allowed without asking</div>
+            <div className="dim" style={{ marginBottom: 8, fontSize: 12.5 }}>
+              Standing approvals this automation may use — everything else still asks first.
+            </div>
+            <div className="sched-grants" data-testid="task-grants">
+              {(task.always_allowed || []).map((rule) => (
+                <div className="sched-grant" key={rule.entry}>
+                  <span className="sched-grant-rule">
+                    <code>{rule.tool}</code>
+                    {rule.target && <span className="sched-grant-target"> → {rule.target}</span>}
+                  </span>
+                  <button
+                    className="link"
+                    title="This automation will ask for approval again"
+                    onClick={async () => {
+                      await updateAutomation(id, { revoke: rule.entry });
+                      refresh();
+                    }}
+                  >
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="sa-sub">Runs</div>
+        <div className="dim" style={{ marginBottom: 8, fontSize: 12.5 }}>
+          Each run is a live conversation — open one to see what the agent did and ask a follow-up.
+        </div>
+        {runs.length === 0 && <div className="dim">No runs yet.</div>}
+        {runs.map((r) => (
+          <div
+            className="sched-run open"
+            key={r.run_id}
+            onClick={() =>
+              r.session_id &&
+              onOpenRun(r.session_id, task.workspace, task.agent, {
+                id: task.id,
+                title: task.title,
+              })
+            }
+            title="Open this run's conversation"
+          >
+            <div className="sched-run-row">
+              <span>
+                {fmt(r.started_at)} · <span className={"run-" + r.status}>{r.status}</span> · {r.trigger}
+                {r.artifacts.length > 0 && <span className="dim"> · {r.artifacts.length} file(s)</span>}
+              </span>
+              <span className="sched-run-go" aria-hidden>
+                Open ›
+              </span>
+            </div>
+            {r.result_text && <div className="sched-run-peek">{r.result_text}</div>}
+            {r.error && <div className="mcp-error">{r.error}</div>}
+          </div>
+        ))}
       </div>
-      </div>
-    </div>
+    </Shell>
   );
 }
