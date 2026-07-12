@@ -398,15 +398,21 @@ fresh-session and in-progress screens shed chrome:
 - **Centered title with a facts subtitle** beneath: `(Coworker · Opus 4.8)`; code sessions include
   the workspace folder. The subtitle is the session's **fixed facts, not controls** — it replaces
   the locked-model pill (§17's lock expressed spatially) and the topbar "About this persona"
-  sliders button (subtitle click → the coworker page). ⋮ conversation menu unchanged. Topbar
-  right: the **panel toggle only** (mirrored variant of the left nav's sidebar glyph, one glyph
-  both states); the right rail absorbs **artifacts only**. *(Revised at visual review
-  2026-07-11: the topbar session-settings icon was dropped as redundant — §23's row owns the
-  drawer.)*
+  sliders button (subtitle click → the coworker page). Topbar right: the **panel toggle only**
+  (mirrored variant of the left nav's sidebar glyph, one glyph both states); the right rail
+  absorbs **artifacts only**. *(Revised at visual review 2026-07-11: the topbar
+  session-settings icon was dropped as redundant — §23's row owns the drawer.)* *(Revised
+  again 2026-07-11: the ⋮ conversation menu is REMOVED — the nav row's hover cluster owns
+  pin/rename/archive/delete, so the topbar menu was a strict subset; the title STAYS (with
+  the sidebar collapsed it is the only session identifier, and the subtitle orphans without
+  it). The topbar goes edgeless: no bottom border, paper-tinted glass — invisible at rest,
+  frosts only when the transcript scrolls under it.)*
 - **Composer = `[+ attach] [Mode ⌄] [send]`.** The **Mode menu** carries the five permission
   options (Discuss / Plan / Ask for approval / Full access / Custom) **plus the
   Unattended/send-approvals-to-Inbox toggle** at the bottom — "who approves, and when" is one
-  mental model; the separate InboxControl leaves the row.
+  mental model; the separate InboxControl leaves the row. *(Revised 2026-07-11, competitor
+  composer comparison: the trigger is borderless and names the CHOSEN mode — "Ask for
+  approval ⌄", not a generic bordered "Mode ⌄" pill.)*
 - **The model picker appears only on a fresh session** (quiet chip on the composer's right);
   after the first turn the fact moves up to the subtitle. No interactive-then-disabled control.
 - **Folder/roots control and branch chip leave the composer** → the session-settings drawer
@@ -559,6 +565,10 @@ Extends §22's start-screen half and composes with §23. The fresh-Cowork empty 
 
 ## Change log (requests, newest first)
 
+- **2026-07-11 (6)** — Owner (visual pass on the new shell): topbar ⋮ conversation menu
+  removed (nav row's hover cluster covers it; title kept — sole identifier when the nav is
+  collapsed); topbar goes edgeless glass (border dropped, paper-tinted blur); composer Mode
+  trigger goes borderless and names the chosen mode → §22 amendments.
 - **2026-07-11 (5)** — Owner (competitor new-session comparison; ledger UX-007, mock v3
   approved): start screen → three concrete template tasks that carry their own setup (no icon
   tiles; outcome-voiced sub-lines with connector dots; ready = hover "Start →" + prefill,

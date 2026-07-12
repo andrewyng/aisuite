@@ -201,47 +201,39 @@ body {
   right: 0;
   height: 48px; display: flex; align-items: center; gap: 12px;
   padding: 0 14px 0 20px; color: var(--ink); user-select: none;
-  /* mock's `border-b border-line bg-panel/70 backdrop-blur` */
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
-  border-bottom: 1px solid var(--line);
+  /* Edgeless glass (§22 amendment): no border, translucent tint + blur — invisible over the
+     flat paper at rest, frosts only when the transcript actually scrolls under it. */
+  background: color-mix(in srgb, var(--paper) 72%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 6;
 }
 .main.rail-open .main-topbar { right: 332px; }
-.main-title { position: relative; min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink); }
-.main-title > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 460px; }
-.title-rename {
-  width: 280px; border: 1px solid var(--accent); border-radius: 6px; background: var(--panel);
-  font: inherit; color: var(--ink); padding: 3px 7px; outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+/* Centered title column (§22, amended: the ⋯ menu removed — the nav row's hover cluster owns
+   pin/rename/archive/delete). Title + facts subtitle beneath; the side regions flex equally
+   so the column stays visually centered. */
+.main-title {
+  position: relative; min-width: 0; flex: 0 1 auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; color: var(--ink);
 }
-.main-drag-fill { align-self: stretch; flex: 1 1 auto; min-width: 24px; }
-.main-topbar-actions { display: flex; align-items: center; gap: 6px; }
-.topbar-icon-btn, .title-menu-btn {
+.main-title-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 460px; }
+.title-ghost { color: var(--faint); font-weight: 400; }
+/* The facts subtitle — fixed facts, not controls (persona · model · folder); click → coworker page. */
+.title-sub {
+  border: 0; background: none; padding: 0; font: inherit;
+  font-size: 11px; font-weight: 400; line-height: 1.25; color: var(--faint);
+  max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.title-sub:hover { color: var(--muted); }
+/* Equal-flex side regions keep the subtitle centered; they double as window-drag surfaces. */
+.main-topbar-side { align-self: stretch; flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.main-topbar-actions { justify-content: flex-end; }
+.topbar-icon-btn {
   width: 30px; height: 30px; display: grid; place-items: center;
   border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer;
 }
-.topbar-icon-btn:hover, .title-menu-btn:hover { color: var(--ink); background: var(--paper); }
-.title-menu {
-  position: absolute; top: 35px; left: calc(100% - 30px); z-index: 20;
-  width: 190px; padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--glass-strong);
-  box-shadow: 0 16px 40px rgba(15,23,42,0.12);
-  backdrop-filter: blur(16px);
-  -webkit-app-region: no-drag;
-}
-.title-menu button {
-  width: 100%; display: flex; align-items: center; gap: 9px;
-  padding: 8px 9px; border: 0; border-radius: 8px;
-  background: transparent; color: var(--ink); cursor: pointer;
-  font: inherit; font-size: 13px; text-align: left;
-}
-.title-menu button:hover { background: var(--paper); }
-.title-menu button:disabled { color: var(--faint); cursor: default; }
-.title-menu button:disabled:hover { background: transparent; }
+.topbar-icon-btn:hover { color: var(--ink); background: var(--paper); }
 .app.tauri-overlay .main-title,
 .app.tauri-overlay .main-drag-fill {
   -webkit-app-region: drag;

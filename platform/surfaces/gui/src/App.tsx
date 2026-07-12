@@ -238,10 +238,13 @@ export function App() {
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
   // the topbar when the side panel is hidden, so produced files are never buried.
   const [artifactCount, setArtifactCount] = useState(0);
-  const [topbarMenuOpen, setTopbarMenuOpen] = useState(false);
-  // Inline rename in the topbar (window.prompt is a no-op in the desktop webview).
-  const [renamingTitle, setRenamingTitle] = useState(false);
-  const [renameDraft, setRenameDraft] = useState("");
+  // The Session settings drawer (§23) — open state lives here because BOTH the sub-header row and
+  // the topbar's session-settings icon open it; the section is where a glance shortcut lands.
+  const [sessionSettings, setSessionSettings] = useState<DrawerSection | null>(null);
+  useEffect(() => setSessionSettings(null), [sessionId]); // never carry an open drawer across sessions
+  // The command-palette search, openable from the collapsed-sidebar topbar cluster (§22). The
+  // expanded sidebar owns its own instance; this one exists so search never disappears with it.
+  const [searchOpen, setSearchOpen] = useState(false);
   // A pending composer prefill (text + attachments) pushed from the session start panel.
   const [composerPrefill, setComposerPrefill] = useState<{ text: string; attachments?: Attachment[]; nonce: number }>();
 
@@ -888,6 +891,7 @@ export function App() {
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
   const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
   const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
+<<<<<<< HEAD
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New chat";
   // Topbar trim: the active persona's short display name (mock's "· SRE persona").
@@ -897,6 +901,23 @@ export function App() {
     if (next && next !== activeTitle) renameConversation(sessionId, next);
     setRenamingTitle(false);
   };
+=======
+  // Topbar trim: the active persona's short display name (mock's "· SRE persona").
+  const personaName = shortPersonaName(personaOf(agent)?.name, agent);
+  // Facts subtitle (§22): the session's FIXED facts, not controls — persona · model (+ the
+  // workspace folder for project-scoped sessions). Renders only once the session has history;
+  // until then the model is still choosable in the composer, so there's no locked fact to state.
+  const hasHistory = items.length > 0;
+  // Curated labels read "Claude Opus 4.8 · Anthropic" — the provider suffix is dropdown context,
+  // noise in a facts line. Fall back to the raw id without its provider prefix.
+  const modelDisplay =
+    modelLabels[model]?.split(" · ")[0] ||
+    (model.includes(":") ? model.split(":").slice(1).join(":") : model);
+  const subtitleParts = [personaName, modelDisplay];
+  if (isProjectScoped(personaOf(agent)) && workspace) subtitleParts.push(baseName(workspace));
+  const activeInfo = sessions.find((s) => s.session_id === sessionId);
+  const activeTitle = activeInfo?.title || "New session";
+>>>>>>> 97cd537 (Session topbar: drop the conversation menu, go edgeless; mode chip names its choice (§22 amendments))
 
   const desktop = isTauri();
   // Dev-only: `?overlay=1` simulates the desktop overlay layout in the browser (adds the
@@ -1039,6 +1060,7 @@ export function App() {
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
+<<<<<<< HEAD
           <div className="main-title" onPointerDown={beginWindowDrag}>
             {renamingTitle ? (
               <input
@@ -1112,6 +1134,63 @@ export function App() {
                 </button>
               </div>
             )}
+=======
+          {/* Left: the contextual cluster — [sidebar] [+ new session] [search] — rendered ONLY
+              while the sidebar is collapsed (§22; the expanded sidebar already owns those
+              actions). Clicks must not start a window drag. */}
+          <div className="main-topbar-side" onPointerDown={beginWindowDrag}>
+            {navCollapsed && (
+              <div
+                className="flex items-center gap-1"
+                data-testid="topbar-cluster"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  className="topbar-icon-btn"
+                  onClick={toggleNav}
+                  aria-label="Show sidebar"
+                  title="Show sidebar (⌘B)"
+                >
+                  <Icon name="sidebar" size={16} />
+                </button>
+                <button
+                  className="topbar-icon-btn"
+                  onClick={() => startNewSession()}
+                  aria-label="New session"
+                  title="New session"
+                >
+                  <Icon name="plus" size={16} />
+                </button>
+                <button
+                  className="topbar-icon-btn"
+                  onClick={() => setSearchOpen(true)}
+                  aria-label="Search"
+                  title="Search"
+                >
+                  <Icon name="search" size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+          {/* Center: title + facts subtitle (§22, amended: the ⋯ menu removed — the nav row's
+              hover cluster owns pin/rename/archive/delete). The title stays: with the sidebar
+              collapsed it is the only session identifier, and it anchors the subtitle. */}
+          <div className="main-title" onPointerDown={beginWindowDrag}>
+            <span className={"main-title-text" + (activeInfo ? "" : " title-ghost")}>
+              {activeTitle}
+            </span>
+            {hasHistory && (
+              <button
+                className="title-sub"
+                data-testid="session-subtitle"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={agent !== "chat" ? () => openPersona(agent, "session") : undefined}
+                title={agent !== "chat" ? "About this coworker" : undefined}
+              >
+                {subtitleParts.join(" · ")}
+              </button>
+            )}
+>>>>>>> 97cd537 (Session topbar: drop the conversation menu, go edgeless; mode chip names its choice (§22 amendments))
           </div>
           <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
           <div className="main-topbar-actions">
