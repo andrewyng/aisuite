@@ -179,12 +179,13 @@ export function Icon({
         </svg>
       );
     case "sliders":
+      // Two rails, knob on each, rails broken around the knobs (owner pick 2026-07-11:
+      // the three-rail version read as heavier than the mocks' two-rail glyph).
       return (
         <svg {...s}>
-          <path d="M4 7h16M4 12h16M4 17h16" />
-          <circle cx="15.5" cy="7" r="2.4" style={{ fill: "var(--panel)" }} />
-          <circle cx="8.5" cy="12" r="2.4" style={{ fill: "var(--panel)" }} />
-          <circle cx="14" cy="17" r="2.4" style={{ fill: "var(--panel)" }} />
+          <path d="M4 8h10M18 8h2M4 16h2M10 16h10" />
+          <circle cx="16" cy="8" r="2" />
+          <circle cx="8" cy="16" r="2" />
         </svg>
       );
     case "gear":
