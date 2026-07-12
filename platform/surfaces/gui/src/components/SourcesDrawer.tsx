@@ -8,7 +8,8 @@
 // the SourcesBar and passed down so toggling re-reads via `onReload`, keeping the bar's avatar stack +
 // ⚠ count in sync. The persona blurb is fetched here, only when a `personaId` is provided.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   getCloudStatus,
   getConnectors,
@@ -132,7 +133,10 @@ export function SourcesDrawer({
   const got = persona?.recommends.filter((r) => r.connected).length ?? 0;
   const pct = total > 0 ? Math.round((got / total) * 100) : 0;
 
-  return (
+  // Portaled to <body>: the opener row is docked inside the glass topbar (UX-008), whose
+  // backdrop-filter creates a containing block — `fixed` would resolve against the 48px bar,
+  // not the viewport, clipping the drawer. The portal makes the overlay ancestor-proof.
+  return createPortal(
     <div className="fixed inset-0 z-40">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
       <aside
@@ -323,7 +327,8 @@ export function SourcesDrawer({
         </>
         )}
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
