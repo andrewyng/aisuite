@@ -34,6 +34,18 @@ export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {
   return (await res.json()).workspaces ?? [];
 }
 
+/** Ask the LOCAL sidecar to open the OS folder picker — the browser GUI can't obtain absolute
+ * paths from web file dialogs. Blocks until the user picks or cancels; null on cancel/unavailable. */
+export async function pickFolderViaServer(): Promise<string | null> {
+  try {
+    const res = await fetch(`${httpBase()}/v1/workspaces/pick`, { method: "POST" });
+    const d = await res.json();
+    return d.ok && d.path ? d.path : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function openWorkspace(
   path: string,
   create = false,
@@ -250,6 +262,19 @@ export interface ConnectorField {
   placeholder: string;
 }
 
+// A message from a sender not (yet) on the allow-list — parked instead of dropped (§19).
+export interface ParkedMessage {
+  id: string;
+  platform: string;
+  chat_id: string;
+  chat_name: string | null;
+  user_id: string;
+  user_name: string | null;
+  chat_type: string;
+  text: string;
+  ts: number;
+}
+
 export interface Connector {
   name: string;
   title: string;
@@ -266,7 +291,9 @@ export interface Connector {
   brand_color: string; // hex brand color, e.g. "#611f69" (fallback gray "#6b7280")
   logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
+  allowed_user_names?: Record<string, string | null>; // id → display name (people directory)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
+  unauthorized?: ParkedMessage[]; // parked messages from unallowed senders (§19)
   tools: ConnectorTool[];
   managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
@@ -448,6 +475,8 @@ export interface ModelSettings {
   nav_layout?: "flat" | "grouped";
   // Sidebar: sessions shown per group before "Show more" (default 5, 1–50).
   sessions_peek?: number;
+  // Curated-matrix display names ({full id → "GLM-5.2 · via Together"}); custom models absent.
+  model_labels?: Record<string, string>;
 }
 
 /** Persist how many sessions a sidebar group shows before "Show more". */
@@ -804,12 +833,14 @@ export interface Subscription {
   session_title: string;
   agent: string;
   channel: string;
+  channel_name?: string | null; // resolved display name ("ocw-test"); address stays the id
   routing_target: string | null;
   collision: boolean; // inbound subscription == outbound Inbox routing on the same channel
 }
 
 export interface RecentChannel {
   channel: string;
+  name?: string | null; // resolved display name, e.g. "ocw-test" (falls back to the address)
   last_from: string | null;
   last_text: string | null;
 }
@@ -970,6 +1001,7 @@ export interface ProviderField {
   required: boolean;
   help: string;
   placeholder: string;
+  default?: string; // pre-filled editable value (e.g. an OpenAI-compatible vendor's endpoint)
 }
 
 export interface ProviderInfo {
@@ -981,6 +1013,9 @@ export interface ProviderInfo {
   values: Record<string, string>; // non-secret stored values (e.g. base_url), for prefilling
   suggested_models: string[]; // bare model-name suggestions for the "add model" datalist
   recommended_model: string | null; // pre-filled default for this provider (e.g. qwen3-coder:30b)
+  blurb?: string; // one-line note under the title ("Uses X's OpenAI-compatible API…")
+  key_set_at?: string | null; // ISO date the key was last (re)saved — absent for env-only config
+  last_used_at?: number | null; // epoch secs the provider last served a completion
 }
 
 export async function getProviders(): Promise<ProviderInfo[]> {
@@ -1152,6 +1187,23 @@ export async function allowUser(name: string, userId: string) {
   return res.json();
 }
 
+/** Resolve a parked unauthorized message (§19): dismiss / allow / allow_deliver. */
+export async function resolveUnauthorized(
+  name: string,
+  itemId: string,
+  action: "dismiss" | "allow" | "allow_deliver",
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/unauthorized/${encodeURIComponent(itemId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    },
+  );
+  return res.json();
+}
+
 export async function disallowUser(name: string, userId: string) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/disallow`, {
     method: "POST",
@@ -1197,8 +1249,17 @@ export class Session {
     else if (this.ws.readyState === WebSocket.CONNECTING) this.outbox.push(payload);
   }
 
-  userMessage(text: string, attachments?: unknown[]) {
-    this.send({ type: "user_message", text, ...(attachments?.length ? { attachments } : {}) });
+  /** `model` = the composer's CURRENT selection, carried on every message so the turn uses
+   * exactly what the user sees — immune to set_model races across reconnects (a new cowork
+   * session always reconnects once to adopt its scratch dir, which could drop a queued
+   * set_model and leave the engine on a stale/resumed model; found 2026-07-04). */
+  userMessage(text: string, attachments?: unknown[], model?: string) {
+    this.send({
+      type: "user_message",
+      text,
+      ...(model ? { model } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+    });
   }
 
   approve(decision: string) {

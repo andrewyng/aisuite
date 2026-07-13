@@ -308,7 +308,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Go to api.slack.com/apps → Create New App (from scratch).",
             "Settings → Socket Mode: enable it and generate an app-level token (xapp-) with connections:write.",
             "Features → Interactivity & Shortcuts: turn Interactivity ON (no Request URL needed in Socket Mode) — required for Approve/Deny buttons.",
-            "OAuth & Permissions: add bot scopes chat:write, app_mentions:read, im:history, channels:history, users:read.",
+            "OAuth & Permissions: add bot scopes chat:write, app_mentions:read, im:history, channels:history, groups:history, users:read, channels:read, groups:read (the last three resolve sender/channel display names).",
             "Install to workspace and copy the Bot User OAuth Token (xoxb-).",
             "Paste both tokens below and Connect, then invite the bot to a channel or DM it.",
         ],

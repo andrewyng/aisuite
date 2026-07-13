@@ -58,6 +58,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
   // model + key
   const [models, setModels] = useState<string[]>([]);
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({});
   const [model, setModel] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [keyMsg, setKeyMsg] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     getSettings()
       .then((s) => {
         setModels(s.models || []);
+        setModelLabels(s.model_labels || {});
         setModel(s.model);
         setScratch((cur) => cur || s.scratch_base || "");
         setSecretsPath(s.secrets_path || "");
@@ -417,6 +419,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                       </div>
                       <ModelChecklist
                         provider={provName}
+                        labels={modelLabels}
                         knownProviders={knownNames}
                         suggested={selProv.suggested_models}
                         curated={models}
@@ -461,6 +464,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                   </div>
                   <ModelChecklist
                     provider="ollama"
+                    labels={modelLabels}
                     knownProviders={knownNames}
                     suggested={ollama?.suggested_models || []}
                     curated={models}

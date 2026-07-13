@@ -14,8 +14,13 @@ test("roots: add directories with the read-only / read-write gate", async ({ pag
   // The primary is the writable scratch workspace (Cowork shows it as "Temporary space").
   await expect(page.getByText("Temporary space")).toBeVisible();
 
-  // Add a folder — the gate defaults to read-only (Allow writes OFF).
+  // Add a folder — the gate defaults to read-only (Allow writes OFF). The Browse button works
+  // in the BROWSER too (sidecar-opened native picker; owner report 2026-07-04).
   await page.getByRole("button", { name: "Give access to a folder" }).click();
+  await page.getByRole("button", { name: "Choose location" }).click();
+  await expect(page.getByPlaceholder(/Choose or paste a folder path/)).toHaveValue(
+    "/tmp/picked-folder",
+  );
   const allowWrites = page.locator(".addfolder-write input[type=checkbox]");
   await expect(allowWrites).not.toBeChecked();
   await page.getByPlaceholder(/Choose or paste a folder path/).fill("/tmp/ro-data");

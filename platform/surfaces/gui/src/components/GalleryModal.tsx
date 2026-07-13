@@ -55,6 +55,7 @@ export function GalleryModal({
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
   const [cards, setCards] = useState<GalleryPersona[]>([]);
   const [installed, setInstalled] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -66,7 +67,8 @@ export function GalleryModal({
   const [justInstalled, setJustInstalled] = useState(false);
 
   const reload = async () => {
-    getCloudStatus().then(setCloud).catch(() => setCloud(null));
+    setLoading(true);
+    const status = getCloudStatus().then(setCloud).catch(() => setCloud(null));
     getPersonas()
       .then((ps) => setInstalled(new Set(ps.map((p) => p.id))))
       .catch(() => {});
@@ -78,6 +80,10 @@ export function GalleryModal({
       setCards([]);
       setUnavailable(true);
     }
+    // The signed-in check gates which body renders — wait for it too, so the
+    // skeleton never flashes into the wrong state.
+    await status;
+    setLoading(false);
   };
   useEffect(() => {
     reload();
@@ -390,7 +396,17 @@ export function GalleryModal({
         </div>
 
         <div className="overflow-y-auto hairline-scroll p-5">
-          {cloud && !cloud.signed_in ? (
+          {loading ? (
+            <div className="space-y-2" data-testid="gallery-loading" aria-busy="true">
+              <div className="text-[12.5px] text-muted mb-3">Loading the gallery…</div>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className={CARD + " p-3.5 animate-pulse"}>
+                  <div className="h-3.5 w-44 rounded bg-line mb-2.5" />
+                  <div className="h-3 w-72 max-w-full rounded bg-line/60" />
+                </div>
+              ))}
+            </div>
+          ) : cloud && !cloud.signed_in ? (
             <div className={CARD + " p-5 flex items-center gap-4"} data-testid="gallery-signin">
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-[14px] mb-1">Sign in to browse the Gallery</div>

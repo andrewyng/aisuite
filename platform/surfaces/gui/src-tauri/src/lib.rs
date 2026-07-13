@@ -336,7 +336,11 @@ pub fn run() {
             {
                 builder = builder
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .hidden_title(true);
+                    .hidden_title(true)
+                    // Nudge the traffic lights down + in so they sit vertically centered in a
+                    // roomier top strip, aligned with the sidebar toggle and title rather than
+                    // jammed against the top edge.
+                    .traffic_light_position(tauri::LogicalPosition::new(19.0, 24.0));
             }
             let win = builder.build()?;
 

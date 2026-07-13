@@ -55,6 +55,7 @@ from ..connectors.browser_automation import (
     browser_state,
     browser_take_screenshot,
 )
+from ..connectors.parked import ParkedStore
 from ..mcp import (
     MCPManager,
     build_callables,
@@ -132,7 +133,9 @@ class SessionManager:
         # Ollama, …). Tests inject a provider directly and bypass the router. The same router is
         # shared by every engine and the `/v1/chat/completions` proxy.
         if self.provider is None:
-            self.provider = ProviderRouter(self.secrets, default_provider="openai")
+            self.provider = ProviderRouter(
+                self.secrets, default_provider="openai", on_use=self._note_provider_use
+            )
         self.mcp = MCPManager()
         self.gateway: Optional[Gateway] = None
         self._data_base = base
@@ -163,7 +166,23 @@ class SessionManager:
         # Channel subscriptions (inbound): persisted (session_id, channel) records + a ring buffer
         # of recently-seen channel messages for get_channel_messages.
         self.subscriptions = SubscriptionStore(base / "subscriptions.json")
-        self.channel_buffer = ChannelBuffer()
+        self.channel_buffer = ChannelBuffer(state_path=base / "channels.json")
+        # Unauthorized inbound messages, parked instead of dropped (one-step allow-and-deliver).
+        self.parked = ParkedStore(base / "parked.json")
+        # People directory: "platform:user_id" → display name, noted from every inbound
+        # (authorized or parked) so allow-list chips read "Rohit Prsad", not "U07JK…".
+        self._people_path = base / "people.json"
+        try:
+            self._people: dict[str, str] = json.loads(self._people_path.read_text())
+        except (OSError, ValueError):
+            self._people = {}
+        # Seed from already-parked messages (they carry resolved names) so an allow made from
+        # an old parked item still gets a named chip.
+        for it in self.parked.list():
+            if it.get("user_name"):
+                self._people.setdefault(
+                    f"{it['platform']}:{it['user_id']}", it["user_name"]
+                )
         # Connection hierarchy (UI-REFRESH §4): per-persona default connector on/off (seeded from the
         # manifest, then user-editable) + per-session overrides. Resolved into the session's effective
         # connector set, which gates inbound delivery and the engine's connector tools.
@@ -504,6 +523,25 @@ class SessionManager:
             ),
         }
 
+    def set_persona_enabled(self, persona_id: str, enabled: bool) -> dict[str, Any]:
+        """Flip a persona's enabled flag. Disabling also archives its real (unarchived,
+        non-internal) sessions — disable means "put this coworker and its history away", so
+        the persona's sidebar section disappears with it (owner call, 2026-07-04). Re-enabling
+        never unarchives: that would overwrite the user's archive state; history returns one
+        click at a time via the Show-archived disclosure. Raises KeyError for unknown ids."""
+        self.personas.set_enabled(persona_id, enabled)
+        archived = 0
+        if not enabled:
+            for r in self.session_store.list():
+                if (
+                    r.agent == persona_id
+                    and not r.archived
+                    and not r.session_id.startswith("__")
+                ):
+                    self.session_store.set_flags(r.session_id, archived=True)
+                    archived += 1
+        return {"ok": True, "archived_sessions": archived}
+
     def _connection_detail(
         self, session_id: str, connector: str, info: Optional[dict[str, Any]]
     ) -> str:
@@ -832,7 +870,18 @@ class SessionManager:
             recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
             for r in recent:
                 r["authorized"] = r.get("user_id") in allowed
+                # Backfill from the people directory (an event may predate name scopes).
+                r["user_name"] = r.get("user_name") or self._people.get(
+                    f"{c['name']}:{r.get('user_id')}"
+                )
             c["recent"] = recent
+            # Parked unauthorized messages (§19) — the connector page resolves them inline.
+            c["unauthorized"] = self.parked.list(c["name"])
+            # Allow-list display names from the people directory (ids stay the source of truth).
+            c["allowed_user_names"] = {
+                u: self._people.get(f"{c['name']}:{u}")
+                for u in (c.get("allowed_users") or [])
+            }
         return connectors
 
     def connect_connector(
@@ -1099,9 +1148,82 @@ class SessionManager:
                     "configured": configured,
                     "values": values,
                     "suggested_models": self._suggested_models(d.name),
+                    # Key hygiene for the Settings pane: when the key was saved (date, stamped
+                    # by set_provider) and when the provider last served a completion (epoch,
+                    # stamped by the router's on_use hook). Absent for env-only config.
+                    "key_set_at": profile.get("key_set_at"),
+                    "last_used_at": (self._prefs.get("provider_last_used") or {}).get(
+                        d.name
+                    ),
                 }
             )
         return out
+
+    def pick_native_folder(self) -> dict[str, Any]:
+        """Open the OS folder picker FROM THE SIDECAR — the browser GUI can't obtain absolute
+        paths from web file dialogs, but the sidecar is local and can (the desktop shell uses
+        Tauri's own picker instead). Blocking until pick/cancel; callers run it off-thread."""
+        import subprocess
+        import sys
+
+        if sys.platform == "darwin":
+            cmd = [
+                "osascript",
+                "-e",
+                'tell application "System Events" to activate',
+                "-e",
+                'POSIX path of (choose folder with prompt "Give the coworker access to a folder")',
+            ]
+        elif sys.platform == "win32":
+            # WinForms folder dialog via PowerShell — no extra deps. -STA is required
+            # (the dialog silently fails in the default MTA apartment).
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = 'Give the coworker access to a folder'; "
+                "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+                "{ [Console]::Out.Write($f.SelectedPath) }"
+            )
+            cmd = ["powershell.exe", "-NoProfile", "-STA", "-Command", ps]
+        else:
+            # Linux: zenity when present; otherwise the GUI's paste-a-path input remains.
+            cmd = ["zenity", "--file-selection", "--directory"]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.TimeoutExpired):
+            return {"ok": False, "error": "no native folder picker available"}
+        path = (out.stdout or "").strip()
+        if out.returncode != 0 or not path:
+            return {"ok": False, "canceled": True}
+        return {"ok": True, "path": path}
+
+    def _note_provider_use(self, name: str) -> None:
+        """Router on_use hook: remember when a provider last served a completion. Persisted
+        THROTTLED (once per provider per minute) — this fires on every model call, from engine
+        threads, and prefs.json isn't a place for a write-per-token-of-work."""
+        import time
+
+        now = time.time()
+        used = self._prefs.setdefault("provider_last_used", {})
+        if now - float(used.get(name) or 0) < 60:
+            return
+        used[name] = now
+        try:
+            self._save_prefs()
+        except OSError:
+            pass
+
+    # Suggestions for the OpenAI-compatible vendor providers (checked against vendor docs
+    # 2026-07-04; refresh alongside `recommended_model` in providers/registry.py).
+    COMPAT_MODELS = {
+        "zai": ["glm-5.2", "glm-4.6"],
+        "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "kimi": ["kimi-k2.6", "kimi-k2.5"],
+        "minimax": ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M3"],
+        "qwen": ["qwen3-max", "qwen3-coder-plus", "qwen-plus"],
+        "xai": ["grok-4.3", "grok-4"],
+        "mistral": ["mistral-large-latest", "mistral-small-latest"],
+    }
 
     def _suggested_models(self, name: str) -> list[str]:
         """Bare model-name suggestions for the 'add model' form (datalist), per provider.
@@ -1114,7 +1236,13 @@ class SessionManager:
             return ["gemini-2.5-flash", "gemini-2.5-pro"]
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
-        return []
+        if name in ("together", "fireworks"):
+            # Resellers suggest exactly the curated matrix (their catalogs are 200+ models;
+            # we vouch for the agent-capable handful — anything else is add-by-hand).
+            from ..providers.matrix import models_for_provider
+
+            return models_for_provider(name)
+        return list(self.COMPAT_MODELS.get(name, []))
 
     def set_provider(
         self, name: str, fields: Optional[dict[str, Any]]
@@ -1139,6 +1267,12 @@ class SessionManager:
         missing = [f.label for f in d.fields if f.required and not profile.get(f.key)]
         if missing:
             return {"ok": False, "error": "missing: " + ", ".join(missing)}
+        # A (re)pasted key stamps its save date — Settings shows "key added <date>" so stale
+        # keys are visible. Endpoint-only saves keep the original stamp.
+        if isinstance(fields.get("api_key"), str) and fields["api_key"].strip():
+            from datetime import date
+
+            profile["key_set_at"] = date.today().isoformat()
         self.secrets.put(f"provider:{name}", profile)
         self._refresh_provider(name)
         # Convenience: if the provider recommends a model and it's actually available, add it to
@@ -1297,10 +1431,15 @@ class SessionManager:
         ]
         if self.model not in selectable:
             selectable.insert(0, self.model)
+        from ..providers.matrix import model_labels
+
         return {
             "provider": "openai",
             "model": self.model,
             "models": selectable,
+            # Curated-matrix display names ({full id → "GLM-5.2 · via Together"}) so every
+            # picker shows human labels; custom models absent here render their raw id.
+            "model_labels": model_labels(),
             "has_key": env_key or stored,
             # Provider-agnostic "can this default model actually run?" — true when the default
             # model's provider is configured (any provider, not just OpenAI). Drives the GUI's
@@ -1441,6 +1580,20 @@ class SessionManager:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
         durable sessions: a channel message to its subscribers, a DM to the designated DM session
         (else parked). Returns the platforms whose listeners came up."""
+        self.scheduler.start()  # tick scheduler for automations (independent of connectors)
+        return await self._build_and_start_gateway()
+
+    async def refresh_gateway(self) -> list[str]:
+        """Hot-reload the messaging listeners with fresh secrets — called after a connector
+        connect/disconnect so pasting new tokens takes effect immediately. A platform socket
+        (Slack Socket Mode) authenticates at connect time, so new creds mean reopening that
+        socket; this replaces the adapters in-process — the sidecar never restarts."""
+        await self.stop_gateway()
+        started = await self._build_and_start_gateway()
+        print(f"[coworker] messaging gateway reloaded: {', '.join(started) or 'none'}")
+        return started
+
+    async def _build_and_start_gateway(self) -> list[str]:
         settings = load_settings(self.secrets)
         self.gateway = Gateway(
             secrets=self.secrets,
@@ -1448,6 +1601,7 @@ class SessionManager:
             handler=self._dispatch_inbound,
             reply_resolver=self._resolve_inbox_reply,
             interaction_handler=self._on_interaction,
+            on_unauthorized=self._park_unauthorized,
         )
         for platform, st in settings.items():
             if not st.enabled:
@@ -1456,13 +1610,76 @@ class SessionManager:
             adapter = make_adapter(platform, profile)
             if adapter is not None:
                 self.gateway.register(adapter)
-        self.scheduler.start()  # tick scheduler for automations (independent of connectors)
         return await self.gateway.start()
 
     async def stop_gateway(self) -> None:
         if self.gateway is not None:
             await self.gateway.stop()
             self.gateway = None
+
+    # -- unauthorized inbound (parked, §19) --------------------------------------
+    def _note_person(self, platform: str, user_id: Optional[str], name: Optional[str]) -> None:
+        """Remember a sender's display name (persisted) so ID-keyed surfaces — the allow-list
+        chips above all — can show who a U07JK… actually is. Best-effort, newest name wins."""
+        if not user_id or not name:
+            return
+        key = f"{platform}:{user_id}"
+        if self._people.get(key) != name:
+            self._people[key] = name
+            try:
+                self._people_path.write_text(json.dumps(self._people))
+            except OSError:
+                pass
+
+    async def _park_unauthorized(self, event) -> None:
+        """Gateway callback: keep what an unallowed sender said (names already resolved by the
+        adapter, best-effort) so the owner can allow-and-deliver without a re-send."""
+        s = event.source
+        self._note_person(s.platform, s.user_id, s.user_name)
+        self.parked.park(
+            platform=s.platform,
+            chat_id=s.chat_id,
+            chat_name=s.chat_name,
+            user_id=s.user_id or "?",
+            user_name=s.user_name,
+            chat_type=s.chat_type,
+            thread_id=s.thread_id,
+            text=event.text or "",
+        )
+
+    async def resolve_unauthorized(
+        self, name: str, item_id: str, action: str
+    ) -> dict[str, Any]:
+        """Resolve one parked message: "dismiss" throws it away; "allow" adds the sender to the
+        allow-list (future messages flow); "allow_deliver" also re-injects the parked message
+        through the NORMAL inbound path — buffer + subscriptions — as if it just arrived."""
+        item = self.parked.pop(item_id)
+        if item is None or item.platform != name:
+            return {"ok": False, "error": "unknown item"}
+        if action == "dismiss":
+            return {"ok": True}
+        if action not in ("allow", "allow_deliver"):
+            return {"ok": False, "error": f"unknown action: {action}"}
+        allowed = self._set_allowed(name, item.user_id, add=True)
+        if not allowed.get("ok"):
+            return allowed
+        if action == "allow_deliver":
+            from ..connectors import MessageEvent, SessionSource
+
+            event = MessageEvent(
+                text=item.text,
+                source=SessionSource(
+                    platform=item.platform,
+                    chat_id=item.chat_id,
+                    user_id=item.user_id,
+                    user_name=item.user_name,
+                    chat_name=item.chat_name,
+                    chat_type=item.chat_type,
+                    thread_id=item.thread_id,
+                ),
+            )
+            await self._dispatch_inbound(event)
+        return {"ok": True}
 
     # -- per-session live view --------------------------------------------------
     def register_session_client(self, session_id: str, send_cb: Any) -> None:
@@ -1681,6 +1898,7 @@ class SessionManager:
         text = getattr(event, "text", "") or ""
         who = src.user_name or src.user_id or "?"
         channel = f"{src.platform}:{src.chat_id}"  # thread-agnostic channel address
+        self._note_person(src.platform, src.user_id, src.user_name)
         # Structured sidecar (display-only) built from the resolved identities on the event — the
         # framed text below stays the model-facing `content`; `ms.text` carries the RAW message.
         ms = MessageSource(
@@ -1695,7 +1913,7 @@ class SessionManager:
         )
         if src.chat_type in ("channel", "group"):
             self.channel_buffer.record(
-                channel, who, text
+                channel, who, text, name=src.chat_name
             )  # buffer all, even unsubscribed
             subs = self.subscriptions.for_channel(channel)
             if subs:
@@ -2122,6 +2340,12 @@ class SessionManager:
         return {"ok": True, "roots": self.get_roots(session_id)}
 
     def session_messages(self, session_id: str) -> list[dict[str, Any]]:
+        # A live engine's in-memory thread is authoritative: mid-turn it's ahead of the
+        # persisted record — which may not even exist yet for a scheduled run's first turn
+        # (opening a "running" automation showed a blank session; owner report 2026-07-04).
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            return list(engine.messages)
         record = self.session_store.load(session_id)
         return record.messages if record else []
 

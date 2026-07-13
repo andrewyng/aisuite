@@ -262,3 +262,34 @@ async def test_real_bolt_dispatches_both_envelope_shapes(fake_slack):
     finally:
         await handler.close_async()
         task.cancel()
+
+
+# 7. Mention tokens in the text are rewritten to @display-name at ingestion (`<@U…>` is how
+#    Slack encodes "@ocw hi"), so parked cards / transcripts never show raw ids. Unresolvable
+#    ids keep their token (best-effort).
+async def test_inbound_rewrites_mention_tokens(fake_slack):
+    fake_slack.add_user("U1", "alice", display_name="Alice Display")
+    fake_slack.add_user("UOCW99", "ocw", display_name="ocw")
+    fake_slack.add_channel("C1", "general", is_im=False)
+
+    got: list[MessageEvent] = []
+    delivered = asyncio.Event()
+
+    async def _handler(ev: MessageEvent):
+        got.append(ev)
+        delivered.set()
+
+    gw = Gateway(settings=_allow_all(), handler=_handler)
+    adapter = SlackAdapter("xoxb-test", "xapp-test")
+    gw.register(adapter)
+    await adapter.connect()
+    try:
+        await fake_slack.wait_socket()
+        await fake_slack.inbound(
+            channel="C1", user="U1", text="<@UOCW99> hi — ask <@UGHOST99> too"
+        )
+        await asyncio.wait_for(delivered.wait(), timeout=5)
+        # The known mention resolves; the unknown id keeps its token.
+        assert got[0].text == "@ocw hi — ask <@UGHOST99> too"
+    finally:
+        await adapter.disconnect()

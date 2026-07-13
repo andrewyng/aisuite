@@ -15,11 +15,15 @@ npx playwright test e2e/settings.spec.ts   # a single spec
 ## Live smoke (not CI)
 
 `npm run e2e:live` runs `e2e-live/` (separate `playwright.live.config.ts`) against the **real**
-backend + a **real** model: it asks a fresh Cowork session to produce `fib.md` and verifies the file
-lands on disk. It needs `coworker-server` up on :8765 with a model configured (skips cleanly
-otherwise), is nondeterministic, and costs a few tokens per run — so it lives in its own dir/config
-and the default `e2e` (and CI) never picks it up. It exercises the vertical the specs below mock:
-model wiring, the tool/approval loop, file I/O, and WebSocket event streaming.
+backend on :8765. Two flavors, both skip cleanly when the backend is down:
+
+- **API-shape smoke** (`api-smoke.spec.ts`) — no model tokens, no creds. Asserts `/v1/health` and
+  `/v1/providers` return the shapes the GUI reads, catching drift between the mocks and the real
+  backend. Cheap enough to run anytime the sidecar is up.
+- **Full vertical** (`fib.spec.ts`, …) — asks a fresh Cowork session to produce `fib.md` and
+  verifies the file lands on disk. Needs a model configured, is nondeterministic, and costs a few
+  tokens per run. Exercises the vertical the hermetic specs mock: model wiring, the tool/approval
+  loop, file I/O, and WebSocket streaming.
 
 The config (`playwright.config.ts`) starts the Vite dev server on port **5199** (dedicated, so it
 won't clash with a running `npm run dev` on 5173) and reuses it if already up.
@@ -30,9 +34,22 @@ won't clash with a running `npm run dev` on 5173) and reuses it if already up.
 
 - `page.route("**/v1/**", …)` dispatches by pathname + method to fixtures whose shapes mirror the
   real backend (captured from a live server). Unknown endpoints return an empty-but-valid body.
-- Channel subscribe/unsubscribe mutate an in-memory list, so add/remove reflect through the real UI
-  on re-fetch.
-- The event WebSocket is stubbed (`routeWebSocket`) so the app's live channel doesn't error.
+- Mutations are held in per-test in-memory state so they reflect through the real UI on re-fetch:
+  sessions (archive/rename/delete), personas (enable/surface/delete — enable implies surface,
+  matching the backend), inbox items + the routing binding, roots, channel subscriptions.
+- The session WebSocket (`routeWebSocket`) is a **scripted fake agent** speaking the real
+  `{type, data}` event protocol: `ready` on connect; `user_message` → `turn_start` → deltas →
+  `assistant_message "Echo: <text>"` → `turn_done`; a message containing **"run a tool"** emits
+  `tool_proposed` + `permission_required` and suspends until the client's `approval` decision
+  arrives. This runs the production send/stream/approve code paths with zero model cost.
+- Seed data worth knowing: the pinned session "Draft the launch note" is the newest (boot-resume
+  target); 7 unpinned "Weekly plan N" cowork sessions exercise the sidebar peek cap; two pending
+  Inbox items (approval on cowork, question on ops) drive the Inbox filters; `acme-notes` is a
+  disabled non-builtin persona for enable/delete flows. Providers are seeded in three states
+  (OpenAI configured+used, Anthropic configured-unused, Z AI unconfigured w/ prefilled endpoint) —
+  `POST /v1/providers` flips `configured` on save, `/verify` fails on a key containing "bad". One
+  automation ("Daily AI News") with a running run — `POST .../run` appends a run, `PATCH`/`DELETE`
+  toggle and remove.
 
 ## Adding a spec
 

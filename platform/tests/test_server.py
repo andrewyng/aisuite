@@ -74,6 +74,46 @@ def test_agents_and_memory_rest(tmp_path):
     )
 
 
+def test_disable_persona_archives_its_sessions(tmp_path):
+    """Disable = "put this coworker and its history away": the persona's real sessions are
+    archived atomically server-side (so its sidebar section disappears with it), internal
+    __run__ threads and other personas are untouched, and re-enable never unarchives."""
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    store = manager.session_store
+
+    def mk(sid, agent):
+        store.save(
+            SessionRecord(
+                session_id=sid, workspace=str(tmp_path), model="m",
+                mode="interactive", agent=agent,
+            )
+        )
+
+    mk("chat-a", "chat")
+    mk("chat-b", "chat")
+    mk("chat-old", "chat")
+    store.set_flags("chat-old", archived=True)  # already archived — must not be re-counted
+    mk("cowork-a", "cowork")
+    mk("__run__r1", "chat")  # internal automation thread — never touched
+
+    client = TestClient(create_app(manager))
+    body = client.post("/v1/personas/chat", json={"enabled": False}).json()
+    assert body["ok"] is True
+    assert body["archived_sessions"] == 2
+    assert store.load("chat-a").archived and store.load("chat-b").archived
+    assert store.load("cowork-a").archived is False
+    assert store.load("__run__r1").archived is False
+
+    # Re-enable brings the persona back but never rewrites the user's archive state.
+    client.post("/v1/personas/chat", json={"enabled": True})
+    assert store.load("chat-a").archived
+
+    # The dedicated §5/§8 enable route shares the same semantic.
+    mk("chat-c", "chat")
+    client.post("/v1/personas/chat/enable", json={"enabled": False})
+    assert store.load("chat-c").archived
+
+
 def test_connector_tool_settings_and_audit_rest(tmp_path):
     client = _client(tmp_path, [])
     connectors = {
@@ -276,6 +316,43 @@ def test_ws_simple_turn(tmp_path):
         types = _drain(ws)
         assert "assistant_message" in types
         assert "turn_end" in types
+
+
+# -- origin gate (local-API hardening): a browser page on a foreign origin must not be able to
+# read the API cross-origin or open the driving WebSocket. -------------------------------------
+
+
+def test_cors_rejects_foreign_origin(tmp_path):
+    client = _client(tmp_path, [])
+    # A random website's origin gets no ACAO header, so the browser blocks the read.
+    resp = client.get("/v1/sessions", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in {k.lower() for k in resp.headers}
+    # The desktop webview's own origin is allowed.
+    ok = client.get("/v1/sessions", headers={"Origin": "tauri://localhost"})
+    assert ok.headers.get("access-control-allow-origin") == "tauri://localhost"
+    # Localhost dev/browser build is allowed too.
+    dev = client.get("/v1/sessions", headers={"Origin": "http://localhost:1420"})
+    assert dev.headers.get("access-control-allow-origin") == "http://localhost:1420"
+
+
+def test_ws_rejects_foreign_origin(tmp_path):
+    from starlette.websockets import WebSocketDisconnect as WSD
+
+    client = _client(tmp_path, [_text("hi")])
+    with pytest.raises(WSD) as e:
+        with client.websocket_connect(
+            "/ws/session/x", headers={"Origin": "https://evil.example"}
+        ) as ws:
+            ws.receive_json()
+    assert e.value.code == 1008
+
+
+def test_ws_allows_webview_origin(tmp_path):
+    client = _client(tmp_path, [_text("hi")])
+    with client.websocket_connect(
+        "/ws/session/x", headers={"Origin": "http://tauri.localhost"}
+    ) as ws:
+        assert ws.receive_json()["type"] == "ready"
 
 
 def test_ws_approval_round_trip(tmp_path):
@@ -491,3 +568,77 @@ def test_ws_session_resume_via_store(tmp_path):
     # The session is now listed via REST.
     sessions = client.get("/v1/sessions").json()["sessions"]
     assert any(s["session_id"] == "keep" and s["messages"] > 0 for s in sessions)
+
+
+def test_ws_first_message_binds_the_session_model_then_locks(tmp_path):
+    """The FIRST user_message's model binds the session (race-proof across reconnects — found
+    2026-07-04: a new cowork session reconnects to adopt its scratch dir, which could drop a
+    queued set_model and leave the engine on a stale/resumed model). After the first turn the
+    model is FIXED for the session's life: later message models and set_model are ignored
+    (owner call, 2026-07-04 — mixed-model transcripts invite provider-quirk breakage)."""
+    client = _client(tmp_path, [_text("ok"), _text("ok again"), _text("still ok")])
+    with client.websocket_connect("/ws/session/model-per-msg") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        default_model = ready["data"]["model"]
+        ws.send_json(
+            {"type": "user_message", "text": "hi", "model": "zai:glm-5.2"}
+        )
+        _drain(ws)
+        # message WITHOUT a model keeps the bound one (no silent reset to default)
+        ws.send_json({"type": "user_message", "text": "again"})
+        _drain(ws)
+        # locked: neither a different message model nor set_model can rebind mid-session
+        ws.send_json({"type": "set_model", "model": "kimi:kimi-k2.6"})
+        ws.send_json(
+            {"type": "user_message", "text": "switch?", "model": "kimi:kimi-k2.6"}
+        )
+        _drain(ws)
+    mgr = client.app.state.manager
+    engine = mgr._engines["model-per-msg"]
+    assert engine.model == "zai:glm-5.2"
+    assert engine.model != default_model
+
+
+def test_session_messages_prefers_the_live_engine(tmp_path):
+    """Opening a RUNNING session (e.g. a scheduled automation's first turn) must show the live
+    conversation: the persisted record may not exist yet mid-turn — reading only the store gave
+    a blank transcript on first open (owner report, 2026-07-04)."""
+    client = _client(tmp_path, [_text("ok")])
+    mgr = client.app.state.manager
+    engine = mgr.get_engine("__run__live", agent="chat")
+    engine.messages.append({"role": "user", "content": "hi from a running automation"})
+
+    msgs = client.get("/v1/sessions/__run__live/messages").json()["messages"]
+    assert any(m.get("content") == "hi from a running automation" for m in msgs)
+
+
+def test_pick_native_folder_paths(tmp_path, monkeypatch):
+    """The sidecar-side folder picker (for browser GUIs): picked path round-trips; cancel and
+    missing-picker degrade to ok:False without raising."""
+    import subprocess
+    from types import SimpleNamespace
+
+    client = _client(tmp_path, [])
+    mgr = client.app.state.manager
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="/tmp/picked\n", stderr=""),
+    )
+    assert client.post("/v1/workspaces/pick").json() == {"ok": True, "path": "/tmp/picked"}
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="User canceled."),
+    )
+    assert client.post("/v1/workspaces/pick").json()["ok"] is False
+
+    def boom(*a, **k):
+        raise OSError("no zenity")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    out = mgr.pick_native_folder()
+    assert out["ok"] is False and "picker" in out["error"]

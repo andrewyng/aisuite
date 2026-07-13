@@ -68,8 +68,16 @@ def _dm_event(text="ping me", chat_id="D1"):
     )
 
 
+def _connect_slack(mgr):
+    """Inbound delivery is gated on the connector being CONNECTED (§4.3). Tests used to pass
+    by riding the developer's real Slack profile; with the isolated state dir (conftest) each
+    test must connect its own."""
+    mgr.secrets.put("slack:default", {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True})
+
+
 def test_inbound_builds_message_source(tmp_path, monkeypatch):
     mgr = SessionManager(workspace=tmp_path, provider=CapturingProvider([]))
+    _connect_slack(mgr)
     captured: list[tuple] = []
 
     async def fake_deliver(session_id, message, *, source=None):
@@ -100,6 +108,7 @@ def test_inbound_builds_message_source(tmp_path, monkeypatch):
 def test_message_source_persisted_and_stripped(tmp_path):
     provider = CapturingProvider([_text("ack")])
     mgr = SessionManager(workspace=tmp_path, provider=provider)
+    _connect_slack(mgr)
     mgr.get_engine("S", agent="chat")  # durable, workspace-free session
     mgr.subscriptions.subscribe("S", "slack:C1")
 
@@ -167,6 +176,7 @@ def test_outbound_strips_source_with_and_without_context(tmp_path):
 
 def test_turn_start_carries_source(tmp_path):
     mgr = SessionManager(workspace=tmp_path, provider=CapturingProvider([_text("ok")]))
+    _connect_slack(mgr)
     mgr.get_engine("S", agent="chat")
     mgr.subscriptions.subscribe("S", "slack:C1")
 
@@ -190,6 +200,7 @@ def test_turn_start_carries_source(tmp_path):
 
 def test_dm_message_source_kind_dm(tmp_path, monkeypatch):
     mgr = SessionManager(workspace=tmp_path, provider=CapturingProvider([]))
+    _connect_slack(mgr)
     captured: list[tuple] = []
 
     async def fake_deliver(session_id, message, *, source=None):

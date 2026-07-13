@@ -8,11 +8,17 @@ than silently producing a broken persona (a third-party persona must fail loudly
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+
+# Persona ids become directory names under the managed install area (and registry keys), so
+# they are restricted to a filesystem-safe slug on every OS: no path separators or `..`
+# (traversal), no `:*?"<>|` (invalid on Windows), bounded length.
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 VALID_FAMILIES = {"code", "knowledge"}
 VALID_WORKSPACES = {"git", "project", "deliverable", "none"}
@@ -103,6 +109,13 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return meta, body
 
 
+def _slugify(stem: str) -> str:
+    """Normalize a filename stem into the persona-id charset (used only for ids derived
+    from filenames; explicit `id:` values must already be valid)."""
+    slug = re.sub(r"[^a-z0-9_-]+", "-", stem.strip().lower()).strip("-_")[:64]
+    return slug if _ID_RE.match(slug) else ""
+
+
 def _strlist(meta: dict, key: str) -> list[str]:
     val = meta.get(key, [])
     if val is None:
@@ -163,9 +176,22 @@ def parse_manifest(
 ) -> PersonaManifest:
     meta, body = _split_frontmatter(text)
 
-    persona_id = str(meta.get("id") or fallback_id or "").strip()
-    if not persona_id:
-        raise ManifestError("manifest needs an `id` (or a filename to derive one from)")
+    explicit_id = str(meta.get("id") or "").strip()
+    if explicit_id:
+        persona_id = explicit_id
+        if not _ID_RE.match(persona_id):
+            raise ManifestError(
+                f"persona id {persona_id!r} is invalid: lowercase letters, digits, '-' or '_' "
+                "only, starting with a letter/digit, max 64 chars (ids become directory names)"
+            )
+    else:
+        # Derived from the filename: normalize it into the id charset instead of erroring,
+        # so `My Persona.md` without an explicit id still installs (as `my-persona`).
+        persona_id = _slugify(str(fallback_id or ""))
+        if not persona_id:
+            raise ManifestError(
+                "manifest needs an `id` (or a filename to derive one from)"
+            )
     if not body.strip():
         raise ManifestError(f"persona {persona_id!r} has no body (the system prompt)")
 

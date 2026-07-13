@@ -13,6 +13,7 @@ import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 import { SearchModal } from "./SearchModal";
+import { baseName } from "../paths";
 
 // Session surfaces shown as accordions, in display order. The surfaced personas drive this list
 // (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
@@ -97,9 +98,12 @@ interface Props {
   integrationsActive: boolean;
   auditActive: boolean;
   inboxActive: boolean;
+  // Collapse controls (⌘B / hover-peek). `onCollapse` docks/undocks; `onPeekLeave` hides the
+  // floating peek when the pointer leaves the panel.
+  collapsed?: boolean;
+  onCollapse?: () => void;
+  onPeekLeave?: () => void;
 }
-
-const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
 
 // Codex-style compact age for project session rows: "now" / "5m" / "6h" / "3d" / "2w" / "4mo" / "2y".
 const compactAge = (iso?: string | null): string => {
@@ -161,13 +165,21 @@ export function Sidebar(props: Props) {
       })
       .catch(() => {});
   }, []);
-  const toggleLayout = () => {
-    setLayout((cur) => {
-      const next = cur === "grouped" ? "flat" : "grouped";
-      setNavLayout(next).catch(() => {});
+  const setGroupBy = (next: "flat" | "grouped") => {
+    setLayout(next);
+    setNavLayout(next).catch(() => {});
+  };
+  // The RECENT-header group/filter popover (§20). Filter = show only these personas (empty = all).
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [filterPersonas, setFilterPersonas] = useState<Set<string>>(new Set());
+  const toggleFilterPersona = (id: string) =>
+    setFilterPersonas((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  };
+  const personaVisible = (agent: string) =>
+    filterPersonas.size === 0 || filterPersonas.has(agent);
 
   // Which accordion body is expanded. Decoupled from the active session (props.agent): expanding
   // a persona BROWSES its sessions without switching the chat area. Selecting a session or "New
@@ -199,10 +211,12 @@ export function Sidebar(props: Props) {
 
   // A neutral persona icon tile (mock chrome): a panel chip with a hairline border + the persona's
   // resolved glyph (manifest icon → family default; emoji rendered as-is).
-  const iconTile = (agentId: string, size = 13) => {
+  const iconTile = (agentId: string, size = 16) => {
     const p = personas?.find((x) => x.id === agentId);
+    // Bare glyph — no box/border/fill (the tile framing read as "boxy"). The glyph alone still
+    // gives the quick persona-type scan.
     return (
-      <span className="w-6 h-6 rounded-md bg-panel border border-line grid place-items-center text-muted shrink-0">
+      <span className="w-6 h-6 grid place-items-center text-muted shrink-0">
         <PersonaGlyph icon={p?.icon} family={p?.family} size={size} />
       </span>
     );
@@ -262,6 +276,7 @@ export function Sidebar(props: Props) {
   // (by updated_at; missing timestamps keep store order), search-filtered. Drives the flat layout.
   const recentSessions = [...props.sessions]
     .filter((s) => !s.archived && !s.session_id.startsWith("__") && !s.pinned)
+    .filter((s) => personaVisible(s.agent))
     .filter(matches)
     .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
 
@@ -280,8 +295,10 @@ export function Sidebar(props: Props) {
       <div
         key={s.session_id}
         className={
-          "group flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
-          (active ? "bg-accentSoft/70 border border-accent/30" : "hover:bg-panel")
+          "group relative flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer " +
+          (active
+            ? "bg-ink/[0.055] before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-accent"
+            : "hover:bg-panel")
         }
         onClick={() => {
           if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
@@ -396,8 +413,10 @@ export function Sidebar(props: Props) {
       <div
         key={s.session_id}
         className={
-          "group w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
-          (active ? "bg-accentSoft/60 border border-accent/30" : "hover:bg-paper")
+          "group relative w-full flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer text-left " +
+          (active
+            ? "bg-ink/[0.055] before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-accent"
+            : "hover:bg-paper")
         }
         title={title}
         onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
@@ -445,6 +464,96 @@ export function Sidebar(props: Props) {
       </div>
     ) : null;
 
+  // RECENT header with the group/filter control (§20) — the group toggle moved off the brand bar.
+  // "Group by" flips the persona accordion ↔ chronological list; "Filter by coworker" narrows to
+  // the checked personas (none checked = all shown).
+  const recentHeader = () => {
+    const filterPersonaList = (personas || []).filter(
+      (p) => (p.enabled && p.surfaced) || agentsWithSessions.has(p.id),
+    );
+    return (
+    <div className="relative flex items-center justify-between px-1.5 mb-1" data-testid="recent-header">
+      <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+        Recent
+      </span>
+      <button
+        className="w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper -mr-1"
+        title="Group & filter conversations"
+        aria-label="Group and filter conversations"
+        onClick={() => setGroupMenuOpen((v) => !v)}
+      >
+        <Icon name="sliders" size={14} />
+      </button>
+      {groupMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setGroupMenuOpen(false)} />
+          <div
+            className="absolute right-0 top-7 z-50 w-56 rounded-xl border border-line bg-panel shadow-xl p-1.5"
+            role="menu"
+            data-testid="group-filter-menu"
+          >
+            <div className="px-2 pt-1 pb-1 text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">
+              Group by
+            </div>
+            {([["grouped", "Persona"], ["flat", "Chronological"]] as ["flat" | "grouped", string][]).map(
+              ([key, label]) => (
+                <button
+                  key={key}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13px] text-left hover:bg-paper"
+                  onClick={() => setGroupBy(key)}
+                >
+                  <span className="flex-1">{label}</span>
+                  {layout === key && <span className="text-accent text-[12px]">✓</span>}
+                </button>
+              ),
+            )}
+            {filterPersonaList.length > 1 && (
+              <>
+                <div className="my-1 border-t border-line" />
+                <div className="px-2 pt-1 pb-1 flex items-center justify-between">
+                  <span className="text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">
+                    Filter by coworker
+                  </span>
+                  {filterPersonas.size > 0 && (
+                    <button className="text-[11px] text-accent" onClick={() => setFilterPersonas(new Set())}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-52 overflow-y-auto">
+                  {filterPersonaList.map((p) => {
+                    const checked = filterPersonas.has(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13px] text-left hover:bg-paper"
+                        onClick={() => toggleFilterPersona(p.id)}
+                      >
+                        <span
+                          className={
+                            "w-3.5 h-3.5 rounded border grid place-items-center shrink-0 text-white " +
+                            (checked ? "bg-accent border-accent" : "border-line")
+                          }
+                        >
+                          {checked && <span className="text-[9px] leading-none">✓</span>}
+                        </span>
+                        <span className="flex-1 truncate">{p.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="px-2 pt-1 pb-0.5 text-[11px] text-faint leading-snug">
+                  None checked shows all.
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+    );
+  };
+
   // Code/Cowork group by project; Chat is a flat recents list.
   const byProject = useMemo(() => {
     const grouped = new Map<string, SessionInfo[]>();
@@ -486,14 +595,16 @@ export function Sidebar(props: Props) {
       .filter((s) => !s.archived && !s.session_id.startsWith("__"))
       .map((s) => s.agent),
   );
-  const visibleSurfaces = personas
-    ? personas
-        .filter((p) => (p.enabled && p.surfaced) || agentsWithSessions.has(p.id))
-        .sort((a, b) => Number(b.default) - Number(a.default)) // default leads
-        .map(surfaceFromPersona)
-    : SURFACES.filter(
-        (s) => s.key === "cowork" || props.surfaces[s.key as keyof SurfaceVisibility],
-      );
+  const visibleSurfaces = (
+    personas
+      ? personas
+          .filter((p) => (p.enabled && p.surfaced) || agentsWithSessions.has(p.id))
+          .sort((a, b) => Number(b.default) - Number(a.default)) // default leads
+          .map(surfaceFromPersona)
+      : SURFACES.filter(
+          (s) => s.key === "cowork" || props.surfaces[s.key as keyof SurfaceVisibility],
+        )
+  ).filter((s) => personaVisible(s.key));
 
   const isCurrent = (key: string) => props.agent === key; // the active session's persona
   const isExpanded = (key: string) => openKey === key; // its body is open
@@ -638,46 +749,27 @@ export function Sidebar(props: Props) {
   };
 
   return (
-    <div className="sidebar flex flex-col min-h-0 bg-panel border-r border-line">
-      {/* Header: accent check-logo tile + wordmark + flat↔grouped layout toggle (mock §102). */}
-      <div className="brand px-3.5 pt-3.5 pb-2 flex items-center gap-2">
-        <div className="w-6 h-6 rounded-md bg-accent/15 grid place-items-center text-accent shrink-0">
-          <svg
-            width={14}
-            height={14}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.2}
-            strokeLinecap="round"
-            aria-hidden="true"
+    <div
+      className="sidebar flex flex-col min-h-0 bg-panel border-r border-line"
+      onMouseLeave={props.onPeekLeave}
+    >
+      {/* Header: collapse/pin control FIRST + wordmark. The pin sits at the same screen position
+          as the collapsed reveal button (see .nav-pin-btn / .nav-reveal-btn in styles.css), so
+          hovering the reveal peeks the nav and the pin lands right under the cursor — no travel.
+          data-tauri-drag-region drags the window; on desktop the row clears the traffic lights. */}
+      <div className="brand px-3.5 pt-2.5 pb-2 flex items-center gap-2" data-tauri-drag-region>
+        {/* Collapse (dock) / pin the sidebar. ⌘B mirrors this. */}
+        {props.onCollapse && (
+          <button
+            className="nav-pin-btn w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
+            title={props.collapsed ? "Dock sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
+            aria-label={props.collapsed ? "Dock sidebar" : "Collapse sidebar"}
+            onClick={props.onCollapse}
           >
-            <path d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <div className="font-semibold tracking-tight">OpenCoworker</div>
-        {/* Layout toggle by the wordmark: flat (persona accordions) ↔ grouped (per-persona cards). */}
-        <button
-          className="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper"
-          title={
-            layout === "grouped"
-              ? "Grouped by persona — tap for flat"
-              : "Flat — tap to group by persona"
-          }
-          aria-label="Toggle sidebar layout"
-          onClick={toggleLayout}
-        >
-          {layout === "grouped" ? (
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-              <rect x="3" y="4" width="18" height="6" rx="1.5" />
-              <rect x="3" y="14" width="18" height="6" rx="1.5" />
-            </svg>
-          ) : (
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
-              <path d="M3 5h18M3 12h18M3 19h18" />
-            </svg>
-          )}
-        </button>
+            <Icon name="sidebar" size={16} />
+          </button>
+        )}
+        <div className="brand-wordmark text-[15px]">OpenCoworker</div>
       </div>
 
       {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
@@ -699,11 +791,14 @@ export function Sidebar(props: Props) {
         </button>
       </div>
 
-      {/* Scroll area: grouped (Pinned band + per-persona accordion) or flat (Pinned + Recent list). */}
+      {/* Scroll area: Pinned band + the RECENT header (with group/filter control), then the body —
+          grouped (per-persona accordion) or flat (chronological list). */}
       <div className="flex-1 overflow-y-auto px-2.5 mt-3 pb-2">
-        {layout === "grouped" ? (
-          <div className="space-y-4">
-            {pinnedBand()}
+        <div className="space-y-4">
+          {pinnedBand()}
+          <div>
+            {recentHeader()}
+            {layout === "grouped" ? (
             <div className="space-y-1.5">
               {visibleSurfaces.map((s) => {
                 const expanded = isExpanded(s.key);
@@ -760,26 +855,19 @@ export function Sidebar(props: Props) {
                 );
               })}
             </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {pinnedBand()}
-            <div>
-              <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
-                Recent
-              </div>
-              <div className="space-y-0.5">
-                {recentSessions.length === 0 ? (
-                  <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
-                    {normalizedQuery ? "No matching conversations." : "No conversations yet."}
-                  </div>
-                ) : (
-                  recentSessions.map((s) => cardRow(s, { showIcon: true }))
-                )}
-              </div>
+            ) : (
+            <div className="space-y-0.5">
+              {recentSessions.length === 0 ? (
+                <div className="px-2 py-1.5 text-[12px] text-faint leading-snug">
+                  {normalizedQuery ? "No matching conversations." : "No conversations yet."}
+                </div>
+              ) : (
+                recentSessions.map((s) => cardRow(s, { showIcon: true }))
+              )}
             </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Bottom: Inbox stays visible (its attention badge needs to be glanceable); the occasional

@@ -77,6 +77,8 @@ export function SourcesDrawer({
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [recent, setRecent] = useState<RecentChannel[]>([]);
   const [draft, setDraft] = useState("");
+  // Server rejection of an add (e.g. a bare #name, which can't be looked up) — shown inline.
+  const [addErr, setAddErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!personaId) return;
@@ -108,10 +110,15 @@ export function SourcesDrawer({
   const addChannel = async () => {
     const raw = draft.trim();
     if (!raw || !channelsFor) return;
-    // In a connector's panel, a bare id is scoped to that connector; explicit "platform:" or a
-    // "#mention" are passed through as typed.
+    // In a connector's panel, a bare id is scoped to that connector; explicit "platform:", a
+    // URL, or a "#mention" are passed through as typed (the server parses link/mention forms).
     const channel = raw.includes(":") || raw.startsWith("#") ? raw : `${channelsFor}:${raw}`;
-    await subscribeChannel(sessionId, channel);
+    const r = await subscribeChannel(sessionId, channel);
+    if (!r.ok) {
+      setAddErr(r.error || "Couldn't add that channel.");
+      return;
+    }
+    setAddErr(null);
     setDraft("");
     loadSubs();
   };
@@ -151,8 +158,12 @@ export function SourcesDrawer({
             channels={channelsOf(channelsFor)}
             recent={recent}
             draft={draft}
-            onDraft={setDraft}
+            onDraft={(v) => {
+              setDraft(v);
+              setAddErr(null); // typing again clears the last rejection
+            }}
             onAdd={addChannel}
+            error={addErr}
             onRemove={removeChannel}
             onBack={() => setChannelsFor(null)}
             onClose={onClose}
@@ -387,6 +398,7 @@ function ChannelsPanel({
   draft,
   onDraft,
   onAdd,
+  error,
   onRemove,
   onBack,
   onClose,
@@ -398,6 +410,7 @@ function ChannelsPanel({
   draft: string;
   onDraft: (v: string) => void;
   onAdd: () => void;
+  error?: string | null;
   onRemove: (channel: string) => void;
   onBack: () => void;
   onClose: () => void;
@@ -441,7 +454,10 @@ function ChannelsPanel({
                 >
                   <Icon name="plug" size={14} className="text-muted shrink-0" />
                   <span className="min-w-0 flex-1 text-[13px] truncate" title={s.channel}>
-                    {s.channel}
+                    {s.channel_name ? `#${s.channel_name}` : s.channel}
+                    {s.channel_name && (
+                      <span className="ml-1.5 text-[11px] text-faint">{s.channel}</span>
+                    )}
                   </span>
                   {s.collision && (
                     <span
@@ -472,6 +488,14 @@ function ChannelsPanel({
               Add
             </button>
           </div>
+          {error && (
+            <p
+              className="text-[11.5px] text-warnInk mt-2 leading-relaxed"
+              data-testid="channel-add-error"
+            >
+              {error}
+            </p>
+          )}
           <p className="text-[11px] text-faint mt-2 leading-relaxed">
             The agent receives messages posted to these channels. Removing one stops this session from
             listening — the connector stays connected.

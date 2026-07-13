@@ -16,6 +16,9 @@ import {
   getMcpTools,
   getProviders,
   getSettings,
+  getSubscriptions,
+  resolveUnauthorized,
+  unsubscribeChannel,
   patchMcpServer,
   reloadMcp,
   setProvider,
@@ -23,13 +26,33 @@ import {
   verifyProvider,
   type CloudStatus,
   type Connector,
+  type Subscription,
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
 import { ModelChecklist } from "./ModelChecklist";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { SelectMenu } from "./SelectMenu";
 import { Toggle } from "./Toggle";
+
+// "2h ago"-style label for the providers' Last-used line (null when never used).
+const relTime = (epoch?: number | null): string | null => {
+  if (!epoch) return null;
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - epoch));
+  if (secs < 90) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+};
+
+const fmtDate = (iso?: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+};
 
 // Shared tab bodies for the Settings and Integrations pages (the old top-tab ManageModal was retired
 // when Settings/Activity became full-page surfaces): ModelsTab → Settings ▸ Models; ConnectorsTab +
@@ -44,7 +67,6 @@ const FIELD_LABEL = "block text-[12.5px] font-medium text-ink mb-1.5";
 const FIELD_HELP = "block text-[12px] text-muted mt-1.5 leading-relaxed";
 const INPUT_W =
   "w-full px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
-const SELECT_W = "w-full px-2.5 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink";
 
 /** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
 function initials(name: string): string {
@@ -84,8 +106,12 @@ export function ModelsTab() {
         setProviders(ps);
         const oll = ps.find((p) => p.name === "ollama");
         if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
-        const oai = ps.find((p) => p.name === "openai");
-        if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
+        // Seed the endpoint for the selected provider: stored value, else the descriptor's
+        // pre-filled default (OpenAI-compatible vendors ship their official endpoint).
+        const sel = ps.find((p) => p.name === apiProv);
+        const seeded =
+          sel?.values?.base_url || sel?.fields.find((f) => f.key === "base_url")?.default || "";
+        if (seeded) setEndpoint((cur) => cur || seeded);
       })
       .catch(() => {});
   useEffect(() => {
@@ -115,10 +141,14 @@ export function ModelsTab() {
   const provName = sub === "local" ? "ollama" : apiProv;
   const selProv = providers.find((p) => p.name === provName);
 
+  // The provider's endpoint field, when it has one (OpenAI's optional custom endpoint + the
+  // OpenAI-compatible vendors' pre-filled one).
+  const endpointField = selProv?.fields.find((f) => f.key === "base_url");
+
   const keyFields = (): Record<string, string> => {
     const fields: Record<string, string> = {};
     if (draft.trim()) fields.api_key = draft.trim();
-    if (apiProv === "openai") fields.base_url = endpoint.trim();
+    if (endpointField) fields.base_url = endpoint.trim();
     return fields;
   };
 
@@ -130,7 +160,7 @@ export function ModelsTab() {
   };
 
   const save = async () => {
-    if (!draft.trim() && !(apiProv === "openai" && endpoint.trim())) return;
+    if (!draft.trim() && !(endpointField && endpoint.trim())) return;
     setBusy(true);
     setMsg(null);
     const res = await setProvider(apiProv, keyFields());
@@ -170,10 +200,39 @@ export function ModelsTab() {
         suggested={selProv?.suggested_models || []}
         curated={settings.models}
         defaultModel={settings.model}
+        labels={settings.model_labels}
         onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
       />
     </div>
   );
+
+  // Unconfigured providers still show their curated models as a read-only preview — what a key
+  // unlocks is part of deciding to get one at all (owner ask, 2026-07-04). Real ids in tooltips.
+  const modelPreview = sub === "api" &&
+    selProv &&
+    !selProv.configured &&
+    (selProv.suggested_models?.length || 0) > 0 && (
+      <div className="mt-6" data-testid="model-preview">
+        <div className={SEC_H + " mb-1.5"}>Included models</div>
+        <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
+          Curated, agent-capable models this provider serves — add your key above to enable them.
+        </p>
+        <div className="space-y-1">
+          {(selProv.suggested_models || []).map((m) => {
+            const full = provName === "openai" ? m : `${provName}:${m}`;
+            return (
+              <div
+                key={m}
+                className="px-2.5 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-muted"
+                title={full}
+              >
+                {settings.model_labels?.[full] || m}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
 
   return (
     <div>
@@ -188,33 +247,56 @@ export function ModelsTab() {
 
       {sub === "api" ? (
         <div className={CARD + " p-4"}>
-          <label className="block mb-4">
+          <div className="mb-4">
             <span className={FIELD_LABEL}>Provider</span>
-            <select
-              className={SELECT_W}
+            {/* Custom select, sectioned "Ready to use" / "Needs a key" (configured providers
+                float to the top). Rows carry a green "key set" dot + a Last-used sub-line, so
+                which providers are configured (and still in use) is visible at a glance. */}
+            <SelectMenu
+              ariaLabel="Provider"
               value={apiProv}
-              onChange={(e) => {
-                setApiProv(e.target.value);
+              options={[...providers]
+                .filter((p) => p.name !== "ollama")
+                .sort((a, b) => Number(b.configured) - Number(a.configured)) // stable: keeps registry order within each section
+                .map((p) => ({
+                  value: p.name,
+                  label: p.title,
+                  group: p.configured ? "Ready to use" : "Needs a key",
+                  dot: p.configured,
+                  sub: p.configured
+                    ? relTime(p.last_used_at)
+                      ? `Last used ${relTime(p.last_used_at)}`
+                      : "Not used yet"
+                    : undefined,
+                }))}
+              onChange={(name) => {
+                setApiProv(name);
                 setDraft("");
                 setMsg(null);
                 setVerify({ state: "idle" });
+                // Re-seed the endpoint for the newly selected provider (stored → default → blank).
+                const p = providers.find((x) => x.name === name);
+                setEndpoint(
+                  p?.values?.base_url || p?.fields.find((f) => f.key === "base_url")?.default || "",
+                );
               }}
-            >
-              {providers
-                .filter((p) => p.name !== "ollama")
-                .map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.title}
-                  </option>
-                ))}
-            </select>
-          </label>
+            />
+          </div>
+
+          {selProv?.blurb && (
+            <p className="text-[12px] text-muted -mt-2 mb-4 leading-relaxed">{selProv.blurb}</p>
+          )}
 
           <div className="text-[12px] mb-4">
             {selProv?.configured ? (
               <span className="text-ok">
-                ● Connected — key set
+                ● Connected
+                {fmtDate(selProv.key_set_at) ? ` — key added ${fmtDate(selProv.key_set_at)}` : " — key set"}
                 {provName === "openai" && settings.source === "env" ? " (from environment)" : ""}
+                <span className="text-muted">
+                  {" · "}
+                  {relTime(selProv.last_used_at) ? `last used ${relTime(selProv.last_used_at)}` : "not used yet"}
+                </span>
               </span>
             ) : (
               <span className="text-danger">● Not connected — add a key below to use this provider</span>
@@ -227,22 +309,19 @@ export function ModelsTab() {
               it below; the stored key is used only when the environment variable is absent.
             </p>
           )}
-          {provName === "openai" && (
+          {endpointField && (
             <label className="block mb-4">
-              <span className={FIELD_LABEL}>Custom endpoint (optional)</span>
+              <span className={FIELD_LABEL}>{endpointField.label}</span>
               <input
                 className={INPUT_W}
                 type="text"
-                placeholder="https://…/openai/v1"
+                placeholder={endpointField.placeholder}
                 value={endpoint}
                 spellCheck={false}
                 autoComplete="off"
                 onChange={(e) => setEndpoint(e.target.value)}
               />
-              <span className={FIELD_HELP}>
-                For Azure OpenAI, OpenRouter, vLLM, or any OpenAI-compliant server. Leave blank for
-                api.openai.com.
-              </span>
+              <span className={FIELD_HELP}>{endpointField.help}</span>
             </label>
           )}
           <label className="block mb-4">
@@ -316,6 +395,7 @@ export function ModelsTab() {
       )}
 
       {checklist}
+      {modelPreview}
     </div>
   );
 }
@@ -715,6 +795,113 @@ function ConnectorRow({
       {open && !c.connected && <ConnectSetup c={c} cloud={cloud} onConnected={onChanged} />}
       {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
       {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
+      {open && c.connected && c.two_way && <UnauthorizedBlock c={c} onChanged={onRefresh} />}
+      {open && c.connected && c.two_way && <ListeningSessionsBlock c={c} />}
+    </div>
+  );
+}
+
+// Parked messages from senders not on the allow-list (§19). The gateway keeps what they said
+// instead of dropping it, so first contact is one step: Allow & deliver replays the original
+// message through the normal inbound path — no "message the bot again".
+function UnauthorizedBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
+  const items = c.unauthorized ?? [];
+  if (items.length === 0) return null;
+  const act = async (id: string, action: "dismiss" | "allow" | "allow_deliver") => {
+    await resolveUnauthorized(c.name, id, action);
+    onChanged();
+  };
+  return (
+    <div className="border-t border-line px-3.5 py-3" data-testid={`unauthorized-${c.name}`}>
+      <div className={SEC_H + " mb-2"}>
+        Messages from senders you haven't allowed · {items.length}
+      </div>
+      <div className="space-y-2">
+        {items.map((m) => (
+          <div key={m.id} className="rounded-xl border border-line bg-paper p-2.5">
+            <div className="flex items-center gap-2 text-[12px] text-muted">
+              <span className="font-medium text-ink">{m.user_name || m.user_id}</span>
+              <span>in {m.chat_name || m.chat_id}</span>
+              <span className="ml-auto shrink-0">{relTime(m.ts) || ""}</span>
+            </div>
+            <div className="text-[12.5px] mt-1 break-words">{m.text}</div>
+            <div className="flex items-center gap-1.5 mt-2">
+              <button
+                className="text-[11.5px] px-2 py-1 rounded-md bg-accent text-white"
+                data-testid={`parked-allow-deliver-${m.id}`}
+                title="Add the sender to the allow-list and deliver this message now"
+                onClick={() => act(m.id, "allow_deliver")}
+              >
+                Allow & deliver
+              </button>
+              <button
+                className={BTN_BORDERED}
+                data-testid={`parked-allow-${m.id}`}
+                title="Add the sender to the allow-list; this message is discarded"
+                onClick={() => act(m.id, "allow")}
+              >
+                Allow only
+              </button>
+              <button
+                className="text-[11.5px] px-2 py-1 rounded-md text-faint hover:text-danger"
+                data-testid={`parked-dismiss-${m.id}`}
+                title="Throw this message away"
+                onClick={() => act(m.id, "dismiss")}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Which sessions listen to this connector's channels — the per-connector cut of the global
+// Channel-subscriptions table (Integrations ▸ Messaging routing). Subscribing happens from a
+// session's Sources ▸ Channels panel; here the owner can see and revoke.
+function ListeningSessionsBlock({ c }: { c: Connector }) {
+  const [subs, setSubs] = useState<Subscription[] | null>(null);
+  const load = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
+  useEffect(() => {
+    load();
+  }, [c.name]);
+  const platformOf = (channel: string) =>
+    channel.includes(":") ? channel.split(":")[0] : "slack";
+  const mine = (subs ?? []).filter((s) => platformOf(s.channel) === c.name);
+  return (
+    <div className="border-t border-line px-3.5 py-3" data-testid={`listening-${c.name}`}>
+      <div className={SEC_H + " mb-2"}>Sessions listening to {c.title} channels · {mine.length}</div>
+      {mine.length === 0 ? (
+        <div className="text-[12px] text-faint">
+          None yet — open a session's Sources ▸ Channels to subscribe it to a channel.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {mine.map((s) => (
+            <div className="flex items-center gap-2 text-[12.5px]" key={s.session_id + s.channel}>
+              <span className="min-w-0 truncate" title={s.session_id}>
+                {s.session_title || s.session_id}
+                {s.agent ? <span className="text-faint"> · {s.agent}</span> : null}
+              </span>
+              <span className="text-muted shrink-0" title={s.channel}>
+                ← {s.channel_name ? `#${s.channel_name}` : s.channel}
+              </span>
+              <button
+                className="ml-auto text-faint hover:text-danger shrink-0"
+                title="Unsubscribe this session"
+                onClick={async () => {
+                  await unsubscribeChannel(s.session_id, s.channel);
+                  load();
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -737,11 +924,12 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
             <span
               key={u}
               className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-paper border border-line text-[12px]"
+              title={`id ${u}`}
             >
               <span className="w-4 h-4 rounded-full bg-accentSoft text-accent grid place-items-center text-[9px] font-bold">
-                {initials(u)}
+                {initials(c.allowed_user_names?.[u] || u)}
               </span>
-              {u}
+              {c.allowed_user_names?.[u] || u}
               <button
                 className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
                 title="remove"

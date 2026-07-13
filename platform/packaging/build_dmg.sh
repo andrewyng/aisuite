@@ -7,8 +7,21 @@
 #   4. Wrap the .app in a compressed .dmg via hdiutil (reliable + headless; Tauri's own
 #      bundle_dmg.sh uses Finder AppleScript and fails in non-interactive sessions).
 #
-# The result is UNSIGNED — first launch needs right-click → Open (Gatekeeper). Real
-# code-signing + notarization is a later step.
+# Prerequisites (mirrors build_windows.ps1's header):
+#   - Rust (rustup) + Node/npm, and the GUI deps installed (npm ci in surfaces/gui).
+#   - A Python venv at platform/.venv with this package installed editable, plus the
+#     build-only deps:
+#       python3 -m venv platform/.venv
+#       platform/.venv/bin/pip install -e . pyinstaller tzdata typer
+#     `typer` is needed only at BUILD time: PyInstaller walks the `mcp` package and
+#     `mcp.cli` calls sys.exit() at import if typer is absent, which aborts the freeze.
+#     (aisuite is not pip-installed — the spec adds <repo> to pathex so PyInstaller finds it.)
+#
+# SIGNING: set APPLE_SIGNING_IDENTITY to a "Developer ID Application: … (TEAMID)" identity and
+# `tauri build` signs the .app + the bundled sidecar with it. Left unset → UNSIGNED (first launch
+# needs right-click → Open). Either way this script does NOT notarize; to finish a public release:
+#   xcrun notarytool submit "<dmg>" --keychain-profile <profile> --wait   # profile via store-credentials
+#   xcrun stapler staple "<dmg>"
 #
 # Experimental (use-at-your-own-risk) connectors are EXCLUDED from this build by default —
 # the spec strips coworker.connectors.experimental. Self-builders can opt in with:
@@ -41,10 +54,75 @@ BUNDLE="$GUI/src-tauri/target/release/bundle"
 STAGING="$(mktemp -d)"
 cp -R "$BUNDLE/macos/$APP.app" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
+# Background art (arrow + "drag to Applications") — hidden folder Finder reads for the window.
+# A HiDPI TIFF (1x + native 2x reps) so text/arrow stay crisp on Retina; a plain 1x PNG would
+# be upscaled and look hazy/pixelated.
+mkdir "$STAGING/.background"
+cp "$HERE/dmg-background.tiff" "$STAGING/.background/bg.tiff"
 DMG="$BUNDLE/dmg/${APP}_${VERSION}_${ARCH}.dmg"
 mkdir -p "$(dirname "$DMG")"
 rm -f "$DMG"
-hdiutil create -volname "$APP" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+
+# A styled install window (fixed size, icons in place, arrow background) instead of Finder's
+# default oversized bare window. Needs Finder (AppleScript); if it isn't available (headless CI),
+# fall back to the plain compressed image so the build still produces a working .dmg.
+#
+# Two hard-won correctness points (both caused a *silently* unstyled .dmg before):
+#   1. A stale "$APP" volume already mounted → our RW image mounts as "$APP 1", and a hardcoded
+#      `tell disk "$APP"` then styles the WRONG (stale) volume, so our image never gets a
+#      .DS_Store. Detach any pre-existing mount first, and target the ACTUAL mounted name.
+#   2. Finder writes .DS_Store asynchronously — detaching too soon drops it. Poll until it lands.
+style_dmg() {
+  # Clear any earlier mount of this volume so we don't collide into "$APP 1".
+  [ -d "/Volumes/$APP" ] && hdiutil detach "/Volumes/$APP" -force >/dev/null 2>&1 || true
+  local rw; rw="$(mktemp -u).dmg"
+  hdiutil create -volname "$APP" -srcfolder "$STAGING" -fs HFS+ -format UDRW -ov "$rw" >/dev/null
+  local info dev mnt vol
+  info="$(hdiutil attach -readwrite -noverify -noautoopen "$rw")"
+  dev="$(echo "$info" | grep -Eo '^/dev/disk[0-9]+' | head -1)"
+  mnt="$(echo "$info" | grep -Eo '/Volumes/.*$' | head -1)"
+  [ -n "$dev" ] && [ -n "$mnt" ] || return 1
+  vol="$(basename "$mnt")"   # the real mounted name — what `tell disk` must target
+  sleep 1
+  # Icons at y≈190 to sit on the background's arrow: app left of it, Applications right. Background
+  # via the relative HFS path (`file ".background:bg.tiff"`) so the alias survives a rename; the
+  # close→open→update dance forces Finder to actually write the .DS_Store.
+  osascript <<OSA || { hdiutil detach "$dev" -force >/dev/null 2>&1 || true; return 1; }
+tell application "Finder"
+  tell disk "$vol"
+    open
+    delay 1
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set the bounds of container window to {200, 120, 840, 543}
+    set opts to the icon view options of container window
+    set arrangement of opts to not arranged
+    set icon size of opts to 96
+    set text size of opts to 12
+    set background picture of opts to file ".background:bg.tiff"
+    set position of item "$APP.app" of container window to {172, 190}
+    set position of item "Applications" of container window to {468, 190}
+    close
+    open
+    update without registering applications
+    delay 3
+  end tell
+end tell
+OSA
+  # Wait for Finder to flush .DS_Store into the image (else the layout is lost).
+  local i; for i in $(seq 1 15); do [ -f "$mnt/.DS_Store" ] && break; sleep 1; done
+  [ -f "$mnt/.DS_Store" ] || { hdiutil detach "$dev" -force >/dev/null 2>&1 || true; return 1; }
+  sync; sync
+  hdiutil detach "$dev" -force >/dev/null
+  hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
+  rm -f "$rw"
+}
+
+if ! style_dmg; then
+  echo "    (Finder styling unavailable — writing a plain .dmg)"
+  hdiutil create -volname "$APP" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null
+fi
 rm -rf "$STAGING"
 
 echo ""

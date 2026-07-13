@@ -71,13 +71,21 @@ function toCron(time: string, freq: string): string {
 }
 
 interface Props {
-  onOpenRun: (sessionId: string, workspace: string, agent: string) => void;
-  onRunNow: (taskId: string) => void;
+  // `task` gives the opened run session its context (banner + "Back to runs"; owner ask 2026-07-04).
+  onOpenRun: (
+    sessionId: string,
+    workspace: string,
+    agent: string,
+    task?: { id: string; title: string },
+  ) => void;
+  onRunNow: (taskId: string, title?: string) => void;
+  // Open directly on a task's detail (set by the run banner's "Back to runs").
+  initialOpenId?: string | null;
 }
 
-export function ScheduledView({ onOpenRun, onRunNow }: Props) {
+export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const [tasks, setTasks] = useState<Automation[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -300,8 +308,13 @@ function TaskDetail({
 }: {
   id: string;
   onBack: () => void;
-  onOpenRun: (sessionId: string, workspace: string, agent: string) => void;
-  onRunNow: (taskId: string) => void;
+  onOpenRun: (
+    sessionId: string,
+    workspace: string,
+    agent: string,
+    task?: { id: string; title: string },
+  ) => void;
+  onRunNow: (taskId: string, title?: string) => void;
 }) {
   const [task, setTask] = useState<Automation | null>(null);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
@@ -385,7 +398,7 @@ function TaskDetail({
                 </>
               ) : (
                 <>
-                  <button className="btn-primary sm" onClick={() => onRunNow(id)}>
+                  <button className="btn-primary sm" onClick={() => onRunNow(id, task.title)}>
                     ▶ Run now
                   </button>
                   <button className="btn sm" onClick={startEdit}>Edit</button>
@@ -442,7 +455,13 @@ function TaskDetail({
             <div
               className="sched-run open"
               key={r.run_id}
-              onClick={() => r.session_id && onOpenRun(r.session_id, task.workspace, task.agent)}
+              onClick={() =>
+                r.session_id &&
+                onOpenRun(r.session_id, task.workspace, task.agent, {
+                  id: task.id,
+                  title: task.title,
+                })
+              }
               title="Open this run's conversation"
             >
               <div className="sched-run-row">

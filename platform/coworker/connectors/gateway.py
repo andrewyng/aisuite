@@ -36,6 +36,7 @@ class Gateway:
         handler: Optional[MessageHandler] = None,
         reply_resolver: Optional[Callable[[MessageEvent], bool]] = None,
         interaction_handler: Optional[Callable] = None,
+        on_unauthorized: Optional[Callable] = None,
     ) -> None:
         self.secrets = secrets or SecretStore()
         self.settings = (
@@ -47,6 +48,9 @@ class Gateway:
         self._reply_resolver = reply_resolver
         # A button click on an interactive prompt (resolves an Inbox item by id).
         self._interaction_handler = interaction_handler
+        # Called (awaited) with the MessageEvent when the allow-list drops it, so the message
+        # can be PARKED for one-step allow-and-deliver instead of vanishing.
+        self._on_unauthorized = on_unauthorized
         self._adapters: dict[str, BasePlatformAdapter] = {}
         # In-memory recent senders for chat-ID auto-capture (identity only, never persisted).
         self._recent: "OrderedDict[tuple[str, str], dict]" = OrderedDict()
@@ -73,7 +77,12 @@ class Gateway:
         self._record_recent(event)  # capture identity even from unauthorized senders
         settings = self.settings.get(event.source.platform)
         if settings is None or not is_authorized(settings, event.source):
-            logger.info("dropping unauthorized inbound from %s", event.source.label())
+            logger.info("parking unauthorized inbound from %s", event.source.label())
+            if self._on_unauthorized is not None:
+                try:
+                    await self._on_unauthorized(event)
+                except Exception:
+                    logger.exception("parking unauthorized inbound failed")
             return
         # An inbound reply that resolves an Inbox item (approval/answer) is consumed here, not
         # routed to the super-agent as a new turn. The suspended agent awaiting that item is

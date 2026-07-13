@@ -1,3 +1,17 @@
+/* Manrope — the wordmark typeface, self-hosted (bundled woff2, no external font call). */
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/manrope-700.woff2") format("woff2");
+}
+.brand-wordmark {
+  font-family: "Manrope", -apple-system, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
 :root {
   color-scheme: light;
   --paper: #f5f6f7;          /* cool light gray — reads "tool", not "writing app" */
@@ -32,7 +46,7 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   /* The right rail's width while reading an artifact (wider than the 332px inspector). */
-  --artifact-rail-w: min(580px, 52vw);
+  --artifact-rail-w: min(62vw, 960px);
 }
 
 /* Dark palette. `data-theme` is set on <html> by an inline script in index.html (pre-paint)
@@ -92,6 +106,62 @@ body {
 .sidebar {
   min-height: 0;
 }
+
+/* ---------- collapsible left nav (⌘B + hover-peek) ---------- */
+/* Collapsed: the grid column goes to 0 so the content reclaims the width; the sidebar slides
+   off-screen. Hovering the left edge (.nav-hover-zone) adds .nav-peek, floating it back OVER the
+   content as an overlay with a shadow. */
+/* Single column when collapsed: the sidebar is taken out of flow (absolute), so the main content
+   must occupy the whole grid — a leading 0-width column would swallow it instead. */
+.app.nav-collapsed { grid-template-columns: 1fr; }
+.app.nav-collapsed .sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 264px;
+  z-index: 60;
+  transform: translateX(-100%);
+  transition: transform 0.18s ease;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+}
+.app.nav-collapsed.nav-peek .sidebar { transform: translateX(0); }
+/* Thin left-edge zone that triggers the peek while collapsed. */
+.nav-hover-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 14px;
+  z-index: 55;
+}
+/* Reveal button while collapsed. Positioned to land EXACTLY on the brand's pin button (.nav-pin-btn,
+   14px/14px inside the brand row) so peeking the nav puts the pin under the cursor — no travel. */
+.nav-reveal-btn {
+  position: fixed;
+  top: 10px; /* center (10+14) aligns with the topbar title in the browser build */
+  left: 14px;
+  z-index: 58;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--faint);
+  background: transparent;
+}
+.nav-reveal-btn:hover { color: var(--ink); background: var(--paper); }
+/* On desktop, both the brand row and the reveal button shift right to clear the traffic lights
+   (and down to align with them in their lowered position — see traffic_light_position in lib.rs). */
+/* Desktop overlay: the whole top strip sits lower (center ~30) to line up with the lowered
+   traffic lights — reveal/pin, the wordmark, and the topbar title all on that line. */
+.app.tauri-overlay .nav-reveal-btn { top: 16px; left: 84px; }
+.app.tauri-overlay .main-topbar { padding-top: 12px; }
+/* Make room for the reveal button so it never overlaps the topbar / page-view header content. */
+.app.nav-collapsed .main-topbar,
+.app.nav-collapsed .sa-view-head { padding-left: 46px; }
+.app.nav-collapsed.tauri-overlay .main-topbar,
+.app.nav-collapsed.tauri-overlay .sa-view-head { padding-left: 120px; }
 
 .tabs { display: flex; gap: 4px; background: var(--paper); padding: 4px; border-radius: 10px; }
 .tab {
@@ -847,6 +917,22 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
   50% { opacity: 0.9; transform: scale(1.04); }
 }
 
+/* Dev-only fake traffic lights (?overlay=1) at the SAME position the real app uses
+   (traffic_light_position 19,24 in lib.rs) so the desktop top-left previews in the browser. */
+.sim-traffic-lights {
+  position: fixed;
+  left: 19px;
+  top: 24px;
+  display: flex;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+}
+.sim-traffic-lights span { width: 12px; height: 12px; border-radius: 50%; }
+.sim-traffic-lights span:nth-child(1) { background: #ff5f57; }
+.sim-traffic-lights span:nth-child(2) { background: #febc2e; }
+.sim-traffic-lights span:nth-child(3) { background: #28c840; }
+
 /* ---- Desktop overlay title bar -------------------------------------------- */
 /* Traffic lights float over the UI (Tauri titleBarStyle: Overlay). The visible
    app header/sidebar top padding provide the draggable area in the normal app. */
@@ -867,9 +953,11 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
 }
 .titlebar-brand { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); user-select: none; }
 .titlebar-brand .mark { color: var(--accent); }
-/* Brand lives in the title bar on desktop, so drop the sidebar's copy. */
-.app.tauri-overlay .sidebar { padding-top: 44px; }
-.app.tauri-overlay .sidebar .brand { display: none; }
+/* The sidebar's brand row IS the desktop title bar (pin control + wordmark). On desktop the
+   traffic lights float top-left, so shift the row RIGHT (not down) to clear them and keep it at
+   the top — that puts the pin button just right of the lights, aligned with the reveal button.
+   The row is a drag region (data-tauri-drag-region in Sidebar.tsx), so this strip moves the window. */
+.app.tauri-overlay .sidebar .brand { padding-top: 16px; padding-left: 84px; }
 
 /* ---- Onboarding wizard ----------------------------------------------------- */
 .ob-overlay {

@@ -33,9 +33,12 @@ interface Props {
   toolNames: string[];
   todo: TodoItem[];
   running: boolean;
+  // Fires when a full artifact preview opens/closes, so the app can auto-collapse the left nav
+  // to give the preview (PDF/webpage/sheet) more room (#3).
+  onPreviewChange?: (open: boolean) => void;
 }
 
-export function RightRail({ active, sessionId, refreshKey, toolNames, todo, running }: Props) {
+export function RightRail({ active, sessionId, refreshKey, toolNames, todo, running, onPreviewChange }: Props) {
   const [open, setOpen] = useState<Record<Panel, boolean>>({
     progress: true,
     browser: false,
@@ -67,6 +70,11 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
     if (!selected) return;
     readArtifact(sessionId, selected.path).then(setContent).catch(() => setContent(null));
   }, [selected?.path, sessionId]);
+
+  // Notify the app when a preview opens/closes (drives the left-nav auto-collapse).
+  useEffect(() => {
+    onPreviewChange?.(!!selected);
+  }, [!!selected, onPreviewChange]);
 
   const reloadSelected = () => {
     if (!selected) return Promise.resolve();

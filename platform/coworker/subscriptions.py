@@ -101,16 +101,26 @@ class SubscriptionStore:
 # -- channel reference parsing --------------------------------------------------
 # Slack encodes a typed `#channel` as `<#C0123|name>`; the id is right there in the user's answer.
 _SLACK_CHANNEL_RE = re.compile(r"<#(C[A-Z0-9]+)\|?[^>]*>")
+# Slack's "Copy link" for a channel: https://acme.slack.com/archives/C0123ABC — the id is the
+# path segment. Accepting the paste beats asking users to dig the id out of the About tab.
+_SLACK_ARCHIVES_RE = re.compile(r"slack\.com/archives/([A-Za-z0-9]+)")
 
 
 def resolve_channel(ref: str, *, default_platform: str = "slack") -> str:
     """Turn a user/agent-supplied channel reference into a `<platform>:<chat_id>` address.
-    Accepts a Slack channel-mention token (`<#C0123|name>`), a full address (`slack:C0123`), or a
-    bare chat id (assumed to be on the default platform)."""
+    Accepts a Slack channel-mention token (`<#C0123|name>`), a channel "Copy link" URL, a full
+    address (`slack:C0123`), or a bare chat id (assumed to be on the default platform). A bare
+    `#name` resolves to "" — names can't be looked up locally, and storing one literally would
+    create a subscription that never matches real traffic."""
     ref = (ref or "").strip()
     m = _SLACK_CHANNEL_RE.search(ref)
     if m:
         return f"slack:{m.group(1)}"
+    m = _SLACK_ARCHIVES_RE.search(ref)
+    if m:
+        return f"slack:{m.group(1).upper()}"
+    if ref.startswith("#"):
+        return ""
     if ":" in ref:
         return ref
     return f"{default_platform}:{ref}" if ref else ref
@@ -118,28 +128,78 @@ def resolve_channel(ref: str, *, default_platform: str = "slack") -> str:
 
 # -- recent-message ring buffer (for get_channel_messages) ----------------------
 class ChannelBuffer:
-    """Last-N messages seen per channel (in-memory, ephemeral). Filled as inbound channel messages
-    arrive, so a subscribed agent can catch up on anything it might have missed."""
+    """Last-N messages seen per channel. Filled as inbound channel messages arrive, so a
+    subscribed agent can catch up on anything it might have missed — and so the channel picker
+    can suggest channels the bot has already seen. Persisted (best-effort JSON) when a
+    ``state_path`` is given: a suggestion list that empties on every restart is useless
+    (owner call, 2026-07-04). Traffic is human-rate, so writing per message is fine."""
 
-    def __init__(self, cap: int = 50) -> None:
+    def __init__(self, cap: int = 50, state_path: Optional[Path] = None) -> None:
         self._cap = cap
+        self._path = Path(state_path) if state_path else None
         self._by_channel: dict[str, deque] = {}
+        self._names: dict[str, str] = {}  # channel address → display name ("#ocw-test")
+        if self._path is not None and self._path.exists():
+            try:
+                data = json.loads(self._path.read_text())
+                # Current format: {"messages": {...}, "names": {...}}; the first shipped
+                # format was the bare messages dict — accept both.
+                msgs_by_chan = data.get("messages", data) if isinstance(data, dict) else {}
+                self._names = dict(data.get("names") or {}) if isinstance(data, dict) else {}
+                for chan, msgs in msgs_by_chan.items():
+                    if isinstance(msgs, list):
+                        self._by_channel[chan] = deque(msgs[-cap:], maxlen=cap)
+            except (OSError, ValueError, AttributeError):
+                pass  # a corrupt buffer must never block startup
 
-    def record(self, channel: str, who: str, text: str) -> None:
+    def record(
+        self, channel: str, who: str, text: str, name: Optional[str] = None
+    ) -> None:
         self._by_channel.setdefault(channel, deque(maxlen=self._cap)).append(
             {"from": who, "text": text}
         )
+        if name:
+            self._names[channel] = name
+        self._save()
+
+    def _save(self) -> None:
+        if self._path is None:
+            return
+        try:
+            tmp = self._path.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps(
+                    {
+                        "messages": {c: list(m) for c, m in self._by_channel.items()},
+                        "names": self._names,
+                    }
+                )
+            )
+            tmp.replace(self._path)
+        except OSError:
+            pass  # persistence is best-effort; the in-memory buffer stays authoritative
 
     def recent(self, channel: str, n: int = 10) -> list[dict]:
         msgs = list(self._by_channel.get(channel, ()))
         return msgs[-max(1, min(n, self._cap)):]
+
+    def name_for(self, channel: str) -> Optional[str]:
+        """The channel's resolved display name, if any inbound message carried one."""
+        return self._names.get(channel)
 
     def channels(self) -> list[dict]:
         """Channels seen so far (the picker's 'recently-seen' list), newest message last."""
         out: list[dict] = []
         for chan, msgs in self._by_channel.items():
             last = msgs[-1] if msgs else {}
-            out.append({"channel": chan, "last_from": last.get("from"), "last_text": last.get("text")})
+            out.append(
+                {
+                    "channel": chan,
+                    "name": self._names.get(chan),
+                    "last_from": last.get("from"),
+                    "last_text": last.get("text"),
+                }
+            )
         return out
 
 

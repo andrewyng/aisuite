@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,6 +18,25 @@ from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+# Origins allowed to talk to the local sidecar. It binds to 127.0.0.1, but a page in the
+# user's own browser can still reach loopback — so without an origin gate, any website they
+# visit could read `GET /v1/sessions` (CORS was `*`) and drive a session over the WS (which
+# CORS never covers) into shell/file tools. We pin to the desktop webview's own origins
+# (`tauri://localhost`, Windows' `http(s)://tauri.localhost`) and localhost dev/browser
+# builds. Requests with NO Origin header (curl, native clients, tests, server-to-server) are
+# allowed — the gate targets browsers, which always attach an unforgeable Origin.
+_ALLOWED_ORIGIN_RE = re.compile(
+    r"^(tauri://localhost"
+    r"|https?://localhost(:\d+)?"
+    r"|https?://127\.0\.0\.1(:\d+)?"
+    r"|https?://tauri\.localhost)$"
+)
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    """True if a browser Origin may use the API. Missing Origin (non-browser) passes."""
+    return origin is None or bool(_ALLOWED_ORIGIN_RE.match(origin))
 
 
 def _browser_page(title: str, detail: str) -> str:
@@ -57,7 +77,9 @@ def create_app(manager: SessionManager) -> FastAPI:
     app = FastAPI(title="coworker", version="0.0.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # local-first; tighten when remote exposure lands
+        # Pinned to the desktop webview + localhost (see _ALLOWED_ORIGIN_RE): stops a random
+        # website the user visits from reading local API responses cross-origin.
+        allow_origin_regex=_ALLOWED_ORIGIN_RE.pattern,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -139,6 +161,9 @@ def create_app(manager: SessionManager) -> FastAPI:
                     "session_title": (rec.title if rec else None) or sub.session_id,
                     "agent": agent,
                     "channel": sub.channel,
+                    # Display name from the channel buffer ("#ocw-test"), when any inbound
+                    # message has carried one — the address stays the identifier.
+                    "channel_name": manager.channel_buffer.name_for(sub.channel),
                     "routing_target": routing[0] if routing else None,
                     "collision": bool(routing and sub.channel in routing),
                 }
@@ -160,8 +185,17 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..subscriptions import resolve_channel
 
         session_id = str(body.get("session_id", "")).strip()
-        addr = resolve_channel(str(body.get("channel", "")))
+        raw = str(body.get("channel", ""))
+        addr = resolve_channel(raw)
         if not session_id or not addr or ":" not in addr:
+            if raw.strip().startswith("#"):
+                # A bare #name can't be looked up locally — storing it literally would create a
+                # subscription that never matches real traffic (resolve_channel returns "").
+                return {
+                    "ok": False,
+                    "error": "Channel names can't be looked up — paste the channel ID "
+                    "(channel name ▸ About) or the channel's Copy-link URL.",
+                }
             return {"ok": False, "error": "need a session_id and a channel"}
         manager.subscriptions.subscribe(session_id, addr)
         return {"ok": True, "channel": addr}
@@ -304,16 +338,21 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/personas/{persona_id}")
     def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
         reg = manager.personas
+        archived = 0
         try:
             if "enabled" in body:
-                reg.set_enabled(persona_id, bool(body["enabled"]))
+                # Disable archives the persona's sessions atomically (server-side, one
+                # request) so any client gets the same semantic. See set_persona_enabled.
+                archived = manager.set_persona_enabled(persona_id, bool(body["enabled"]))[
+                    "archived_sessions"
+                ]
             if "surfaced" in body:
                 reg.set_surfaced(persona_id, bool(body["surfaced"]))
             if body.get("default"):
                 reg.set_default(persona_id)
         except KeyError:
             return {"ok": False, "error": f"unknown persona: {persona_id}"}
-        return {"ok": True, "personas": reg.list_all()}
+        return {"ok": True, "personas": reg.list_all(), "archived_sessions": archived}
 
     @app.delete("/v1/personas/{persona_id}")
     def persona_delete(persona_id: str) -> dict[str, Any]:
@@ -337,11 +376,10 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/personas/{persona_id}/enable")
     def persona_enable(persona_id: str, body: dict) -> dict[str, Any]:
-        # Dedicated §5/§8 route; delegates to the same registry toggle as POST /v1/personas/{id}.
+        # Dedicated §5/§8 route; delegates to the same manager toggle as POST /v1/personas/{id}
+        # (so disable archives the persona's sessions here too).
         try:
-            manager.personas.set_enabled(
-                persona_id, bool((body or {}).get("enabled", True))
-            )
+            manager.set_persona_enabled(persona_id, bool((body or {}).get("enabled", True)))
         except KeyError:
             return {"ok": False, "error": f"unknown persona: {persona_id}"}
         return {"ok": True, "personas": manager.personas.list_all()}
@@ -370,6 +408,12 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.open_workspace(
             body.get("path", ""), create=bool(body.get("create"))
         )
+
+    @app.post("/v1/workspaces/pick")
+    async def pick_workspace() -> dict[str, Any]:
+        # Native folder picker opened by the LOCAL sidecar (browser GUIs can't get absolute
+        # paths from web file dialogs). Off the event loop: blocks until pick/cancel.
+        return await asyncio.to_thread(manager.pick_native_folder)
 
     @app.get("/v1/sessions")
     def sessions(workspace: str | None = None) -> dict[str, Any]:
@@ -476,17 +520,32 @@ def create_app(manager: SessionManager) -> FastAPI:
     def connectors_list() -> dict[str, Any]:
         return {"connectors": manager.list_connectors()}
 
+    async def _refresh_listeners_if_two_way(name: str) -> None:
+        # New/removed creds only take effect when the platform socket reconnects (Socket Mode
+        # authenticates at connect time) — hot-reload the listeners in-process so pasting
+        # tokens works immediately, no sidecar restart (§19).
+        from ..connectors.config import PLATFORMS
+
+        if name in PLATFORMS:
+            try:
+                await manager.refresh_gateway()
+            except Exception:
+                pass  # a listener that fails to come up must not fail the save
+
     @app.post("/v1/connectors/{name}/connect")
     async def connector_connect(name: str, body: dict) -> dict[str, Any]:
         fields = body.get("fields") if isinstance(body, dict) else None
         # experimental connectors require the caller to explicitly acknowledge the risk notice
         acknowledged = bool(isinstance(body, dict) and body.get("acknowledge_risk"))
         # token validation does a blocking HTTP call → keep it off the event loop
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             lambda: manager.connect_connector(
                 name, fields or {}, acknowledged=acknowledged
             )
         )
+        if result.get("ok"):
+            await _refresh_listeners_if_two_way(name)
+        return result
 
     @app.post("/v1/connectors/{name}/disconnect")
     async def connector_disconnect(name: str) -> dict[str, Any]:
@@ -498,7 +557,17 @@ def create_app(manager: SessionManager) -> FastAPI:
         await asyncio.to_thread(
             lambda: cloud.cloud_disconnect(manager.secrets, load_config(), name)
         )
-        return manager.disconnect_connector(name)
+        result = manager.disconnect_connector(name)
+        await _refresh_listeners_if_two_way(name)
+        return result
+
+    @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
+    async def connector_unauthorized_resolve(
+        name: str, item_id: str, body: dict
+    ) -> dict[str, Any]:
+        # Resolve a parked unauthorized message: dismiss / allow / allow_deliver (§19).
+        action = str((body or {}).get("action", "")).strip()
+        return await manager.resolve_unauthorized(name, item_id, action)
 
     # -- OpenCoworker Cloud: sign-in + managed one-click connect ---------------
     # All optional: the app is fully functional signed out (manual token paste
@@ -795,6 +864,12 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.websocket("/ws/session/{session_id}")
     async def ws_session(ws: WebSocket, session_id: str) -> None:
+        # CORS never gates WebSockets, so a cross-site page could otherwise open this socket
+        # and drive the session into tool calls. Reject a disallowed browser Origin before
+        # accepting the handshake (1008 = policy violation).
+        if not _origin_allowed(ws.headers.get("origin")):
+            await ws.close(code=1008)
+            return
         await ws.accept()
         agent = ws.query_params.get("agent") or "code"
 
@@ -960,6 +1035,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 }
             return {"approved": True, "mode": resp.get("mode") or "interactive"}
 
+        def _model_locked() -> bool:
+            # The model is chosen until the first real turn, then fixed for the session's life
+            # (system message doesn't count as history). Enforced HERE, not just in the GUI,
+            # so API callers and message races can't rebind a running conversation.
+            return any(m.get("role") != "system" for m in engine.messages)
+
         def _resolve_pending(resolution: str) -> None:
             # Live WS responses resolve THE session's single pending prompt (one at a time, since the
             # agent blocks). Reconnect / Inbox resolve by id via REST instead.
@@ -1082,11 +1163,19 @@ def create_app(manager: SessionManager) -> FastAPI:
                         pass
                 elif kind == "set_model":
                     model = message.get("model")
-                    if model:
+                    if model and not _model_locked():
                         engine.model = model
                 elif kind == "user_message":
                     text = (message.get("text") or "").strip()
                     attachments = message.get("attachments") or []
+                    # The composer sends its visible model with every message — the FIRST one
+                    # binds the session's model (race-proof across reconnects; see api.ts
+                    # Session.userMessage). After that the model is FIXED for the session's
+                    # life (owner call, 2026-07-04): mixed-model transcripts invite
+                    # provider-quirk breakage. Start a new session to switch.
+                    model = message.get("model")
+                    if model and not _model_locked():
+                        engine.model = model
                     if text or attachments:
                         content = build_user_content(text, attachments)
                         asyncio.create_task(run_turn(content))

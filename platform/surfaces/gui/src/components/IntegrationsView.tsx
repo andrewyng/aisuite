@@ -207,11 +207,14 @@ function SubscriptionsTab() {
                   {s.session_title}
                 </td>
                 <td className="px-4 py-2.5">
-                  <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1.5" title={s.channel}>
                     <span className="text-muted shrink-0">
                       <Icon name="plug" size={13} />
                     </span>
-                    {s.channel}
+                    {s.channel_name ? `#${s.channel_name}` : s.channel}
+                    {s.channel_name && (
+                      <span className="text-[11px] text-faint">{s.channel}</span>
+                    )}
                   </span>
                   {s.collision && (
                     <span
