@@ -128,18 +128,26 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
     setFields(next);
   };
 
-  const runTest = async () => {
+  const runTest = async (): Promise<boolean> => {
     setVerify({ state: "testing" });
     const res = await verifyProvider(prov, fields).catch(() => ({ ok: false, error: "unreachable" }));
     setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "couldn't verify" });
+    return res.ok;
   };
 
   const credentialed = !!info?.configured && !!info?.needs_key;
-  const ready = credentialed || verify.state === "ok";
   // What the Test button shows: a fresh pass OR already-stored credentials read "✓ Connected".
   const verified = verify.state === "ok" || (credentialed && verify.state === "idle");
+  // Continue is clickable as soon as the required (secret) fields are filled — the verify runs
+  // AUTOMATICALLY on Continue (tester catch 2026-07-12: "did I have to click Test first?" — the
+  // manual Test-then-Continue two-step read as a puzzle). Test stays as an optional explicit check.
+  const requiredFilled = (info?.fields || []).every(
+    (f) => !f.secret || (fields[f.key] || "").trim(),
+  );
+  const canContinue = credentialed || requiredFilled;
 
   const saveAndContinue = async () => {
+    if (!credentialed && verify.state !== "ok" && !(await runTest())) return;
     if (!info?.configured || Object.values(fields).some(Boolean)) {
       await setProvider(prov, fields).catch(() => {});
     }
@@ -409,11 +417,11 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               </button>
               <button
                 className="px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
-                disabled={!ready}
+                disabled={!canContinue || verify.state === "testing"}
                 onClick={saveAndContinue}
                 data-testid="ob-continue"
               >
-                Continue
+                {verify.state === "testing" ? "Checking…" : "Continue"}
               </button>
             </div>
           </section>
@@ -572,12 +580,22 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               </div>
             )}
 
-            <div className="flex items-center mt-auto pt-6">
+            <div className="flex items-center gap-3 mt-auto pt-6">
               <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setStep(2)}>
                 Skip for now
               </button>
+              {/* A silently-disabled primary reads as a bug (tester catch 2026-07-12: both
+                  connectors green, button gray, no clue why) — always name the missing piece. */}
+              {allConnected && tab !== "everyday" && !channel && (
+                <span className="ml-auto text-[11.5px] text-faint" data-testid="ob-create-hint">
+                  Pick a channel to post to first
+                </span>
+              )}
               <button
-                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                className={
+                  (allConnected && tab !== "everyday" && !channel ? "" : "ml-auto ") +
+                  "px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                }
                 disabled={!allConnected || creating || (tab !== "everyday" && !channel)}
                 onClick={create}
                 data-testid="ob-create"

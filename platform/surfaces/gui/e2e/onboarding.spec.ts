@@ -13,7 +13,7 @@ async function openOnboarding(page) {
   await expect(page.getByTestId("ob-step-model")).toBeVisible();
 }
 
-test("model step: configured provider fast-path; unconfigured gates until Test passes", async ({
+test("model step: configured provider fast-path; Continue verifies automatically", async ({
   page,
 }) => {
   await openOnboarding(page);
@@ -25,8 +25,9 @@ test("model step: configured provider fast-path; unconfigured gates until Test p
   await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
-  // Switching to an unconfigured vendor gates Continue (and the button reads Test again).
-  // The picker is the same SelectMenu the Settings Models page uses (custom listbox).
+  // Switching to an unconfigured vendor: Continue gates only on the key being FILLED — the
+  // verify runs automatically on click (tester catch 2026-07-12: the manual Test-then-Continue
+  // two-step read as a puzzle). The picker is the Settings-Models SelectMenu.
   await page.getByRole("button", { name: "Provider" }).click();
   await page.getByRole("option", { name: "Z AI (GLM)" }).click();
   await expect(page.getByTestId("ob-test")).toHaveText("Test");
@@ -37,14 +38,17 @@ test("model step: configured provider fast-path; unconfigured gates until Test p
   await page.getByTestId("ob-endpoint-link").click();
   await expect(page.getByTestId("ob-field-base_url")).toHaveValue(/api\.z\.ai/);
 
-  // Bad key fails the live check; a good key verifies and unlocks Continue.
+  // A bad key: Continue runs the check itself, fails, and STAYS on the step with the error.
   await page.getByTestId("ob-field-api_key").fill("bad-key");
-  await page.getByTestId("ob-test").click();
-  await expect(page.getByTestId("ob-continue")).toBeDisabled();
-  await page.getByTestId("ob-field-api_key").fill("zk-good");
-  await page.getByTestId("ob-test").click();
-  await expect(page.getByTestId("ob-test")).toHaveText("✓ Connected");
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
+  await page.getByTestId("ob-continue").click();
+  await expect(page.getByTestId("ob-step-model")).toBeVisible();
+  await expect(page.getByTestId("ob-continue")).toBeEnabled();
+
+  // A good key: one click verifies and advances — no manual Test required.
+  await page.getByTestId("ob-field-api_key").fill("zk-good");
+  await page.getByTestId("ob-continue").click();
+  await expect(page.getByTestId("ob-step-recipe")).toBeVisible();
 });
 
 test("recipe: lazy single sign-in completes the pending connect; consent mints the grant; Start working opens the session panel", async ({

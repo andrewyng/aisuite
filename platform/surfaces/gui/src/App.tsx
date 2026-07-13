@@ -672,21 +672,32 @@ export function App() {
     // The visible model rides along with the message (single source of truth per turn).
     sessionRef.current?.userMessage(text, attachments, model);
   };
+  // Resolving a LIVE prompt also resolves its parked Inbox mirror server-side, but the polled
+  // `sessionInbox` copy stays "pending" for up to a poll cycle — long enough for the docked
+  // answer-in-context card to flash the SAME request again right after the user answered it
+  // (tester catch 2026-07-12: a Slack send "asked twice"). Drop the mirror optimistically;
+  // the 4s poll restores anything genuinely still pending.
+  const dropSessionInbox = (kind: string) =>
+    setSessionInbox((cur) => cur.filter((it) => it.kind !== kind));
   const approve = (decision: ApprovalDecision) => {
     setItems((p) => resolveLastApproval(p, decision));
+    dropSessionInbox("approval");
     sessionRef.current?.approve(decision);
   };
   const respondPlan = (approved: boolean, mode?: string, feedback?: string) => {
     setItems((p) => resolveLastPlan(p, approved ? "approved" : "rejected"));
+    dropSessionInbox("plan");
     sessionRef.current?.respondPlan(approved, mode, feedback);
     if (approved && mode) setMode(mode); // the server flips the live engine to this mode
   };
   const respondDirectory = (granted: boolean, path?: string, writable?: boolean) => {
     setItems((p) => resolveLastDirReq(p, granted ? "granted" : "denied"));
+    dropSessionInbox("directory");
     sessionRef.current?.respondDirectory(granted, path, writable);
   };
   const answerQuestion = (answer: string) => {
     setItems((p) => resolveLastQuestion(p, answer));
+    dropSessionInbox("question");
     sessionRef.current?.respondQuestion(answer);
   };
   const prefillComposer = (text: string, attachments?: Attachment[]) =>

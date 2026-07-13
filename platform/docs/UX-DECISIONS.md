@@ -614,6 +614,14 @@ channel was editable in TWO places (that page's card + Inbox's inline configurat
 
 ## Change log (requests, newest first)
 
+- **2026-07-12 (12)** — Friend-install bug-report doc (9 items, via owner): §24 revisions —
+  Continue on the model step verifies AUTOMATICALLY (fills-gated, "Checking…", error stays;
+  Test becomes an optional explicit check) and the recipe's gated Create-automation button
+  names its missing piece ("Pick a channel to post to first"). §3 revision — the drawer's
+  persona why-connect pane is HIDDEN for now (no multiple-persona mentions until personas
+  relaunch; `SHOW_PERSONA_PANE` flag restores it). Plus non-spec fixes: agent folder-scope
+  guardrail + Info.plist usage strings (macOS permission prompts), the double-ask approval
+  flash, artifact Copy-path copies the absolute path. See bugfix-ledger 2026-07-12.
 - **2026-07-12 (11)** — Owner (walkthrough, simplification pass on onboarding → §24 revision):
   key fields lose the "Stored locally (0600)" help line (manual territory, removed at the
   provider registry so Settings ▸ Models loses it too); OpenAI's optional endpoint joins the

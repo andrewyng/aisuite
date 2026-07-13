@@ -51,3 +51,58 @@ test("unattended: a tool request parks (no inline approval card)", async ({ page
   await expect(page.getByText("Echo:").first()).toBeVisible().catch(() => {});
   await expect(page.getByText("The coworker wants to run a command.")).toHaveCount(0);
 });
+
+test("answering the live approval never re-flashes its parked Inbox mirror", async ({ page }) => {
+  // Every live approval is ALSO parked as a per-session Inbox item (reconnect/remote resolution).
+  // Tester catch 2026-07-12: after "Allow once", the polled sessionInbox copy was still pending
+  // for up to a poll cycle, so the docked answer-in-context card flashed the SAME request again.
+  // Simulate the mirror: any per-session inbox fetch for the live session returns one pending
+  // approval until the decision lands (the fixtures' fixed items belong to other sessions).
+  // The real server resolves the mirror synchronously with the decision — only the CLIENT's
+  // polled copy is stale, which is exactly what this test pins.
+  let mirrorResolved = false;
+  await page.route(/\/v1\/inbox\?/, async (route) => {
+    const q = new URL(route.request().url()).searchParams;
+    const sid = q.get("session_id");
+    if (!sid || sid === "wp-3" || sid === "ops-1") return route.fallback();
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: mirrorResolved
+          ? []
+          : [
+              {
+                id: "mirror-1",
+                session_id: sid,
+                kind: "approval",
+                title: "Run `run_shell`?",
+                body: "requires approval",
+                state: "pending",
+                resolution: null,
+                inbox: "default",
+                created_at: "2026-07-12 10:00:00",
+                resolved_at: null,
+              },
+            ],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  const box = page.getByPlaceholder(/Ask the coworker/);
+  await box.fill("please run a tool");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
+
+  mirrorResolved = true; // server side resolves with the decision; the stale client copy is the bug
+  await page.getByRole("button", { name: "Allow once" }).last().click();
+  // "Never appears" semantics: pre-fix the stale mirror rendered within a frame of the click and
+  // self-cleared a poll later — so a plain toHaveCount(0) would blink green. Watch the window.
+  const flashed = await page
+    .getByText("Run `run_shell`?")
+    .waitFor({ state: "visible", timeout: 700 })
+    .then(() => true)
+    .catch(() => false);
+  expect(flashed).toBe(false);
+  await expect(page.getByText("The command ran; 1 file found.")).toBeVisible();
+});

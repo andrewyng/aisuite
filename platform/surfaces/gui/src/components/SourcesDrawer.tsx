@@ -39,6 +39,10 @@ import { labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
 // (the backend's own default when no platform prefix is given).
 const platformOf = (channel: string) => (channel.includes(":") ? channel.split(":")[0] : "slack");
 
+// Persona pane visibility — hidden 2026-07-12 (owner simplification pass); typed as boolean so
+// the guarded JSX keeps type-checking while unreachable.
+const SHOW_PERSONA_PANE: boolean = false;
+
 const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
 const TAG_CORE =
   "text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15";
@@ -194,8 +198,10 @@ export function SourcesDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto hairline-scroll px-4 py-4 space-y-5">
-          {/* persona why-connect blurb (when a persona is known) */}
-          {persona && (
+          {/* Persona why-connect blurb — HIDDEN for now (owner simplification pass 2026-07-12,
+              via tester feedback: no multiple-persona mentions until personas relaunch). Flip
+              SHOW_PERSONA_PANE to restore; the plumbing (persona, pct, onOpenPersona) stays. */}
+          {SHOW_PERSONA_PANE && persona && (
             <div className="rounded-xl2 border border-accent/25 bg-accentSoft/50 p-3.5">
               <div className="flex items-center gap-2 text-[13px] font-semibold">
                 <span>⚡</span> Get the most out of {shortPersonaName(persona.name, personaId)}
