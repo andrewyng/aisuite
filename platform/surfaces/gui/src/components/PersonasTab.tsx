@@ -25,7 +25,7 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0 disabled:opacity-40 disabled:hover:border-line";
 
-export function PersonasTab() {
+export function PersonasTab({ onOpenPersona }: { onOpenPersona?: (id: string) => void }) {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [mode, setMode] = useState<"git" | "dir">("git");
   const [src, setSrc] = useState("");
@@ -139,6 +139,17 @@ export function PersonasTab() {
             >
               Set default
             </button>
+            {onOpenPersona && (
+              <button
+                className="text-faint hover:text-ink shrink-0 p-1"
+                title={`Configure ${p.name}`}
+                aria-label={`Configure ${p.name}`}
+                data-testid={`persona-configure-${p.id}`}
+                onClick={() => onOpenPersona(p.id)}
+              >
+                <Icon name="sliders" size={15} />
+              </button>
+            )}
             {!p.builtin &&
               (confirmDel === p.id ? (
                 <span className="flex items-center gap-1.5 shrink-0">

@@ -19,6 +19,9 @@ function StepGroup({ items }: { items: ActivityItem[] }) {
   const running = tools.some((t) => t.status === "…");
   const nActions = tools.length;
   const mApprovals = approvals.length;
+  // Filter-hidden results surface on the collapsed line too — out-of-band info
+  // for the user must not hide behind a disclosure.
+  const hiddenTotal = tools.reduce((n, t) => n + (t.hidden || 0), 0);
   const actionsLabel = `${nActions} action${nActions === 1 ? "" : "s"}`;
   const approvalsLabel =
     mApprovals > 0 ? `${mApprovals} approval${mApprovals === 1 ? "" : "s"} ✓` : "";
@@ -39,6 +42,14 @@ function StepGroup({ items }: { items: ActivityItem[] }) {
             <>
               {" · "}
               <span className="text-ok font-medium">{approvalsLabel}</span>
+            </>
+          )}
+          {hiddenTotal > 0 && (
+            <>
+              {" · "}
+              <span className="text-warnInk" data-testid="stepgroup-hidden">
+                {hiddenTotal} hidden by your filters
+              </span>
             </>
           )}
         </span>
@@ -72,6 +83,15 @@ function StepGroup({ items }: { items: ActivityItem[] }) {
                   </span>
                   <span className="font-mono text-[12.5px]">{item.name}</span>
                   <span className="font-mono text-[11.5px] text-faint truncate">{shortArgs(item.args)}</span>
+                  {!!item.hidden && (
+                    <span
+                      className="text-[11px] text-warnInk shrink-0"
+                      data-testid="tool-hidden-count"
+                      title="Removed by your privacy filters before the agent saw the results — agents get no trace of these."
+                    >
+                      {item.hidden} hidden
+                    </span>
+                  )}
                   <span
                     className={
                       "ml-auto text-[11px] px-1.5 py-0.5 rounded border " +

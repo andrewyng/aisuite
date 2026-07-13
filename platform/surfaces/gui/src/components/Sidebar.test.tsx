@@ -98,16 +98,60 @@ describe("Sidebar group/filter control", () => {
     fireEvent.click(control);
 
     // Grouped view = the per-persona accordion. The Ops header appears; expanding it lists its
-    // session, and the header's gear (rightmost element) opens the persona detail page.
+    // session. (Persona configuration moved to Settings ▸ Personas, so there is no header gear.)
     const opsHeader = await screen.findByText("Ops");
     fireEvent.click(opsHeader);
     expect(screen.getByText("incident watch")).toBeTruthy();
-    fireEvent.click(screen.getByTitle("About the Ops persona"));
-    expect(baseProps.onOpenPersona).toHaveBeenCalledWith("ops");
+    expect(screen.queryByTitle("About the Ops persona")).toBeNull();
+  });
+});
+
+describe("Chronological list row actions", () => {
+  it("flat-layout rows offer rename / archive / delete (not just pin)", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+    await screen.findByText("incident watch"); // flat Recent list rendered
+
+    // Rename: pencil → inline input → Enter commits.
+    fireEvent.click(screen.getAllByTitle("Rename")[0]);
+    const input = screen.getByDisplayValue("incident watch");
+    fireEvent.change(input, { target: { value: "war room" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(baseProps.onRenameSession).toHaveBeenCalledWith("s-ops-1", "war room");
+
+    // Archive.
+    fireEvent.click(screen.getAllByTitle("Archive (reversible)")[0]);
+    expect(baseProps.onArchiveSession).toHaveBeenCalledWith("s-ops-1", true);
+
+    // Delete is two-step: × arms, "Delete?" confirms.
+    fireEvent.click(screen.getAllByTitle("Delete permanently")[0]);
+    fireEvent.click(screen.getByTitle("Click to permanently delete"));
+    expect(baseProps.onDeleteSession).toHaveBeenCalledWith("s-ops-1");
   });
 });
 
 describe("New-session split button", () => {
+  it("collapses to a plain button when only one persona is enabled", async () => {
+    stubFetch([
+      {
+        match: "/v1/personas",
+        method: "GET",
+        json: { personas: [PERSONAS.personas[0], PERSONAS.personas[3]] }, // cowork + a disabled one
+      },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    const { container } = render(<Sidebar {...baseProps} />);
+    await screen.findByText("incident watch");
+
+    // No ▾ — nothing to pick; the primary button starts the sole enabled persona.
+    await waitFor(() => expect(screen.queryByLabelText("Choose a persona")).toBeNull());
+    fireEvent.click(container.querySelector(".newsplit-primary")!);
+    expect(baseProps.onNewSession).toHaveBeenCalledWith("cowork");
+  });
+
   it("primary starts the last-used persona; the menu lists enabled personas + Manage personas…", async () => {
     stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },

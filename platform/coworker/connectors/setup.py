@@ -31,6 +31,11 @@ def _profile_connected(descriptor, profile: dict[str, Any]) -> bool:
         return False
     if descriptor.auth == "none":
         return True
+    # Managed relay (e.g. Slack cloud relay) carries no manual credential in the
+    # :default profile — the tokens live per-team (slack:team:*). The relay-mode
+    # flag is what marks it connected, so don't require the manual fields.
+    if profile.get("mode") == "relay":
+        return True
     required = [
         f.key for f in descriptor.fields if f.required and f.key != "allowed_users"
     ]
@@ -48,8 +53,7 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             continue
         profile = secrets.get(f"{d.name}:default") or {}
         connected = _profile_connected(d, profile)
-        out.append(
-            {
+        entry = {
                 "name": d.name,
                 "title": d.title,
                 "icon": d.icon,
@@ -72,6 +76,169 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "managed": d.managed,
                 # Whether THIS profile came from managed OAuth (vs manual paste).
                 "managed_profile": bool(profile.get("managed")),
+                # "relay" for the managed cloud path; empty for manual/token connect.
+                "mode": profile.get("mode") or "",
+            }
+        if d.name == "slack":
+            # Managed relay is multi-workspace: each `slack:team:*` profile is one
+            # connected workspace with its OWN allow-list (ids are workspace-scoped).
+            entry["workspaces"] = _slack_workspaces(secrets)
+        if d.name == "gmail":
+            # Multi-account: each `gmail:account:*` profile is one mailbox; the
+            # :default profile is just the default pointer + privacy filters.
+            from . import gmail_accounts
+
+            accounts = _gmail_account_list(secrets)
+            default_email = gmail_accounts.default_account(secrets)
+            entry["accounts"] = accounts
+            entry["connected"] = bool(accounts)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(accounts)
+            entry["account"] = default_email or None
+            entry["managed_profile"] = any(
+                a["email"] == default_email and a["managed"] for a in accounts
+            )
+            entry["filters"] = gmail_accounts.get_filters(secrets)
+        if d.name == "google_calendar":
+            # Multi-account, same shape as gmail: each `google_calendar:account:*`
+            # profile is one Google account; :default is just the default pointer.
+            from . import gcal_accounts
+
+            accounts = _gcal_account_list(secrets)
+            default_email = gcal_accounts.default_account(secrets)
+            entry["accounts"] = accounts
+            entry["connected"] = bool(accounts)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(accounts)
+            entry["account"] = default_email or None
+            entry["managed_profile"] = any(
+                a["email"] == default_email and a["managed"] for a in accounts
+            )
+        if d.name == "github":
+            # Managed relay is multi-installation: each `github:install:*`
+            # profile is one App installation with its OWN allow-list of
+            # sender logins. The manual PAT path stays on the default profile.
+            entry["installations"] = _github_installations(secrets)
+            if entry["installations"] and profile.get("mode") == "relay":
+                first = entry["installations"][0]
+                entry["account"] = entry["account"] or first["account_login"]
+        if d.name == "hubspot":
+            # Multi-portal: each `hubspot:portal:*` profile is one portal; the
+            # :default profile is the default pointer + hidden-fields policy.
+            from . import hubspot_portals
+
+            portals = _hubspot_portal_list(secrets)
+            default_hub = hubspot_portals.default_portal(secrets)
+            entry["portals"] = portals
+            entry["connected"] = bool(portals)
+            entry["enabled"] = bool(profile.get("enabled", True)) and bool(portals)
+            default_row = next((p for p in portals if p["hub_id"] == default_hub), None)
+            entry["account"] = (default_row or {}).get("name") or None
+            entry["managed_profile"] = bool((default_row or {}).get("managed"))
+            entry["hidden_fields"] = hubspot_portals.get_hidden_fields(secrets)
+        out.append(entry)
+    return out
+
+
+def _slack_workspaces(secrets: SecretStore) -> list[dict[str, Any]]:
+    from .config import _slack_team_profiles
+
+    return [
+        {
+            "team_id": team_id,
+            "account": profile.get("account") or team_id,
+            "domain": profile.get("domain") or "",
+            "allowed_users": list(profile.get("allowed_users") or []),
+            "allow_all": bool(profile.get("allow_all")),
+        }
+        for team_id, profile in sorted(
+            _slack_team_profiles(secrets), key=lambda t: t[0]
+        )
+    ]
+
+
+def _github_installations(secrets: SecretStore) -> list[dict[str, Any]]:
+    from .github_installs import list_installs
+
+    return [
+        {
+            "installation_id": installation_id,
+            "account_login": profile.get("account_login") or installation_id,
+            "account_type": profile.get("account_type") or "",
+            "repo_selection": profile.get("repo_selection") or "",
+            "github_login": profile.get("github_login") or "",
+            "allowed_users": list(profile.get("allowed_users") or []),
+            "allow_all": bool(profile.get("allow_all")),
+        }
+        for installation_id, profile in list_installs(secrets)
+    ]
+
+
+def _gmail_account_list(secrets: SecretStore) -> list[dict[str, Any]]:
+    from time import time
+
+    from . import gmail_accounts
+
+    default = gmail_accounts.default_account(secrets)
+    out = []
+    for email, profile in gmail_accounts.list_accounts(secrets):
+        expires = float(profile.get("expires") or 0)
+        out.append(
+            {
+                "email": email,
+                "default": email == default,
+                "managed": bool(profile.get("managed")),
+                "scopes": profile.get("scope") or "",
+                # Expired with no way to renew silently → the GUI offers Reauthorize.
+                "needs_reauth": bool(
+                    expires and expires < time() and not profile.get("refresh_token")
+                ),
+            }
+        )
+    return out
+
+
+def _gcal_account_list(secrets: SecretStore) -> list[dict[str, Any]]:
+    from time import time
+
+    from . import gcal_accounts
+
+    default = gcal_accounts.default_account(secrets)
+    out = []
+    for email, profile in gcal_accounts.list_accounts(secrets):
+        expires = float(profile.get("expires") or 0)
+        out.append(
+            {
+                "email": email,
+                "default": email == default,
+                "managed": bool(profile.get("managed")),
+                "scopes": profile.get("scope") or "",
+                # Expired with no way to renew silently → the GUI offers Reauthorize.
+                "needs_reauth": bool(
+                    expires and expires < time() and not profile.get("refresh_token")
+                ),
+            }
+        )
+    return out
+
+
+def _hubspot_portal_list(secrets: SecretStore) -> list[dict[str, Any]]:
+    from . import hubspot_portals
+
+    default = hubspot_portals.default_portal(secrets)
+    out = []
+    for hub_id, profile in hubspot_portals.list_portals(secrets):
+        scope = str(profile.get("scope") or "")
+        out.append(
+            {
+                "hub_id": hub_id,
+                "name": profile.get("account") or f"portal {hub_id}",
+                "sandbox": bool(profile.get("sandbox")),
+                "default": hub_id == default,
+                "managed": bool(profile.get("managed")),
+                # Consent tier granted at connect: managed profiles reveal it in
+                # their scope grant; a manual private-app token doesn't say.
+                "access": (".write" in scope and "write")
+                or (scope and "read")
+                or "",
             }
         )
     return out
@@ -174,5 +341,74 @@ def managed_connect_connector(
     return {"ok": True, "account": profile.get("account") or None}
 
 
+def managed_connect_slack_install(
+    secrets: SecretStore, form: dict[str, Any]
+) -> dict[str, Any]:
+    """Store a managed Slack install (relay mode) from the broker's form-POST.
+
+    Slack managed install is multi-workspace and inbound-via-relay, so unlike a
+    single-token connector it writes:
+    - `slack:team:<team_id>` — that workspace's bot token + bot_user_id (used for
+      replies and to ignore the bot's own posts);
+    - `slack:default` flipped to `mode="relay"` so the gateway builds the
+      `SlackRelayAdapter` (Socket Mode's manual bot_token/app_token untouched if
+      the user later switches back). Existing allow-list preserved.
+    """
+    team_id = form.get("team_id", "")
+    bot_token = form.get("access_token", "")
+    if not team_id or not bot_token:
+        return {"ok": False, "error": "missing team_id or bot token"}
+    secrets.put(
+        f"slack:team:{team_id}",
+        {
+            "type": "oauth",
+            "managed": True,
+            "bot_token": bot_token,
+            "bot_user_id": form.get("bot_user_id", ""),
+            "team_id": team_id,
+            "account": form.get("account", ""),
+            # The workspace's slack.com subdomain (broker resolves it via auth.test)
+            # — the unique human handle when two workspaces share a display name.
+            "domain": form.get("team_domain", ""),
+            "scope": form.get("scope", ""),
+            "connection_id": form.get("connection_id", ""),
+        },
+    )
+    default = secrets.get("slack:default") or {}
+    default.update({"type": "oauth", "managed": True, "mode": "relay", "enabled": True})
+    secrets.put("slack:default", default)
+    return {"ok": True, "account": form.get("account") or team_id}
+
+
 def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
-    return {"ok": secrets.delete(f"{name}:default")}
+    dropped_accounts = False
+    if name == "gmail":
+        # Whole-connector disconnect drops every mailbox (per-account removal
+        # lives on the Gmail page); filters go too — an explicit full reset.
+        from . import gmail_accounts
+
+        for email, _profile in gmail_accounts.list_accounts(secrets):
+            dropped_accounts = secrets.delete(gmail_accounts.PREFIX + email) or dropped_accounts
+    if name == "google_calendar":
+        from . import gcal_accounts
+
+        for email, _profile in gcal_accounts.list_accounts(secrets):
+            dropped_accounts = (
+                secrets.delete(gcal_accounts.PREFIX + email) or dropped_accounts
+            )
+    if name == "hubspot":
+        from . import hubspot_portals
+
+        for hub_id, _profile in hubspot_portals.list_portals(secrets):
+            dropped_accounts = (
+                secrets.delete(hubspot_portals.PREFIX + hub_id) or dropped_accounts
+            )
+    if name == "github":
+        from . import github_installs
+
+        for installation_id, _profile in github_installs.list_installs(secrets):
+            dropped_accounts = (
+                secrets.delete(github_installs.PREFIX + installation_id)
+                or dropped_accounts
+            )
+    return {"ok": secrets.delete(f"{name}:default") or dropped_accounts}

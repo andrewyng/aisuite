@@ -47,6 +47,7 @@ class SessionSource:
     chat_name: Optional[str] = None  # channel/DM display name (resolved, §2.3)
     chat_type: str = "dm"  # "dm" | "group" | "channel"
     thread_id: Optional[str] = None
+    team_id: Optional[str] = None  # workspace id for managed-relay multi-workspace
 
     @property
     def target(self) -> str:

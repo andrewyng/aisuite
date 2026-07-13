@@ -69,7 +69,9 @@ export type Item =
   // registry — no per-connector special-casing.
   | { kind: "connector"; source: MessageSource }
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string }
+  // `hidden` = results the user's privacy filters removed before the agent saw them
+  // (from the tool message's `_display` sidecar; the agent-visible content has no trace).
+  | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string; hidden?: number }
   | {
       kind: "approval";
       name: string;

@@ -82,6 +82,10 @@ def model_labels() -> dict[str, str]:
 
 def models_for_provider(provider: str) -> list[str]:
     """BARE model ids (prefix stripped) the matrix curates for a provider — feeds the
-    Settings pane's suggestions so reseller catalogs stay in lockstep with the matrix."""
+    Settings pane's suggestions and the composer picker so both stay in lockstep with the
+    matrix. OpenAI entries are stored without a prefix (bare ids route to the OpenAI
+    default), so its list is every un-prefixed id."""
+    if provider == "openai":
+        return [mid for mid in MATRIX if ":" not in mid]
     prefix = provider + ":"
     return [mid[len(prefix) :] for mid in MATRIX if mid.startswith(prefix)]

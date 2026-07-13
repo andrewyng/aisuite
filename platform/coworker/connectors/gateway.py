@@ -53,7 +53,7 @@ class Gateway:
         self._on_unauthorized = on_unauthorized
         self._adapters: dict[str, BasePlatformAdapter] = {}
         # In-memory recent senders for chat-ID auto-capture (identity only, never persisted).
-        self._recent: "OrderedDict[tuple[str, str], dict]" = OrderedDict()
+        self._recent: "OrderedDict[tuple[str, str, str], dict]" = OrderedDict()
 
     def set_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
@@ -100,7 +100,8 @@ class Gateway:
         s = event.source
         if not s.user_id:
             return
-        key = (s.platform, s.user_id)
+        # Ids are workspace-scoped, so the same U… in two teams is two senders.
+        key = (s.platform, s.team_id or "", s.user_id)
         self._recent.pop(key, None)  # move to most-recent
         self._recent[key] = {
             "platform": s.platform,
@@ -109,6 +110,7 @@ class Gateway:
             "chat_id": s.chat_id,
             "chat_type": s.chat_type,
             "target": s.target,
+            "team_id": s.team_id,  # workspace (managed relay); None for socket mode
         }
         while len(self._recent) > _RECENT_CAP:
             self._recent.popitem(last=False)

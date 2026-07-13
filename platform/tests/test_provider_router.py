@@ -311,21 +311,44 @@ def test_manager_provider_config(tmp_path, monkeypatch):
 
 
 def test_manager_curated_models(tmp_path, monkeypatch):
+    """No seed list: the picker is the curated matrix filtered to key-holding providers,
+    plus user-added custom ids. A fresh install shows only the (not-yet-usable) default."""
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from coworker.providers.registry import provider_descriptors
+
+    for d in provider_descriptors():  # ambient dev-shell keys must not leak in
+        if d.env_key:
+            monkeypatch.delenv(d.env_key, raising=False)
     from coworker.server.manager import SessionManager
 
     mgr = SessionManager(data_dir=tmp_path)
-    assert "gpt-5.5" in mgr.get_settings()["models"]  # defaults to built-ins
+    # no provider keys → nothing but the always-selectable default
+    assert mgr.get_settings()["models"] == [mgr.model]
 
-    added = mgr.add_model("ollama:qwen2.5-coder:32b")
+    # a provider key unlocks exactly that provider's matrix models
+    mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})
+    models = mgr.get_settings()["models"]
+    assert "anthropic:claude-opus-4-8" in models
+    assert "gpt-4o" not in models  # no OpenAI seed anywhere
+
+    added = mgr.add_model("ollama:qwen2.5-coder:32b")  # keyless provider → selectable
     assert added["ok"] and "ollama:qwen2.5-coder:32b" in added["models"]
 
     n = len(mgr.get_settings()["models"])
     mgr.add_model("ollama:qwen2.5-coder:32b")  # idempotent
     assert len(mgr.get_settings()["models"]) == n
 
-    removed = mgr.remove_model("gpt-4o")
-    assert "gpt-4o" not in removed["models"]
+    # removing a matrix model hides it persistently; re-adding unhides it
+    removed = mgr.remove_model("anthropic:claude-haiku-4-5")
+    assert "anthropic:claude-haiku-4-5" not in removed["models"]
+    mgr2 = SessionManager(data_dir=tmp_path)  # survives a restart
+    assert "anthropic:claude-haiku-4-5" not in mgr2.get_settings()["models"]
+    mgr.add_model("anthropic:claude-haiku-4-5")
+    assert "anthropic:claude-haiku-4-5" in mgr.get_settings()["models"]
+
+    # removing a custom id drops it
+    mgr.remove_model("ollama:qwen2.5-coder:32b")
+    assert "ollama:qwen2.5-coder:32b" not in mgr.get_settings()["models"]
 
     # the active default stays selectable even if removed from the curated list
     mgr.remove_model(mgr.model)

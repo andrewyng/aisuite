@@ -118,6 +118,40 @@ const McpLogo: LogoComponent = () => (
   </svg>
 );
 
+const BrowserLogo: LogoComponent = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="100%"
+    height="100%"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18" />
+  </svg>
+);
+
+const CalendarLogo: LogoComponent = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="100%"
+    height="100%"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4" y="5" width="16" height="16" rx="2.5" />
+    <path d="M4 10h16M8 3v4M16 3v4" />
+  </svg>
+);
+
 const PlugLogo: LogoComponent = () => (
   <svg
     viewBox="0 0 24 24"
@@ -146,6 +180,8 @@ export const CONNECTORS: Record<string, ConnectorRegistryEntry> = {
   hubspot: { label: "HubSpot", logo: HubSpotLogo },
   pagerduty: { label: "PagerDuty", logo: PagerDutyLogo },
   mcp: { label: "MCP", logo: McpLogo },
+  browser: { label: "Browser", logo: BrowserLogo },
+  google_calendar: { label: "Google Calendar", logo: CalendarLogo },
 };
 
 /**

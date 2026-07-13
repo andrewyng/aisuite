@@ -16,7 +16,8 @@ import {
   type UnroutedItem,
 } from "../api";
 import type { SessionInfo } from "../types";
-import { ConnectorsTab, McpTab } from "./ManageTabs";
+import { McpTab } from "./ManageTabs";
+import { ConnectorsSection } from "./connectors/ConnectorsSection";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Icon } from "./Icon";
 
@@ -33,6 +34,8 @@ const CARD = "rounded-xl2 border border-line bg-panel";
 const SELECT = "px-2.5 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink";
 const BTN_ACCENT_SM = "text-[12px] px-2.5 py-1 rounded-md bg-accent text-white disabled:opacity-50";
 
+// Fixed sub-nav (UX-DECISIONS §21): connector detail lives as a SUBPAGE under
+// Connectors, never as a nav item — the nav must not grow per connector.
 const INT_TABS: { key: IntTab; label: string; icon: "plug" | "chat" | "audit" | "code" }[] = [
   { key: "connectors", label: "Connectors", icon: "plug" },
   { key: "messaging", label: "Messaging routing", icon: "chat" },
@@ -100,9 +103,9 @@ export function IntegrationsView() {
             <section>
               <PanelHead
                 title="Connectors"
-                sub="Apps and tools OpenCoworker can use. You bring the credentials for this local build."
+                sub="Apps and tools your coworkers can use. Connected ones come first."
               />
-              <ConnectorsTab />
+              <ConnectorsSection />
             </section>
           ) : tab === "messaging" ? (
             <section>

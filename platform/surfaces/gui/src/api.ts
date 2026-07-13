@@ -273,6 +273,57 @@ export interface ParkedMessage {
   chat_type: string;
   text: string;
   ts: number;
+  team_id?: string | null; // workspace (managed Slack relay); null on manual Socket Mode
+}
+
+// One connected Slack workspace (managed relay is multi-workspace; ids are workspace-scoped,
+// so each workspace carries its OWN allow-list).
+export interface SlackWorkspace {
+  team_id: string;
+  account: string;
+  domain?: string; // slack.com subdomain — unique even when display names collide
+  allowed_users: string[];
+  allow_all: boolean;
+  allowed_user_names?: Record<string, string | null>;
+}
+
+// One connected GitHub App installation (managed relay is multi-installation;
+// sender logins are global but each installation keeps its OWN allow-list).
+export interface GithubInstallation {
+  installation_id: string;
+  account_login: string; // the org/user the App is installed on
+  account_type: string; // "Organization" | "User"
+  repo_selection: string; // "all" | "selected"
+  github_login: string; // the connecting user's own login
+  allowed_users: string[]; // sender logins allowed to trigger work
+  allow_all: boolean;
+}
+
+// One connected HubSpot portal (multi-portal: `hubspot:portal:<hub_id>` profiles).
+export interface HubSpotPortal {
+  hub_id: string;
+  name: string;
+  sandbox: boolean;
+  default: boolean;
+  managed: boolean;
+  access: "read" | "write" | ""; // consent tier granted ("" = manual token, unknown)
+}
+
+// One connected Google account (multi-account: `gmail:account:<email>` /
+// `google_calendar:account:<email>` profiles — same shape for both).
+export interface GmailAccount {
+  email: string;
+  default: boolean;
+  managed: boolean;
+  scopes: string;
+  needs_reauth: boolean;
+}
+
+// "Never show agents" — enforced locally in the tool layer; agents see silent
+// omissions, the user sees counts on tool cards + Activity rows.
+export interface GmailFilters {
+  senders: string[];
+  labels: string[];
 }
 
 export interface Connector {
@@ -297,6 +348,13 @@ export interface Connector {
   tools: ConnectorTool[];
   managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
+  mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
+  workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
+  accounts?: GmailAccount[]; // Gmail + Google Calendar: connected accounts (multi-account)
+  filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
+  portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
+  hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
+  installations?: GithubInstallation[]; // GitHub only: App installations (managed relay)
 }
 
 // --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
@@ -338,10 +396,16 @@ export async function cloudLogout(): Promise<{ ok: boolean }> {
 
 export async function connectManaged(
   name: string,
+  options?: { access?: "read" | "write" },
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // `access` names a broker-defined consent tier (hubspot read | write).
+      body: JSON.stringify(options?.access ? { access: options.access } : {}),
+    },
   );
   return res.json();
 }
@@ -1066,6 +1130,7 @@ export interface RecentSender {
   chat_type: string;
   target: string;
   authorized: boolean;
+  team_id?: string | null; // workspace (managed relay); null on manual Socket Mode
 }
 
 // -- direct-message routing ---------------------------------------------------
@@ -1178,12 +1243,61 @@ export async function finalizeAutomationRun(id: string, runId: string) {
   return res.json();
 }
 
-export async function allowUser(name: string, userId: string) {
+export async function allowUser(
+  name: string,
+  userId: string,
+  teamId?: string | null,
+  displayName?: string,
+) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/allow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId }),
+    body: JSON.stringify({
+      user_id: userId,
+      ...(teamId ? { team_id: teamId } : {}),
+      // Directory picks carry the display name so the chip is readable at once.
+      ...(displayName ? { name: displayName } : {}),
+    }),
   });
+  return res.json();
+}
+
+// One workspace member from the roster (people picker; users:read, cached locally).
+export interface SlackMember {
+  id: string;
+  name: string;
+  handle: string;
+  guest: boolean;
+}
+
+// One channel from the workspace roster. Private channels appear only where the
+// bot is a member (Slack API constraint); is_member=false → "invite @ocw" hint.
+export interface SlackChannelEntry {
+  id: string;
+  name: string;
+  is_private: boolean;
+  is_member: boolean;
+}
+
+/** Workspace member roster for the people picker (teamId "default" = manual Socket Mode). */
+export async function getSlackDirectory(
+  teamId: string,
+  q = "",
+): Promise<{ ok: boolean; error?: string; members?: SlackMember[] }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/directory?q=${encodeURIComponent(q)}`,
+  );
+  return res.json();
+}
+
+/** Channel roster for the channel typeahead (name → id resolution). */
+export async function getSlackChannels(
+  teamId: string,
+  q = "",
+): Promise<{ ok: boolean; error?: string; channels?: SlackChannelEntry[] }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/channels?q=${encodeURIComponent(q)}`,
+  );
   return res.json();
 }
 
@@ -1204,12 +1318,135 @@ export async function resolveUnauthorized(
   return res.json();
 }
 
-export async function disallowUser(name: string, userId: string) {
+export async function disallowUser(name: string, userId: string, teamId?: string | null) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/disallow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId }),
+    body: JSON.stringify(teamId ? { user_id: userId, team_id: teamId } : { user_id: userId }),
   });
+  return res.json();
+}
+
+/** Stop relaying one managed Slack workspace (the app stays installed in Slack). */
+export async function disconnectSlackWorkspace(teamId: string): Promise<{ ok: boolean; error?: string; remaining_workspaces?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Drop ONE Gmail mailbox; the default pointer moves to the next account. */
+export async function disconnectGmailAccount(email: string): Promise<{ ok: boolean; error?: string; remaining_accounts?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/gmail/accounts/${encodeURIComponent(email)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setGmailDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/gmail/accounts/${encodeURIComponent(email)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Drop ONE Google Calendar account; the default pointer moves to the next one. */
+export async function disconnectGcalAccount(email: string): Promise<{ ok: boolean; error?: string; remaining_accounts?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/google_calendar/accounts/${encodeURIComponent(email)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setGcalDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/google_calendar/accounts/${encodeURIComponent(email)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Replace the "Never show agents" lists (senders and/or labels; omit to keep). */
+export async function setGmailFilters(filters: { senders?: string[]; labels?: string[] }): Promise<{ ok: boolean; filters?: GmailFilters; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/filters`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(filters),
+  });
+  return res.json();
+}
+
+// GitHub relay health, the Slack three-layer shape: shared relay socket /
+// cloud sign-in / per-installation token health (+ missed-event counts).
+export interface GithubStatus {
+  ok: boolean;
+  mode: string;
+  relay: { state: string; reconnects: number; last_event_at: number | null; last_error: string };
+  signed_in: boolean;
+  installs: Record<string, { token_ok: boolean }>;
+  missed: Record<string, number>;
+}
+
+export async function getGithubStatus(): Promise<GithubStatus> {
+  const res = await fetch(`${httpBase()}/v1/connectors/github/status`);
+  return res.json();
+}
+
+/** Stop relaying ONE GitHub App installation to this computer. */
+export async function disconnectGithubInstallation(installationId: string): Promise<{ ok: boolean; error?: string; remaining_installs?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/github/installations/${encodeURIComponent(installationId)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Drop ONE HubSpot portal; the default pointer moves to the next portal. */
+export async function disconnectHubSpotPortal(hubId: string): Promise<{ ok: boolean; error?: string; remaining_portals?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/hubspot/portals/${encodeURIComponent(hubId)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setHubSpotDefaultPortal(hubId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/hubspot/portals/${encodeURIComponent(hubId)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Replace the hidden-fields denylist (properties stripped from agent reads). */
+export async function setHubSpotHiddenFields(fields: string[]): Promise<{ ok: boolean; hidden_fields?: string[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/hubspot/hidden-fields`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden_fields: fields }),
+  });
+  return res.json();
+}
+
+/** Slack health, three honest layers: relay socket / cloud sign-in / per-team tokens. */
+export interface SlackStatus {
+  mode: string; // "relay" | "" (manual/off)
+  relay: {
+    state: "live" | "reconnecting" | "offline";
+    reconnects: number;
+    last_event_at: number | null;
+    last_error: string;
+  };
+  signed_in: boolean;
+  teams: Record<string, { token_ok: boolean }>;
+}
+
+export async function getSlackStatus(): Promise<SlackStatus> {
+  const res = await fetch(`${httpBase()}/v1/connectors/slack/status`);
   return res.json();
 }
 

@@ -282,11 +282,16 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="slack",
         title="Slack",
         icon="💬",
-        blurb="Two-way messaging via a Slack app (Socket Mode).",
+        blurb="Two-way messaging — one-click via OpenCoworker Cloud, or a manual Slack app (Socket Mode).",
         auth="socket_app",
         two_way=True,
         brand_color="#611f69",
         logo="slack",
+        # One-click managed OAuth (the cloud relay): signed in, the GUI shows
+        # "Connect Slack with one click" (no tokens). The manual Socket-Mode
+        # fields below stay as the always-available fallback (slack → slack in
+        # PROVIDER_FOR_CONNECTOR drives the broker start).
+        managed=True,
         fields=[
             Field(
                 "bot_token",
@@ -393,6 +398,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Read availability, summarize schedules, and create events.",
         auth="oauth",
         two_way=False,
+        brand_color="#4285f4",
+        logo="google_calendar",
         fields=[
             Field(
                 "access_token",
@@ -415,6 +422,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Let agents navigate, read, and act on websites with approval.",
         auth="none",
         two_way=False,
+        brand_color="#0ea5e9",
+        logo="browser",
         fields=[],
         instructions=[
             "No setup required. Browser tools are available to Cowork sessions."
@@ -427,7 +436,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         icon="⌘",
         blurb="Work with issues, pull requests, repository files, and CI status.",
         auth="token",
-        two_way=False,
+        # Managed relay makes GitHub two-way: @-mentions and the agent label
+        # reach the desktop through the cloud relay (github-relay-spec §2.3);
+        # the manual PAT path stays request/response only.
+        two_way=True,
         brand_color="#1f2328",
         logo="github",
         fields=[
@@ -443,6 +455,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "For write actions, include Issues or Pull Requests write permissions as needed.",
         ],
         available=True,
+        # One-click managed path: install the GitHub App — no tokens typed.
+        managed=True,
     ),
     ConnectorDescriptor(
         name="notion",
@@ -674,7 +688,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="hubspot",
         title="HubSpot",
         icon="⊚",
-        blurb="Search CRM contacts, companies, and deals; create contacts.",
+        blurb="Search CRM records; log notes and tasks, update records. No deletes.",
         auth="token",
         two_way=False,
         brand_color="#ff7a59",
@@ -690,10 +704,11 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "In HubSpot, go to Settings → Integrations → Private Apps and create an app.",
-            "Grant CRM object read scopes (and crm.objects.contacts.write to create contacts).",
+            "Grant CRM object read scopes (add the .write scopes for notes, tasks, and updates).",
             "Copy the access token and paste it below.",
         ],
         validate=_validate_hubspot,
+        managed=True,
     ),
     ConnectorDescriptor(
         name="dropbox",

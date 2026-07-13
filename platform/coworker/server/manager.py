@@ -867,9 +867,17 @@ class SessionManager:
             if not (c.get("two_way") and c.get("connected")):
                 continue
             allowed = set(c.get("allowed_users") or [])
+            # Per-workspace allow-lists (managed relay) — a sender is judged against
+            # ITS workspace's list; the flat list only governs team-less (socket) events.
+            team_allowed = {
+                w["team_id"]: set(w.get("allowed_users") or [])
+                for w in (c.get("workspaces") or [])
+            }
             recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
             for r in recent:
-                r["authorized"] = r.get("user_id") in allowed
+                team = r.get("team_id")
+                pool = team_allowed.get(team, set()) if team else allowed
+                r["authorized"] = r.get("user_id") in pool
                 # Backfill from the people directory (an event may predate name scopes).
                 r["user_name"] = r.get("user_name") or self._people.get(
                     f"{c['name']}:{r.get('user_id')}"
@@ -882,6 +890,11 @@ class SessionManager:
                 u: self._people.get(f"{c['name']}:{u}")
                 for u in (c.get("allowed_users") or [])
             }
+            for w in c.get("workspaces") or []:
+                w["allowed_user_names"] = {
+                    u: self._people.get(f"{c['name']}:{u}")
+                    for u in (w.get("allowed_users") or [])
+                }
         return connectors
 
     def connect_connector(
@@ -1227,22 +1240,17 @@ class SessionManager:
 
     def _suggested_models(self, name: str) -> list[str]:
         """Bare model-name suggestions for the 'add model' form (datalist), per provider.
-        OpenAI → the built-in list; Ollama → live `/api/tags` (best-effort)."""
-        if name == "openai":
-            return list(self.KNOWN_MODELS)
-        if name == "anthropic":
-            return ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"]
-        if name == "gemini":
-            return ["gemini-2.5-flash", "gemini-2.5-pro"]
+        Ollama → live `/api/tags` (best-effort); everyone else → the curated matrix,
+        topped up with the compat-vendor extras the matrix doesn't vouch for."""
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
-        if name in ("together", "fireworks"):
-            # Resellers suggest exactly the curated matrix (their catalogs are 200+ models;
-            # we vouch for the agent-capable handful — anything else is add-by-hand).
-            from ..providers.matrix import models_for_provider
+        from ..providers.matrix import models_for_provider
 
-            return models_for_provider(name)
-        return list(self.COMPAT_MODELS.get(name, []))
+        return list(
+            dict.fromkeys(
+                [*models_for_provider(name), *self.COMPAT_MODELS.get(name, [])]
+            )
+        )
 
     def set_provider(
         self, name: str, fields: Optional[dict[str, Any]]
@@ -1331,8 +1339,6 @@ class SessionManager:
         )
 
     # -- settings / prefs (model API key, default model, onboarding) -------------
-    KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini"]
-
     def _prefs_path(self) -> Path:
         return self._data_base / "prefs.json"
 
@@ -1384,34 +1390,54 @@ class SessionManager:
             return []
 
     def _curated_models(self) -> list[str]:
-        """The user-curated model list shown in the composer's selector. Persisted in prefs;
-        defaults to the built-in OpenAI models on first run. The active default model is always
-        included so it stays selectable."""
-        models = self._prefs.get("models")
-        if not isinstance(models, list) or not models:
-            models = list(self.KNOWN_MODELS)
+        """The models offered in the composer's selector: every curated-matrix model
+        (`get_settings` culls the ones whose provider has no key) plus custom ids the user
+        added, minus matrix models they removed. Deliberately NO built-in seed list — a
+        fresh install offers nothing until a provider key exists, and then exactly that
+        provider's matrix models appear. The active default is always kept selectable."""
+        from ..providers.matrix import MATRIX
+
+        user = self._prefs.get("models")
+        user = user if isinstance(user, list) else []
+        hidden = set(self._prefs.get("hidden_models") or [])
+        models = [m for m in [*MATRIX, *user] if m not in hidden]
         return list(dict.fromkeys([self.model, *models]))
 
     def add_model(self, model: str) -> dict[str, Any]:
-        """Add a model id (e.g. `gpt-4o`, `ollama:qwen2.5-coder:32b`) to the curated list."""
+        """Add a model id (e.g. `gpt-4o`, `ollama:qwen2.5-coder:32b`) to the picker.
+        Custom ids persist in prefs; a previously removed matrix model is just unhidden
+        (storing it too would shadow future matrix updates)."""
+        from ..providers.matrix import MATRIX
+
         model = (model or "").strip()
         if not model:
             return {"ok": False, "error": "empty model"}
+        hidden = [m for m in self._prefs.get("hidden_models") or [] if m != model]
+        if hidden:
+            self._prefs["hidden_models"] = hidden
+        else:
+            self._prefs.pop("hidden_models", None)
         models = self._prefs.get("models")
-        if not isinstance(models, list):
-            models = list(self.KNOWN_MODELS)
-        if model not in models:
+        models = models if isinstance(models, list) else []
+        if model not in models and model not in MATRIX:
             models.append(model)
         self._prefs["models"] = models
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
     def remove_model(self, model: str) -> dict[str, Any]:
-        """Remove a model id from the curated list."""
+        """Remove a model id from the picker. Custom ids are dropped; matrix models are
+        hidden by id (the matrix is derived, not stored, so a bare drop would resurrect
+        them on the next read)."""
+        from ..providers.matrix import MATRIX
+
         models = self._prefs.get("models")
-        if not isinstance(models, list):
-            models = list(self.KNOWN_MODELS)
+        models = models if isinstance(models, list) else []
         self._prefs["models"] = [m for m in models if m != model]
+        if model in MATRIX:
+            hidden = self._prefs.get("hidden_models") or []
+            if model not in hidden:
+                self._prefs["hidden_models"] = [*hidden, model]
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
@@ -1421,9 +1447,9 @@ class SessionManager:
 
         env_key = bool(os.environ.get("OPENAI_API_KEY"))
         stored = bool((self.secrets.get("provider:openai") or {}).get("api_key"))
-        # Only surface models whose provider is actually configured — the composer picker should
-        # reflect what's connected, not the built-in seed list. The active default is always kept
-        # selectable (it's hidden behind the "No model" state until a provider is connected anyway).
+        # Only surface models whose provider is actually configured — the composer picker
+        # reflects exactly what's connected. The active default is always kept selectable
+        # (it's hidden behind the "No model" state until a provider is connected anyway).
         selectable = [
             m
             for m in self._curated_models()
@@ -1554,27 +1580,187 @@ class SessionManager:
         return {"ok": True, **self.get_settings()}
 
     # -- gateway + connector allow-list (inbound messaging) ---------------------
-    def allow_user(self, name: str, user_id: str) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, add=True)
+    def allow_user(
+        self,
+        name: str,
+        user_id: str,
+        team_id: Optional[str] = None,
+        *,
+        display_name: str = "",
+    ) -> dict[str, Any]:
+        out = self._set_allowed(name, user_id, team_id=team_id, add=True)
+        # Directory picks arrive with the name in hand — record it so the chip
+        # is readable immediately (message-driven allows learn it on arrival).
+        if out.get("ok") and display_name:
+            self._note_person(name, user_id, display_name)
+        return out
 
-    def disallow_user(self, name: str, user_id: str) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, add=False)
+    def disallow_user(
+        self, name: str, user_id: str, team_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        return self._set_allowed(name, user_id, team_id=team_id, add=False)
 
-    def _set_allowed(self, name: str, user_id: str, *, add: bool) -> dict[str, Any]:
+    def _set_allowed(
+        self, name: str, user_id: str, *, team_id: Optional[str] = None, add: bool
+    ) -> dict[str, Any]:
+        """Add/remove a sender on the allow-list. With `team_id` the edit targets that
+        scope's profile — a workspace's `slack:team:<id>`, or a GitHub App
+        installation's `github:install:<id>` (the same per-tenant pattern);
+        without, the flat `<name>:default` list (manual single-workspace mode)."""
         user_id = str(user_id).strip()
         if not user_id:
             return {"ok": False, "error": "user_id required"}
-        profile = self.secrets.get(f"{name}:default")
+        scope = "install" if name == "github" else "team"
+        profile_key = f"{name}:{scope}:{team_id}" if team_id else f"{name}:default"
+        profile = self.secrets.get(profile_key)
         if not profile:
-            return {"ok": False, "error": "connector not connected"}
+            return {
+                "ok": False,
+                "error": "workspace not connected" if team_id else "connector not connected",
+            }
         allowed = set(profile.get("allowed_users") or [])
         allowed.add(user_id) if add else allowed.discard(user_id)
         profile["allowed_users"] = sorted(allowed)
-        self.secrets.put(f"{name}:default", profile)
+        self.secrets.put(profile_key, profile)
         # reflect into the live gateway so it takes effect without a restart
         if self.gateway is not None and name in self.gateway.settings:
-            self.gateway.settings[name].allowed_users = set(allowed)
-        return {"ok": True, "allowed_users": sorted(allowed)}
+            if team_id:
+                from ..connectors import TeamAuth
+
+                teams = self.gateway.settings[name].teams
+                team = teams.setdefault(team_id, TeamAuth())
+                team.allowed_users = set(allowed)
+            else:
+                self.gateway.settings[name].allowed_users = set(allowed)
+        return {"ok": True, "allowed_users": sorted(allowed), "team_id": team_id}
+
+    async def disconnect_slack_workspace(self, team_id: str) -> dict[str, Any]:
+        """Stop relaying ONE workspace: delete the cloud routing row (best-effort),
+        drop the local per-team token, and hot-reload the gateway. Removing the last
+        workspace also clears relay mode on slack:default so the connector reads
+        disconnected (the manual Socket Mode fields, if any, are left untouched)."""
+        team_id = str(team_id).strip()
+        profile_key = f"slack:team:{team_id}"
+        if not team_id or not self.secrets.get(profile_key):
+            return {"ok": False, "error": "workspace not connected"}
+        from .. import cloud
+        from ..config import load_config
+
+        await asyncio.to_thread(
+            lambda: cloud.slack_disconnect_workspace(
+                self.secrets, load_config(), team_id
+            )
+        )
+        self.secrets.delete(profile_key)
+        remaining = [
+            m["profile"]
+            for m in self.secrets.status()
+            if m.get("profile", "").startswith("slack:team:")
+        ]
+        if not remaining:
+            default = self.secrets.get("slack:default") or {}
+            if default.get("mode") == "relay":
+                default.pop("mode", None)
+                default.pop("managed", None)
+                if default.get("bot_token"):
+                    # Manual Socket Mode creds predating the relay switch: keep them
+                    # stored but DISABLED — removing the last workspace must never
+                    # silently start listening with old tokens.
+                    default["type"] = "token"
+                    default["enabled"] = False
+                    self.secrets.put("slack:default", default)
+                else:
+                    default.pop("type", None)
+                    default.pop("enabled", None)
+                    if default:  # e.g. a flat allow-list worth keeping
+                        self.secrets.put("slack:default", default)
+                    else:
+                        self.secrets.delete("slack:default")
+        await self.refresh_gateway()
+        return {"ok": True, "remaining_workspaces": len(remaining)}
+
+    def slack_status(self) -> dict[str, Any]:
+        """Slack connection health in three honest layers (UX-DECISIONS §21):
+        the desktop↔relay socket, the cloud sign-in that authorizes it, and each
+        workspace's bot token. The desktop can't see the Slack↔cloud leg, so no
+        layer here ever claims it — event silence ≠ outage."""
+        from .. import cloud
+
+        default = self.secrets.get("slack:default") or {}
+        mode = default.get("mode") or ""
+        signin = cloud.status(self.secrets)
+
+        relay: dict[str, Any] = {
+            "state": "offline",
+            "reconnects": 0,
+            "last_event_at": None,
+            "last_error": "",
+        }
+        teams: dict[str, Any] = {}
+        adapter = self.gateway._adapters.get("slack") if self.gateway is not None else None
+        snapshot = getattr(adapter, "status", None)  # relay adapter only; Socket Mode has none
+        if callable(snapshot):
+            relay = snapshot()
+            teams = relay.pop("teams", {})
+        return {
+            "ok": True,
+            "mode": mode,
+            "relay": relay,
+            "signed_in": bool(signin.get("signed_in")),
+            "teams": teams,
+        }
+
+    async def disconnect_github_installation(self, installation_id: str) -> dict[str, Any]:
+        """Stop relaying ONE GitHub installation: delete the cloud routing rows
+        (best-effort), drop the local profile, hot-reload the gateway. The Slack
+        per-workspace disconnect, GitHub flavour — a manual PAT stays untouched."""
+        installation_id = str(installation_id).strip()
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import github_installs
+
+        if not installation_id or not self.secrets.get(
+            github_installs.PREFIX + installation_id
+        ):
+            return {"ok": False, "error": "installation not connected"}
+        await asyncio.to_thread(
+            lambda: cloud.github_disconnect_installation(
+                self.secrets, load_config(), installation_id
+            )
+        )
+        result = github_installs.disconnect_install(self.secrets, installation_id)
+        await self.refresh_gateway()
+        return result
+
+    def github_status(self) -> dict[str, Any]:
+        """GitHub relay health, same three honest layers as Slack: the shared
+        relay socket, the cloud sign-in, and per-installation token health."""
+        from .. import cloud
+
+        default = self.secrets.get("github:default") or {}
+        signin = cloud.status(self.secrets)
+        relay: dict[str, Any] = {
+            "state": "offline",
+            "reconnects": 0,
+            "last_event_at": None,
+            "last_error": "",
+        }
+        installs: dict[str, Any] = {}
+        missed: dict[str, Any] = {}
+        adapter = self.gateway._adapters.get("github") if self.gateway is not None else None
+        snapshot = getattr(adapter, "status", None)
+        if callable(snapshot):
+            relay = snapshot()
+            installs = relay.pop("installs", {})
+            missed = relay.pop("missed", {})
+        return {
+            "ok": True,
+            "mode": default.get("mode") or "",
+            "relay": relay,
+            "signed_in": bool(signin.get("signed_in")),
+            "installs": installs,
+            "missed": missed,
+        }
 
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
@@ -1603,11 +1789,46 @@ class SessionManager:
             interaction_handler=self._on_interaction,
             on_unauthorized=self._park_unauthorized,
         )
+        # Managed Slack relay wiring (only used when a connector picks relay mode):
+        # the cloud sign-in JWT authorizes the relay WebSocket, and the relay
+        # endpoint comes from config. Both are lazy — Socket Mode needs neither.
+        from ..cloud import fresh_access_token
+        from ..config import load_config
+
+        cloud_config = load_config()
+
+        def _relay_token() -> str:
+            return fresh_access_token(self.secrets, cloud_config) or ""
+
+        # Every relay-mode platform shares ONE cloud socket; the hub fans frames
+        # out by provider tag. Built lazily on the first relay adapter.
+        relay_ws_url = getattr(cloud_config, "cloud_relay_ws_url", "") or None
+        relay_hub = None
+        if relay_ws_url:
+            from ..connectors.relay_client import RelayHub
+
+            relay_hub = RelayHub(relay_ws_url, _relay_token)
+
+        async def _github_token(installation_id: str) -> str:
+            from ..cloud import github_installation_token
+
+            return await asyncio.to_thread(
+                github_installation_token, self.secrets, cloud_config, installation_id
+            )
+
         for platform, st in settings.items():
             if not st.enabled:
                 continue
             profile = self.secrets.get(f"{platform}:default") or {}
-            adapter = make_adapter(platform, profile)
+            adapter = make_adapter(
+                platform,
+                profile,
+                secrets=self.secrets,
+                token_provider=_relay_token,
+                relay_url=relay_ws_url,
+                relay_hub=relay_hub,
+                github_token_client=_github_token,
+            )
             if adapter is not None:
                 self.gateway.register(adapter)
         return await self.gateway.start()
@@ -1644,6 +1865,7 @@ class SessionManager:
             user_name=s.user_name,
             chat_type=s.chat_type,
             thread_id=s.thread_id,
+            team_id=s.team_id,
             text=event.text or "",
         )
 
@@ -1660,7 +1882,7 @@ class SessionManager:
             return {"ok": True}
         if action not in ("allow", "allow_deliver"):
             return {"ok": False, "error": f"unknown action: {action}"}
-        allowed = self._set_allowed(name, item.user_id, add=True)
+        allowed = self._set_allowed(name, item.user_id, team_id=item.team_id, add=True)
         if not allowed.get("ok"):
             return allowed
         if action == "allow_deliver":
@@ -1676,6 +1898,7 @@ class SessionManager:
                     chat_name=item.chat_name,
                     chat_type=item.chat_type,
                     thread_id=item.thread_id,
+                    team_id=item.team_id,
                 ),
             )
             await self._dispatch_inbound(event)

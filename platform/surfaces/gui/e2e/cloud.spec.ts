@@ -20,13 +20,13 @@ test("signed out: account card offers sign-in; managed connector still connects 
   await expect(account).toContainText("Manual token setup always works");
   await expect(account.getByRole("button", { name: "Sign in" })).toBeVisible();
 
-  // open the managed-capable connector: hint + manual fields, no one-click button
-  const gmail = page.getByTestId("connector-gmail");
-  await gmail.getByRole("button", { name: "Connect" }).click();
-  const setup = page.getByTestId("managed-connect");
-  await expect(setup).toContainText("Sign in to OpenCoworker Cloud");
-  await expect(gmail.locator("input[type=password]")).toBeVisible(); // manual field rendered
-  await expect(page.getByRole("button", { name: /one click/i })).toHaveCount(0);
+  // open the managed-capable connector: the add-modal shows the hint + manual
+  // fields, no one-click button while signed out
+  await page.getByTestId("connector-gmail").getByRole("button", { name: "Connect" }).click();
+  const modal = page.getByTestId("add-connection-modal");
+  await expect(modal.getByTestId("managed-connect")).toContainText("Sign in to OpenCoworker Cloud");
+  await expect(modal.locator("input[type=password]")).toBeVisible(); // manual field rendered
+  await expect(modal.getByRole("button", { name: /one click/i })).toHaveCount(0);
 });
 
 test("signed in: one-click connect appears, manual fields remain", async ({ page }) => {
@@ -37,11 +37,12 @@ test("signed in: one-click connect appears, manual fields remain", async ({ page
     timeout: 10_000,
   });
 
-  const gmail = page.getByTestId("connector-gmail");
-  await gmail.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByRole("button", { name: /Connect Gmail with one click/i })).toBeVisible();
+  await page.getByTestId("connector-gmail").getByRole("button", { name: "Connect", exact: true }).click();
+  const modal = page.getByTestId("add-connection-modal");
+  await expect(modal.getByRole("button", { name: /Connect Gmail with one click/i })).toBeVisible();
   // the manual path must still be offered alongside
-  await expect(page.getByTestId("managed-connect")).toContainText("or connect manually");
+  await expect(modal.getByTestId("managed-connect")).toContainText("or connect manually");
+  await page.keyboard.press("Escape");
 
   // sign out flips back without breaking the card
   await page.getByRole("button", { name: "Sign out" }).click();

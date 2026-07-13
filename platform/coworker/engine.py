@@ -431,7 +431,34 @@ class TurnEngine:
             return {"error": str(exc), "error_type": type(exc).__name__}, "error"
 
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
-        self.messages.append(_tool_result_message(tool_call, result))
+        # A `_display` key on a tool result is user-facing metadata the AGENT must
+        # never see (e.g. how many gmail hits the privacy filters hid — a count
+        # the model could probe around). Lift it onto the message as a sidecar
+        # (like `source`), stripped from every provider feed in
+        # `_outbound_messages` but persisted for the GUI's tool card.
+        display: Optional[dict[str, Any]] = None
+        if isinstance(result, dict) and "_display" in result:
+            display = result.get("_display") or None
+            result = {k: v for k, v in result.items() if k != "_display"}
+        message = _tool_result_message(tool_call, result)
+        if display:
+            message["_display"] = display
+        self.messages.append(message)
+        hidden = int((display or {}).get("hidden_by_filters") or 0)
+        stripped = int((display or {}).get("hidden_fields") or 0)
+        if hidden or stripped:
+            # The out-of-band trace the user CAN see: rule class + count, never content.
+            parts = []
+            if hidden:
+                parts.append(f"{hidden} result(s) hidden")
+            if stripped:
+                parts.append(f"{stripped} field value(s) stripped")
+            self._audit(
+                tool_call,
+                stage="filtered",
+                status="hidden",
+                reason=" · ".join(parts) + " by privacy filters",
+            )
         self._audit(
             tool_call,
             stage="finished",
@@ -445,6 +472,7 @@ class TurnEngine:
                 "name": tool_call.name,
                 "status": status,
                 "result_preview": _preview(result),
+                **({"display": display} if display else {}),
             },
         )
 
@@ -626,15 +654,20 @@ class TurnEngine:
     def _outbound_messages(self) -> list[dict[str, Any]]:
         """`self.messages` prepared for the provider. The SOLE provider feed (see `_astream`).
 
-        Every message is stripped of the display-only `source` sidecar (providers reject unknown
-        keys), unconditionally — whether or not a `<system-context>` block is added. When a context
+        Every message is stripped of the display-only sidecars — `source` and `_display` —
+        (providers reject unknown keys), unconditionally — whether or not a `<system-context>`
+        block is added. When a context
         provider yields a non-empty string, an ephemeral `<system-context>` block is appended to the
         last user message. Never mutates `self.messages`, so neither the strip nor the block is
         persisted/replayed.
         """
-        # Strip `source` from every message (copy only those that carry it; reuse the rest).
+        # Strip the display-only sidecars — `source` (connector cards) and `_display`
+        # (e.g. filter-hidden counts) — copying only messages that carry one.
+        _SIDECARS = ("source", "_display")
         out = [
-            {k: v for k, v in msg.items() if k != "source"} if "source" in msg else msg
+            {k: v for k, v in msg.items() if k not in _SIDECARS}
+            if any(s in msg for s in _SIDECARS)
+            else msg
             for msg in self.messages
         ]
         context = (

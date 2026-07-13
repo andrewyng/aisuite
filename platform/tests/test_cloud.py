@@ -50,14 +50,25 @@ class FakeResponse:
 # --- sign-in -------------------------------------------------------------------
 
 
-def test_begin_login_builds_pkce_authorize_url(config):
+def test_begin_login_builds_pkce_authorize_url(config, monkeypatch):
+    monkeypatch.delenv("COWORKER_PORT", raising=False)
     out = cloud.begin_login(config)
     url = out["authorize_url"]
     assert url.startswith("https://tenant.auth0.test/authorize?")
     assert "code_challenge_method=S256" in url
     assert "client_id=client123" in url
-    assert "8765%2Fauth%2Fcallback" in url
+    # The redirect is the BROKER's stable callback (Auth0 rejects unregistered
+    # loopback ports, and the packaged sidecar binds a random one) …
+    assert "cloud.test%2Fv1%2Fauth%2Fcallback" in url
     assert out["state"] in url
+    # … and state carries the actual loopback port for the bounce back.
+    assert out["state"].endswith(".8765")
+
+
+def test_begin_login_state_carries_the_actually_bound_port(config, monkeypatch):
+    monkeypatch.setenv("COWORKER_PORT", "52341")
+    out = cloud.begin_login(config)
+    assert out["state"].endswith(".52341")
 
 
 def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
@@ -121,14 +132,37 @@ def test_managed_profile_is_field_compatible_with_manual(secrets):
     listed = {c["name"]: c for c in connector_list(secrets)}
     gmail = listed["gmail"]
     assert gmail["connected"] and gmail["managed"] and gmail["managed_profile"]
-    profile = secrets.get("gmail:default")
+    # Multi-account era: listing migrates the tokens into the account profile.
+    profile = secrets.get("gmail:account:a@b.c")
     assert profile["access_token"] == "ya29.x"  # same key manual paste writes
     assert profile["connection_id"] == "conn_1"
+    assert gmail["accounts"][0]["email"] == "a@b.c" and gmail["accounts"][0]["default"]
 
 
 def test_managed_connect_rejected_for_unmanaged_connector(secrets):
-    result = managed_connect_connector(secrets, "github", {"access_token": "x"})
+    # telegram is manual-only (github gained a managed path with the App relay)
+    result = managed_connect_connector(secrets, "telegram", {"access_token": "x"})
     assert not result["ok"]
+
+
+def test_managed_connect_redirect_follows_actual_port(secrets, config, monkeypatch):
+    """The loopback redirect must target the sidecar's real bound port
+    (COWORKER_PORT), not config.port — the packaged app runs on a random port,
+    so an 8765 redirect would hit the wrong (or no) process."""
+    secrets.put(cloud.CLOUD_AUTH_PROFILE, {"access_token": "at", "enabled": True})
+    monkeypatch.setattr(cloud, "fresh_access_token", lambda *a, **k: "at")
+    monkeypatch.setenv("COWORKER_PORT", "52854")  # e.g. what free_port() picked
+
+    seen = {}
+
+    def fake_post(url, **kwargs):
+        seen["redirect"] = kwargs["json"]["redirect"]
+        return FakeResponse(200, {"authorize_url": "https://slack/authorize?x=1"})
+
+    monkeypatch.setattr(cloud.httpx, "post", fake_post)
+    out = cloud.begin_managed_connect(secrets, config, "slack")
+    assert out["ok"]
+    assert seen["redirect"] == "http://127.0.0.1:52854/oauth/callback"  # not 8765
 
 
 def test_manual_paste_still_works_and_is_not_managed(secrets):

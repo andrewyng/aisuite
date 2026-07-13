@@ -19,7 +19,9 @@ from .adapters import (
     slack_event_to_event,
     telegram_message_to_event,
 )
-from .config import ConnectorSettings, is_authorized, load_settings
+from .config import ConnectorSettings, TeamAuth, is_authorized, load_settings
+from .relay_client import SlackRelayAdapter
+from .slack_addr import qualify as slack_qualify, split as slack_split
 from .descriptors import ConnectorDescriptor, get_descriptor, list_descriptors
 from .fake import FakeAdapter
 from .gateway import Gateway
@@ -46,6 +48,7 @@ __all__ = [
     "format_target",
     "parse_target",
     "ConnectorSettings",
+    "TeamAuth",
     "is_authorized",
     "load_settings",
     "ConnectorDescriptor",
@@ -64,8 +67,11 @@ __all__ = [
     "make_send_message_tool",
     "connector_for_tool",
     "SlackAdapter",
+    "SlackRelayAdapter",
     "TelegramAdapter",
     "make_adapter",
     "slack_event_to_event",
     "telegram_message_to_event",
+    "slack_qualify",
+    "slack_split",
 ]

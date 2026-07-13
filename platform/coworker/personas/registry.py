@@ -219,7 +219,12 @@ class PersonaRegistry:
         return self._entries.get(persona_id)
 
     def is_enabled(self, persona_id: str) -> bool:
-        return self._enabled.get(persona_id, True)
+        # No user choice recorded → only the default persona ships enabled (owner call,
+        # 2026-07-09): a fresh install is Coworker-only, everything else is opt-in from
+        # Settings ▸ Personas. Explicit state (either way) always wins.
+        if persona_id in self._enabled:
+            return bool(self._enabled[persona_id])
+        return persona_id == self._default or persona_id == DEFAULT_PERSONA_ID
 
     def is_surfaced(self, persona_id: str) -> bool:
         # User choice wins; otherwise the persona's default (Chat defaults hidden).

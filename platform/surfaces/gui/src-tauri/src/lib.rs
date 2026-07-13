@@ -96,6 +96,19 @@ fn desktop_prefs_path() -> PathBuf {
     state_dir().join("desktop.json")
 }
 
+/// The sidecar's log file: `<state_dir>/logs/coworker-server.log`, fresh per
+/// launch with the previous run kept as `.old`. None (→ /dev/null) only if the
+/// directory can't be created — logging must never block startup.
+fn server_log_file() -> Option<std::fs::File> {
+    let dir = state_dir().join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("coworker-server.log");
+    if path.exists() {
+        let _ = std::fs::rename(&path, dir.join("coworker-server.log.old"));
+    }
+    std::fs::File::create(&path).ok()
+}
+
 fn read_keep_awake_pref() -> bool {
     std::fs::read_to_string(desktop_prefs_path())
         .ok()
@@ -296,10 +309,23 @@ pub fn run() {
                 .env("COWORKER_PARENT_PID", std::process::id().to_string())
                 // This GUI app has no console, so a console-subsystem child would inherit
                 // invalid std handles and crash a few seconds in when uvicorn writes its logs
-                // (the "Starting coworker…" freeze on Windows). Hand it null handles instead.
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                // (the "Starting coworker…" freeze on Windows). Hand it real handles: the
+                // server's output goes to a log file so field issues are debuggable at all
+                // ("relay off, no messages" was undiagnosable with everything on /dev/null).
+                // One file per launch, previous run kept as .old.
+                .stdin(Stdio::null());
+            match server_log_file() {
+                Some(log) => {
+                    if let Ok(err_clone) = log.try_clone() {
+                        server_cmd.stdout(Stdio::from(log)).stderr(Stdio::from(err_clone));
+                    } else {
+                        server_cmd.stdout(Stdio::from(log)).stderr(Stdio::null());
+                    }
+                }
+                None => {
+                    server_cmd.stdout(Stdio::null()).stderr(Stdio::null());
+                }
+            }
             // CREATE_NO_WINDOW: the sidecar is a console binary; without this a console window
             // would flash when the GUI app spawns it on Windows.
             #[cfg(windows)]

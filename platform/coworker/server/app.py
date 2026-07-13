@@ -14,7 +14,7 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -561,6 +561,118 @@ def create_app(manager: SessionManager) -> FastAPI:
         await _refresh_listeners_if_two_way(name)
         return result
 
+    @app.post("/v1/connectors/slack/workspaces/{team_id}/disconnect")
+    async def slack_workspace_disconnect(team_id: str) -> dict[str, Any]:
+        """Stop relaying one workspace (managed relay). Cloud routing row deleted
+        best-effort, local per-team token removed, gateway hot-reloaded."""
+        return await manager.disconnect_slack_workspace(team_id)
+
+    @app.get("/v1/connectors/slack/status")
+    async def slack_status() -> dict[str, Any]:
+        """Slack health, three layers: relay socket / cloud sign-in / per-team tokens."""
+        return manager.slack_status()
+
+    @app.post("/v1/connectors/github/installations/{installation_id}/disconnect")
+    async def github_installation_disconnect(installation_id: str) -> dict[str, Any]:
+        """Stop relaying one GitHub App installation (managed relay). Cloud
+        routing rows deleted best-effort, local profile removed, gateway
+        hot-reloaded."""
+        return await manager.disconnect_github_installation(installation_id)
+
+    @app.get("/v1/connectors/github/status")
+    async def github_status() -> dict[str, Any]:
+        """GitHub health: relay socket / cloud sign-in / per-installation tokens."""
+        return manager.github_status()
+
+    @app.post("/v1/connectors/gmail/accounts/{email}/disconnect")
+    async def gmail_account_disconnect(email: str) -> dict[str, Any]:
+        """Drop ONE mailbox (cloud metadata best-effort first, like a full
+        disconnect); the default pointer moves to the next account."""
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import gmail_accounts
+
+        profile_key = gmail_accounts.PREFIX + email.strip().lower()
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(
+                manager.secrets, load_config(), "gmail", profile_key=profile_key
+            )
+        )
+        return gmail_accounts.disconnect_account(manager.secrets, email)
+
+    @app.post("/v1/connectors/gmail/accounts/{email}/default")
+    def gmail_account_default(email: str) -> dict[str, Any]:
+        from ..connectors import gmail_accounts
+
+        return gmail_accounts.set_default(manager.secrets, email)
+
+    @app.patch("/v1/connectors/gmail/filters")
+    def gmail_filters(body: dict) -> dict[str, Any]:
+        """Replace the "Never show agents" lists. Enforced in the local tool
+        layer; agents see silent omissions, the user sees counts + audit."""
+        from ..connectors import gmail_accounts
+
+        senders = body.get("senders") if isinstance(body, dict) else None
+        labels = body.get("labels") if isinstance(body, dict) else None
+        if senders is not None and not isinstance(senders, list):
+            return {"ok": False, "error": "senders must be a list"}
+        if labels is not None and not isinstance(labels, list):
+            return {"ok": False, "error": "labels must be a list"}
+        return gmail_accounts.set_filters(manager.secrets, senders, labels)
+
+    @app.post("/v1/connectors/google_calendar/accounts/{email}/disconnect")
+    async def gcal_account_disconnect(email: str) -> dict[str, Any]:
+        """Drop ONE Google Calendar account (cloud metadata best-effort first);
+        the default pointer moves to the next account."""
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import gcal_accounts
+
+        profile_key = gcal_accounts.PREFIX + email.strip().lower()
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(
+                manager.secrets, load_config(), "google_calendar", profile_key=profile_key
+            )
+        )
+        return gcal_accounts.disconnect_account(manager.secrets, email)
+
+    @app.post("/v1/connectors/google_calendar/accounts/{email}/default")
+    def gcal_account_default(email: str) -> dict[str, Any]:
+        from ..connectors import gcal_accounts
+
+        return gcal_accounts.set_default(manager.secrets, email)
+
+    @app.post("/v1/connectors/hubspot/portals/{hub_id}/disconnect")
+    async def hubspot_portal_disconnect(hub_id: str) -> dict[str, Any]:
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import hubspot_portals
+
+        profile_key = hubspot_portals.PREFIX + hub_id.strip()
+        await asyncio.to_thread(
+            lambda: cloud.cloud_disconnect(
+                manager.secrets, load_config(), "hubspot", profile_key=profile_key
+            )
+        )
+        return hubspot_portals.disconnect_portal(manager.secrets, hub_id)
+
+    @app.post("/v1/connectors/hubspot/portals/{hub_id}/default")
+    def hubspot_portal_default(hub_id: str) -> dict[str, Any]:
+        from ..connectors import hubspot_portals
+
+        return hubspot_portals.set_default(manager.secrets, hub_id)
+
+    @app.patch("/v1/connectors/hubspot/hidden-fields")
+    def hubspot_hidden_fields(body: dict) -> dict[str, Any]:
+        """Replace the hidden-fields denylist (property names stripped from every
+        record agents read — model-facing policy, not a human ACL)."""
+        from ..connectors import hubspot_portals
+
+        fields = body.get("hidden_fields") if isinstance(body, dict) else None
+        if not isinstance(fields, list):
+            return {"ok": False, "error": "hidden_fields must be a list"}
+        return hubspot_portals.set_hidden_fields(manager.secrets, fields)
+
     @app.post("/v1/connectors/{name}/unauthorized/{item_id}")
     async def connector_unauthorized_resolve(
         name: str, item_id: str, body: dict
@@ -635,17 +747,22 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
 
     @app.post("/v1/connectors/{name}/connect-managed")
-    async def connector_connect_managed(name: str) -> dict[str, Any]:
+    async def connector_connect_managed(name: str, body: Optional[dict] = None) -> dict[str, Any]:
         """One-click managed OAuth (requires cloud sign-in). Opens the provider
         consent page in the system browser; the broker's callback page will
-        form-POST the tokens to /oauth/callback below."""
+        form-POST the tokens to /oauth/callback below. `access` picks a consent
+        tier by NAME (e.g. hubspot read | write) — the broker owns the scopes."""
         import webbrowser
 
         from .. import cloud
         from ..config import load_config
 
+        access = str((body or {}).get("access") or "")
+        flow = str((body or {}).get("flow") or "")  # github: "" install | "authorize"
         out = await asyncio.to_thread(
-            lambda: cloud.begin_managed_connect(manager.secrets, load_config(), name)
+            lambda: cloud.begin_managed_connect(
+                manager.secrets, load_config(), name, access=access, flow=flow
+            )
         )
         if out.get("ok"):
             webbrowser.open(out["authorize_url"])
@@ -656,7 +773,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         from fastapi.responses import HTMLResponse
 
         from .. import cloud
-        from ..connectors.setup import managed_connect_connector
+        from ..connectors.setup import (
+            managed_connect_connector,
+            managed_connect_slack_install,
+        )
 
         form = await request.form()
         data = {k: str(v) for k, v in form.items()}
@@ -665,13 +785,66 @@ def create_app(manager: SessionManager) -> FastAPI:
             return HTMLResponse(
                 _browser_page("Connection failed", data["error"]), status_code=400
             )
+        # Managed GitHub deliberately carries NO token fields — the loopback POST
+        # is routing metadata only (installation tokens are minted on demand,
+        # github-relay-spec §4) — so its branch precedes the access_token check.
+        if connector == "github" and data.get("installation_id"):
+            from ..connectors.github_installs import managed_connect_install
+
+            result = managed_connect_install(manager.secrets, data)
+            if result.get("ok"):
+                await manager.refresh_gateway()  # hot-add, like a workspace
+            if not result.get("ok"):
+                return HTMLResponse(
+                    _browser_page("Connection failed", result.get("error", "")),
+                    status_code=400,
+                )
+            return HTMLResponse(
+                _browser_page(
+                    "github connected",
+                    "You can close this tab and return to OpenCoworker.",
+                )
+            )
         if not connector or not data.get("access_token"):
             return HTMLResponse(
                 _browser_page("Connection failed", "missing fields"), status_code=400
             )
-        result = managed_connect_connector(
-            manager.secrets, connector, cloud.managed_profile_from_callback(data)
-        )
+        # Managed Slack is multi-workspace + relay: store the per-team bot token
+        # and flip to relay mode, rather than the single-token connector path.
+        if connector == "slack" and data.get("team_id"):
+            result = managed_connect_slack_install(manager.secrets, data)
+            if result.get("ok"):
+                # Hot-add: rebuild the gateway so the new workspace's token loads
+                # (and the relay socket opens on a first-ever install) right away.
+                await manager.refresh_gateway()
+        elif connector == "gmail":
+            # Multi-account: each sign-in lands in its own gmail:account:<email>
+            # profile; the first becomes the default mailbox.
+            from ..connectors import gmail_accounts
+
+            result = gmail_accounts.managed_connect_account(
+                manager.secrets, cloud.managed_profile_from_callback(data)
+            )
+        elif connector == "google_calendar":
+            # Multi-account, same shape as gmail: google_calendar:account:<email>.
+            from ..connectors import gcal_accounts
+
+            result = gcal_accounts.managed_connect_account(
+                manager.secrets, cloud.managed_profile_from_callback(data)
+            )
+        elif connector == "hubspot" and data.get("hub_id"):
+            # Multi-portal: keyed by hub_id (broker sends it like Slack's team_id).
+            from ..connectors import hubspot_portals
+
+            profile = cloud.managed_profile_from_callback(data)
+            profile["hub_id"] = data.get("hub_id", "")
+            if data.get("sandbox"):
+                profile["sandbox"] = True
+            result = hubspot_portals.managed_connect_portal(manager.secrets, profile)
+        else:
+            result = managed_connect_connector(
+                manager.secrets, connector, cloud.managed_profile_from_callback(data)
+            )
         if not result.get("ok"):
             return HTMLResponse(
                 _browser_page("Connection failed", result.get("error", "")),
@@ -691,11 +864,41 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/connectors/{name}/allow")
     def connector_allow(name: str, body: dict) -> dict[str, Any]:
-        return manager.allow_user(name, str(body.get("user_id", "")))
+        # `team_id` scopes the edit to one workspace (managed relay); absent → flat list.
+        # `name` (optional) seeds the people directory so a directory-picked user's
+        # chip shows their display name before they've ever sent a message.
+        return manager.allow_user(
+            name,
+            str(body.get("user_id", "")),
+            str(body.get("team_id", "")) or None,
+            display_name=str(body.get("name", "")),
+        )
+
+    @app.get("/v1/connectors/slack/workspaces/{team_id}/directory")
+    async def slack_directory(team_id: str, q: str = "", limit: int = 25) -> dict[str, Any]:
+        """Workspace member roster for the people picker (team_id "default" =
+        the manual Socket-Mode workspace). Cached locally; never leaves this machine."""
+        from ..connectors import slack_directory as roster
+
+        return await asyncio.to_thread(
+            lambda: roster.list_members(manager.secrets, team_id, q, limit)
+        )
+
+    @app.get("/v1/connectors/slack/workspaces/{team_id}/channels")
+    async def slack_channels(team_id: str, q: str = "", limit: int = 25) -> dict[str, Any]:
+        """Channel roster for the channel typeahead: all public channels, private
+        ones only where the bot is a member (Slack API constraint)."""
+        from ..connectors import slack_directory as roster
+
+        return await asyncio.to_thread(
+            lambda: roster.list_channels(manager.secrets, team_id, q, limit)
+        )
 
     @app.post("/v1/connectors/{name}/disallow")
     def connector_disallow(name: str, body: dict) -> dict[str, Any]:
-        return manager.disallow_user(name, str(body.get("user_id", "")))
+        return manager.disallow_user(
+            name, str(body.get("user_id", "")), str(body.get("team_id", "")) or None
+        )
 
     # -- audit / browser observability ------------------------------------------
     @app.get("/v1/audit")

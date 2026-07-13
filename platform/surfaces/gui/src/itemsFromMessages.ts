@@ -13,10 +13,15 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
   // Index tool results by tool_call_id so replayed tool rows can show their output
   // (the live view gets this from `tool_finished` events; on replay it's the `role:"tool"` msgs).
   const results: Record<string, string> = {};
+  // `_display` sidecar on a tool message = user-facing metadata the agent never saw
+  // (e.g. how many hits the privacy filters hid) — surfaces on the tool card.
+  const hiddenCounts: Record<string, number> = {};
   for (const m of messages || []) {
     if (m.role === "tool" && m.tool_call_id) {
       results[m.tool_call_id] =
         typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      const hidden = Number(m._display?.hidden_by_filters || 0);
+      if (hidden > 0) hiddenCounts[m.tool_call_id] = hidden;
     }
   }
   for (const m of messages || []) {
@@ -39,7 +44,16 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
           args = {};
         }
         const preview = results[tc.id];
-        items.push({ kind: "tool", id: tc.id, name: tc.function?.name, args, status: "ok", preview });
+        const hidden = hiddenCounts[tc.id];
+        items.push({
+          kind: "tool",
+          id: tc.id,
+          name: tc.function?.name,
+          args,
+          status: "ok",
+          preview,
+          ...(hidden ? { hidden } : {}),
+        });
       }
     }
     // system messages are omitted; tool-result messages are folded into the tool row above

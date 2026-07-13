@@ -293,3 +293,55 @@ async def test_inbound_rewrites_mention_tokens(fake_slack):
         assert got[0].text == "@ocw hi — ask <@UGHOST99> too"
     finally:
         await adapter.disconnect()
+
+
+# 7. Socket Mode watchdog: a SILENTLY-DEAD connection is revived and message flow resumes.
+#    Regression for the multi-hour stall — start_async() sleeps forever, so a socket that dies
+#    while the client stops recovering it (is_connected() reports down and stays down) looked alive
+#    and nothing brought it back. The watchdog polls is_connected() and forces a fresh endpoint.
+#    (slack_sdk recovers a clean server-close on its own, so we simulate the harder case it gives
+#    up on: is_connected() stuck False.)
+async def test_watchdog_revives_silently_dead_socket(fake_slack):
+    fake_slack.add_user("U1", "alice", display_name="Alice")
+    fake_slack.add_channel("C1", "general", is_im=False)
+
+    got: list[MessageEvent] = []
+    delivered = asyncio.Event()
+
+    async def _handler(ev: MessageEvent):
+        got.append(ev)
+        delivered.set()
+
+    gw = Gateway(settings=_allow_all(), handler=_handler)
+    adapter = SlackAdapter("xoxb-test", "xapp-test", watchdog_interval=0.2)
+    gw.register(adapter)
+    await adapter.connect()
+    try:
+        await fake_slack.wait_socket()
+        await fake_slack.inbound(channel="C1", user="U1", text="before")
+        await asyncio.wait_for(delivered.wait(), timeout=5)
+        assert got[-1].text == "before"
+        assert fake_slack.socket_connections == 1
+
+        # Simulate the silent stall: the connection reports down and the client isn't reviving it.
+        client = adapter._socket.client
+        original = client.is_connected
+        client.is_connected = lambda: False
+
+        # The watchdog must notice and re-open a fresh endpoint.
+        for _ in range(100):
+            if adapter._reconnects >= 1:
+                break
+            await asyncio.sleep(0.05)
+        client.is_connected = original  # end the simulated outage
+        assert adapter._reconnects >= 1, "watchdog did not reconnect a down socket"
+        assert fake_slack.socket_connections >= 2
+
+        # Message flow resumes on the revived connection.
+        delivered.clear()
+        got.clear()
+        await fake_slack.inbound(channel="C1", user="U1", text="after")
+        await asyncio.wait_for(delivered.wait(), timeout=5)
+        assert got[-1].text == "after"
+    finally:
+        await adapter.disconnect()

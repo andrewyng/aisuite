@@ -2,16 +2,10 @@ import { useEffect, useState } from "react";
 import {
   addMcpServer,
   allowUser,
-  cloudLogin,
-  cloudLogout,
-  setCloudTelemetry,
   connectConnector,
   connectManaged,
   deleteMcpServer,
   disallowUser,
-  disconnectConnector,
-  getCloudStatus,
-  getConnectors,
   getMcpServers,
   getMcpTools,
   getProviders,
@@ -31,8 +25,8 @@ import {
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
+import { CloudSignInInline } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
-import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { SelectMenu } from "./SelectMenu";
 import { Toggle } from "./Toggle";
 
@@ -597,222 +591,39 @@ function AddForm({
   );
 }
 
-// -- Connectors tab ----------------------------------------------------------
-export function ConnectorsTab() {
-  const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [openName, setOpenName] = useState<string | null>(null);
-  const [cloud, setCloud] = useState<CloudStatus | null>(null);
-
-  const refresh = () => {
-    getConnectors().then(setConnectors).catch(() => setConnectors([]));
-    getCloudStatus().then(setCloud).catch(() => setCloud(null));
-  };
-  useEffect(() => {
-    refresh();
-    // Recent senders arrive over time (someone DMs the bot) — poll so they surface to Allow.
-    // The same poll also picks up sign-in / managed-connect completions from the browser flows.
-    const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
-  }, []);
-
-  return (
-    <div className="space-y-3">
-      <CloudAccountCard cloud={cloud} onChanged={refresh} />
-      {/* Single-column list (owner call, 2026-07-03 #2): expanding a card just pushes rows
-          down — a mixed-width grid reordered visually every time one opened. */}
-      <div className="space-y-3">
-        {connectors.map((c) => (
-          <ConnectorRow
-            key={c.name}
-            c={c}
-            cloud={cloud}
-            open={openName === c.name}
-            onToggleOpen={() => setOpenName(openName === c.name ? null : c.name)}
-            onChanged={() => {
-              setOpenName(null);
-              refresh();
-            }}
-            onRefresh={refresh}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Optional cloud sign-in: unlocks one-click managed connectors. Local-only /
-// manual token setup keeps working without it (and stays available after).
-function CloudAccountCard({
-  cloud,
-  onChanged,
-}: {
-  cloud: CloudStatus | null;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  // Optimistic local echo of the toggle (the server refetch confirms it) so the
-  // checkbox responds instantly instead of snapping back until status reloads.
-  const [telemetry, setTelemetry] = useState<boolean | null>(null);
-
-  const signIn = async () => {
-    setBusy(true);
-    await cloudLogin(); // sidecar opens the system browser; the tab poll picks up completion
-    setTimeout(() => {
-      setBusy(false);
-      onChanged();
-    }, 2500);
-  };
-
-  return (
-    <div className={CARD + " p-3.5"} data-testid="cloud-account">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0">
-          <div className="font-semibold text-[14px]">OpenCoworker Cloud</div>
-          {cloud?.signed_in ? (
-            <div className="text-[12px] text-muted flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
-              {cloud.account || "signed in"}
-            </div>
-          ) : (
-            <div className="text-[12px] text-muted">
-              Sign in for one-click connectors. Manual token setup always works without it.
-            </div>
-          )}
-        </div>
-        <div className="ml-auto">
-          {cloud?.signed_in ? (
-            <button
-              className={BTN_BORDERED}
-              onClick={async () => {
-                await cloudLogout();
-                onChanged();
-              }}
-            >
-              Sign out
-            </button>
-          ) : (
-            <button className={BTN_ACCENT} onClick={signIn} disabled={busy}>
-              {busy ? "Check your browser…" : "Sign in"}
-            </button>
-          )}
-        </div>
-      </div>
-      {cloud?.signed_in && (
-        <label className="flex items-start gap-2.5 mt-3 pt-3 border-t border-line select-none">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={telemetry ?? cloud.telemetry_enabled !== false}
-            data-testid="telemetry-toggle"
-            onChange={async (e) => {
-              setTelemetry(e.target.checked);
-              await setCloudTelemetry(e.target.checked);
-              onChanged();
-            }}
-          />
-          <span>
-            <span className="block text-[12.5px] text-ink">Help improve OpenCoworker</span>
-            <span className="block text-[12px] text-muted">
-              Tells us which coworker type was started and when — never your prompts, files,
-              or connector data. Off means nothing is sent.
-            </span>
-          </span>
-        </label>
-      )}
-    </div>
-  );
-}
-
-function ConnectorRow({
-  c,
-  cloud,
-  open,
-  onToggleOpen,
-  onChanged,
-  onRefresh,
-}: {
-  c: Connector;
-  cloud: CloudStatus | null;
-  open: boolean;
-  onToggleOpen: () => void;
-  onChanged: () => void;
-  onRefresh: () => void;
-}) {
-  return (
-    <div className={CARD} data-testid={`connector-${c.name}`}>
-      <div className="flex items-center gap-3 p-3.5">
-        {/* Real brand color + logo from the API descriptor (Phase 1) via ConnectorBadge; unknown
-            logo ids fall back to the neutral plug glyph. */}
-        <ConnectorBadge connector={c} size={36} title={c.title} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-[14px]">{c.title}</span>
-            {c.two_way && (
-              <span className="text-[10.5px] px-1.5 py-0.5 rounded border border-line text-muted">
-                two-way
-              </span>
-            )}
-          </div>
-          {c.connected ? (
-            <div className="text-[12px] text-muted flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
-              {c.account || "connected"}
-              {c.allowed_users.length > 0 ? ` · ${c.allowed_users.length} allowed` : ""}
-            </div>
-          ) : (
-            <div className="text-[12px] text-muted">{c.blurb || (c.available ? "Not connected" : "")}</div>
-          )}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {!c.available ? (
-            <span className="text-[12px] text-faint">Soon</span>
-          ) : c.connected && c.auth === "none" ? (
-            <button className={BTN_BORDERED} onClick={onToggleOpen}>
-              {open ? "Close" : "Settings"}
-            </button>
-          ) : c.connected ? (
-            <>
-              <button className={BTN_BORDERED} onClick={onToggleOpen}>
-                {open ? "Close" : "Settings"}
-              </button>
-              <button
-                className={BTN_DANGER}
-                onClick={async () => {
-                  await disconnectConnector(c.name);
-                  onChanged();
-                }}
-              >
-                Disconnect
-              </button>
-            </>
-          ) : (
-            <button className={BTN_BORDERED} onClick={onToggleOpen}>
-              {open ? "Cancel" : "Connect"}
-            </button>
-          )}
-        </div>
-      </div>
-      {open && !c.connected && <ConnectSetup c={c} cloud={cloud} onConnected={onChanged} />}
-      {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
-      {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
-      {open && c.connected && c.two_way && <UnauthorizedBlock c={c} onChanged={onRefresh} />}
-      {open && c.connected && c.two_way && <ListeningSessionsBlock c={c} />}
-    </div>
-  );
-}
+// -- Connectors ---------------------------------------------------------------
+// The Connectors tab body moved to connectors/ConnectorsSection.tsx (UX-DECISIONS
+// §21: connected-first list + per-connector detail subpages). This file keeps the
+// shared building blocks the detail pages reuse: ConnectSetup, ConnectorTools, and
+// the two-way blocks (Allowlist/Unauthorized/ListeningSessions).
 
 // Parked messages from senders not on the allow-list (§19). The gateway keeps what they said
 // instead of dropping it, so first contact is one step: Allow & deliver replays the original
 // message through the normal inbound path — no "message the bot again".
-function UnauthorizedBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
-  const items = c.unauthorized ?? [];
+// With `teamId` (the Slack-workspaces page) only that workspace's parked messages show;
+// resolving routes the allow to the right workspace server-side (the item carries its team).
+export function UnauthorizedBlock({
+  c,
+  onChanged,
+  teamId,
+}: {
+  c: Connector;
+  onChanged: () => void;
+  teamId?: string;
+}) {
+  const items = (c.unauthorized ?? []).filter(
+    (m) => teamId === undefined || m.team_id === teamId,
+  );
   if (items.length === 0) return null;
   const act = async (id: string, action: "dismiss" | "allow" | "allow_deliver") => {
     await resolveUnauthorized(c.name, id, action);
     onChanged();
   };
   return (
-    <div className="border-t border-line px-3.5 py-3" data-testid={`unauthorized-${c.name}`}>
+    <div
+      className="border-t border-line px-3.5 py-3"
+      data-testid={teamId ? `unauthorized-${c.name}-${teamId}` : `unauthorized-${c.name}`}
+    >
       <div className={SEC_H + " mb-2"}>
         Messages from senders you haven't allowed · {items.length}
       </div>
@@ -861,7 +672,7 @@ function UnauthorizedBlock({ c, onChanged }: { c: Connector; onChanged: () => vo
 // Which sessions listen to this connector's channels — the per-connector cut of the global
 // Channel-subscriptions table (Integrations ▸ Messaging routing). Subscribing happens from a
 // session's Sources ▸ Channels panel; here the owner can see and revoke.
-function ListeningSessionsBlock({ c }: { c: Connector }) {
+export function ListeningSessionsBlock({ c }: { c: Connector }) {
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const load = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
   useEffect(() => {
@@ -908,8 +719,26 @@ function ListeningSessionsBlock({ c }: { c: Connector }) {
 
 // Who may message this two-way bot. Recent senders surface here once they DM/mention the bot, so you
 // can Allow them; allowed users are chips you can remove. (Was orphaned in the super-agent view.)
-function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
-  const recent = c.recent ?? [];
+// With `teamId` (the Slack-workspaces page) the list is that WORKSPACE's — ids are
+// workspace-scoped, so allow/remove target `slack:team:<id>` and recents filter to the team.
+export function AllowlistBlock({
+  c,
+  onChanged,
+  teamId,
+  allowed,
+  allowedNames,
+}: {
+  c: Connector;
+  onChanged: () => void;
+  teamId?: string;
+  allowed?: string[];
+  allowedNames?: Record<string, string | null>;
+}) {
+  const allowedUsers = allowed ?? c.allowed_users;
+  const names = allowedNames ?? c.allowed_user_names;
+  const recent = (c.recent ?? []).filter(
+    (r) => teamId === undefined || r.team_id === teamId,
+  );
   const unknownRecent = recent.filter((r) => !r.authorized);
 
   return (
@@ -917,24 +746,24 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
       <div>
         <div className={SEC_H + " mb-2"}>Allowed to message</div>
         <div className="flex flex-wrap gap-1.5">
-          {c.allowed_users.length === 0 && (
+          {allowedUsers.length === 0 && (
             <span className="text-[12px] text-faint">nobody yet — Allow a recent sender →</span>
           )}
-          {c.allowed_users.map((u) => (
+          {allowedUsers.map((u) => (
             <span
               key={u}
               className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-paper border border-line text-[12px]"
               title={`id ${u}`}
             >
               <span className="w-4 h-4 rounded-full bg-accentSoft text-accent grid place-items-center text-[9px] font-bold">
-                {initials(c.allowed_user_names?.[u] || u)}
+                {initials(names?.[u] || u)}
               </span>
-              {c.allowed_user_names?.[u] || u}
+              {names?.[u] || u}
               <button
                 className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
                 title="remove"
                 onClick={async () => {
-                  await disallowUser(c.name, u);
+                  await disallowUser(c.name, u, teamId);
                   onChanged();
                 }}
               >
@@ -961,7 +790,7 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
                 <button
                   className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-accent text-white shrink-0"
                   onClick={async () => {
-                    await allowUser(c.name, r.user_id);
+                    await allowUser(c.name, r.user_id, teamId);
                     onChanged();
                   }}
                 >
@@ -976,7 +805,7 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
   );
 }
 
-function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void }) {
+export function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void }) {
   const toggle = async (toolName: string, enabled: boolean) => {
     await updateConnectorTools(c.name, { [toolName]: enabled });
     onChanged();
@@ -1022,10 +851,14 @@ export function ConnectSetup({
   c,
   cloud,
   onConnected,
+  manualOnly = false,
 }: {
   c: Connector;
   cloud: CloudStatus | null;
   onConnected: () => void;
+  // The add-modal's Manual pane: the one-click button lives on the sibling
+  // pill, so don't render the managed block again here.
+  manualOnly?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -1052,17 +885,16 @@ export function ConnectSetup({
 
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
-      {c.managed && (
+      {c.managed && !manualOnly && (
         <div className="space-y-2" data-testid="managed-connect">
           {cloud?.signed_in ? (
             <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
               {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
             </button>
           ) : (
-            <div className="text-[12.5px] text-muted">
-              Sign in to OpenCoworker Cloud (above) to connect {c.title} with one click —
-              or connect manually below.
-            </div>
+            <CloudSignInInline
+              blurb={`Sign-in unlocks the one-click ${c.title} connect — or connect manually below.`}
+            />
           )}
           {cloud?.signed_in && (
             <div className="text-[11.5px] text-faint">or connect manually:</div>

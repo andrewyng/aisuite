@@ -1,0 +1,439 @@
+# UX Decisions — OpenCoworker GUI
+
+**Owner:** Rohit. **Status of this doc:** living spec — the source of truth for *why the UX is the
+way it is*. Every entry is a deliberate decision with a rationale.
+
+> **For agents/contributors:** Do **not** restructure or "improve" any UX listed here without the
+> owner's explicit sign-off. If a change seems warranted, propose it (add a `↪ Proposed` note under
+> the relevant entry) and ask — don't silently override a decision. New UX requests get appended
+> here with their rationale before/while they're built.
+
+Mocks that realize these decisions live in `platform/ui-mocks/` (`redesign.html`). The mock is the
+visual spec; this doc is the reasoning + data-model spec. **Implementation** is specced in
+[`UI-REFRESH-SPEC.md`](UI-REFRESH-SPEC.md) (+ [`UI-REFRESH-VERIFICATION.md`](UI-REFRESH-VERIFICATION.md),
+[`FAKE-SLACK-SPEC.md`](FAKE-SLACK-SPEC.md)).
+
+Status legend: **Decided** (settled), **Proposed** (endorsed, not finalized), **Mocked** (shown in
+the HTML mock), **Built** (in the real React/Python app).
+
+---
+
+## 1. Connector-agnostic source model
+- **Decision (Decided / Mocked):** Every external source renders through one connector registry:
+  `{ id → label, brand color, logo }`, with a **default fallback** (neutral plug glyph + gray) so an
+  unknown/custom/not-yet-shipped connector still renders cleanly.
+- **Rationale:** We're going multi-connector (Slack now; Salesforce, HubSpot, GitHub, Datadog,
+  PagerDuty, Telegram, custom/MCP next). UI must never hardcode "Slack"; adding a connector should be
+  a registry entry, not new components.
+- **Data model:** the registry lives on the connector descriptor (brand color + logo id). Recommended
+  connectors that we don't ship yet still get a label + fallback badge.
+
+## 2. Session conversation
+### 2a. Connector inbound-message card
+- **Decision (Decided / Mocked):** Inbound messages from a connector get a dedicated card (not the raw
+  `💬 New message on slack:C…` bubble): a subtle brand-tinted header with **connector logo +
+  channel/entity name + person name + time**, body below, brand-tinted left edge.
+- **IDs on hover:** the header shows friendly names by default; hovering reveals the raw IDs
+  (`C0BD7KZ1AH5 · U07JK68S4BH`). Names come from connector resolution (e.g. Slack `users.info`).
+- **Rationale:** IDs are noise in the common case but essential when debugging routing; hover keeps
+  both without clutter. The card generalizes to Salesforce "Case #123", etc.
+
+### 2b. Collapsible tool/approval steps
+- **Decision (Decided / Mocked):** Tool calls + approvals (e.g. `send_message`, `write_file` approval)
+  collapse into a single `<details>` disclosure (`"2 actions · 1 approval ✓"`), **collapsed by
+  default**. Expand for the per-step detail (args, who approved, where).
+- **Rationale:** The thread should read message → reasoning → reply. Mechanics are available on demand,
+  not in your face. (Re-introduces the earlier collapsed-steps pattern.)
+
+## 3. "Sources" bar + per-session connections drawer
+- **Decision (Decided / Mocked):** Below the session title sits a **Sources** bar showing **connector
+  icons only** (overlapping avatars) + a short "needs attention" badge. Clicking it opens a
+  **per-session connections drawer** (right slide-over).
+- **Attention badge:** use a compact **⚠ N** (yellow exclamation + count) to denote *N connections
+  recommended but not yet connected* — short, not the verbose "N recommended". *(Req 2026-06-29)*
+- **Drawer content (persona-aware):**
+  1. A **why-connect blurb** for the session's persona ("Ops works best wired into GitHub, Slack, a
+     monitoring dashboard…") + a small progress indicator (`2 of 4 connected`).
+  2. **Connected** sources for this session (with live status **and an enable/disable toggle** — see §4).
+  3. **Recommended connectors** and **recommended MCP servers**, each with **the value it unlocks**
+     ("so I can pull the firing alerts"), tiered **core vs optional**, with Connect/Add.
+  4. A link out to **global Integrations**.
+- **Rationale:** Turns an empty integration state into a capability story; progressive setup the user
+  can finish later (explicitly *not* gating onboarding). Per-session scope keeps it contextual; the
+  drawer reuses the global Integrations visual language so it's one mental model.
+
+## 4. Connection hierarchy: persona-level vs session-level enablement  *(Decided — data-model change)*
+- **Decision (Decided 2026-06-29 by owner):** Today connectors are enabled **per persona**. We're
+  introducing **per-session enable/disable**: a connection can be enabled for the persona but toggled
+  **off for a specific session** (Connect *and* an Enable toggle in the drawer).
+- **Hierarchy (confirmed):** `account-connected connector` → `persona enables it` → `session may
+  disable it`. Effective state for a session = connected AND persona-enabled AND not session-disabled.
+- **Rationale:** A session may want a narrower surface than its persona's default (e.g. mute Slack for
+  one focused session) without disconnecting the account or editing the persona.
+- **Open:** storage shape (a per-session override set, mirroring how Unattended/subscriptions are
+  stored). To design before building.
+
+## 5. Richer persona manifests — `recommends`  *(Decided → Built: data model)*
+- **Decision:** Persona manifests gain a `recommends` list: each item references a `connector:` or
+  `mcp:`, with a `reason` (the value it unlocks) and a `tier` (`core` | `optional`). This drives the
+  drawer's persona-aware recommendations (§3) — data, not hardcoded UI.
+- **Rationale:** "Good evolution before we go live." Recommendations must travel with the persona
+  (incl. third-party personas), so they belong in the manifest, not the frontend.
+- **Validation:** `recommends` is **not** strictly validated against shipped connector descriptors (a
+  persona may legitimately recommend a connector we don't ship yet, or an external one). Only the
+  structure (kind/ref/tier) is validated. *(Contrast: `tools` ARE validated against the catalog.)*
+
+## 6. Global Integrations page
+- **Decision (Decided / Mocked):** Replace the single long scroll with a **left sub-nav**:
+  **Connectors · Messaging routing · Activity · MCP servers**.
+  - *Connectors*: card grid; a connected two-way connector expands to its allow-list + recent senders.
+  - *Messaging routing*: groups the three previously-scattered controls — channel subscriptions, DM
+    routing, Unattended-approvals routing — into one panel.
+  - *Activity*: the Unrouted/failed dead-letter table (with a count badge in the nav).
+- **Rationale:** Things were "dumped one after another," hard to find. Grouping by intent fixes
+  discoverability. (Global = account-wide; the per-session drawer in §3 is the scoped counterpart.)
+
+## 7. Left navigation — dual layout  *(Decided / Mocked)*
+- **Decision:** Support **two session layouts**, user-toggleable via a small icon next to the
+  "OpenCoworker" wordmark:
+  1. **Flat** — Pinned + Recent (current).
+  2. **Grouped by persona** — sessions clustered under their persona.
+- **Boundaries (Decided 2026-06-29):** the grouped layout's per-persona sections must have **clear
+  visual boundaries** — render each persona group as a **bounded card** (faint surface + border +
+  header), not just a text header (the first cut had indistinct boundaries).
+- **Per-group gear → Persona page (§9):** each persona group header carries a **settings gear** that
+  opens the persona's detail page.
+- **Rationale:** Different mental models — time/recency vs. persona/role. Don't force one. Pins remain
+  pure accessibility in both.
+- **Open:** persist the choice (prefs); default = Flat.
+
+## 8. "New session" — persona picker  *(Decided / Mocked)*
+- **Decision (Decided 2026-06-29):** "New session" is a **split button** — the main action starts a
+  session with the **last-used / default persona**; the **▾** opens a dropdown to pick from the
+  **enabled personas** (icon + name + tagline) + "Manage personas…" (→ §9). Not a modal, not an
+  always-dropdown.
+- **Rationale:** Fast path for the common case + discoverable choice without a heavyweight picker.
+  Personas are the product's organizing concept, so surfacing them at session creation is right.
+
+## 9. Persona detail page  *(Decided / Mocked)*
+- **Decision:** A per-persona detail page (opened from the grouped-nav gear, or "Manage personas…")
+  shows: **identity** (icon, name, tagline) + an **Enable** toggle; **About**; **built-in
+  capabilities** (tools); **Connections for full benefit** (the manifest `recommends`, §5 — core/
+  optional + the value each unlocks + connect state); **"New sessions get by default"** (the
+  persona→session default connections, each toggleable — the middle layer of the §4 hierarchy); and
+  **defaults** (models, mode, workspace).
+- **Rationale:** The owner needs one place to answer "what *is* this persona, what does it need
+  connected, and what does a session inherit by default?" It's also where the persona-level layer of
+  the §4 hierarchy is configured.
+
+## 10. Persona enablement / onboarding  *(Proposed — tabled)*
+- **Question (owner):** Enabling a persona is just a toggle today, but it implies setup (connecting
+  the recommended sources). Should that onboarding happen **inside the first session**, or be a more
+  **explicit upfront** step? Onboarding can be heavy if it requires connecting several sources.
+- **Recommendation (mine):** Keep it **lightweight and progressive, never gating**. Enabling a
+  persona flips it on and surfaces its recommended connections (reuse the §9 page / a slim "set up
+  Ops" panel) where the user connects what they want **now** and the rest stay as `⚠ N` nudges in the
+  session's Sources bar (§3) — completable later. The first session works immediately with whatever's
+  connected; it just shows the nudge. Avoid a blocking multi-step wizard.
+- **Status:** **tabled** for later by owner; design intent recorded so we don't accidentally build a
+  heavy gated wizard.
+
+## 11. Session top bar — no model / mode chips  *(Decided 2026-06-29 by owner)*
+- **Decision:** The session top bar shows **only** the title · persona · ⋯ menu (left) and the
+  persona/panel icons (right). The read-only **model** chip (`anthropic:claude-opus-4-8`) and
+  **permission-mode** chip (`Interactive`) are **removed**.
+- **Rationale:** Both were non-interactive `<span>`s that *duplicated* controls already in the
+  composer — the model dropdown and the **"Ask for approval"** permission-mode dropdown — where the
+  user actually changes them. Worse, the mode chip showed the raw enum **"Interactive"** while the
+  composer labels the identical setting **"Ask for approval"**, so the two names read as two different
+  things. The composer is the single source of truth; the chips were clutter. (The persona detail
+  page §9 still documents the persona's *default* model + mode — that's a different surface.)
+- **Note:** The three permission modes remain unchanged — **Plan** (read-only, propose first),
+  **Interactive** = "Ask for approval" (asks before edits/commands), **Full access** (runs without
+  asking). This is a separate axis from the composer's **Unattended** toggle (routes approvals to the
+  Inbox for hands-off runs). Mock (`redesign.html`) updated to match.
+
+## 12. Sidebar bottom — Inbox + a single ⚙ menu  *(Decided 2026-06-30 by owner)*
+- **Decision:** The sidebar bottom was a stack of 5 rows (Integrations · Automations · Inbox ·
+  Activity + a path/gear footer) — "very busy." Collapse it to **two rows**: **Inbox** stays visible
+  (its attention badge must be glanceable), and **Settings · Integrations · Automations · Activity**
+  move into one **⚙ "Settings & more"** click-to-open menu that opens upward. The
+  current workspace path becomes the menu's header (was the standalone footer).
+- **Rationale:** Inbox is the only high-frequency destination; the rest are occasional (Integrations
+  is set-up-once, Activity/Settings are rare). Similar products use a bottom menu for *account* items —
+  we have no account (local, BYO-key), so ours holds *app* destinations instead. Net: 5 rows → 2,
+  primary nav (New session, Search) stays clean at top.
+- **Not chosen:** moving Inbox to the top cluster (kept it bottom-adjacent to its badge); keeping
+  Integrations/Automations visible (folded them in for a cleaner bottom — promotable later if usage
+  warrants).
+
+---
+
+## 14. Per-session Slack channels — Sources drill-down  *(Decided 2026-07-01 by owner)*
+- **Decision:** Managing which channels a session listens to belongs in the **Sources drawer**, not
+  the composer's `+` menu. On a connected **two-way** messaging connector's row (Slack/Telegram), a
+  **"Channels · N ›"** control opens a **child panel with a ‹ back button** — subscribed channels
+  (× to stop listening) + an add picker (recent-channels datalist). The `+` menu stays about
+  attachments only.
+- **Rationale:** Sources is *the* per-session connection surface — it already owns "is Slack on for
+  this session" (the mute toggle). Channels are the same category (per-session, connector-scoped
+  standing config); the `+` menu is per-*message* attachment — a different mental model. Placing it
+  on the Slack row makes it discoverable in context and gates itself (only shows when the connector
+  is connected+enabled and two-way). The child panel gives the picker room and generalizes into a
+  per-connector settings drill-down (allow-list, DM routing could live there later).
+- **Reuse:** pure GUI — existing `subscribeChannel`/`unsubscribeChannel`/`getSubscriptions`/
+  `getRecentChannels`; `two_way` read from the connector index the drawer already loads. No backend.
+- **Not chosen:** the composer `+` menu (wrong mental model, needs conditional gating in the
+  composer); inline row-accordion (cramped in the 420px drawer, clutters the Connected list).
+
+---
+
+## 13. Settings as a full page; Activity re-shelled  *(Decided 2026-07-01 by owner)*
+- **Decision:** Retire the top-tab **ManageModal** and make **Settings** a full-page surface that
+  reuses the Integrations shell (208px left sub-nav + centered panel + `PanelHead`). Split by scope
+  (**Option 2**): Settings holds the *local/app* concerns — **Appearance · Files · Models · Personas**;
+  anything *external* (Connectors · Messaging · MCP · Activity) stays under **Integrations**. The
+  **Activity** page (old `AuditView`) moves onto the same page shell, dropping the legacy `page-view`
+  layout and its duplicate header.
+- **Rationale:** The modal was the last top-tab surface and the last `page-view` straggler, and it
+  *duplicated* MCP/Connectors that already live under Integrations. One page idiom everywhere; no
+  duplicated homes; more room than a modal. Models + Personas field bodies were re-skinned to the
+  Tailwind card idiom to match Appearance/Files (left-aligned segmented control, carded config).
+- **Wiring:** the ⚙ menu's *Settings*, the desktop tray's Settings event, the composer's "no model"
+  chip, and the persona-card gear all route to `surface: "settings"` with an initial section. The
+  shared tab bodies (`ModelsTab`, `ConnectorsTab`, `McpTab`) moved to `ManageTabs.tsx`; dead
+  `SettingsTab`/`AuditTab`/`ManageModal`/`UnattendedToggle` removed.
+- **Not chosen:** Option 1 (one unified Settings+Integrations hub) — cleaner long-term but a bigger
+  rebuild and a very long single nav; the Settings/Integrations split reads more naturally.
+- **Follow-up:** dead-CSS pass for now-unused modal/legacy classes (`manage-*`, `mtab`, `page-view`,
+  `sa-view-*`, `persona-row`, `persona-install`, `consent-card`, `audit-*`); sync `redesign.html`.
+
+---
+
+## 15. Persona Gallery as a modal; delete; team-sharing-ready  *(Decided 2026-07-03 by owner)*
+- **Decision:** The Gallery leaves the inline Settings ▸ Personas section and becomes a
+  **screen-sized modal** opened from a "Browse the Persona Gallery" link on the Personas page
+  (modal, not a route — installs finish back on Personas, disabled pending consent). Modal anatomy:
+  header (title · search · close) + source chips (**All · From OpenCoworker · From your team**),
+  a **featured carousel** (publisher-flagged `featured` cards, user-scrolled — never auto-rotating),
+  and the catalog **list**; every card opens the in-modal **solo page** (hero + pitch + locally
+  derived capabilities) — install only happens there. Personas page rows gain a **delete**
+  affordance (non-builtin only, inline confirm, works signed out).
+- **Not chosen:** loading cloud-served HTML in an iframe — it would reopen the
+  "cloud describes capabilities" channel the solo-page design deliberately closed, need a spoofable
+  postMessage install bridge, and break offline/theming/e2e. Rich showcase comes from publisher
+  markdown + images rendered by our own components instead.
+- **Visuals:** connector chips show hand-drawn SVG **brand marks** (`brandIcons.tsx`, neutral plug
+  fallback); personas without publisher imagery get a deterministic **generated hero**
+  (`PersonaHero.tsx`, hue from slug) so the carousel/solo pages never look empty.
+- **Team-sharing-ready (design-only for now):** the "From your team" chip + empty-state teaser ship
+  now; publish-to-tenant later reuses the gallery's existing `tenant_only` visibility. Team personas
+  get **zero extra trust** — same validation, local capability derivation, disabled-until-approved.
+- **Updates (design-only):** installed personas will record source (slug+version+hash); update
+  re-runs consent **iff the capability surface changed** (never a silent permission expansion).
+
+---
+
+## 16. Workspace enum collapsed into family  *(Decided 2026-07-03 by owner)*
+- **Decision:** The persona `workspace` enum (`git | project | deliverable | none`) is retired as a
+  behavioral axis. `family` alone decides: **knowledge → transparent per-conversation scratch**
+  (real folders added as session roots when needed; no folder gate, ever); **code → explicit
+  directory picked by the user** (gate + project-grouped sidebar). Manifests may still carry the
+  key (parsed + typo-checked for back-compat) but it's inert — the effective value derives from
+  family. Built-in Ops moves to scratch + multi-root; Chat keeps `none` via its builder.
+- **Rationale:** the only combo the enum enabled — knowledge+`project` (Ops) — predates multi-root
+  knowledge sessions, which cover "work against a real folder" strictly better (progressive, no
+  modal wall). The two-axis model split behavior across code paths (engine branched on family, the
+  gate/sidebar on workspace) and produced the 2026-07-03 smoke-test contradictions: a gate demanding
+  a folder while a scratch-backed chat ran behind it, and grouped-sidebar sessions with no home.
+- **Future:** a `git: true` refinement of code-family may later force "start from a git repo", with
+  clone-into-scratch as the safe execution mode. Personas may also *suggest* a root ("works best
+  with a folder attached") — a banner, never a wall.
+
+---
+
+## 17. The model is fixed per session  *(Decided 2026-07-04 by owner)*
+- **Decision:** a session's model is chosen up to the first turn, then **locked for the session's
+  life**. The composer's model picker is interactive on a fresh session and becomes a read-only
+  pill afterwards ("start a new session to switch"). Enforced **server-side** — the first
+  user_message's `model` binds the engine; later message models and `set_model` are ignored —
+  not just in the GUI, so API callers and socket races can't rebind a running conversation.
+- **Mechanism:** every user_message carries the composer's visible model (the first one binds).
+  This replaced a separate `set_model` handoff that could race the socket lifecycle (silent no-op
+  before the socket exists; losable during the reconnect every new cowork session does to adopt
+  its scratch dir; `ready` overwriting the visible selection) — the owner's repro was picking
+  Opus and getting Kimi.
+- **Rationale:** sessions are task-scoped; mixed-model transcripts invite provider-quirk breakage
+  (tool-call replay, vision content), thrash prompt caches, and make behavior impossible to
+  reason about. Mid-session switching was inherited chat-app convention, never a designed feature.
+- **Future (owner, 2026-07-04, not built):** mid-session switching may return as a *designed*
+  feature — a compatibility-matched switch, not a free dropdown: only models whose capabilities
+  cover what the transcript already uses (tool-calling always; vision iff images are in history;
+  reseller/vendor quirks vetted via the model matrix), with an explicit affordance + warning.
+  Also covers the provider-died-mid-session case. Until then: start a new session.
+
+---
+
+## 18. Disable a persona = archive its conversations  *(Decided 2026-07-04 by owner)*
+- **Decision:** disabling a persona **archives all of its real sessions** (unarchived,
+  non-internal) in the same server-side action. Its sidebar section then disappears naturally —
+  the grouped layout's never-orphan rule ("a persona with unarchived sessions always gets a
+  section") stays untouched, because after the archive there is nothing left to orphan. No
+  greyed-out sections, no time-based ("inactive for N hours") heuristics: every sidebar
+  visibility change traces to an explicit user action.
+- **Confirm:** unchecking *Enabled* on Settings ▸ Personas only **arms an inline confirm** when
+  the persona has conversations — "Disabling archives its N conversations — they stay available
+  under 'Show archived'" with Disable / Keep enabled (the same two-step idiom as row delete).
+  With zero conversations the checkbox flips instantly; the confirm exists for the side effect,
+  not for ceremony.
+- **Re-enable never unarchives.** That would overwrite the user's archive state; history returns
+  one click at a time via the Show-archived disclosure. The archive step lives in the manager
+  (`set_persona_enabled`), so both persona routes — and any future client — share the semantic.
+
+## 19. Unauthorized senders: park, don't drop; connector card is the config surface  *(Decided 2026-07-04 by owner)*
+- **Problem:** first contact on a two-way connector took a double-send — the allow-list
+  (correctly closed by default) silently dropped the first message; the sender only appeared
+  under "Recent senders", and after being allowed had to message AGAIN.
+- **Decision:** an allow-list drop **parks the message** instead of losing it. The connector's
+  expanded card shows "Messages from senders you haven't allowed" with three resolutions:
+  **Allow & deliver** (allow-list the sender AND re-inject the original message through the
+  normal inbound path — buffer + subscriptions — no re-send), **Allow only** (future messages
+  flow; this one is discarded), **Dismiss** (throw away, nothing else changes). Parked items
+  are capped and persisted (`parked.json`).
+- **The expanded connector card is the one-stop config surface** for a two-way connector:
+  tools, allow-list + recent senders, parked messages, and "Sessions listening" — the
+  per-connector cut of the global Channel-subscriptions table (which stays under
+  Integrations ▸ Messaging routing; the owner looked for it on the connector and couldn't
+  find it there).
+- **Tokens hot-reload (no restarts):** a platform socket authenticates at connect time, so new
+  creds require reopening that socket — and nothing else. Connect/disconnect of a messaging
+  connector now refreshes the gateway listeners in-process; the sidecar never restarts. (Found
+  when pasted Slack tokens "did nothing": the listener only started in the app lifespan.)
+- ↪ **Partially superseded (2026-07-08):** the parked/allow-list semantics stand, but the config
+  surface moves from the expanded card to the connector's **detail subpage** — see §21.
+
+## 20. Collapsible left nav + RECENT header group/filter  *(Decided 2026-07-05 by owner)*
+- **Decision:** The left nav gains three refinements (extends §7):
+  1. **Collapse (⌘B) with hover-peek.** The nav can collapse so the content reclaims the width
+     (grid → single column; the sidebar is taken out of flow). Collapsed, hovering the left edge
+     (`.nav-hover-zone`) *peeks* it back as a floating overlay (shadow, over content, auto-hides on
+     leave); ⌘B, the brand pin button, or the floating reveal button (`.nav-reveal-btn`, cleared
+     past the traffic lights on desktop) dock it. Collapse is persisted per-device (localStorage).
+  2. **RECENT header owns grouping + filtering.** The old brand-bar layout toggle is gone; the
+     brand bar now holds only the wordmark + the collapse/pin control. A **RECENT** section header
+     (like PINNED) carries a sliders control that opens one popover with **Group by** (Persona =
+     the accordion ↔ Chronological = the flat list) and **Filter by coworker** (persona checkboxes;
+     none checked = all shown). The popover stays open so you can group AND filter in one visit.
+  3. **Artifact preview auto-collapses the nav.** Opening a full artifact preview (PDF/webpage/
+     sheet) collapses the nav for max width and restores it on close — unless you manually toggled
+     the nav meanwhile (the manual action takes control; the auto-collapse never overwrites the
+     saved pref).
+- **Inspiration (not copied):** Similar products collapsible sidebars + their group/filter menus.
+- **Tests:** `e2e/nav-collapse.spec.ts` (collapse/dock, ⌘B, popover grouping); `Sidebar.test.tsx`
+  updated to the new group/filter control.
+
+## 21. Connectors redesign: connected-first list, detail subpages, add-modal, privacy filters  *(Decided 2026-07-08 by owner; mock: `ui-mocks/connectors-redesign.html`)*
+
+Driven by managed-Slack going multi-workspace (M3.5): the connector card had outgrown itself, and
+the interim "Slack workspaces" Integrations tab was the wrong shape. One pattern for ALL connectors:
+
+- **Navigation:** the Integrations sub-nav stays fixed (Connectors · Messaging routing · Activity ·
+  MCP servers) — **no per-connector nav items**. Each connected connector opens a **detail subpage**
+  under Connectors (breadcrumb `‹ Connectors`). Slack manages workspaces there; Gmail accounts;
+  HubSpot portals; Teams orgs. Supersedes both the expanded-card config surface (§19) and the
+  short-lived "Slack workspaces" tab.
+- **Connectors list:** **Connected first**, in its own section — single-column rows with brand
+  badge, one-line status, a **health chip** (● Live / ⚠ Reauthorize / ● Ready) and a chevron; the
+  row itself navigates. "Available" below (row list + Connect pills), long tail behind "show all".
+  Cloud sign-in shrinks to a slim strip. Problems must surface **in the list**, not after a click.
+- **Visual grammar:** macOS System-Settings style — grouped inset lists on gray paper, hairline
+  separators, 44px rows, pill buttons, sentence-case group headers, minimal copy (footnotes, not
+  paragraphs; IDs on hover). Owner: "I really like Apple for their aesthetics"; v1 was too verbose.
+- **One entry point to add a connection:** the header button (`＋ Add workspace` / `＋ Add account`)
+  opens a **modal** with a One click | Manual pill switcher, each pane carrying its instructions
+  (Slack: relay vs Socket-Mode tokens; HubSpot: OAuth vs private-app token). **Modal only when a
+  connector has ≥2 connect modes** — single-mode connectors (Gmail, Teams) launch directly. The
+  bottom-of-page "Add a …" sections are gone (duplicate CTA).
+- **Multi-account everywhere:** Slack workspaces, Gmail accounts, HubSpot portals, Teams orgs —
+  same skeleton: one group per account with per-account auth state and Disconnect. A **Default**
+  badge answers "which account do tools use?"; sessions can override in Sources; **every approval
+  card names the account/portal it will act on** (a sandbox test can never quietly hit production).
+  Profile keying generalizes the Slack pattern: `gmail:account:<email>`, `hubspot:portal:<hub_id>`.
+- **Tools are a collapsed disclosure on every detail page** ("Tools · 3 of 5 enabled") — the lever
+  exists everywhere but stays quiet; write tools carry "asks first" tags; destructive tools (e.g.
+  HubSpot delete) are **never offered**.
+- **Connection health = three honest layers** (Slack page): desktop↔relay WS (Live/Reconnecting/
+  Offline + last event), cloud sign-in (required for relay), per-workspace/account token health.
+  We never claim "Slack↔cloud is down" — event silence is indistinguishable from a quiet workspace.
+- **Privacy filters, enforced at the DESKTOP, silent to agents:** the invariant is **"the cloud
+  knows routing; the desktop knows content and policy."** Gmail: "Never show agents" senders/
+  domains/labels — filtered mail **does not exist** from the model's perspective (no tombstone:
+  `<truncated>` markers leak sender/subject and invite the model to reason around policy); the
+  user sees "N hidden by filters" out-of-band on the tool card (MessageSource-sidecar pattern) +
+  audit entries. HubSpot: **hidden fields** (property denylist stripped before model context) +
+  **read-only vs read & write chosen at consent time** (scope minimization is the real ACL) +
+  "agents see what the connecting HubSpot user sees" (record ACLs belong server-side in HubSpot
+  permission sets — client-side per-record filters are theater and are deliberately NOT built).
+- **Teams (concept):** relay-only (bots need a public endpoint — no manual mode). Consent is
+  self-serve: chats = user installs it; channels = any **team owner** (RSC, per-team consent);
+  org-blocked = Teams' native "Request approval" asks IT once. No tenant-admin Graph permissions
+  by design — same per-actor privacy posture as the Slack relay.
+
+## Change log (requests, newest first)
+
+- **2026-07-08** — Owner, reviewing the M3.5 Slack-workspaces tab: wanted connector detail as a
+  subpage under Connectors (not a nav item), connected-first Connectors list, Apple-quiet styling,
+  one add-connection entry point (header-button modal with One click | Manual pills), collapsed
+  Tools everywhere, and enterprise privacy levers (Gmail sender/label exclusions — drop silently,
+  no `<truncated>` tombstone; HubSpot hidden fields + read-only connect). Multi-account confirmed
+  feasible for Gmail (accounts), HubSpot (portals), Teams (orgs). Teams consent corrected: self-
+  serve via user install/team-owner RSC, admin only if org policy blocks apps → §21. Build order:
+  Connectors list + subpage nav → Slack page → Gmail multi-account → HubSpot → Teams.
+- **2026-07-05 (2)** — Owner aesthetic asks on the left nav: floating/collapsible on demand,
+  a RECENT header with a group+filter control moved off the top bar, and
+  auto-collapse when an artifact opens → §20. Chose hover-peek + pin, and auto-collapse with
+  auto-restore.
+- **2026-07-05** — Owner (Slack-on-PM setup): double-send first-contact flow called clumsy →
+  §19 (park + one-step allow-and-deliver, connector card as config surface, gateway
+  hot-reload). Root-caused "Slack keeps resetting": pre-Jul-3 pytest runs clobbered real
+  tokens with a test stub (`xoxb-1`) — isolation fixture already fixed it; proved with
+  hash-compare across the full suite. Sender names showing "unknown" = missing bot scopes
+  (users:read, channels:read) — setup instructions updated.
+- **2026-07-04 (2)** — Owner (testing pass, persona disable): disabled personas kept their
+  sidebar sections because old sessions held them (never-orphan rule). Discussed hide vs grey vs
+  time-based liveness; owner picked **archive-all-on-disable** (§18) with an inline confirm at
+  the disable click.
+- **2026-07-04** — Owner: model-key testing pass. First-class provider entries for
+  OpenAI-compatible vendors + Together/Fireworks resellers with a curated model matrix (ids →
+  labels → capabilities); custom provider picker (sections, key-set dot, last-used); "chose Opus,
+  Kimi replied" → model rides every message and is **fixed per session** (§17).
+- **2026-07-03 (2)** — Owner testing pass found 10 issues; while fixing the project-workspace
+  cluster, owner challenged the workspace enum ("family:knowledge means scratch; family:code means
+  explicit directory — why more?"). Decided §16: collapse workspace into family. Also: session
+  delete → archive-first with soft confirm + scratch cleanup; sidebar caps sessions per persona
+  (configurable); connect-in-context from the session drawer; Inbox filters + orphan pruning.
+- **2026-07-03** — Owner: Gallery UX rethink (§15): delete personas; Gallery behind a link as a
+  full-screen **modal** (owner preferred modal since installs finish in Personas); carousel + list;
+  brand icons for connectors; default generated hero art. Iframe-HTML idea discussed and dropped
+  (trust model). Team publish + persona updates designed, phased later.
+- **2026-07-01 (2)** — Owner: "should the Slack-channel feature live in the right-side Sources panel?"
+  Decided **yes** (§14): a **child panel with back** off the connected Slack/Telegram row manages the
+  session's subscribed channels — not the composer `+` menu. Pure GUI, existing subscription APIs.
+- **2026-07-01** — Owner: convert the Settings **modal → page** like Integrations, and re-shell
+  **Activity** too. Decided **Option 2** (§13): Settings = Appearance/Files/Models/Personas;
+  Integrations keeps Connectors/Messaging/MCP/Activity. Models + Personas re-skinned; modal + dead
+  tabs removed; shared bodies → `ManageTabs.tsx`.
+- **2026-06-30** — Owner: sidebar "very busy" vs other products. Decided: **bottom → Inbox + one ⚙
+  "Settings & more" menu** (§12), folding Settings/Integrations/Automations/Activity into a
+  click-to-open popup. 5 rows → 2.
+- **2026-06-29 (3)** — Owner Q on the session top bar ("why the model name? what is 'Interactive'?").
+  Decided: **remove both top-bar chips** (§11) — they duplicated the composer's model + "Ask for
+  approval" controls, with the mode chip mislabeled vs. the composer. App + mock updated.
+- **2026-06-29 (2)** — Confirmed: §4 hierarchy, §8 split button. New: grouped-nav needs clear
+  **boundaries** + a per-persona **gear** (§7); **Persona detail page** (§9). Tabled: **persona
+  enablement/onboarding** (§10) — keep it lightweight/progressive, not a gated wizard.
+- **2026-06-29** — Req: `⚠ N` badge (not "N recommended"); per-session enable/disable toggle
+  (hierarchy §4); richer manifests with `recommends` (§5, built); dual left-nav layouts (§7);
+  New-session persona dropdown (§8). Owner endorsed the persona-connection drawer concept (§3).
+- **2026-06-28/29** — Initial redesign asks: connector message card (§2a), Sources bar (§3),
+  Integrations de-clutter (§6), connector-agnostic design (§1), collapsible steps (§2b).

@@ -179,6 +179,14 @@ export function App() {
   // The persona whose detail page is showing (surface === "persona"); empty falls back to the
   // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
   const [personaViewId, setPersonaViewId] = useState<string>("");
+  // Where the persona page returns on "back": the active session, or Settings ▸ Personas when it
+  // was opened from there (persona config now lives in Settings).
+  const [personaViewReturn, setPersonaViewReturn] = useState<"session" | "settings">("session");
+  const openPersona = (id: string, from: "session" | "settings" = "session") => {
+    setPersonaViewReturn(from);
+    setPersonaViewId(id);
+    setSurface("persona");
+  };
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
   // Left-nav collapse (⌘B): when collapsed the sidebar leaves the grid so content reclaims the
@@ -546,7 +554,15 @@ export function App() {
           ]);
           break;
         case "tool_finished":
-          setItems((p) => updateLastTool(p, d.name, d.status, d.result_preview || d.reason));
+          setItems((p) =>
+            updateLastTool(
+              p,
+              d.name,
+              d.status,
+              d.result_preview || d.reason,
+              d.display?.hidden_by_filters,
+            ),
+          );
           // Refresh the right rail when something it shows may have changed: browser state, or a
           // file write that should appear under Artifacts immediately (not only after the turn).
           if (String(d.name || "").startsWith("browser_") || FILE_WRITE_TOOLS.has(d.name)) {
@@ -956,8 +972,7 @@ export function App() {
         onTogglePin={togglePinned}
         onManage={() => openSettings("appearance")}
         onOpenPersona={(id) => {
-          setPersonaViewId(id);
-          setSurface("persona");
+          openPersona(id, "session");
         }}
         onManagePersonas={() => openSettings("personas")}
         onOpenScheduled={() => setSurface("scheduled")}
@@ -981,7 +996,11 @@ export function App() {
       ) : surface === "integrations" ? (
         <IntegrationsView />
       ) : surface === "settings" ? (
-        <SettingsView key={settingsTab} initialTab={settingsTab} />
+        <SettingsView
+          key={settingsTab}
+          initialTab={settingsTab}
+          onOpenPersona={(id) => openPersona(id, "settings")}
+        />
       ) : surface === "audit" ? (
         <AuditView />
       ) : surface === "inbox" ? (
@@ -989,7 +1008,9 @@ export function App() {
       ) : surface === "persona" ? (
         <PersonaView
           personaId={personaViewId || agent}
-          onBack={() => setSurface("session")}
+          onBack={() =>
+            personaViewReturn === "settings" ? openSettings("personas") : setSurface("session")
+          }
           onOpenIntegrations={() => setSurface("integrations")}
         />
       ) : (
@@ -1078,10 +1099,7 @@ export function App() {
               <button
                 className="topbar-icon-btn"
                 onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => {
-                  setPersonaViewId(agent);
-                  setSurface("persona");
-                }}
+                onClick={() => openPersona(agent, "session")}
                 aria-label="About this persona"
                 title="About this persona"
               >
@@ -1153,10 +1171,7 @@ export function App() {
                 sessionId={sessionId}
                 personaId={agent}
                 onOpenIntegrations={() => setSurface("integrations")}
-                onOpenPersona={(id) => {
-                  setPersonaViewId(id);
-                  setSurface("persona");
-                }}
+                onOpenPersona={(id) => openPersona(id, "session")}
               />
             )}
             <div className="main-scroll" ref={scrollRef}>
@@ -1331,12 +1346,18 @@ function WaitingForAgent() {
   );
 }
 
-function updateLastTool(items: Item[], name: string, status: string, preview?: string): Item[] {
+function updateLastTool(
+  items: Item[],
+  name: string,
+  status: string,
+  preview?: string,
+  hidden?: number,
+): Item[] {
   const copy = [...items];
   for (let i = copy.length - 1; i >= 0; i--) {
     const it = copy[i];
     if (it.kind === "tool" && it.name === name && it.status === "…") {
-      copy[i] = { ...it, status, preview };
+      copy[i] = { ...it, status, preview, ...(hidden ? { hidden } : {}) };
       break;
     }
   }
