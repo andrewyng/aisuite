@@ -51,6 +51,12 @@ class Config:
     port: int = 8765
     # Web search provider: "duckduckgo" (keyless default) | "tavily" | "brave" (need a key).
     web_search_provider: str = "duckduckgo"
+    # OpenCoworker Cloud (sign-in + managed connectors). Config, never constants:
+    # dev/staging/BYO-VPC deployments point these at their own instances.
+    cloud_base_url: str = "https://api.opencoworker.app"
+    cloud_auth_domain: str = "opencoworker.us.auth0.com"
+    cloud_client_id: str = "g1l4Q1lhYWmyS03qPSf4KEJGrgq02Qam"
+    cloud_audience: str = "https://api.opencoworker.app"
 
 
 _FIELDS = {
@@ -62,6 +68,10 @@ _FIELDS = {
     "host",
     "port",
     "web_search_provider",
+    "cloud_base_url",
+    "cloud_auth_domain",
+    "cloud_client_id",
+    "cloud_audience",
 }
 
 

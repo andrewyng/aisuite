@@ -268,6 +268,55 @@ export interface Connector {
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   tools: ConnectorTool[];
+  managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
+  managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
+}
+
+// --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
+
+export interface CloudStatus {
+  signed_in: boolean;
+  account: string;
+  user_id: string;
+  telemetry_enabled?: boolean; // Phase 5 opt-out; signed-out users send nothing regardless
+}
+
+/** Flip the product-telemetry preference (local; only meaningful when signed in). */
+export async function setCloudTelemetry(
+  enabled: boolean,
+): Promise<{ ok: boolean; telemetry_enabled?: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/cloud/telemetry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  return res.json();
+}
+
+export async function getCloudStatus(): Promise<CloudStatus> {
+  const res = await fetch(`${httpBase()}/v1/cloud/status`);
+  return res.json();
+}
+
+export async function cloudLogin(): Promise<{ ok: boolean }> {
+  // The sidecar opens the system browser; the GUI just polls status after.
+  const res = await fetch(`${httpBase()}/v1/cloud/login`, { method: "POST" });
+  return res.json();
+}
+
+export async function cloudLogout(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/cloud/logout`, { method: "POST" });
+  return res.json();
+}
+
+export async function connectManaged(
+  name: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
+    { method: "POST" },
+  );
+  return res.json();
 }
 
 export interface ConnectorTool {
@@ -397,6 +446,20 @@ export interface ModelSettings {
   // bounded per-persona cards. Defaults to "flat" (absent → flat) so the GUI is robust to an older
   // backend that hasn't shipped the field yet.
   nav_layout?: "flat" | "grouped";
+  // Sidebar: sessions shown per group before "Show more" (default 5, 1–50).
+  sessions_peek?: number;
+}
+
+/** Persist how many sessions a sidebar group shows before "Show more". */
+export async function setSessionsPeek(
+  n: number,
+): Promise<{ ok: boolean; sessions_peek?: number; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/settings/sessions-peek`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessions_peek: n }),
+  });
+  return res.json();
 }
 
 export async function setScratchBase(
@@ -434,6 +497,14 @@ export async function setNavLayout(
 }
 
 // -- Personas -----------------------------------------------------------------
+
+// Fired after any persona mutation (enable/disable/install/delete) so always-mounted
+// consumers (the sidebar's new-session picker) refetch instead of going stale.
+export const PERSONAS_CHANGED = "coworker:personas-changed";
+function announcePersonasChanged() {
+  window.dispatchEvent(new CustomEvent(PERSONAS_CHANGED));
+}
+
 export interface Persona {
   id: string;
   name: string;
@@ -478,18 +549,84 @@ export async function updatePersona(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  const out = await res.json();
+  if (out.ok !== false) announcePersonasChanged();
+  return out;
+}
+
+/** Uninstall a non-builtin persona (its snapshot + state). Local; works signed out. */
+export async function deletePersona(
+  id: string,
+): Promise<{ ok: boolean; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  const out = await res.json();
+  if (out.ok) announcePersonasChanged();
+  return out;
+}
+
+// A curated persona card from the cloud gallery (metadata only — the manifest
+// is fetched server-side at install and runs through the normal consent flow).
+export interface GalleryPersona {
+  slug: string;
+  version: number;
+  name: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  family: string;
+  workspace: string;
+  publisher: string;
+  recommended_connectors: string[];
+  risk_summary: string;
+  featured?: boolean; // publisher-flagged for the gallery's featured carousel
+}
+
+export async function getCloudGallery(): Promise<{
+  ok: boolean;
+  personas: GalleryPersona[];
+  error?: string;
+}> {
+  const res = await fetch(`${httpBase()}/v1/cloud/gallery`);
+  return res.json();
+}
+
+// Solo page for one gallery coworker. `capabilities` is the desktop's own
+// consent summary derived from the manifest (same parser as install), so the
+// page shows exactly what installing would ask the user to approve.
+export interface GalleryDetail {
+  ok: boolean;
+  error?: string;
+  card?: GalleryPersona & { pitch_markdown: string };
+  capabilities?: {
+    tools: string[];
+    risk: string[];
+    connectors: boolean;
+    mcp: string[];
+    messaging: boolean;
+    recommended_mode: string;
+    recommended_models: string[];
+  };
+  recommends?: { kind: string; ref: string; reason: string; tier: string }[];
+}
+
+export async function getCloudGalleryDetail(slug: string): Promise<GalleryDetail> {
+  const res = await fetch(`${httpBase()}/v1/cloud/gallery/${encodeURIComponent(slug)}`);
   return res.json();
 }
 
 export async function installPersona(
-  body: { dir?: string; git_url?: string },
+  body: { dir?: string; git_url?: string; gallery_slug?: string },
 ): Promise<{ ok: boolean; consent?: PersonaConsent[]; personas?: Persona[]; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/personas/install`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.json();
+  const out = await res.json();
+  if (out.ok) announcePersonasChanged();
+  return out;
 }
 
 // -- Persona detail + connection defaults (§5) --------------------------------
@@ -556,7 +693,9 @@ export async function setPersonaEnabled(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
   });
-  return res.json();
+  const out = await res.json();
+  if (out.ok) announcePersonasChanged();
+  return out;
 }
 
 // -- Per-session connections (Sources bar + drawer, §6) -----------------------
@@ -582,8 +721,16 @@ export interface SessionConnections {
   attention: number; // ⚠ count = recommended connectors not yet connected
 }
 
-export async function getSessionConnections(sessionId: string): Promise<SessionConnections> {
-  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/connections`);
+/** `persona` = the active persona hint — required for brand-new sessions (no server-side
+ * record yet), otherwise the view resolves to the default persona's defaults/recommends. */
+export async function getSessionConnections(
+  sessionId: string,
+  persona?: string,
+): Promise<SessionConnections> {
+  const q = persona ? `?persona=${encodeURIComponent(persona)}` : "";
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/connections${q}`,
+  );
   return res.json();
 }
 

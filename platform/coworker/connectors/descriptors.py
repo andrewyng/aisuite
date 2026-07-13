@@ -63,6 +63,11 @@ class ConnectorDescriptor:
     # (connectors/experimental/) that release builds exclude entirely.
     experimental: bool = False
     risk_notice: str = ""
+    # One-click managed OAuth via OpenCoworker Cloud (requires cloud sign-in).
+    # Manual token paste ALWAYS remains available — signed out or in — managed
+    # is an extra path, never a replacement (local-only open-source flow is
+    # sacred).
+    managed: bool = False
 
 
 # -- validators (sync httpx, one-shot) -----------------------------------------
@@ -376,9 +381,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "Use a Google OAuth access token with Gmail readonly and send scopes.",
-            "Paste the access token below. Managed sign-in will replace this manual step later.",
+            "Paste the access token below.",
         ],
         available=True,
+        managed=True,
     ),
     ConnectorDescriptor(
         name="google_calendar",
@@ -397,9 +403,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "Use a Google OAuth access token with Calendar read/write scopes.",
-            "Paste the access token below. Managed sign-in will replace this manual step later.",
+            "Paste the access token below.",
         ],
         available=True,
+        managed=True,
     ),
     ConnectorDescriptor(
         name="browser",

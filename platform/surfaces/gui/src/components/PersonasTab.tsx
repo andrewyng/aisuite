@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import {
+  deletePersona,
   getPersonas,
   installPersona,
   updatePersona,
   type Persona,
   type PersonaConsent,
 } from "../api";
+import { Icon } from "./Icon";
 
 // Personas management: enable a persona, choose whether it shows in the new-session picker,
 // set the default, and install more from a local directory or a GitHub repo (snapshotted).
@@ -28,6 +30,7 @@ export function PersonasTab() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [consent, setConsent] = useState<PersonaConsent[] | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   const reload = () => getPersonas().then(setPersonas).catch(() => {});
   useEffect(() => {
@@ -39,6 +42,17 @@ export function PersonasTab() {
     body: { enabled?: boolean; surfaced?: boolean; default?: boolean },
   ) => {
     const r = await updatePersona(id, body);
+    if (r.personas) setPersonas(r.personas);
+    else reload();
+  };
+
+  const remove = async (id: string) => {
+    setConfirmDel(null);
+    const r = await deletePersona(id);
+    if (!r.ok) {
+      setMsg(r.error || "delete failed");
+      return;
+    }
     if (r.personas) setPersonas(r.personas);
     else reload();
   };
@@ -104,6 +118,31 @@ export function PersonasTab() {
             >
               Set default
             </button>
+            {!p.builtin &&
+              (confirmDel === p.id ? (
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    className="text-[12px] px-2 py-1.5 rounded-lg bg-danger text-white"
+                    data-testid={`persona-delete-confirm-${p.id}`}
+                    onClick={() => remove(p.id)}
+                  >
+                    Delete
+                  </button>
+                  <button className={BTN_BORDERED} onClick={() => setConfirmDel(null)}>
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <button
+                  className="text-faint hover:text-danger shrink-0 p-1"
+                  title="Delete this persona"
+                  aria-label={`Delete ${p.name}`}
+                  data-testid={`persona-delete-${p.id}`}
+                  onClick={() => setConfirmDel(p.id)}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              ))}
           </div>
         ))}
       </div>

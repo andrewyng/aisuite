@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getPersonas,
   getSettings,
+  PERSONAS_CHANGED,
   setNavLayout,
   type Persona,
   type RecentWorkspace,
@@ -82,6 +83,7 @@ interface Props {
   onNewProject: (persona: string) => void;
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
+  onArchiveSession: (id: string, archived: boolean) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
   onManage: () => void;
   // Grouped-nav gear + New-session menu's "Manage personas…" entry points (§7).
@@ -119,20 +121,29 @@ const compactAge = (iso?: string | null): string => {
   return `${Math.floor(days / 365)}y`;
 };
 
-const PROJECT_PEEK = 5; // sessions shown per project before "Show more"
+// Sessions shown per group before "Show more" comes from Settings (sessions_peek, default 5).
 
 export function Sidebar(props: Props) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Two-step delete: first click arms the row (× → "Delete?"), second click deletes.
+  // Archive is the primary way to put a conversation away — one click, reversible.
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   // Surfaced + enabled personas drive the surface list + family-aware behavior.
+  // Refetched on the personas-changed event so an enable/install/delete in Settings
+  // shows up here immediately (no page refresh).
   const [personas, setPersonas] = useState<Persona[] | null>(null);
   useEffect(() => {
-    getPersonas()
-      .then(setPersonas)
-      .catch(() => setPersonas(null));
+    const load = () =>
+      getPersonas()
+        .then(setPersonas)
+        .catch(() => setPersonas(null));
+    load();
+    window.addEventListener(PERSONAS_CHANGED, load);
+    return () => window.removeEventListener(PERSONAS_CHANGED, load);
   }, []);
   const personaOf = (id: string) => personas?.find((p) => p.id === id);
 
@@ -140,9 +151,14 @@ export function Sidebar(props: Props) {
   // (Pinned + Recent). Read the persisted preference on load (absent → grouped, the accordion),
   // write via setNavLayout when toggled (now flips flat-list ↔ accordion).
   const [layout, setLayout] = useState<"flat" | "grouped">("grouped");
+  // Sessions shown per group before "Show more" — Settings ▸ Appearance ▸ Sidebar.
+  const [peek, setPeek] = useState(5);
   useEffect(() => {
     getSettings()
-      .then((s) => setLayout(s.nav_layout === "flat" ? "flat" : "grouped"))
+      .then((s) => {
+        setLayout(s.nav_layout === "flat" ? "flat" : "grouped");
+        if (s.sessions_peek) setPeek(s.sessions_peek);
+      })
       .catch(() => {});
   }, []);
   const toggleLayout = () => {
@@ -161,9 +177,11 @@ export function Sidebar(props: Props) {
   const browseKey = openKey ?? props.agent; // the persona whose sessions the body shows
 
   // Per-project collapse + "Show more". The active workspace's folder is open by default; toggling
-  // any folder flips it (XOR). `projShowAll` lifts the PROJECT_PEEK cap for a given folder.
+  // any folder flips it (XOR). `projShowAll` lifts the peek cap for a given folder;
+  // `personaShowAll` does the same for a (non-project) persona's flat session list.
   const [projToggled, setProjToggled] = useState<Set<string>>(new Set());
   const [projShowAll, setProjShowAll] = useState<Set<string>>(new Set());
+  const [personaShowAll, setPersonaShowAll] = useState<Set<string>>(new Set());
   const toggleSet = (set: Set<string>, key: string) => {
     const next = new Set(set);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -327,14 +345,34 @@ export function Sidebar(props: Props) {
                 <Icon name="pencil" size={12} />
               </button>
               <button
-                title="Delete"
-                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper leading-none"
-                onClick={() => {
-                  if (window.confirm(`Delete "${title}"?`)) props.onDeleteSession(s.session_id);
-                }}
+                title={s.archived ? "Unarchive" : "Archive (reversible)"}
+                className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
+                onClick={() => props.onArchiveSession(s.session_id, !s.archived)}
               >
-                ×
+                <Icon name="archive" size={12} />
               </button>
+              {confirmDelId === s.session_id ? (
+                <button
+                  title="Click to permanently delete"
+                  className="px-1.5 h-5 grid place-items-center rounded bg-danger text-white text-[10.5px] font-medium"
+                  onBlur={() => setConfirmDelId(null)}
+                  onMouseLeave={() => setConfirmDelId(null)}
+                  onClick={() => {
+                    setConfirmDelId(null);
+                    props.onDeleteSession(s.session_id);
+                  }}
+                >
+                  Delete?
+                </button>
+              ) : (
+                <button
+                  title="Delete permanently"
+                  className="w-5 h-5 grid place-items-center rounded text-faint hover:text-danger hover:bg-paper leading-none"
+                  onClick={() => setConfirmDelId(s.session_id)}
+                >
+                  ×
+                </button>
+              )}
             </span>
           </>
         )}
@@ -440,10 +478,17 @@ export function Sidebar(props: Props) {
   }
 
   // Surfaced + enabled personas drive the surface list (default persona first); fall back to the
-  // static set until loaded.
+  // static set until loaded. A persona that has live sessions ALWAYS gets a section, surfaced or
+  // not — every session must have a home in the grouped layout (a picker preference can hide the
+  // persona from New Session, never orphan its conversations).
+  const agentsWithSessions = new Set(
+    props.sessions
+      .filter((s) => !s.archived && !s.session_id.startsWith("__"))
+      .map((s) => s.agent),
+  );
   const visibleSurfaces = personas
     ? personas
-        .filter((p) => p.enabled && p.surfaced)
+        .filter((p) => (p.enabled && p.surfaced) || agentsWithSessions.has(p.id))
         .sort((a, b) => Number(b.default) - Number(a.default)) // default leads
         .map(surfaceFromPersona)
     : SURFACES.filter(
@@ -498,7 +543,7 @@ export function Sidebar(props: Props) {
                 const defaultOpen = isActive || (!activeInOrder && proj === projectOrder[0]);
                 const open = !!normalizedQuery || defaultOpen !== projToggled.has(proj);
                 const showAll = !!normalizedQuery || projShowAll.has(proj);
-                const shown = showAll ? list : list.slice(0, PROJECT_PEEK);
+                const shown = showAll ? list : list.slice(0, peek);
                 return (
                   <div key={proj}>
                     <div
@@ -530,12 +575,12 @@ export function Sidebar(props: Props) {
                         // 15 + gap 6 + row px 6 − session px 8 = 19), per a clean-column layout.
                         <div className="space-y-0.5 pl-[19px]">
                           {shown.map((s) => sessionRow(s, { showTime: true }))}
-                          {!showAll && list.length > PROJECT_PEEK && (
+                          {!showAll && list.length > peek && (
                             <button
                               className="px-2 py-1 text-[12px] text-faint hover:text-muted"
                               onClick={() => setProjShowAll((s) => toggleSet(s, proj))}
                             >
-                              Show more ({list.length - PROJECT_PEEK})
+                              Show more ({list.length - peek})
                             </button>
                           )}
                         </div>
@@ -556,7 +601,20 @@ export function Sidebar(props: Props) {
                 {normalizedQuery ? "No matching conversations." : "No conversations yet."}
               </div>
             ) : (
-              mine.filter(matches).map((s) => sessionRow(s))
+              <>
+                {(personaShowAll.has(browseKey)
+                  ? mine.filter(matches)
+                  : mine.filter(matches).slice(0, peek)
+                ).map((s) => sessionRow(s))}
+                {!personaShowAll.has(browseKey) && mine.filter(matches).length > peek && (
+                  <button
+                    className="px-2 py-1 text-[12px] text-faint hover:text-muted"
+                    onClick={() => setPersonaShowAll((s) => toggleSet(s, browseKey))}
+                  >
+                    Show more ({mine.filter(matches).length - peek})
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}

@@ -197,6 +197,16 @@ class InboxStore:
             waiter.set()
         return True
 
+    def resolve_session(self, session_id: str, resolution: str = "session deleted") -> int:
+        """Resolve every still-pending item of a session (called when the session is deleted —
+        an orphaned approval/question can never be meaningfully answered). Releases any waiter
+        the usual way; returns how many items were closed."""
+        closed = 0
+        for item in self.pending(session_id):
+            if self.resolve(item.id, resolution):
+                closed += 1
+        return closed
+
     async def wait(self, item_id: str) -> str:
         """Await an item's resolution; returns the resolution string. Used by the approver to
         suspend the agent until a human answers (from any surface)."""

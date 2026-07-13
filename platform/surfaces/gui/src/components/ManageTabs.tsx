@@ -2,10 +2,15 @@ import { useEffect, useState } from "react";
 import {
   addMcpServer,
   allowUser,
+  cloudLogin,
+  cloudLogout,
+  setCloudTelemetry,
   connectConnector,
+  connectManaged,
   deleteMcpServer,
   disallowUser,
   disconnectConnector,
+  getCloudStatus,
   getConnectors,
   getMcpServers,
   getMcpTools,
@@ -16,6 +21,7 @@ import {
   setProvider,
   updateConnectorTools,
   verifyProvider,
+  type CloudStatus,
   type Connector,
   type McpServer,
   type ModelSettings,
@@ -515,53 +521,145 @@ function AddForm({
 export function ConnectorsTab() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [openName, setOpenName] = useState<string | null>(null);
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
 
-  const refresh = () => getConnectors().then(setConnectors).catch(() => setConnectors([]));
+  const refresh = () => {
+    getConnectors().then(setConnectors).catch(() => setConnectors([]));
+    getCloudStatus().then(setCloud).catch(() => setCloud(null));
+  };
   useEffect(() => {
     refresh();
     // Recent senders arrive over time (someone DMs the bot) — poll so they surface to Allow.
+    // The same poll also picks up sign-in / managed-connect completions from the browser flows.
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
   }, []);
 
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {connectors.map((c) => (
-        <ConnectorRow
-          key={c.name}
-          c={c}
-          open={openName === c.name}
-          onToggleOpen={() => setOpenName(openName === c.name ? null : c.name)}
-          onChanged={() => {
-            setOpenName(null);
-            refresh();
-          }}
-          onRefresh={refresh}
-        />
-      ))}
+    <div className="space-y-3">
+      <CloudAccountCard cloud={cloud} onChanged={refresh} />
+      {/* Single-column list (owner call, 2026-07-03 #2): expanding a card just pushes rows
+          down — a mixed-width grid reordered visually every time one opened. */}
+      <div className="space-y-3">
+        {connectors.map((c) => (
+          <ConnectorRow
+            key={c.name}
+            c={c}
+            cloud={cloud}
+            open={openName === c.name}
+            onToggleOpen={() => setOpenName(openName === c.name ? null : c.name)}
+            onChanged={() => {
+              setOpenName(null);
+              refresh();
+            }}
+            onRefresh={refresh}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Optional cloud sign-in: unlocks one-click managed connectors. Local-only /
+// manual token setup keeps working without it (and stays available after).
+function CloudAccountCard({
+  cloud,
+  onChanged,
+}: {
+  cloud: CloudStatus | null;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  // Optimistic local echo of the toggle (the server refetch confirms it) so the
+  // checkbox responds instantly instead of snapping back until status reloads.
+  const [telemetry, setTelemetry] = useState<boolean | null>(null);
+
+  const signIn = async () => {
+    setBusy(true);
+    await cloudLogin(); // sidecar opens the system browser; the tab poll picks up completion
+    setTimeout(() => {
+      setBusy(false);
+      onChanged();
+    }, 2500);
+  };
+
+  return (
+    <div className={CARD + " p-3.5"} data-testid="cloud-account">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0">
+          <div className="font-semibold text-[14px]">OpenCoworker Cloud</div>
+          {cloud?.signed_in ? (
+            <div className="text-[12px] text-muted flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
+              {cloud.account || "signed in"}
+            </div>
+          ) : (
+            <div className="text-[12px] text-muted">
+              Sign in for one-click connectors. Manual token setup always works without it.
+            </div>
+          )}
+        </div>
+        <div className="ml-auto">
+          {cloud?.signed_in ? (
+            <button
+              className={BTN_BORDERED}
+              onClick={async () => {
+                await cloudLogout();
+                onChanged();
+              }}
+            >
+              Sign out
+            </button>
+          ) : (
+            <button className={BTN_ACCENT} onClick={signIn} disabled={busy}>
+              {busy ? "Check your browser…" : "Sign in"}
+            </button>
+          )}
+        </div>
+      </div>
+      {cloud?.signed_in && (
+        <label className="flex items-start gap-2.5 mt-3 pt-3 border-t border-line select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={telemetry ?? cloud.telemetry_enabled !== false}
+            data-testid="telemetry-toggle"
+            onChange={async (e) => {
+              setTelemetry(e.target.checked);
+              await setCloudTelemetry(e.target.checked);
+              onChanged();
+            }}
+          />
+          <span>
+            <span className="block text-[12.5px] text-ink">Help improve OpenCoworker</span>
+            <span className="block text-[12px] text-muted">
+              Tells us which coworker type was started and when — never your prompts, files,
+              or connector data. Off means nothing is sent.
+            </span>
+          </span>
+        </label>
+      )}
     </div>
   );
 }
 
 function ConnectorRow({
   c,
+  cloud,
   open,
   onToggleOpen,
   onChanged,
   onRefresh,
 }: {
   c: Connector;
+  cloud: CloudStatus | null;
   open: boolean;
   onToggleOpen: () => void;
   onChanged: () => void;
   onRefresh: () => void;
 }) {
-  // Connected (with its expandable settings) and any open card claim the full row width so the
-  // expanded section has room; compact unconnected/soon cards stay one-per-column (mock grid).
-  const wide = c.connected || open;
-
   return (
-    <div className={CARD + (wide ? " col-span-2" : "")}>
+    <div className={CARD} data-testid={`connector-${c.name}`}>
       <div className="flex items-center gap-3 p-3.5">
         {/* Real brand color + logo from the API descriptor (Phase 1) via ConnectorBadge; unknown
             logo ids fall back to the neutral plug glyph. */}
@@ -614,7 +712,7 @@ function ConnectorRow({
           )}
         </div>
       </div>
-      {open && !c.connected && <ConnectSetup c={c} onConnected={onChanged} />}
+      {open && !c.connected && <ConnectSetup c={c} cloud={cloud} onConnected={onChanged} />}
       {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
       {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
     </div>
@@ -730,9 +828,20 @@ function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void 
   );
 }
 
-function ConnectSetup({ c, onConnected }: { c: Connector; onConnected: () => void }) {
+// Exported: also hosted inside the SourcesDrawer's connect-in-context child panel, so a
+// recommended connector can be connected without leaving the session (owner ask, 2026-07-03).
+export function ConnectSetup({
+  c,
+  cloud,
+  onConnected,
+}: {
+  c: Connector;
+  cloud: CloudStatus | null;
+  onConnected: () => void;
+}) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(false); // managed flow: browser is open
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -744,8 +853,34 @@ function ConnectSetup({ c, onConnected }: { c: Connector; onConnected: () => voi
     else setError(res.error || "could not connect");
   };
 
+  const oneClick = async () => {
+    setError(null);
+    const res = await connectManaged(c.name);
+    // Completion arrives via the tab's poll: the broker form-POSTs the profile
+    // to the sidecar, the connector flips to connected, this card closes itself.
+    if (res.ok) setWaiting(true);
+    else setError(res.error || "could not start managed connect");
+  };
+
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
+      {c.managed && (
+        <div className="space-y-2" data-testid="managed-connect">
+          {cloud?.signed_in ? (
+            <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
+              {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
+            </button>
+          ) : (
+            <div className="text-[12.5px] text-muted">
+              Sign in to OpenCoworker Cloud (above) to connect {c.title} with one click —
+              or connect manually below.
+            </div>
+          )}
+          {cloud?.signed_in && (
+            <div className="text-[11.5px] text-faint">or connect manually:</div>
+          )}
+        </div>
+      )}
       {c.instructions.length > 0 && (
         <ol className="list-decimal pl-4 text-[12.5px] text-muted leading-relaxed space-y-1">
           {c.instructions.map((step, i) => (

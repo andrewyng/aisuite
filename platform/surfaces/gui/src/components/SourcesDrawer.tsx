@@ -10,12 +10,16 @@
 
 import { useEffect, useState } from "react";
 import {
+  getCloudStatus,
+  getConnectors,
   getPersonaDetail,
   getRecentChannels,
   getSubscriptions,
   setSessionConnection,
   subscribeChannel,
   unsubscribeChannel,
+  type CloudStatus,
+  type Connector,
   type PersonaDetail,
   type RecentChannel,
   type SessionConnections,
@@ -24,6 +28,7 @@ import {
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { shortPersonaName } from "../personaScope";
 import { Icon } from "./Icon";
+import { ConnectSetup } from "./ManageTabs";
 import { PersonaGlyph } from "./personaIcon";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Toggle } from "./Toggle";
@@ -62,6 +67,13 @@ export function SourcesDrawer({
   const [persona, setPersona] = useState<PersonaDetail | null>(null);
   // The connector whose channel list is open as a child panel (null = main Sources view).
   const [channelsFor, setChannelsFor] = useState<string | null>(null);
+  // The recommended connector being connected IN CONTEXT (child panel — no detour to the
+  // global Connectors page; owner ask, 2026-07-03). Cloud status gates the one-click path.
+  const [connectFor, setConnectFor] = useState<Connector | null>(null);
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  useEffect(() => {
+    getCloudStatus().then(setCloud).catch(() => setCloud(null));
+  }, []);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [recent, setRecent] = useState<RecentChannel[]>([]);
   const [draft, setDraft] = useState("");
@@ -121,7 +133,18 @@ export function SourcesDrawer({
         role="dialog"
         aria-label="Session connections"
       >
-        {channelsFor ? (
+        {connectFor ? (
+          <ConnectPanel
+            c={connectFor}
+            cloud={cloud}
+            onDone={() => {
+              setConnectFor(null);
+              onReload();
+            }}
+            onBack={() => setConnectFor(null)}
+            onClose={onClose}
+          />
+        ) : channelsFor ? (
           <ChannelsPanel
             connector={channelsFor}
             label={labelFor(channelsFor, byName)}
@@ -258,7 +281,13 @@ export function SourcesDrawer({
                     </div>
                     <button
                       className={r.tier === "core" ? BTN_ACCENT : BTN_BORDERED}
-                      onClick={onOpenIntegrations}
+                      onClick={() => {
+                        // Connect IN CONTEXT when we ship this connector; unknown refs
+                        // (no descriptor) still fall back to the global page.
+                        const desc = byName[r.connector];
+                        if (desc) setConnectFor(desc);
+                        else onOpenIntegrations?.();
+                      }}
                     >
                       Connect
                     </button>
@@ -284,6 +313,67 @@ export function SourcesDrawer({
         )}
       </aside>
     </div>
+  );
+}
+
+// Connect-in-context (§ Sources child panel): the same ConnectSetup the global Connectors page
+// uses (one-click managed when signed in + manual fields always), hosted inside the drawer so
+// connecting a recommended connector never navigates away from the session. Managed connects
+// complete out-of-band (browser → broker → sidecar), so poll until the connector flips.
+function ConnectPanel({
+  c,
+  cloud,
+  onDone,
+  onBack,
+  onClose,
+}: {
+  c: Connector;
+  cloud: CloudStatus | null;
+  onDone: () => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const list = await getConnectors();
+        if (list.find((x) => x.name === c.name)?.connected) onDone();
+      } catch {
+        /* poll again */
+      }
+    }, 2500);
+    return () => clearInterval(t);
+  }, [c.name, onDone]);
+
+  return (
+    <>
+      <header className="px-3 h-12 shrink-0 flex items-center gap-1.5 border-b border-line">
+        <button
+          className="w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
+          onClick={onBack}
+          aria-label="Back to sources"
+        >
+          <Icon name="arrowLeft" size={16} />
+        </button>
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold leading-tight truncate">Connect {c.title}</div>
+          <div className="text-[11px] text-faint leading-tight">Stays in this session</div>
+        </div>
+        <button
+          className="ml-auto w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </header>
+      <div className="flex-1 overflow-y-auto hairline-scroll px-4 py-3">
+        {c.blurb && <p className="text-[12.5px] text-muted mb-1 leading-relaxed">{c.blurb}</p>}
+        <div className="-mx-3.5">
+          <ConnectSetup c={c} cloud={cloud} onConnected={onDone} />
+        </div>
+      </div>
+    </>
   );
 }
 

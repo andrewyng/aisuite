@@ -71,6 +71,14 @@ def _profile(
     secrets: SecretStore, name: str, *keys: str
 ) -> tuple[Optional[dict[str, Any]], Optional[dict[str, str]]]:
     profile = secrets.get(f"{name}:default") or {}
+    if profile.get("managed"):
+        # Managed-OAuth profiles renew through the cloud broker just before
+        # expiry; manual token profiles are never touched (no-op inside).
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), name)
+        profile = secrets.get(f"{name}:default") or {}
     missing = [k for k in keys if not profile.get(k)]
     if missing:
         return None, {"error": f"{name} is not connected; missing {', '.join(missing)}"}
