@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 from .agents import Agent, AgentContext, code_agent
 from .automation import scheduling_tools
+from .selfwake import selfwake_tools
+from .subscriptions import subscription_tools
 from .config import load_config
 from .connectors import (
     connector_list,
@@ -25,9 +27,11 @@ from .permissions import Mode, PermissionEngine
 from .project import load_agents_md
 from .roots import RootDir, normalize_roots, render_context
 from .providers import ProviderClient, ProviderRouter
+from .overrides import RiskOverrideStore
 from .secrets import SecretStore, state_dir
 from .skills import SkillLoader, skill_catalog_text, skill_tools
 from .tools import ToolRegistry
+from .tools.ask import ask_user_tool
 from .tools.directories import request_directory_tool
 from .tools.plan import propose_plan_tool
 from .tools.subagent import explorer_tools
@@ -107,11 +111,17 @@ def build_engine(
     extra_tools: Optional[list[Any]] = None,
     secrets: Optional[SecretStore] = None,
     task_store: Optional[Any] = None,
+    wake_store: Optional[Any] = None,
     session_id: Optional[str] = None,
     audit_sink: Optional[Any] = None,
     roots: Optional[list] = None,
     directory_requester: Optional[Any] = None,
     plan_approver: Optional[Any] = None,
+    question_asker: Optional[Any] = None,
+    subscription_store: Optional[Any] = None,
+    channel_buffer: Optional[Any] = None,
+    routing_targets: Optional[list[str]] = None,
+    connector_filter: Optional[set[str]] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
@@ -141,18 +151,32 @@ def build_engine(
     # MCP / connector tools (supplied by the manager) carry their own metadata + schema.
     if extra_tools:
         registry.register_all(extra_tools)
-    # Connectors are Cowork-facing tools. MyHelper keeps the messaging reply path used by
-    # inbound Telegram/Slack super-agent sessions.
+    # Messaging personas (Cowork / Ops / MyHelper) expose send_message; MyHelper also uses it as
+    # the reply path for inbound Telegram/Slack super-agent sessions.
     secrets = secrets or SecretStore()
-    if agent.name in ("cowork", "myhelper") and any(
-        s.enabled for s in load_settings(secrets).values()
-    ):
+    if agent.messaging and any(s.enabled for s in load_settings(secrets).values()):
         registry.register(make_send_message_tool(secrets))
-    # Orphan surfaces can ask the user mid-task for access to another folder (read-only/-write).
-    if agent.name in ("cowork", "myhelper") and root_list:
+        # Channel subscriptions (inbound): listen to a channel, catch up, (un)subscribe. The agent
+        # obtains a channel via ask_user or from a channel message it's reacting to.
+        if subscription_store is not None and channel_buffer is not None and session_id:
+            registry.register_all(
+                subscription_tools(
+                    subscription_store,
+                    session_id,
+                    channel_buffer,
+                    routing_targets=routing_targets,
+                )
+            )
+    # Knowledge surfaces with a multi-root workspace can ask the user mid-task for another folder.
+    if agent.family == "knowledge" and root_list:
         registry.register(request_directory_tool())
-    if agent.name == "cowork":
+    if agent.connectors:
         enabled_connectors, enabled_tools = _enabled_connector_tools(secrets)
+        # Per-session connection hierarchy (UI-REFRESH §4.3): when the caller supplies the session's
+        # effective connector set, intersect it so only effective-enabled connectors expose tools.
+        # Default None preserves CLI / direct callers (no per-session restriction).
+        if connector_filter is not None:
+            enabled_connectors = enabled_connectors & connector_filter
         registry.register_all(
             make_integration_tools(
                 secrets,
@@ -164,13 +188,16 @@ def build_engine(
     # Web search + fetch: research tools for every agent (keyless DuckDuckGo default).
     registry.register(make_web_search_tool(secrets))
     registry.register(make_web_fetch_tool())
+    # ask_user: the universal human-in-the-loop Q&A primitive (every agent; engine-intercepted).
+    if question_asker is not None:
+        registry.register(ask_user_tool())
     # Route by the model's `provider:` prefix (OpenAI default, Ollama, …). The manager normally
     # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
     # Resolved here (not at engine construction) because the explorer subagent captures it.
     provider = provider or ProviderRouter(secrets, default_provider="openai")
-    # The Code agent can fan broad research out to read-only explorer subagents, keeping its
-    # own context for the actual change.
-    if agent.name == "code" and ws is not None:
+    # Code-family personas can fan broad research out to read-only explorer subagents, keeping
+    # their own context for the actual change.
+    if agent.family == "code" and ws is not None:
         registry.register_all(
             explorer_tools(
                 workspace=ws,
@@ -179,12 +206,9 @@ def build_engine(
                 model_settings=model_settings,
             )
         )
-    # Scheduling: Cowork + MyHelper can set up scheduled tasks (origin = this session).
-    if (
-        task_store is not None
-        and ws is not None
-        and agent.name in ("cowork", "myhelper")
-    ):
+    # Scheduling: knowledge surfaces with a workspace can set up scheduled tasks (origin = this
+    # session). Code stays out (it fans out to explorers instead).
+    if task_store is not None and ws is not None and agent.family == "knowledge":
         origin = {
             "surface": agent.name,
             "session_id": session_id or "",
@@ -194,6 +218,10 @@ def build_engine(
         registry.register_all(
             scheduling_tools(task_store, origin=origin, default_workspace=str(ws))
         )
+    # Self-wake: knowledge surfaces can suspend + schedule their own resumption (timer /
+    # on-completion / on-event). The scheduler tick resumes due wakes.
+    if wake_store is not None and session_id and agent.family == "knowledge":
+        registry.register_all(selfwake_tools(wake_store, session_id))
 
     instructions = agent.system_prompt
     if ws is not None:
@@ -220,12 +248,16 @@ def build_engine(
     if catalog:
         instructions = f"{instructions}\n\n{catalog}"
 
+    # User-local risk overrides (mainly to relax MCP's conservative default). Empty store →
+    # no-op; never written by persona loading (the no-self-grant rule).
+    risk_overrides = RiskOverrideStore(state_dir() / "risk_overrides.json").resolver()
     permissions = PermissionEngine(
         workspace_root=ws or (root_list[0].path if root_list else Path.cwd()),
         mode=mode,
         allowed_commands=allowed_commands or config.allowed_commands,
         auto_allow_tools=set(config.auto_allow),
         roots=root_list or None,
+        risk_overrides=risk_overrides,
     )
     # The plan-mode exit door. Always registered (surfaces can flip a live session into
     # plan mode via set_mode, and the registry is fixed at build); the engine rejects the
@@ -238,7 +270,7 @@ def build_engine(
     # directory list (orphan Cowork can gain folders mid-session; Cowork/MyHelper only).
     roots_context = (
         (lambda: render_context(root_list))
-        if root_list and agent.name in ("cowork", "myhelper")
+        if root_list and agent.family == "knowledge"
         else None
     )
 
@@ -270,6 +302,7 @@ def build_engine(
         context_provider=context_provider,
         directory_requester=directory_requester,
         plan_approver=plan_approver,
+        question_asker=question_asker,
     )
     engine.executor = executor  # type: ignore[attr-defined]
     engine.todo = todo  # type: ignore[attr-defined]

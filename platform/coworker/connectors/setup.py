@@ -57,12 +57,15 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "auth": d.auth,
                 "two_way": d.two_way,
                 "available": d.available,
+                "brand_color": d.brand_color,
+                "logo": d.logo,
                 "fields": [f.to_dict() for f in d.fields],
                 "instructions": d.instructions,
                 "connected": connected,
                 "account": profile.get("account"),
                 "enabled": bool(profile.get("enabled", True)) and connected,
-                "allowed_users": len(profile.get("allowed_users") or []),
+                # The actual allow-list (the GUI manages it inline); was a bare count.
+                "allowed_users": list(profile.get("allowed_users") or []),
                 "tools": tool_dicts(secrets, d.name),
                 "experimental": d.experimental,
                 "risk_notice": d.risk_notice,
@@ -100,7 +103,21 @@ def connect_connector(
                 "risk_notice": d.risk_notice,
             }
 
-    raw = {f.key: str(fields.get(f.key) or "").strip() for f in d.fields}
+    # Reconnect-safe: never let a re-submit clobber a stored secret. The GUI masks a connected
+    # connector's secret fields (it shows the placeholder, e.g. `xoxb-…`), so a blank — or
+    # mask-equal — submission means "keep what's stored", not "overwrite with the mask". (This is
+    # the bug that reset a real token down to its 6-char placeholder.)
+    existing = secrets.get(f"{name}:default") or {}
+
+    def _resolved(f) -> str:
+        v = str(fields.get(f.key) or "").strip()
+        if f.key == "allowed_users":
+            return v  # a list in storage / CSV in the form — handled separately below
+        if not v or (f.secret and v == (f.placeholder or "").strip()):
+            return str(existing.get(f.key) or "").strip()
+        return v
+
+    raw = {f.key: _resolved(f) for f in d.fields}
     missing = [f.label for f in d.fields if f.required and not raw.get(f.key)]
     if missing:
         return {"ok": False, "error": "missing: " + ", ".join(missing)}
@@ -108,6 +125,10 @@ def connect_connector(
     allowed = sorted(
         {u.strip() for u in raw.get("allowed_users", "").split(",") if u.strip()}
     )
+    if not allowed and existing.get("allowed_users"):
+        allowed = list(
+            existing["allowed_users"]
+        )  # don't wipe the live allow-list on reconnect
     token_creds = {k: v for k, v in raw.items() if k != "allowed_users" and v}
 
     identity = None

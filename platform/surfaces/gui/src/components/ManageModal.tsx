@@ -12,15 +12,11 @@ import {
   getMcpTools,
   getProviders,
   getSettings,
-  getSuperagent,
   patchMcpServer,
   reloadMcp,
   setOnboarded,
   setProvider,
-  setSurfaces,
   setScratchBase,
-  setSuperagentName,
-  setSuperagentWorkspace,
   updateConnectorTools,
   verifyProvider,
   type AuditEvent,
@@ -28,13 +24,31 @@ import {
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
-  type SuperagentStatus,
 } from "../api";
 import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
 import { useThemePref } from "../theme";
 import { ModelChecklist } from "./ModelChecklist";
+import { PersonasTab } from "./PersonasTab";
+import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { Toggle } from "./Toggle";
 
-type Tab = "settings" | "models" | "superagent" | "mcps" | "skills";
+type Tab = "settings" | "models" | "personas" | "mcps" | "skills";
+
+// Shared utility strings for the mock-ported Connectors / MCP surfaces (used by IntegrationsView).
+const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
+const CARD = "rounded-xl2 border border-line bg-panel";
+const BTN_BORDERED =
+  "text-[12.5px] px-3 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
+const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-accent text-white shrink-0 disabled:opacity-50";
+const BTN_DANGER = "text-[12.5px] text-danger/80 hover:text-danger shrink-0";
+
+/** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 const EXAMPLE = `{
   "filesystem": {
@@ -44,13 +58,12 @@ const EXAMPLE = `{
   }
 }`;
 
-// Super-agent isn't shipping in this release: kept visible (last) but disabled.
 const TABS: { key: Tab; label: string; disabled?: boolean }[] = [
   { key: "settings", label: "Settings" },
   { key: "models", label: "Configure Models" },
+  { key: "personas", label: "Personas" },
   { key: "mcps", label: "MCPs" },
   { key: "skills", label: "Skills" },
-  { key: "superagent", label: "Super-agent", disabled: true },
 ];
 
 export function ManageModal({
@@ -90,8 +103,8 @@ export function ManageModal({
             <SettingsTab />
           ) : tab === "models" ? (
             <ModelsTab />
-          ) : tab === "superagent" ? (
-            <SuperagentTab />
+          ) : tab === "personas" ? (
+            <PersonasTab />
           ) : tab === "mcps" ? (
             <McpTab />
           ) : (
@@ -401,10 +414,6 @@ function SettingsTab() {
     }
   }, []);
 
-  const toggleSurface = async (key: "chat" | "code", value: boolean) => {
-    const res = await setSurfaces({ [key]: value });
-    if (res.surfaces) setSettings((s) => (s ? { ...s, surfaces: res.surfaces } : s));
-  };
 
   const saveScratch = async () => {
     setScratchMsg(null);
@@ -479,30 +488,9 @@ function SettingsTab() {
 
       <div className="sa-sub" style={{ marginTop: 22 }}>Surfaces</div>
       <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        OpenCoworker is always shown. Turn on Chat and Code to add them to the left panel.
+        Which coworkers appear in the left panel is now managed per persona in the{" "}
+        <strong>Personas</strong> tab (Enabled + In picker).
       </div>
-      <label className="ob-toggle">
-        <input
-          type="checkbox"
-          checked={!!settings.surfaces?.chat}
-          onChange={(e) => toggleSurface("chat", e.target.checked)}
-        />
-        <span>
-          <strong>Show Chat</strong>
-          <small>Quick Q&amp;A and brainstorming — no workspace.</small>
-        </span>
-      </label>
-      <label className="ob-toggle">
-        <input
-          type="checkbox"
-          checked={!!settings.surfaces?.code}
-          onChange={(e) => toggleSurface("code", e.target.checked)}
-        />
-        <span>
-          <strong>Show Code</strong>
-          <small>Work inside a codebase with git, diffs, and the shell.</small>
-        </span>
-      </label>
 
       {desktop && (
         <>
@@ -554,25 +542,33 @@ export function McpTab() {
   };
 
   return (
-    <div className="mcp-tab">
-      <div className="mcp-intro">
-        External tool servers (stdio or HTTP), shared across all agents. Enabled servers'
-        tools are permission-gated. Changes apply to new sessions —{" "}
-        <button className="link" onClick={() => reloadMcp().then(refresh)}>
+    <div className="space-y-3">
+      <p className="text-[12.5px] text-muted leading-relaxed">
+        External tool servers (stdio or HTTP), shared across all agents. Enabled servers' tools are
+        permission-gated. Changes apply to new sessions —{" "}
+        <button
+          className="text-accent font-medium hover:underline"
+          onClick={() => reloadMcp().then(refresh)}
+        >
           reload now
         </button>
         .
-      </div>
+      </p>
 
-      {servers.length === 0 && !adding && (
-        <div className="manage-empty">No MCP servers configured yet.</div>
+      {servers.length === 0 && !adding ? (
+        <div className={CARD + " p-4 text-[13px] text-muted"}>
+          No MCP servers configured.{" "}
+          <button className="text-accent font-medium" onClick={() => setAdding(true)}>
+            Add a server
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {servers.map((s) => (
+            <McpRow key={s.name} server={s} onToggle={() => toggle(s)} onRemove={() => remove(s)} />
+          ))}
+        </div>
       )}
-
-      <div className="mcp-list">
-        {servers.map((s) => (
-          <McpRow key={s.name} server={s} onToggle={() => toggle(s)} onRemove={() => remove(s)} />
-        ))}
-      </div>
 
       {adding ? (
         <AddForm
@@ -587,12 +583,12 @@ export function McpTab() {
             refresh();
           }}
         />
-      ) : (
-        <button className="btn-primary" onClick={() => setAdding(true)}>
-          ＋ Add server
+      ) : servers.length > 0 ? (
+        <button className={BTN_ACCENT} onClick={() => setAdding(true)}>
+          + Add server
         </button>
-      )}
-      {error && <div className="mcp-error">{error}</div>}
+      ) : null}
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
     </div>
   );
 }
@@ -624,35 +620,40 @@ function McpRow({
   };
 
   return (
-    <div className="mcp-row">
-      <div className="mcp-main">
-        <label className="switch">
-          <input type="checkbox" checked={server.enabled} onChange={onToggle} />
-          <span className="slider" />
-        </label>
-        <div className="mcp-id">
-          <div className="mcp-name">{server.name}</div>
-          <div className="mcp-meta">
+    <div className={CARD + " p-3.5"}>
+      <div className="flex items-center gap-3">
+        <Toggle checked={server.enabled} onChange={onToggle} title="Enable this server" />
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-medium">{server.name}</div>
+          <div className="text-[11.5px] text-faint">
             {server.transport} · {server.status}
             {server.tool_count != null ? ` · ${server.tool_count} tools` : ""}
             {server.requires_approval ? " · asks" : ""}
           </div>
         </div>
-        <button className="link" onClick={loadTools} disabled={busy}>
+        <button
+          className="text-[12px] text-muted hover:text-ink shrink-0"
+          onClick={loadTools}
+          disabled={busy}
+        >
           {busy ? "…" : tools ? "hide tools" : "tools"}
         </button>
-        <button className="link danger" onClick={onRemove}>
+        <button className={BTN_DANGER} onClick={onRemove}>
           remove
         </button>
       </div>
-      {toolErr && <div className="mcp-error">{toolErr}</div>}
+      {toolErr && <div className="text-[12.5px] text-danger mt-1.5">{toolErr}</div>}
       {tools && (
-        <div className="mcp-tools">
-          {tools.length === 0 && <div className="dim">No tools.</div>}
+        <div className="mt-2.5 pt-2.5 border-t border-line flex flex-wrap gap-1.5">
+          {tools.length === 0 && <div className="text-[12px] text-faint">No tools.</div>}
           {tools.map((t) => (
-            <div className="mcp-tool" key={t.name} title={t.description}>
-              <code>{t.name}</code>
-            </div>
+            <span
+              key={t.name}
+              title={t.description}
+              className="font-mono text-[11.5px] px-1.5 py-0.5 rounded-md bg-paper border border-line"
+            >
+              {t.name}
+            </span>
           ))}
         </div>
       )}
@@ -697,14 +698,20 @@ function AddForm({
   };
 
   return (
-    <div className="mcp-add">
-      <div className="mcp-add-label">Paste server JSON (name → config):</div>
-      <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} rows={9} />
-      <div className="mcp-add-actions">
-        <button className="btn-primary" onClick={save}>
+    <div className="space-y-2">
+      <div className="text-[12.5px] text-muted">Paste server JSON (name → config):</div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        spellCheck={false}
+        rows={9}
+        className="w-full font-mono text-[12px] px-3 py-2.5 rounded-lg border border-line bg-paper text-ink outline-none focus:border-accent resize-y"
+      />
+      <div className="flex items-center gap-3">
+        <button className={BTN_ACCENT} onClick={save}>
           Add
         </button>
-        <button className="link" onClick={onCancel}>
+        <button className="text-[12.5px] text-muted hover:text-ink" onClick={onCancel}>
           cancel
         </button>
       </div>
@@ -720,28 +727,26 @@ export function ConnectorsTab() {
   const refresh = () => getConnectors().then(setConnectors).catch(() => setConnectors([]));
   useEffect(() => {
     refresh();
+    // Recent senders arrive over time (someone DMs the bot) — poll so they surface to Allow.
+    const t = setInterval(refresh, 5000);
+    return () => clearInterval(t);
   }, []);
 
   return (
-    <div className="conn-tab">
-      <div className="mcp-intro">
-        Connect the accounts and tools OpenCoworker can use. You bring the token for this local
-        build; managed one-click sign-in can replace this setup later.
-      </div>
-      <div className="conn-list">
-        {connectors.map((c) => (
-          <ConnectorRow
-            key={c.name}
-            c={c}
-            open={openName === c.name}
-            onToggleOpen={() => setOpenName(openName === c.name ? null : c.name)}
-            onChanged={() => {
-              setOpenName(null);
-              refresh();
-            }}
-          />
-        ))}
-      </div>
+    <div className="grid grid-cols-2 gap-3">
+      {connectors.map((c) => (
+        <ConnectorRow
+          key={c.name}
+          c={c}
+          open={openName === c.name}
+          onToggleOpen={() => setOpenName(openName === c.name ? null : c.name)}
+          onChanged={() => {
+            setOpenName(null);
+            refresh();
+          }}
+          onRefresh={refresh}
+        />
+      ))}
     </div>
   );
 }
@@ -751,62 +756,144 @@ function ConnectorRow({
   open,
   onToggleOpen,
   onChanged,
+  onRefresh,
 }: {
   c: Connector;
   open: boolean;
   onToggleOpen: () => void;
   onChanged: () => void;
+  onRefresh: () => void;
 }) {
-  const status = !c.available
-    ? "soon"
-    : c.connected
-      ? c.account || "connected"
-      : "not connected";
+  // Connected (with its expandable settings) and any open card claim the full row width so the
+  // expanded section has room; compact unconnected/soon cards stay one-per-column (mock grid).
+  const wide = c.connected || open;
 
   return (
-    <div className="conn-row">
-      <div className="conn-main">
-        <span className="conn-icon">{c.icon}</span>
-        <div className="conn-id">
-          <div className="conn-name">
-            {c.title}
-            {c.two_way && <span className="conn-tag">two-way</span>}
+    <div className={CARD + (wide ? " col-span-2" : "")}>
+      <div className="flex items-center gap-3 p-3.5">
+        {/* Real brand color + logo from the API descriptor (Phase 1) via ConnectorBadge; unknown
+            logo ids fall back to the neutral plug glyph. */}
+        <ConnectorBadge connector={c} size={36} title={c.title} />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-[14px]">{c.title}</span>
+            {c.two_way && (
+              <span className="text-[10.5px] px-1.5 py-0.5 rounded border border-line text-muted">
+                two-way
+              </span>
+            )}
           </div>
-          <div className="conn-meta">
-            {c.connected ? <span className="conn-dot" /> : null}
-            {status}
-            {c.connected && c.allowed_users > 0 ? ` · ${c.allowed_users} allowed` : ""}
-          </div>
+          {c.connected ? (
+            <div className="text-[12px] text-muted flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
+              {c.account || "connected"}
+              {c.allowed_users.length > 0 ? ` · ${c.allowed_users.length} allowed` : ""}
+            </div>
+          ) : (
+            <div className="text-[12px] text-muted">{c.blurb || (c.available ? "Not connected" : "")}</div>
+          )}
         </div>
-        {!c.available ? (
-          <span className="conn-soon">soon</span>
-        ) : c.connected && c.auth === "none" ? (
-          <button className="btn-primary sm" onClick={onToggleOpen}>
-            {open ? "close" : "Settings"}
-          </button>
-        ) : c.connected ? (
-          <div className="conn-actions">
-            <button className="btn-primary sm" onClick={onToggleOpen}>
-              {open ? "close" : "Settings"}
+        <div className="ml-auto flex items-center gap-2">
+          {!c.available ? (
+            <span className="text-[12px] text-faint">Soon</span>
+          ) : c.connected && c.auth === "none" ? (
+            <button className={BTN_BORDERED} onClick={onToggleOpen}>
+              {open ? "Close" : "Settings"}
             </button>
-            <button
-              className="link danger"
-              onClick={async () => {
-                await disconnectConnector(c.name);
-                onChanged();
-              }}
-            >
-              disconnect
+          ) : c.connected ? (
+            <>
+              <button className={BTN_BORDERED} onClick={onToggleOpen}>
+                {open ? "Close" : "Settings"}
+              </button>
+              <button
+                className={BTN_DANGER}
+                onClick={async () => {
+                  await disconnectConnector(c.name);
+                  onChanged();
+                }}
+              >
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button className={BTN_BORDERED} onClick={onToggleOpen}>
+              {open ? "Cancel" : "Connect"}
             </button>
-          </div>
-        ) : (
-          <button className="btn-primary sm" onClick={onToggleOpen}>
-            {open ? "cancel" : "Connect"}
-          </button>
-        )}
+          )}
+        </div>
       </div>
       {open && !c.connected && <ConnectSetup c={c} onConnected={onChanged} />}
       {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
+      {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
+    </div>
+  );
+}
+
+// Who may message this two-way bot. Recent senders surface here once they DM/mention the bot, so you
+// can Allow them; allowed users are chips you can remove. (Was orphaned in the super-agent view.)
+function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
+  const recent = c.recent ?? [];
+  const unknownRecent = recent.filter((r) => !r.authorized);
+
+  return (
+    <div className="border-t border-line px-3.5 py-3 grid grid-cols-2 gap-5">
+      <div>
+        <div className={SEC_H + " mb-2"}>Allowed to message</div>
+        <div className="flex flex-wrap gap-1.5">
+          {c.allowed_users.length === 0 && (
+            <span className="text-[12px] text-faint">nobody yet — Allow a recent sender →</span>
+          )}
+          {c.allowed_users.map((u) => (
+            <span
+              key={u}
+              className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-paper border border-line text-[12px]"
+            >
+              <span className="w-4 h-4 rounded-full bg-accentSoft text-accent grid place-items-center text-[9px] font-bold">
+                {initials(u)}
+              </span>
+              {u}
+              <button
+                className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
+                title="remove"
+                onClick={async () => {
+                  await disallowUser(c.name, u);
+                  onChanged();
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className={SEC_H + " mb-2"}>Recent senders</div>
+        {unknownRecent.length === 0 ? (
+          <div className="text-[12px] text-faint">None yet. Message the bot once and it'll show here.</div>
+        ) : (
+          <div className="space-y-1.5">
+            {unknownRecent.map((r) => (
+              <div className="flex items-center gap-2 text-[12.5px]" key={r.user_id}>
+                <span className="w-5 h-5 rounded-full bg-paper border border-line grid place-items-center text-[9px] font-bold text-muted shrink-0">
+                  {initials(r.user_name || "?")}
+                </span>
+                <span className="min-w-0 truncate" title={`id ${r.user_id}`}>
+                  {r.user_name || "unknown"} <span className="text-faint">· {r.chat_type}</span>
+                </span>
+                <button
+                  className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-accent text-white shrink-0"
+                  onClick={async () => {
+                    await allowUser(c.name, r.user_id);
+                    onChanged();
+                  }}
+                >
+                  Allow
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -816,24 +903,33 @@ function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void 
     await updateConnectorTools(c.name, { [toolName]: enabled });
     onChanged();
   };
-  if (!c.tools?.length) return <div className="conn-setup">No tools for this connector yet.</div>;
+  if (!c.tools?.length)
+    return (
+      <div className="border-t border-line px-3.5 py-3 text-[12.5px] text-muted">
+        No tools for this connector yet.
+      </div>
+    );
   return (
-    <div className="conn-setup">
-      <div className="sa-sub">Tools exposed to OpenCoworker</div>
-      <div className="tool-settings">
+    <div className="border-t border-line px-3.5 py-3">
+      <div className={SEC_H + " mb-2"}>Tools exposed to OpenCoworker</div>
+      <div className="space-y-1.5">
         {c.tools.map((tool) => (
-          <label className="tool-setting-row" key={tool.name}>
+          <label
+            className="flex items-start gap-2.5 p-2 rounded-lg border border-line bg-paper"
+            key={tool.name}
+          >
             <input
               type="checkbox"
+              className="mt-0.5 shrink-0"
               checked={tool.enabled}
               onChange={(e) => toggle(tool.name, e.target.checked)}
             />
-            <span className="tool-setting-main">
-              <span className="tool-setting-name">{tool.label}</span>
-              <span className="conn-meta">
+            <span className="min-w-0">
+              <span className="block text-[13px]">{tool.label}</span>
+              <span className="block text-[11.5px] text-faint">
                 {tool.name} · {tool.kind} · asks approval
               </span>
-              <span className="conn-field-help">{tool.description}</span>
+              <span className="block text-[11.5px] text-faint">{tool.description}</span>
             </span>
           </label>
         ))}
@@ -857,9 +953,9 @@ function ConnectSetup({ c, onConnected }: { c: Connector; onConnected: () => voi
   };
 
   return (
-    <div className="conn-setup">
+    <div className="border-t border-line px-3.5 py-3 space-y-3">
       {c.instructions.length > 0 && (
-        <ol className="conn-steps">
+        <ol className="list-decimal pl-4 text-[12.5px] text-muted leading-relaxed space-y-1">
           {c.instructions.map((step, i) => (
             <li key={i}>{step}</li>
           ))}
@@ -881,12 +977,12 @@ function ConnectSetup({ c, onConnected }: { c: Connector; onConnected: () => voi
           {f.help && <span className="conn-field-help">{f.help}</span>}
         </label>
       ))}
-      <div className="conn-setup-actions">
-        <button className="btn-primary" onClick={submit} disabled={busy}>
+      <div>
+        <button className={BTN_ACCENT} onClick={submit} disabled={busy}>
           {busy ? "Validating…" : "Connect"}
         </button>
       </div>
-      {error && <div className="mcp-error">{error}</div>}
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
     </div>
   );
 }
@@ -956,151 +1052,4 @@ function formatAuditArgs(args: Record<string, any>) {
   return Object.entries(args)
     .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
     .join("  ");
-}
-
-// -- Super-agent tab ---------------------------------------------------------
-function SuperagentTab() {
-  const [status, setStatus] = useState<SuperagentStatus | null>(null);
-  const [wsDraft, setWsDraft] = useState("");
-  const [wsMsg, setWsMsg] = useState<string | null>(null);
-  const [nameDraft, setNameDraft] = useState("");
-  const [nameMsg, setNameMsg] = useState<string | null>(null);
-
-  const refresh = () =>
-    getSuperagent()
-      .then((s) => {
-        setStatus(s);
-        setWsDraft((d) => (d === "" ? s.workspace : d));
-        setNameDraft((d) => (d === "" ? s.name : d));
-      })
-      .catch(() => setStatus(null));
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  if (!status) return <div className="manage-empty">Loading…</div>;
-
-  const saveWs = async () => {
-    setWsMsg(null);
-    const res = await setSuperagentWorkspace(wsDraft.trim());
-    if (res.ok) setWsMsg(res.restart_required ? "Saved — restart the server to apply." : "Saved.");
-    else setWsMsg(res.error || "could not save");
-    refresh();
-  };
-
-  const saveName = async () => {
-    setNameMsg(null);
-    const res = await setSuperagentName(nameDraft.trim());
-    if (res.ok) setNameMsg("Saved — restart the server to apply.");
-    else setNameMsg(res.error || "could not save");
-    refresh();
-  };
-
-  return (
-    <div className="sa-tab">
-      <div className="mcp-intro">
-        Your always-on personal helper. It runs on one continuous thread and replies in the app
-        and over any connected chat. {status.running ? <span className="conn-dot" /> : null}
-        {status.running ? " listening" : " not running"}.
-      </div>
-
-      <div className="sa-field">
-        <span className="conn-field-label">Name (make it yours)</span>
-        <div className="sa-ws-row">
-          <input value={nameDraft} spellCheck={false} placeholder="MyHelper" onChange={(e) => setNameDraft(e.target.value)} />
-          <button className="btn-primary sm" onClick={saveName}>
-            Save
-          </button>
-        </div>
-        {nameMsg && <span className="conn-field-help">{nameMsg}</span>}
-      </div>
-
-      <div className="sa-field">
-        <span className="conn-field-label">Workspace (where it reads/writes files)</span>
-        <div className="sa-ws-row">
-          <input value={wsDraft} spellCheck={false} onChange={(e) => setWsDraft(e.target.value)} />
-          <button className="btn-primary sm" onClick={saveWs}>
-            Save
-          </button>
-        </div>
-        {wsMsg && <span className="conn-field-help">{wsMsg}</span>}
-      </div>
-
-      {status.connectors.length === 0 ? (
-        <div className="manage-empty">No two-way bot connected yet — add one in Connectors.</div>
-      ) : (
-        status.connectors.map((c) => (
-          <SuperagentConnectorBlock key={c.name} c={c} onChanged={refresh} />
-        ))
-      )}
-    </div>
-  );
-}
-
-function SuperagentConnectorBlock({
-  c,
-  onChanged,
-}: {
-  c: import("../api").SuperagentConnector;
-  onChanged: () => void;
-}) {
-  const unknownRecent = c.recent.filter((r) => !r.authorized);
-
-  return (
-    <div className="sa-conn">
-      <div className="sa-conn-head">
-        <span className="conn-name">{c.name}</span>
-        <span className="conn-meta">
-          {c.account || ""} {c.listening ? "· listening" : "· idle"}
-        </span>
-      </div>
-
-      <div className="sa-sub">Allowed to message ({c.allowed_users.length})</div>
-      <div className="sa-chips">
-        {c.allowed_users.length === 0 && <span className="dim">nobody yet — add yourself below</span>}
-        {c.allowed_users.map((u) => (
-          <span className="sa-chip" key={u}>
-            {u}
-            <button
-              className="sa-chip-x"
-              title="remove"
-              onClick={async () => {
-                await disallowUser(c.name, u);
-                onChanged();
-              }}
-            >
-              ✕
-            </button>
-          </span>
-        ))}
-      </div>
-
-      <div className="sa-sub">
-        Recent senders{" "}
-        <span className="dim">— DM the bot, then add yourself</span>
-      </div>
-      {unknownRecent.length === 0 ? (
-        <div className="dim sa-recent-empty">None yet. Message the bot once and it'll show here.</div>
-      ) : (
-        <div className="sa-recent">
-          {unknownRecent.map((r) => (
-            <div className="sa-recent-row" key={r.user_id}>
-              <span>
-                {r.user_name || "unknown"} <span className="dim">· {r.chat_type} · id {r.user_id}</span>
-              </span>
-              <button
-                className="btn-primary sm"
-                onClick={async () => {
-                  await allowUser(c.name, r.user_id);
-                  onChanged();
-                }}
-              >
-                Allow
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }

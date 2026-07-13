@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..attachments import build_user_content
 from ..engine import ApprovalOutcome
+from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
 from ..permissions import Mode
 from ..providers import AssistantTurn
 from .manager import SessionManager
@@ -60,6 +62,207 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}
+
+    @app.get("/v1/personas")
+    def personas() -> dict[str, Any]:
+        return {"personas": manager.personas.list_all()}
+
+    @app.get("/v1/inbox")
+    def inbox(session_id: str = "", state: str = "") -> dict[str, Any]:
+        from dataclasses import asdict
+
+        # The cross-session Inbox list shows only Unattended (inbox-visibility) items; a per-session
+        # query returns inline ones too, so the answer-in-context card sees parked attended prompts.
+        items = manager.inbox.list(
+            session_id=session_id or None,
+            state=state or None,
+            visibility=None if session_id else VIS_INBOX,
+        )
+        # Enrich with the originating session's context so the Inbox is self-contained — the
+        # "go to session" chip needs title/agent/workspace without depending on a (possibly stale)
+        # client-side session list, and can link straight to it.
+        out: list[dict[str, Any]] = []
+        for i in items:
+            d = asdict(i)
+            rec = manager.session_store.load(i.session_id)
+            d["session_title"] = (rec.title if rec else None) or i.session_id
+            d["session_agent"] = rec.agent if rec else None
+            d["session_workspace"] = rec.workspace if rec else None
+            d["session_exists"] = rec is not None
+            out.append(d)
+        return {"items": out}
+
+    @app.post("/v1/inbox/{item_id}/resolve")
+    async def resolve_inbox_item(item_id: str, body: dict) -> dict[str, Any]:
+        # Idempotent + first-responder-wins: ok=False means it was already resolved elsewhere.
+        # Routes through resolve_inbox so a restart-orphaned prompt durably resumes its turn.
+        ok = await manager.resolve_inbox(item_id, str(body.get("resolution", "deny")))
+        return {"ok": ok}
+
+    @app.get("/v1/subscriptions")
+    def subscriptions() -> dict[str, Any]:
+        # Global view-only list: each (session → channel) subscription, enriched with the session's
+        # title/agent and the channel its Inbox routes OUT to (so an inbound/outbound collision on
+        # the same channel is visible).
+        out: list[dict[str, Any]] = []
+        for sub in manager.subscriptions.all():
+            rec = manager.session_store.load(sub.session_id)
+            agent = rec.agent if rec else ""
+            routing = manager._routing_targets(sub.session_id, agent or "cowork")
+            out.append(
+                {
+                    "session_id": sub.session_id,
+                    "session_title": (rec.title if rec else None) or sub.session_id,
+                    "agent": agent,
+                    "channel": sub.channel,
+                    "routing_target": routing[0] if routing else None,
+                    "collision": bool(routing and sub.channel in routing),
+                }
+            )
+        return {"subscriptions": out}
+
+    @app.get("/v1/channels/recent")
+    def recent_channels() -> dict[str, Any]:
+        # The picker's "recently-seen" source: channels the bot has received messages from.
+        return {"channels": manager.channel_buffer.channels()}
+
+    @app.get("/v1/unrouted")
+    def unrouted() -> dict[str, Any]:
+        # Dead-letter view: inbound messages with no destination + background-turn failures.
+        return {"items": manager.unrouted.list()}
+
+    @app.post("/v1/subscriptions")
+    def subscribe(body: dict) -> dict[str, Any]:
+        from ..subscriptions import resolve_channel
+
+        session_id = str(body.get("session_id", "")).strip()
+        addr = resolve_channel(str(body.get("channel", "")))
+        if not session_id or not addr or ":" not in addr:
+            return {"ok": False, "error": "need a session_id and a channel"}
+        manager.subscriptions.subscribe(session_id, addr)
+        return {"ok": True, "channel": addr}
+
+    @app.post("/v1/subscriptions/remove")
+    def unsubscribe(body: dict) -> dict[str, Any]:
+        from ..subscriptions import resolve_channel
+
+        session_id = str(body.get("session_id", "")).strip()
+        addr = resolve_channel(str(body.get("channel", "")))
+        removed = manager.subscriptions.unsubscribe(session_id, addr)
+        return {"ok": True, "removed": removed}
+
+    @app.get("/v1/inbox/reconcile")
+    def reconcile_inbox(session_id: str) -> dict[str, Any]:
+        # Called when a session resumes attended control (surface pending + recap inline).
+        return manager.inbox.reconcile_on_resume(session_id)
+
+    @app.get("/v1/inbox/routing")
+    def inbox_routing() -> dict[str, Any]:
+        return {"bindings": manager.inbox_routing.bindings()}
+
+    @app.post("/v1/inbox/routing/binding")
+    def set_inbox_binding(body: dict) -> dict[str, Any]:
+        name = str(body.get("name", "")).strip()
+        if not name:
+            return {"ok": False, "error": "binding needs a `name`"}
+        manager.inbox_routing.set_binding(
+            name,
+            channel=body.get("channel") or None,
+            target=str(body.get("target", "")),
+        )
+        return {"ok": True, "bindings": manager.inbox_routing.bindings()}
+
+    @app.get("/v1/sessions/{session_id}/unattended")
+    def get_unattended(session_id: str) -> dict[str, Any]:
+        return {"unattended": manager.unattended.is_unattended(session_id)}
+
+    @app.post("/v1/sessions/{session_id}/unattended")
+    def set_unattended(session_id: str, body: dict) -> dict[str, Any]:
+        # The GUI gates the on-transition behind a one-tap confirm.
+        on = bool(body.get("unattended"))
+        manager.unattended.set(session_id, on)
+        return {"ok": True, "session_id": session_id, "unattended": on}
+
+    @app.get("/v1/sessions/{session_id}/connections")
+    def session_connections(session_id: str) -> dict[str, Any]:
+        # §6: the Sources drawer payload — effective-enabled connectors + recommended + ⚠ count.
+        return manager.session_connections_view(session_id)
+
+    @app.post("/v1/sessions/{session_id}/connections")
+    def set_session_connection(session_id: str, body: dict) -> dict[str, Any]:
+        # §6: a session override. `clear` drops the override (inherit the persona default again);
+        # otherwise set an explicit on/off. Return the refreshed view so the drawer can re-render.
+        body = body or {}
+        connector = str(body.get("connector", "")).strip()
+        if not connector:
+            return {"ok": False, "error": "connector required"}
+        if body.get("clear"):
+            manager.session_connections.clear(session_id, connector)
+        else:
+            manager.session_connections.set(
+                session_id, connector, bool(body.get("enabled", False))
+            )
+        return {"ok": True, "connections": manager.session_connections_view(session_id)}
+
+    @app.post("/v1/personas/install")
+    def install_persona(body: dict) -> dict[str, Any]:
+        # Returns a consent summary per persona; they land disabled pending the user's approval
+        # (then POST /v1/personas/{id} {enabled:true, surfaced:true}).
+        reg = manager.personas
+        try:
+            if body.get("git_url"):
+                summaries = reg.install_from_git(str(body["git_url"]))
+            elif body.get("dir"):
+                summaries = reg.install_from_dir(str(body["dir"]))
+            else:
+                return {"ok": False, "error": "provide a `dir` or `git_url`"}
+        except Exception as e:  # surface manifest/clone errors to the caller
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "consent": summaries, "personas": reg.list_all()}
+
+    @app.post("/v1/personas/{persona_id}")
+    def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
+        reg = manager.personas
+        try:
+            if "enabled" in body:
+                reg.set_enabled(persona_id, bool(body["enabled"]))
+            if "surfaced" in body:
+                reg.set_surfaced(persona_id, bool(body["surfaced"]))
+            if body.get("default"):
+                reg.set_default(persona_id)
+        except KeyError:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        return {"ok": True, "personas": reg.list_all()}
+
+    @app.get("/v1/personas/{persona_id}")
+    def persona_detail(persona_id: str) -> dict[str, Any]:
+        # §5 detail page: identity + capabilities + recommends(+connected) + default connections.
+        detail = manager.persona_detail(persona_id)
+        if detail is None:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        return detail
+
+    @app.post("/v1/personas/{persona_id}/enable")
+    def persona_enable(persona_id: str, body: dict) -> dict[str, Any]:
+        # Dedicated §5/§8 route; delegates to the same registry toggle as POST /v1/personas/{id}.
+        try:
+            manager.personas.set_enabled(
+                persona_id, bool((body or {}).get("enabled", True))
+            )
+        except KeyError:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        return {"ok": True, "personas": manager.personas.list_all()}
+
+    @app.post("/v1/personas/{persona_id}/connections")
+    def persona_set_connection(persona_id: str, body: dict) -> dict[str, Any]:
+        # §5: flip a persona-default connector on/off; re-reads so the client can refresh.
+        body = body or {}
+        connector = str(body.get("connector", "")).strip()
+        if not connector:
+            return {"ok": False, "error": "connector required"}
+        return manager.set_persona_connection(
+            persona_id, connector, bool(body.get("enabled", False))
+        )
 
     @app.get("/v1/skills")
     def skills() -> dict[str, Any]:
@@ -307,21 +510,39 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_set_scratch_base(body: dict) -> dict[str, Any]:
         return manager.set_scratch_base(str((body or {}).get("path", "")))
 
-    # -- super-agent (always-on inbound assistant) ------------------------------
-    @app.get("/v1/superagent")
-    def superagent_status() -> dict[str, Any]:
-        return manager.superagent_status()
+    @app.post("/v1/settings/nav-layout")
+    def settings_set_nav_layout(body: dict) -> dict[str, Any]:
+        return manager.set_nav_layout(str((body or {}).get("nav_layout", "")))
 
-    @app.post("/v1/superagent/workspace")
-    def superagent_set_workspace(body: dict) -> dict[str, Any]:
-        path = (body or {}).get("path", "")
-        if not path:
-            return {"ok": False, "error": "path required"}
-        return manager.set_superagent_workspace(path)
+    # -- direct-message routing -------------------------------------------------
+    @app.get("/v1/messaging/dm-route")
+    def dm_route_get() -> dict[str, Any]:
+        return {"dm_session": manager.dm_session()}
 
-    @app.post("/v1/superagent/name")
-    def superagent_set_name(body: dict) -> dict[str, Any]:
-        return manager.set_superagent_name((body or {}).get("name", ""))
+    @app.post("/v1/messaging/dm-route")
+    def dm_route_set(body: dict) -> dict[str, Any]:
+        # A falsy session_id clears the designation (DMs then park as unrouted).
+        return manager.set_dm_session((body or {}).get("session_id", ""))
+
+    if os.environ.get("COWORKER_DEBUG_INJECT") == "1":
+        # Dev-only (env-gated, localhost): feed a message through the real inbound path so the
+        # messaging stack can be exercised without a live bot connection. Not registered otherwise.
+        @app.post("/v1/_debug/inject_inbound")
+        async def debug_inject_inbound(body: dict) -> dict[str, Any]:
+            from ..connectors.base import MessageEvent, SessionSource
+
+            event = MessageEvent(
+                text=str((body or {}).get("text", "")),
+                source=SessionSource(
+                    platform=str(body.get("platform", "slack")),
+                    chat_id=str(body.get("chat_id", "C0BD7KZ1AH5")),
+                    user_id=str(body.get("user_id", "U07JK68S4BH")),
+                    user_name=str(body.get("user_name", "tester")),
+                    chat_type=str(body.get("chat_type", "channel")),
+                ),
+            )
+            await manager._dispatch_inbound(event)
+            return {"ok": True}
 
     # -- automations (scheduled tasks) ------------------------------------------
     @app.get("/v1/automations")
@@ -353,70 +574,121 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_run_finalize(task_id: str, run_id: str) -> dict[str, Any]:
         return manager.finalize_manual_run(task_id, run_id)
 
-    @app.websocket("/ws/superagent")
-    async def ws_superagent(ws: WebSocket) -> None:
-        await ws.accept()
-
-        async def send(message: dict) -> None:
-            await ws.send_json(message)
-
-        manager.sa_register(send)
-        await ws.send_json(
-            {
-                "type": "ready",
-                "data": {
-                    "running": manager.gateway is not None,
-                    "transcript": manager.sa_transcript(),
-                },
-            }
-        )
-        try:
-            while True:
-                message = await ws.receive_json()
-                kind = message.get("type")
-                if kind == "user_message":
-                    text = (message.get("text") or "").strip()
-                    if text:
-                        await manager.sa_user_message(text)
-                elif kind == "approval":
-                    manager.sa_resolve_approval(message.get("decision", "deny"))
-                elif kind == "interrupt" and manager.superagent is not None:
-                    manager.superagent.engine.request_interrupt()
-        except WebSocketDisconnect:
-            pass
-        finally:
-            manager.sa_unregister(send)
-
     @app.websocket("/ws/session/{session_id}")
     async def ws_session(ws: WebSocket, session_id: str) -> None:
         await ws.accept()
-        approval_queue: asyncio.Queue[str] = asyncio.Queue()
-        directory_queue: asyncio.Queue[dict] = asyncio.Queue()
-        plan_queue: asyncio.Queue[dict] = asyncio.Queue()
+        agent = ws.query_params.get("agent") or "code"
+
+        # All four interactive prompts (approval / question / directory / plan) are parked as Inbox
+        # items and awaited via inbox.wait — so they survive a dropped socket (redelivered on
+        # reconnect) and can be resolved from any surface. `visibility` decides where they SHOW:
+        # Unattended → the cross-session Inbox; attended → inline in this session only. The agent
+        # stays blocked until the item is resolved (live WS response, REST, or a bound channel).
+        def _visibility() -> str:
+            return (
+                VIS_INBOX
+                if manager.unattended.is_unattended(session_id)
+                else VIS_INLINE
+            )
+
+        async def _mirror(item) -> None:
+            # Unattended items mirror to a bound channel as buttons (see mirror_inbox_item).
+            await manager.mirror_inbox_item(item)
+
+        def _route() -> str:
+            return manager.inbox_routing.route_for(session_id, agent)
 
         async def approver(_request) -> ApprovalOutcome:
-            decision = await approval_queue.get()
+            # The engine has already emitted PERMISSION_REQUIRED (the live inline card). Park the
+            # item so the answer can also come from the Inbox / a reconnect / after a restart.
+            item = manager.inbox.add_approval(
+                session_id,
+                f"Run `{_request.tool_name}`?",
+                body="\n".join(
+                    p
+                    for p in (
+                        (getattr(_request, "reason", "") or "").strip(),
+                        args_preview(getattr(_request, "arguments", None)),
+                    )
+                    if p
+                ),
+                inbox=_route(),
+                visibility=_visibility(),
+                tool_call_id=getattr(_request, "tool_call_id", None),
+            )
+            if (
+                item.state == "pending"
+            ):  # freshly raised (not a durable-resume re-raise)
+                manager.persist_session(
+                    session_id
+                )  # the pending tool call is now on disk
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
+            resolution = await manager.inbox.wait(item.id)
+            # Accept both vocabularies: the live card sends once/always_tool/always_command/deny;
+            # the Inbox / a channel send allow/always/deny.
             try:
-                return ApprovalOutcome(decision)
+                return ApprovalOutcome(resolution)
             except ValueError:
-                return ApprovalOutcome.DENY
+                pass
+            if resolution == "allow":
+                return ApprovalOutcome.ONCE
+            if resolution == "always":
+                return ApprovalOutcome.ALWAYS_TOOL
+            return ApprovalOutcome.DENY
 
-        async def plan_approver(_args: dict) -> dict:
-            # The engine has already emitted PLAN_PROPOSED; wait for the user's verdict.
-            # Approval carries the post-plan mode ("interactive" or "auto"); rejection
-            # carries feedback the agent uses to revise the plan.
-            resp = await plan_queue.get()
-            if not resp.get("approved"):
-                return {
-                    "approved": False,
-                    "feedback": resp.get("feedback") or "the user rejected the plan",
-                }
-            return {"approved": True, "mode": resp.get("mode") or "interactive"}
+        async def question_asker(args: dict, tool_call_id=None) -> dict:
+            # ask_user (engine does NOT emit the event — we do, only when attended).
+            item = manager.inbox.add_question(
+                session_id,
+                str(args.get("question", "")),
+                inbox=_route(),
+                visibility=_visibility(),
+                options=list(args.get("options") or []),
+                allow_text=bool(args.get("allow_text", True)),
+                multi=bool(args.get("multi", False)),
+                tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                manager.persist_session(session_id)
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
+                else:
+                    await ws.send_json(
+                        {
+                            "type": "question_requested",
+                            "data": {
+                                "question": item.title,
+                                "options": item.options,
+                                "allow_text": item.allow_text,
+                                "multi": item.multi,
+                                "header": str(args.get("header", "")),
+                            },
+                        }
+                    )
+            return {"answer": await manager.inbox.wait(item.id)}
 
-        async def directory_requester(args: dict) -> dict:
-            # The engine has already emitted DIRECTORY_REQUESTED; wait for the user's reply, then
-            # apply the grant to this live session so its tools/permissions/context pick it up.
-            resp = await directory_queue.get()
+        async def directory_requester(args: dict, tool_call_id=None) -> dict:
+            # The engine has already emitted DIRECTORY_REQUESTED. Park, await, then apply the grant.
+            item = manager.inbox.add_directory(
+                session_id,
+                "Grant access to a folder?",
+                body=str(args.get("reason", "")),
+                inbox=_route(),
+                visibility=_visibility(),
+                data={
+                    "path": str(args.get("path", "")),
+                    "writable": bool(args.get("writable", False)),
+                },
+                tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                manager.persist_session(session_id)
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
+            resp = _parse_json(
+                await manager.inbox.wait(item.id)
+            )  # {granted, path, writable}
             if not resp.get("granted"):
                 return {"granted": False, "reason": "the user declined the request"}
             path = (resp.get("path") or args.get("path") or "").strip()
@@ -445,8 +717,38 @@ def create_app(manager: SessionManager) -> FastAPI:
                 "writable": writable,
             }
 
+        async def plan_approver(_args: dict, tool_call_id=None) -> dict:
+            # The engine has already emitted PLAN_PROPOSED. Park, await the verdict.
+            item = manager.inbox.add_plan(
+                session_id,
+                "Approve the plan?",
+                body=str(_args.get("plan", "")),
+                inbox=_route(),
+                visibility=_visibility(),
+                tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                manager.persist_session(session_id)
+                if item.visibility == VIS_INBOX:
+                    await _mirror(item)
+            resp = _parse_json(
+                await manager.inbox.wait(item.id)
+            )  # {approved, mode, feedback}
+            if not resp.get("approved"):
+                return {
+                    "approved": False,
+                    "feedback": resp.get("feedback") or "the user rejected the plan",
+                }
+            return {"approved": True, "mode": resp.get("mode") or "interactive"}
+
+        def _resolve_pending(resolution: str) -> None:
+            # Live WS responses resolve THE session's single pending prompt (one at a time, since the
+            # agent blocks). Reconnect / Inbox resolve by id via REST instead.
+            pend = manager.inbox.pending(session_id)
+            if pend:
+                manager.inbox.resolve(pend[0].id, resolution)
+
         workspace = ws.query_params.get("workspace")
-        agent = ws.query_params.get("agent") or "code"
         mcp_tools = await manager.prepare_mcp_tools(
             session_id, workspace=workspace, agent=agent
         )
@@ -458,6 +760,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             extra_tools=mcp_tools,
             directory_requester=directory_requester,
             plan_approver=plan_approver,
+            question_asker=question_asker,
         )
         if engine is None:
             await ws.send_json(
@@ -501,25 +804,56 @@ def create_app(manager: SessionManager) -> FastAPI:
         }
 
         async def run_turn(content) -> None:
+            manager.mark_running(
+                session_id
+            )  # busy → self-wakes steer instead of colliding
             try:
                 async for event in engine.run(content):
-                    await ws.send_json({"type": event.type.value, "data": event.data})
+                    # Broadcast to every socket viewing this session (this socket included — it's a
+                    # registered client), so a second view of the same session stays in sync too.
+                    await manager.broadcast_session(
+                        session_id, {"type": event.type.value, "data": event.data}
+                    )
                     if event.type.value in _CHECKPOINTS:
                         manager.save(session_id, engine)
             finally:
+                manager.mark_idle(session_id)
                 manager.save(session_id, engine)
-                await ws.send_json({"type": "turn_done", "data": {}})
+                await manager.broadcast_session(
+                    session_id, {"type": "turn_done", "data": {}}
+                )
 
+        # This socket is now a live view of the session; background turns (channel delivery,
+        # self-wake, durable resume) broadcast here too, not just locally driven run_turns.
+        manager.register_session_client(session_id, ws.send_json)
         try:
             while True:
                 message = await ws.receive_json()
                 kind = message.get("type")
                 if kind == "approval":
-                    approval_queue.put_nowait(message.get("decision", "deny"))
+                    _resolve_pending(message.get("decision", "deny"))
                 elif kind == "directory_response":
-                    directory_queue.put_nowait(message)
+                    _resolve_pending(
+                        json.dumps(
+                            {
+                                "granted": bool(message.get("granted")),
+                                "path": message.get("path", ""),
+                                "writable": bool(message.get("writable", False)),
+                            }
+                        )
+                    )
                 elif kind == "plan_response":
-                    plan_queue.put_nowait(message)
+                    _resolve_pending(
+                        json.dumps(
+                            {
+                                "approved": bool(message.get("approved")),
+                                "mode": message.get("mode", "interactive"),
+                                "feedback": message.get("feedback", ""),
+                            }
+                        )
+                    )
+                elif kind == "question_response":
+                    _resolve_pending(str(message.get("answer", "")))
                 elif kind == "interrupt":
                     engine.request_interrupt()
                 elif kind == "set_mode":
@@ -539,8 +873,19 @@ def create_app(manager: SessionManager) -> FastAPI:
                         asyncio.create_task(run_turn(content))
         except WebSocketDisconnect:
             pass
+        finally:
+            manager.unregister_session_client(session_id, ws.send_json)
 
     return app
+
+
+def _parse_json(s: str) -> dict[str, Any]:
+    """Parse a structured Inbox resolution (directory/plan carry their reply as a JSON string)."""
+    try:
+        v = json.loads(s) if s else {}
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
 
 
 def _openai_response(model: str, turn: AssistantTurn) -> dict[str, Any]:

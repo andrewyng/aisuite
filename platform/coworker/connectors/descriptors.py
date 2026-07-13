@@ -54,6 +54,10 @@ class ConnectorDescriptor:
     instructions: list[str]
     available: bool = True  # False → shown as "soon"
     validate: Optional[Callable[[dict], ValidationResult]] = None
+    # Registry metadata (UI-Refresh §1): the connector's brand color (hex; fallback gray) and a
+    # stable logo id (e.g. "slack") the frontend maps to a bundled SVG. Empty logo → UI fallback.
+    brand_color: str = "#6b7280"
+    logo: str = ""
     # Experimental connectors are hidden unless the user enables them in settings, require an
     # explicit risk acknowledgment to connect, and ship in a separate package
     # (connectors/experimental/) that release builds exclude entirely.
@@ -249,6 +253,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Two-way messaging with a Telegram bot.",
         auth="bot_token",
         two_way=True,
+        brand_color="#229ed9",
+        logo="telegram",
         fields=[
             Field(
                 "bot_token",
@@ -274,6 +280,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Two-way messaging via a Slack app (Socket Mode).",
         auth="socket_app",
         two_way=True,
+        brand_color="#611f69",
+        logo="slack",
         fields=[
             Field(
                 "bot_token",
@@ -294,7 +302,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         instructions=[
             "Go to api.slack.com/apps → Create New App (from scratch).",
             "Settings → Socket Mode: enable it and generate an app-level token (xapp-) with connections:write.",
-            "OAuth & Permissions: add bot scopes chat:write, app_mentions:read, im:history, channels:history.",
+            "Features → Interactivity & Shortcuts: turn Interactivity ON (no Request URL needed in Socket Mode) — required for Approve/Deny buttons.",
+            "OAuth & Permissions: add bot scopes chat:write, app_mentions:read, im:history, channels:history, users:read.",
             "Install to workspace and copy the Bot User OAuth Token (xoxb-).",
             "Paste both tokens below and Connect, then invite the bot to a channel or DM it.",
         ],
@@ -307,6 +316,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Read, search, and send mail from any IMAP account — Gmail, iCloud, Fastmail, or custom.",
         auth="app_password",
         two_way=False,
+        logo="email",
         fields=[
             Field("address", "Email address", placeholder="you@gmail.com"),
             Field(
@@ -411,6 +421,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Work with issues, pull requests, repository files, and CI status.",
         auth="token",
         two_way=False,
+        brand_color="#1f2328",
+        logo="github",
         fields=[
             Field(
                 "token",
@@ -658,6 +670,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search CRM contacts, companies, and deals; create contacts.",
         auth="token",
         two_way=False,
+        brand_color="#ff7a59",
+        logo="hubspot",
         fields=[
             Field(
                 "token",
@@ -777,6 +791,51 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Intuit access tokens expire after about an hour. Managed sign-in will replace this manual step later.",
         ],
         validate=_validate_quickbooks,
+    ),
+    # -- placeholders (available=False) --------------------------------------------
+    # Not yet shipped, but referenced by persona `recommends` (e.g. Ops → datadog/pagerduty) so
+    # the GUI can render a brand badge + a "connect to enable" state. A placeholder has no fields,
+    # no validate, and `available=False`, so there is no connect path (connect_connector rejects an
+    # unavailable connector and _profile_connected reports it disconnected). github/hubspot are NOT
+    # placeholders here — they already ship as real connectors above.
+    ConnectorDescriptor(
+        name="datadog",
+        title="Datadog",
+        icon="◍",
+        blurb="Pull firing alerts, monitors, and the incident timeline.",
+        auth="none",
+        two_way=False,
+        fields=[],
+        instructions=[],
+        available=False,
+        brand_color="#632ca6",
+        logo="datadog",
+    ),
+    ConnectorDescriptor(
+        name="salesforce",
+        title="Salesforce",
+        icon="☁",
+        blurb="Read and update cases, accounts, and opportunities in the CRM.",
+        auth="none",
+        two_way=False,
+        fields=[],
+        instructions=[],
+        available=False,
+        brand_color="#00a1e0",
+        logo="salesforce",
+    ),
+    ConnectorDescriptor(
+        name="pagerduty",
+        title="PagerDuty",
+        icon="◔",
+        blurb="See who's on-call and review active incidents before paging.",
+        auth="none",
+        two_way=False,
+        fields=[],
+        instructions=[],
+        available=False,
+        brand_color="#06ac38",
+        logo="pagerduty",
     ),
 ]
 

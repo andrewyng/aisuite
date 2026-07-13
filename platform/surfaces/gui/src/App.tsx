@@ -7,32 +7,44 @@ import {
   getSessionMessages,
   getSessions,
   getSettings,
-  getSuperagent,
+  getPersonas,
+  getInbox,
+  getUnattended,
+  resolveInboxItem,
   deleteSession,
   renameSession,
   runAutomation,
   setSessionFlags,
   Session,
+  type InboxItem,
+  type MessageSource,
+  type Persona,
   type RecentWorkspace,
   type SurfaceVisibility,
 } from "./api";
 import type { ApprovalDecision, Attachment, Item, SessionInfo, TodoItem, WsEvent } from "./types";
+import { isProjectScoped, shortPersonaName } from "./personaScope";
+import { itemsFromMessages } from "./itemsFromMessages";
+import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, startWindowDrag } from "./tauri";
 import { Icon } from "./components/Icon";
 import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
+import { InboxControl } from "./components/InboxControl";
 import { Markdown } from "./components/Markdown";
 import { RootsBar } from "./components/RootsBar";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { ManageModal } from "./components/ManageModal";
 import { Onboarding } from "./components/Onboarding";
-import { SuperAgentView } from "./components/SuperAgentView";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
+import { PersonaView } from "./components/PersonaView";
+import { SourcesBar } from "./components/SourcesBar";
 import { AuditView } from "./components/AuditView";
+import { InboxView } from "./components/InboxView";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 import { PlanCard } from "./components/PlanCard";
@@ -66,11 +78,10 @@ function normalizeTodos(raw: unknown): TodoItem[] {
   });
 }
 
-// Has a workspace (project-grouped, shows a working-area chip): Code + Cowork.
-const needsWorkspace = (a: string) => a === "code" || a === "cowork";
-// MUST pick a folder before starting: Code only. Cowork starts orphan — the server
-// auto-provisions a per-conversation scratch directory and reports it in the `ready` event.
-const gatesWorkspace = (a: string) => a === "code";
+// Fallbacks used only before the persona list loads (the in-component, family-aware
+// needsWorkspace/gatesWorkspace consult the real persona once available).
+const needsWorkspaceFallback = (a: string) => a === "code" || a === "cowork";
+const gatesWorkspaceFallback = (a: string) => a === "code";
 const LAST_SESSION_KEY = "coworker:last-session-by-agent:v1";
 
 type LastSession = { sessionId: string; workspace: string; updatedAt: number };
@@ -142,13 +153,17 @@ export function App() {
   const [sessionId, setSessionId] = useState<string>(newId());
   const [gateCreate, setGateCreate] = useState(false);
   const [showManage, setShowManage] = useState(false);
-  const [manageTab, setManageTab] = useState<"settings" | "models" | undefined>(undefined);
+  const [manageTab, setManageTab] = useState<"settings" | "models" | "personas" | undefined>(undefined);
   // Whether the default model's provider is actually configured (any provider). Drives the
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
-  const [surface, setSurface] = useState<"session" | "superagent" | "scheduled" | "integrations" | "audit">("session");
-  const [helperName, setHelperName] = useState("MyHelper");
+  const [surface, setSurface] = useState<
+    "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona"
+  >("session");
+  // The persona whose detail page is showing (surface === "persona"); empty falls back to the
+  // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
+  const [personaViewId, setPersonaViewId] = useState<string>("");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
   const [railHidden, setRailHidden] = useState(false);
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
@@ -160,6 +175,42 @@ export function App() {
   const [renameDraft, setRenameDraft] = useState("");
   // A pending composer prefill (text + attachments) pushed from the session start panel.
   const [composerPrefill, setComposerPrefill] = useState<{ text: string; attachments?: Attachment[]; nonce: number }>();
+
+  // Persona metadata drives workspace behavior by FAMILY, not by hardcoded id (so a DevOps/SecOps
+  // code-family persona gates a folder like Code, and a knowledge persona starts orphan like Cowork).
+  const [personas, setPersonas] = useState<Persona[] | null>(null);
+  useEffect(() => {
+    getPersonas().then(setPersonas).catch(() => {});
+  }, []);
+  const personaOf = (a: string) => personas?.find((p) => p.id === a);
+
+  // Pending Inbox items for the ACTIVE session — surfaced inline above the composer so an
+  // unattended session's blocking question/approval can be answered in context (resolving the
+  // same item the Inbox shows; first responder wins).
+  const [sessionInbox, setSessionInbox] = useState<InboxItem[]>([]);
+  // Whether the active session is Unattended — when true, the agent's prompts route to the Inbox,
+  // so we suppress the inline live cards (the Inbox / answer-in-context path shows them instead).
+  // A ref too, because the WS event handler closes over stale state.
+  const [unattended, setUnattendedState] = useState(false);
+  const unattendedRef = useRef(false);
+  const markUnattended = useCallback((on: boolean) => {
+    unattendedRef.current = on;
+    setUnattendedState(on);
+  }, []);
+  const resolveSessionInbox = async (id: string, resolution: string) => {
+    await resolveInboxItem(id, resolution);
+    getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
+    refreshSessions(); // attention badge should drop right away
+  };
+  // Shows a working-area chip / project grouping. Persona's needs_workspace; fallback before load.
+  const needsWorkspace = (a: string) => personaOf(a)?.needs_workspace ?? needsWorkspaceFallback(a);
+  // MUST pick a folder before starting — project-scoped personas (git-bound Code, project-bound
+  // Ops). Scratch/deliverable personas start orphan: the server auto-provisions a per-conversation
+  // scratch dir and reports it in the `ready` event.
+  const gatesWorkspace = (a: string) => {
+    const p = personaOf(a);
+    return p ? isProjectScoped(p) : gatesWorkspaceFallback(a);
+  };
 
   // The desktop tray's "Settings" item dispatches this on the window.
   useEffect(() => {
@@ -324,7 +375,13 @@ export function App() {
   useEffect(() => {
     refreshSessions();
     loadSettings(); // selectable models + which session surfaces are visible
-    getSuperagent().then((s) => s?.name && setHelperName(s.name)).catch(() => {});
+  }, [refreshSessions]);
+
+  // Poll the session list so the attention/liveness badges stay live and sessions created
+  // out-of-band (unattended work, messaging, automations) appear without a manual refresh.
+  useEffect(() => {
+    const t = setInterval(refreshSessions, 5000);
+    return () => clearInterval(t);
   }, [refreshSessions]);
 
   // If the active surface isn't visible (hidden in Settings, or a resumed session landed on a
@@ -358,6 +415,26 @@ export function App() {
         case "turn_start":
           setRunning(true);
           setStreaming("");
+          // Background-delivered turns (channel message, self-wake, durable resume) have no local
+          // send(), so the triggering message isn't in `items` yet — surface it. A connector message
+          // carries a structured `source` (§3.1) → render the rich card; otherwise a plain user item.
+          // Foreground turns already appended it in send(); skip the duplicate.
+          if (d.source?.connector) {
+            const src = d.source as MessageSource;
+            setItems((p) => {
+              const last = p[p.length - 1];
+              return last && last.kind === "connector" && last.source.ts === src.ts && last.source.text === src.text
+                ? p
+                : [...p, { kind: "connector", source: src }];
+            });
+          } else if (typeof d.input === "string" && d.input) {
+            setItems((p) => {
+              const last = p[p.length - 1];
+              return last && last.kind === "user" && last.text === d.input
+                ? p
+                : [...p, { kind: "user", text: d.input as string }];
+            });
+          }
           break;
         case "assistant_delta":
           setStreaming((s) => s + (d.text || ""));
@@ -374,19 +451,36 @@ export function App() {
           ]);
           break;
         case "permission_required":
+          // Unattended → the backend parked it in the Inbox; don't also surface a live card.
+          if (unattendedRef.current) break;
           setItems((p) => [
             ...p,
             { kind: "approval", name: d.name, args: d.arguments, reason: d.reason, category: d.category },
           ]);
           break;
         case "directory_requested":
+          if (unattendedRef.current) break;
           setItems((p) => [
             ...p,
             { kind: "dirreq", reason: d.reason || "", path: d.path || "", writable: !!d.writable },
           ]);
           break;
         case "plan_proposed":
+          if (unattendedRef.current) break;
           setItems((p) => [...p, { kind: "planreq", plan: d.plan || "" }]);
+          break;
+        case "question_requested":
+          // ask_user in an attended session — answered inline (not routed to the Inbox).
+          setItems((p) => [
+            ...p,
+            {
+              kind: "question",
+              question: d.question || "",
+              options: d.options || [],
+              allow_text: d.allow_text !== false,
+              multi: !!d.multi,
+            },
+          ]);
           break;
         case "tool_finished":
           setItems((p) => updateLastTool(p, d.name, d.status, d.result_preview || d.reason));
@@ -464,6 +558,19 @@ export function App() {
     getArtifacts(sessionId).then((a) => setArtifactCount(a.length)).catch(() => {});
   }, [agent, surface, sessionId, browserRefreshKey]);
 
+  // Keep the active session's pending Inbox items fresh (answer-in-context card). Loads on session
+  // change + after each turn, plus a slow poll so an unattended agent's new question surfaces.
+  useEffect(() => {
+    if (surface !== "session") return;
+    const load = () => {
+      getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
+      getUnattended(sessionId).then(markUnattended).catch(() => markUnattended(false));
+    };
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [surface, sessionId, browserRefreshKey, markUnattended]);
+
   const send = (text: string, attachments?: Attachment[]) => {
     setItems((p) => [...p, { kind: "user", text, attachments }]);
     sessionRef.current?.userMessage(text, attachments);
@@ -481,6 +588,10 @@ export function App() {
     setItems((p) => resolveLastDirReq(p, granted ? "granted" : "denied"));
     sessionRef.current?.respondDirectory(granted, path, writable);
   };
+  const answerQuestion = (answer: string) => {
+    setItems((p) => resolveLastQuestion(p, answer));
+    sessionRef.current?.respondQuestion(answer);
+  };
   const prefillComposer = (text: string, attachments?: Attachment[]) =>
     setComposerPrefill((p) => ({ text, attachments, nonce: (p?.nonce ?? 0) + 1 }));
   const interrupt = () => sessionRef.current?.interrupt();
@@ -493,16 +604,27 @@ export function App() {
     sessionRef.current?.setModel(m);
   };
 
-  const startNewSession = () => {
+  const startNewSession = (forAgent?: string) => {
+    const target = forAgent || agent;
     setSurface("session"); // return to the conversation view if we were on a sub-view
     setItems([]);
     setStreaming("");
     setTodo([]);
-    // Cowork: a new conversation starts fresh (orphan) — clear the workspace so the server
-    // provisions a NEW scratch dir for the new session id. Code keeps its repo.
-    if (!gatesWorkspace(agent)) setWorkspace(null);
+    setRunning(false);
+    // "New session" under a browsed persona switches to it (expand≠switch: the header alone
+    // doesn't switch; this explicit action does).
+    if (target !== agent) {
+      setAgent(target);
+      if (gatesWorkspace(target)) setShowGate(true);
+      else setShowGate(false);
+    }
+    // Knowledge family: a new conversation starts fresh (orphan) — clear the workspace so the
+    // server provisions a NEW scratch dir for the new session id. Code keeps its repo.
+    if (!gatesWorkspace(target)) setWorkspace(null);
     setSessionId(newId());
   };
+  // Inbox → session: the item carries its session's workspace/agent, so open it directly.
+  const openSessionFromInbox = (sid: string, ws: string, ag: string) => selectSession(sid, ws, ag);
   const selectSession = async (id: string, ws: string, ag: string) => {
     setSurface("session"); // selecting a conversation always returns to the conversation view
     setTodo([]);
@@ -586,7 +708,20 @@ export function App() {
     setSessionId(newId());
     getRecentWorkspaces().then(setProjects).catch(() => {});
   };
-  const newProject = () => {
+  // "New project" lives under a project-scoped persona's accordion. Switch to that persona, start a
+  // fresh session with no folder yet, and open the gate in create mode — so the gate's
+  // surface==="session" && gatesWorkspace(agent) guard passes even if the active session was Chat/Cowork.
+  const newProject = (forAgent?: string) => {
+    const target = forAgent || agent;
+    setSurface("session");
+    setItems([]);
+    setStreaming("");
+    setTodo([]);
+    setRunning(false);
+    if (target !== agent) setAgent(target);
+    setWorkspace(null);
+    setBranch(null);
+    setSessionId(newId());
     setGateCreate(true);
     setShowGate(true);
   };
@@ -642,8 +777,11 @@ export function App() {
   const pendingApproval = [...items].reverse().find((i) => i.kind === "approval" && !i.resolved);
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
   const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
+  const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
   const activeInfo = sessions.find((s) => s.session_id === sessionId);
   const activeTitle = activeInfo?.title || "New chat";
+  // Topbar trim: the active persona's short display name (mock's "· SRE persona").
+  const personaName = shortPersonaName(personaOf(agent)?.name, agent);
   const commitTitleRename = () => {
     const next = renameDraft.trim();
     if (next && next !== activeTitle) renameConversation(sessionId, next);
@@ -679,7 +817,6 @@ export function App() {
           onDone={() => {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
-            getSuperagent().then((s) => s?.name && setHelperName(s.name)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
           }}
         />
@@ -697,25 +834,39 @@ export function App() {
         onNewProject={newProject}
         onRenameSession={renameConversation}
         onDeleteSession={deleteConversation}
+        onTogglePin={togglePinned}
         onManage={() => setShowManage(true)}
-        onOpenSuperagent={() => setSurface("superagent")}
+        onOpenPersona={(id) => {
+          setPersonaViewId(id);
+          setSurface("persona");
+        }}
+        onManagePersonas={() => {
+          setManageTab("personas");
+          setShowManage(true);
+        }}
         onOpenScheduled={() => setSurface("scheduled")}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
-        superagentActive={surface === "superagent"}
+        onOpenInbox={() => setSurface("inbox")}
         scheduledActive={surface === "scheduled"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
-        helperName={helperName}
+        inboxActive={surface === "inbox"}
       />
-      {surface === "superagent" ? (
-        <SuperAgentView />
-      ) : surface === "scheduled" ? (
+      {surface === "scheduled" ? (
         <ScheduledView onOpenRun={openRunSession} onRunNow={runTaskNow} />
       ) : surface === "integrations" ? (
         <IntegrationsView />
       ) : surface === "audit" ? (
         <AuditView />
+      ) : surface === "inbox" ? (
+        <InboxView onOpenSession={openSessionFromInbox} />
+      ) : surface === "persona" ? (
+        <PersonaView
+          personaId={personaViewId || agent}
+          onBack={() => setSurface("session")}
+          onOpenIntegrations={() => setSurface("integrations")}
+        />
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
@@ -735,7 +886,15 @@ export function App() {
                 }}
               />
             ) : (
-              <span>{activeTitle}</span>
+              <>
+                <span>{activeTitle}</span>
+                {personaName && (
+                  <>
+                    <span className="text-faint font-normal">·</span>
+                    <span className="text-muted font-normal truncate">{personaName}</span>
+                  </>
+                )}
+              </>
             )}
             <button
               className="title-menu-btn"
@@ -787,6 +946,23 @@ export function App() {
           </div>
           <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
           <div className="main-topbar-actions">
+            {/* Model + permission-mode are NOT shown here — they live in the composer (model
+                dropdown + "Ask for approval"), where you actually change them. Read-only chips
+                up top duplicated those controls with inconsistent wording (deliberate). */}
+            {agent !== "chat" && (
+              <button
+                className="topbar-icon-btn"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => {
+                  setPersonaViewId(agent);
+                  setSurface("persona");
+                }}
+                aria-label="About this persona"
+                title="About this persona"
+              >
+                <Icon name="sliders" size={16} />
+              </button>
+            )}
             {agent === "cowork" && railHidden && artifactCount > 0 && (
               <button
                 className="topbar-artifacts-btn"
@@ -814,6 +990,19 @@ export function App() {
         </div>
         <div className={"main-workspace" + (railHidden ? " rail-hidden" : "")}>
           <div className="main-chat">
+            {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute
+                glass topbar), as a fixed sub-header above the scrolling conversation — mock §6. */}
+            {agent !== "chat" && (
+              <SourcesBar
+                sessionId={sessionId}
+                personaId={agent}
+                onOpenIntegrations={() => setSurface("integrations")}
+                onOpenPersona={(id) => {
+                  setPersonaViewId(id);
+                  setSurface("persona");
+                }}
+              />
+            )}
             <div className="main-scroll" ref={scrollRef}>
               {idle ? (
                 agent === "cowork" ? (
@@ -873,7 +1062,20 @@ export function App() {
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
               branch={branch}
               onPickWorkspace={() => setShowGate(true)}
-              rootsSlot={agent === "cowork" ? <RootsBar sessionId={sessionId} /> : undefined}
+              rootsSlot={
+                needsWorkspace(agent) ? (
+                  <RootsBar sessionId={sessionId} scratchPrimary={agent === "cowork"} />
+                ) : undefined
+              }
+              inboxSlot={
+                agent !== "chat" ? (
+                  <InboxControl
+                    sessionId={sessionId}
+                    onChange={markUnattended}
+                    onOpenSettings={() => setSurface("integrations")}
+                  />
+                ) : undefined
+              }
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={
@@ -884,12 +1086,38 @@ export function App() {
                     : "Ask the coworker…  (drop or paste images)"
               }
               approvalSlot={
-                pendingPlan?.kind === "planreq" ? (
+                // Live inline cards are for ATTENDED sessions only; when Unattended the prompt is
+                // parked in the Inbox and surfaced via the answer-in-context card below.
+                !unattended && pendingPlan?.kind === "planreq" ? (
                   <PlanCard item={pendingPlan} onRespond={respondPlan} />
-                ) : pendingDirReq?.kind === "dirreq" ? (
+                ) : !unattended && pendingDirReq?.kind === "dirreq" ? (
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
-                ) : pendingApproval?.kind === "approval" ? (
+                ) : !unattended && pendingApproval?.kind === "approval" ? (
                   <ApprovalCard item={pendingApproval} onApprove={approve} compact />
+                ) : !unattended && pendingQuestion?.kind === "question" ? (
+                  // Live ask_user in an attended session — answer inline (reuses the Inbox card UI).
+                  <InboxItemCard
+                    item={{
+                      id: "live-question",
+                      session_id: sessionId,
+                      kind: "question",
+                      title: pendingQuestion.question,
+                      body: "",
+                      state: "pending",
+                      resolution: null,
+                      inbox: "default",
+                      created_at: "",
+                      resolved_at: null,
+                      options: pendingQuestion.options,
+                      allow_text: pendingQuestion.allow_text,
+                      multi: pendingQuestion.multi,
+                    }}
+                    onResolve={(_id, answer) => answerQuestion(answer)}
+                    compact
+                  />
+                ) : sessionInbox[0] ? (
+                  // Unattended session blocked on an Inbox item — answer it in context.
+                  <InboxItemCard item={sessionInbox[0]} onResolve={resolveSessionInbox} compact />
                 ) : undefined
               }
             />
@@ -934,59 +1162,6 @@ export function App() {
       )}
     </div>
   );
-}
-
-function itemsFromMessages(messages: any[]): Item[] {
-  const items: Item[] = [];
-  // Index tool results by tool_call_id so replayed tool rows can show their output
-  // (the live view gets this from `tool_finished` events; on replay it's the `role:"tool"` msgs).
-  const results: Record<string, string> = {};
-  for (const m of messages || []) {
-    if (m.role === "tool" && m.tool_call_id) {
-      results[m.tool_call_id] =
-        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-    }
-  }
-  for (const m of messages || []) {
-    if (m.role === "user") {
-      const user = userItemFromContent(m.content);
-      if (user.text || user.attachments?.length) items.push(user);
-    } else if (m.role === "assistant") {
-      if (m.content) items.push({ kind: "assistant", text: m.content });
-      for (const tc of m.tool_calls || []) {
-        let args: any = {};
-        try {
-          args = JSON.parse(tc.function?.arguments || "{}");
-        } catch {
-          args = {};
-        }
-        const preview = results[tc.id];
-        items.push({ kind: "tool", id: tc.id, name: tc.function?.name, args, status: "ok", preview });
-      }
-    }
-    // system messages are omitted; tool-result messages are folded into the tool row above
-  }
-  return items;
-}
-
-function userItemFromContent(content: any): Extract<Item, { kind: "user" }> {
-  if (typeof content === "string") return { kind: "user", text: content };
-  if (!Array.isArray(content)) return { kind: "user", text: "" };
-
-  const text: string[] = [];
-  const attachments: Attachment[] = [];
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    if (part.type === "text" && part.text) {
-      text.push(String(part.text));
-    } else if (part.type === "image_url") {
-      const url = part.image_url?.url;
-      if (typeof url === "string" && url.startsWith("data:image/")) {
-        attachments.push({ kind: "image", name: "image", data_url: url });
-      }
-    }
-  }
-  return { kind: "user", text: text.join("\n\n"), attachments };
 }
 
 function lastItemIsAssistant(items: Item[]): boolean {
@@ -1051,6 +1226,18 @@ function resolveLastPlan(items: Item[], resolved: "approved" | "rejected"): Item
     const it = copy[i];
     if (it.kind === "planreq" && !it.resolved) {
       copy[i] = { ...it, resolved };
+      break;
+    }
+  }
+  return copy;
+}
+
+function resolveLastQuestion(items: Item[], answer: string): Item[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i >= 0; i--) {
+    const it = copy[i];
+    if (it.kind === "question" && !it.resolved) {
+      copy[i] = { ...it, resolved: answer };
       break;
     }
   }

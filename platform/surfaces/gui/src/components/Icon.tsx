@@ -1,7 +1,7 @@
 // A small set of clean, single-weight line icons (SF-Symbols-ish): 24px grid, 1.7 stroke,
 // currentColor, rounded caps/joins. Replaces emoji in the chrome for a crisp, consistent look.
 
-type IconName =
+export type IconName =
   | "sparkle"
   | "chat"
   | "diamond"
@@ -11,7 +11,10 @@ type IconName =
   | "plus"
   | "clock"
   | "sliders"
+  | "gear"
+  | "inbox"
   | "code"
+  | "wrench"
   | "pencil"
   | "branch"
   | "arrowLeft"
@@ -64,10 +67,10 @@ export function Icon({
         </svg>
       );
     case "folder":
+      // Clean single-tab folder (Lucide-style) — no internal divider line.
       return (
         <svg {...s}>
-          <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
-          <path d="M3.4 10h17.2" />
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
         </svg>
       );
     case "shield":
@@ -111,10 +114,11 @@ export function Icon({
         </svg>
       );
     case "folderPlus":
+      // Same clean folder body + a centered plus (Lucide-style).
       return (
         <svg {...s}>
-          <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
-          <path d="M3.4 10h17.2M12 12.2v4M10 14.2h4" />
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h8.5" />
+          <path d="M19 14v6M16 17h6" />
         </svg>
       );
     case "plus":
@@ -139,6 +143,20 @@ export function Icon({
           <circle cx="14" cy="17" r="2.4" style={{ fill: "var(--panel)" }} />
         </svg>
       );
+    case "gear":
+      return (
+        <svg {...s}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1L16.5 3h-4l-.4 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.4h4l.4-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6c.1-.3.1-.7.1-1z" />
+        </svg>
+      );
+    case "inbox":
+      return (
+        <svg {...s}>
+          <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+          <path d="M5.4 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1z" />
+        </svg>
+      );
     case "code":
       return (
         <svg {...s}>
@@ -149,6 +167,12 @@ export function Icon({
       return (
         <svg {...s}>
           <path d="M5 5.5h14c.8 0 1.5.7 1.5 1.5v7c0 .8-.7 1.5-1.5 1.5H9.5L5.5 19v-3H5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z" />
+        </svg>
+      );
+    case "wrench":
+      return (
+        <svg {...s}>
+          <path d="M14.6 6.4a3.8 3.8 0 0 0-5 4.9l-6 6a1.6 1.6 0 0 0 2.3 2.3l6-6a3.8 3.8 0 0 0 4.9-5l-2.4 2.4-2-.5-.5-2 2.7-2.1z" />
         </svg>
       );
     case "search":

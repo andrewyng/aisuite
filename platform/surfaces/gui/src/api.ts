@@ -52,7 +52,31 @@ export async function getSessions(workspace?: string): Promise<SessionInfo[]> {
   return (await res.json()).sessions ?? [];
 }
 
-export async function getSessionMessages(sessionId: string): Promise<any[]> {
+// A structured connector-delivered inbound message (§3.1). Attached to the user message it framed,
+// for display only — the model still sees the framed `content`; this drives the ConnectorMessageCard.
+export interface MessageSource {
+  connector: string; // platform id, e.g. "slack"
+  kind: "channel" | "dm";
+  channel_id: string; // e.g. "C0BD7KZ1AH5"
+  channel_name: string; // resolved; may equal the id (e.g. "#ocw-test")
+  sender_id: string;
+  sender_name: string; // resolved; may equal the id
+  ts: number; // epoch seconds
+  text: string; // the RAW message (what the card shows)
+}
+
+// A transcript message from GET /v1/sessions/{id}/messages. Kept permissive (open shape) because
+// itemsFromMessages reads several role-specific fields; `source` is the optional connector sidecar.
+export interface ConversationMessage {
+  role: string;
+  content?: any;
+  tool_calls?: any[];
+  tool_call_id?: string;
+  source?: MessageSource;
+  [key: string]: any;
+}
+
+export async function getSessionMessages(sessionId: string): Promise<ConversationMessage[]> {
   const res = await fetch(`${httpBase()}/v1/sessions/${sessionId}/messages`);
   return (await res.json()).messages ?? [];
 }
@@ -239,7 +263,10 @@ export interface Connector {
   connected: boolean;
   account: string | null;
   enabled: boolean;
-  allowed_users: number;
+  brand_color: string; // hex brand color, e.g. "#611f69" (fallback gray "#6b7280")
+  logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
+  allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
+  recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   tools: ConnectorTool[];
 }
 
@@ -366,6 +393,10 @@ export interface ModelSettings {
   surfaces: SurfaceVisibility;
   scratch_base: string;
   secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)
+  // Sidebar layout preference (§7): "flat" = the persona accordions / today's list; "grouped" =
+  // bounded per-persona cards. Defaults to "flat" (absent → flat) so the GUI is robust to an older
+  // backend that hasn't shipped the field yet.
+  nav_layout?: "flat" | "grouped";
 }
 
 export async function setScratchBase(
@@ -387,6 +418,346 @@ export async function setSurfaces(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(flags),
   });
+  return res.json();
+}
+
+/** Persist the sidebar layout preference (flat ↔ grouped-by-persona); read back from getSettings. */
+export async function setNavLayout(
+  layout: "flat" | "grouped",
+): Promise<{ ok: boolean; nav_layout?: "flat" | "grouped"; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/settings/nav-layout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nav_layout: layout }),
+  });
+  return res.json();
+}
+
+// -- Personas -----------------------------------------------------------------
+export interface Persona {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  needs_workspace: boolean;
+  builtin: boolean;
+  family: string;
+  workspace: string; // "git" | "project" | "deliverable" | "none" — drives project-scoping
+  tools: string[];
+  enabled: boolean;
+  surfaced: boolean;
+  default: boolean;
+}
+
+export interface PersonaConsent {
+  id: string;
+  name: string;
+  description: string;
+  tools: string[];
+  risk: string[];
+  connectors: boolean;
+  mcp: string[];
+  messaging: boolean;
+  recommended_mode: string;
+  recommended_models: string[];
+  source: string | null;
+  builtin: boolean;
+}
+
+export async function getPersonas(): Promise<Persona[]> {
+  const res = await fetch(`${httpBase()}/v1/personas`);
+  return (await res.json()).personas;
+}
+
+export async function updatePersona(
+  id: string,
+  body: { enabled?: boolean; surfaced?: boolean; default?: boolean },
+): Promise<{ ok: boolean; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export async function installPersona(
+  body: { dir?: string; git_url?: string },
+): Promise<{ ok: boolean; consent?: PersonaConsent[]; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/install`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+// -- Persona detail + connection defaults (§5) --------------------------------
+// A persona's declared recommendation (manifest `recommends`): a connector or MCP server it works
+// best with, with a reason + tier (core/optional). `connected` is annotated server-side from the
+// connector list so the detail page can show connect state without a second round-trip.
+export interface PersonaRecommendation {
+  kind: string; // "connector" | "mcp" | …
+  ref: string; // connector id (e.g. "github") or mcp/server name
+  reason: string;
+  tier: string; // "core" | "optional"
+  connected: boolean;
+}
+
+// A persona-default connection (the middle of the §4 hierarchy): for a connected connector, whether
+// new sessions of this persona get it enabled by default.
+export interface PersonaDefaultConnection {
+  connector: string; // connector id
+  enabled: boolean; // persona-default on/off
+  connected: boolean; // is the account actually connected (else the toggle is disabled)
+}
+
+export interface PersonaDetail {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  enabled: boolean; // persona on/off (shown in the picker)
+  tools: string[];
+  recommended_models: string[];
+  default_permission_mode: string;
+  workspace: string;
+  recommends: PersonaRecommendation[];
+  default_connections: PersonaDefaultConnection[];
+}
+
+export async function getPersonaDetail(id: string): Promise<PersonaDetail> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}`);
+  return res.json();
+}
+
+/** Set a persona-default connection (new sessions of this persona get it on/off by default). */
+export async function setPersonaConnection(
+  id: string,
+  connector: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; default_connections?: PersonaDefaultConnection[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}/connections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connector, enabled }),
+  });
+  return res.json();
+}
+
+/** Enable/disable the persona (whether it surfaces in the new-session picker). */
+export async function setPersonaEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; personas?: Persona[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/personas/${encodeURIComponent(id)}/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  return res.json();
+}
+
+// -- Per-session connections (Sources bar + drawer, §6) -----------------------
+// An effective-enabled connector for a session, with a short human detail (e.g. "#ocw-test · DMs").
+// `enabled` reflects the session override/persona default so the drawer toggle shows correct state.
+export interface SessionConnectedConnector {
+  connector: string;
+  enabled: boolean;
+  detail: string;
+}
+
+// A persona-recommended connector not yet connected (drives the `⚠ N` attention count).
+export interface SessionRecommendedConnector {
+  connector: string;
+  reason: string;
+  tier: string;
+  connected: boolean;
+}
+
+export interface SessionConnections {
+  connected: SessionConnectedConnector[];
+  recommended: SessionRecommendedConnector[];
+  attention: number; // ⚠ count = recommended connectors not yet connected
+}
+
+export async function getSessionConnections(sessionId: string): Promise<SessionConnections> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/connections`);
+  return res.json();
+}
+
+/**
+ * Set a per-session connection override (mute/unmute a connector for THIS session). Pass
+ * `clear: true` to drop the override and inherit the persona default again.
+ */
+export async function setSessionConnection(
+  sessionId: string,
+  connector: string,
+  enabled: boolean,
+  clear = false,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/connections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connector, enabled, ...(clear ? { clear: true } : {}) }),
+  });
+  return res.json();
+}
+
+// -- Inbox + Unattended -------------------------------------------------------
+export interface InboxItem {
+  id: string;
+  session_id: string;
+  kind: "approval" | "question" | "notification" | "directory" | "plan";
+  title: string;
+  body: string;
+  state: "pending" | "resolved";
+  resolution: string | null;
+  inbox: string;
+  created_at: string;
+  resolved_at: string | null;
+  visibility?: "inline" | "inbox";
+  // Question metadata (ask_user): quick-reply choices + a free-text escape.
+  options?: string[];
+  allow_text?: boolean;
+  multi?: boolean;
+  // Kind-specific payload (directory: {path, writable}; …).
+  data?: Record<string, any>;
+  // Originating-session context (server-joined) so the Inbox is self-contained.
+  session_title?: string;
+  session_agent?: string | null;
+  session_workspace?: string | null;
+  session_exists?: boolean;
+}
+
+export async function getInbox(sessionId?: string, state?: string): Promise<InboxItem[]> {
+  const q = new URLSearchParams();
+  if (sessionId) q.set("session_id", sessionId);
+  if (state) q.set("state", state);
+  const res = await fetch(`${httpBase()}/v1/inbox?${q.toString()}`);
+  return (await res.json()).items;
+}
+
+export async function resolveInboxItem(
+  id: string,
+  resolution: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/inbox/${encodeURIComponent(id)}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resolution }),
+  });
+  return res.json();
+}
+
+// -- channel subscriptions (view-only) ----------------------------------------
+export interface Subscription {
+  session_id: string;
+  session_title: string;
+  agent: string;
+  channel: string;
+  routing_target: string | null;
+  collision: boolean; // inbound subscription == outbound Inbox routing on the same channel
+}
+
+export interface RecentChannel {
+  channel: string;
+  last_from: string | null;
+  last_text: string | null;
+}
+
+export async function getSubscriptions(): Promise<Subscription[]> {
+  const res = await fetch(`${httpBase()}/v1/subscriptions`);
+  return (await res.json()).subscriptions ?? [];
+}
+
+// -- inbox routing (where Unattended approvals/questions get mirrored) ---------
+export interface InboxBinding {
+  name: string;
+  channel: string | null; // platform, e.g. "slack" (null = in-app Inbox only)
+  target: string; // chat_id, e.g. "C0BEJNCQQ8Y"
+}
+
+export async function getInboxRouting(): Promise<InboxBinding[]> {
+  const res = await fetch(`${httpBase()}/v1/inbox/routing`);
+  return (await res.json()).bindings ?? [];
+}
+
+export async function setInboxBinding(
+  name: string,
+  channel: string | null,
+  target: string,
+): Promise<{ ok: boolean; bindings?: InboxBinding[]; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/inbox/routing/binding`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, channel, target }),
+  });
+  return res.json();
+}
+
+export interface UnroutedItem {
+  source: string;
+  sender: string;
+  text: string;
+  reason: string;
+  ts: number;
+}
+
+export async function getUnrouted(): Promise<UnroutedItem[]> {
+  const res = await fetch(`${httpBase()}/v1/unrouted`);
+  return (await res.json()).items ?? [];
+}
+
+export async function getRecentChannels(): Promise<RecentChannel[]> {
+  const res = await fetch(`${httpBase()}/v1/channels/recent`);
+  return (await res.json()).channels ?? [];
+}
+
+export async function subscribeChannel(
+  sessionId: string,
+  channel: string,
+): Promise<{ ok: boolean; channel?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/subscriptions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, channel }),
+  });
+  return res.json();
+}
+
+export async function unsubscribeChannel(
+  sessionId: string,
+  channel: string,
+): Promise<{ ok: boolean; removed?: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/subscriptions/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, channel }),
+  });
+  return res.json();
+}
+
+export async function getUnattended(sessionId: string): Promise<boolean> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/unattended`,
+  );
+  return (await res.json()).unattended;
+}
+
+export async function setUnattended(
+  sessionId: string,
+  unattended: boolean,
+): Promise<{ ok: boolean; unattended: boolean }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/unattended`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unattended }),
+    },
+  );
   return res.json();
 }
 
@@ -515,26 +886,17 @@ export interface RecentSender {
   authorized: boolean;
 }
 
-export interface SuperagentConnector {
-  name: string;
-  account: string | null;
-  listening: boolean;
-  allowed_users: string[];
-  recent: RecentSender[];
+// -- direct-message routing ---------------------------------------------------
+export async function getDmRoute(): Promise<string | null> {
+  const res = await fetch(`${httpBase()}/v1/messaging/dm-route`);
+  return (await res.json()).dm_session ?? null;
 }
 
-export interface SuperagentStatus {
-  name: string;
-  workspace: string;
-  running: boolean;
-  connectors: SuperagentConnector[];
-}
-
-export async function setSuperagentName(name: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${httpBase()}/v1/superagent/name`, {
+export async function setDmRoute(sessionId: string): Promise<{ ok: boolean; dm_session: string | null }> {
+  const res = await fetch(`${httpBase()}/v1/messaging/dm-route`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ session_id: sessionId }),
   });
   return res.json();
 }
@@ -634,20 +996,6 @@ export async function finalizeAutomationRun(id: string, runId: string) {
   return res.json();
 }
 
-export async function getSuperagent(): Promise<SuperagentStatus> {
-  const res = await fetch(`${httpBase()}/v1/superagent`);
-  return res.json();
-}
-
-export async function setSuperagentWorkspace(path: string): Promise<{ ok: boolean; error?: string; restart_required?: boolean }> {
-  const res = await fetch(`${httpBase()}/v1/superagent/workspace`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  });
-  return res.json();
-}
-
 export async function allowUser(name: string, userId: string) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/allow`, {
     method: "POST",
@@ -725,6 +1073,11 @@ export class Session {
     });
   }
 
+  // Answer a live `ask_user` prompt (attended sessions; unattended ones answer via the Inbox).
+  respondQuestion(answer: string) {
+    this.send({ type: "question_response", answer });
+  }
+
   interrupt() {
     this.send({ type: "interrupt" });
   }
@@ -742,45 +1095,3 @@ export class Session {
   }
 }
 
-export class SuperagentSession {
-  private ws: WebSocket;
-  private outbox: object[] = [];
-
-  constructor(handlers: Handlers) {
-    this.ws = new WebSocket(`${wsBase()}/ws/superagent`);
-    this.ws.onmessage = (e) => handlers.onEvent(JSON.parse(e.data));
-    this.ws.onopen = () => {
-      this.flush();
-      handlers.onOpen?.();
-    };
-    this.ws.onclose = () => handlers.onClose?.();
-  }
-
-  private flush() {
-    if (this.ws.readyState !== WebSocket.OPEN) return;
-    const pending = this.outbox;
-    this.outbox = [];
-    for (const p of pending) this.ws.send(JSON.stringify(p));
-  }
-
-  private send(payload: object) {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(payload));
-    else if (this.ws.readyState === WebSocket.CONNECTING) this.outbox.push(payload);
-  }
-
-  userMessage(text: string, attachments?: unknown[]) {
-    this.send({ type: "user_message", text, ...(attachments?.length ? { attachments } : {}) });
-  }
-
-  approve(decision: string) {
-    this.send({ type: "approval", decision });
-  }
-
-  interrupt() {
-    this.send({ type: "interrupt" });
-  }
-
-  close() {
-    this.ws.close();
-  }
-}

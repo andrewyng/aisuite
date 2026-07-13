@@ -7,6 +7,7 @@ export type EventType =
   | "tool_proposed"
   | "permission_required"
   | "directory_requested"
+  | "question_requested"
   | "plan_proposed"
   | "tool_started"
   | "tool_finished"
@@ -20,6 +21,10 @@ export interface WsEvent {
   type: EventType;
   data: any;
 }
+
+// Re-exported for transcript items below. Lives in api.ts (the REST/WS contract source of truth);
+// type-only import, so there's no runtime cycle with api.ts's `import type { ... } from "./types"`.
+import type { MessageSource } from "./api";
 
 export type ApprovalDecision = "once" | "deny" | "always_tool" | "always_command";
 
@@ -39,6 +44,12 @@ export interface SessionInfo {
   messages: number;
   pinned?: boolean;
   archived?: boolean;
+  // Inbox items awaiting this session (the amber attention count that bubbles up the sidebar).
+  attention?: number;
+  // working = in-flight turn; sleeping = a self-wake is pending; idle = neither. A count-less dot.
+  liveness?: "working" | "sleeping" | "idle";
+  // Channels this session listens to (inbound subscriptions).
+  subscriptions?: string[];
 }
 
 // Attachments (images, text files) sent with a user message.
@@ -53,6 +64,10 @@ export interface Attachment {
 // Transcript items
 export type Item =
   | { kind: "user"; text: string; attachments?: Attachment[] }
+  // A connector-delivered inbound message (Slack/Salesforce/…), rendered as a structured card
+  // (ConnectorMessageCard) instead of a plain user bubble. Generalizes to any connector via the
+  // registry — no per-connector special-casing.
+  | { kind: "connector"; source: MessageSource }
   | { kind: "assistant"; text: string }
   | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string }
   | {
@@ -74,5 +89,14 @@ export type Item =
       kind: "planreq";
       plan: string;
       resolved?: "approved" | "rejected";
+    }
+  | {
+      // A live ask_user prompt (attended sessions answer inline; unattended ones route to the Inbox).
+      kind: "question";
+      question: string;
+      options?: string[];
+      allow_text?: boolean;
+      multi?: boolean;
+      resolved?: string;
     }
   | { kind: "notice"; tone: "info" | "warn"; text: string };

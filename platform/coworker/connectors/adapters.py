@@ -9,10 +9,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Optional
 
-from .base import BasePlatformAdapter, MessageEvent, SendResult, SessionSource
-from .senders import _send_slack, _send_telegram
+from .base import (
+    BasePlatformAdapter,
+    InteractionEvent,
+    MessageEvent,
+    SendResult,
+    SessionSource,
+)
+from .senders import _send_slack, _send_slack_interactive, _send_telegram
 
 logger = logging.getLogger("coworker.connectors")
 
@@ -126,6 +133,12 @@ class SlackAdapter(BasePlatformAdapter):
         self._socket = None
         self._task: Optional[asyncio.Task] = None
         self._bot_user_id: Optional[str] = None
+        self._name_cache: dict[str, str] = (
+            {}
+        )  # user_id → display name (resolved once via users.info)
+        self._channel_cache: dict[str, str] = (
+            {}
+        )  # chat_id → channel name (resolved once via conversations.info)
 
     async def connect(self) -> bool:
         try:
@@ -133,13 +146,20 @@ class SlackAdapter(BasePlatformAdapter):
                 AsyncSocketModeHandler,
             )
             from slack_bolt.async_app import AsyncApp
+            from slack_sdk.web.async_client import AsyncWebClient
         except ImportError:
             logger.warning(
                 "slack-bolt not installed — `pip install coworker[messaging]`"
             )
             return False
 
-        self._app = AsyncApp(token=self.bot_token)
+        # Base-URL override so tests (and the FakeSlack harness) can redirect every Web API
+        # call — auth.test/users.info/conversations.info/chat.update AND Socket Mode's
+        # apps.connections.open, which the handler issues on this same client. Default is the
+        # real Slack API. See platform/docs/FAKE-SLACK-SPEC.md.
+        base_url = os.environ.get("SLACK_API_URL", "https://slack.com/api/")
+        client = AsyncWebClient(token=self.bot_token, base_url=base_url)
+        self._app = AsyncApp(client=client)
         try:
             auth = await self._app.client.auth_test()
             self._bot_user_id = auth.get("user_id")
@@ -151,12 +171,93 @@ class SlackAdapter(BasePlatformAdapter):
         async def _on_message(event, _say):
             mapped = slack_event_to_event(event, self._bot_user_id)
             if mapped is not None:
+                # Slack message events carry only the user id; resolve a friendly name so recent
+                # senders / the allow-list don't read "unknown".
+                if not mapped.source.user_name:
+                    mapped.source.user_name = await self._display_name(
+                        mapped.source.user_id
+                    )
+                # ...and a friendly channel/DM name so the GUI card shows "#ocw-test", not "C…".
+                if not mapped.source.chat_name:
+                    mapped.source.chat_name = await self._channel_name(
+                        mapped.source.chat_id
+                    )
                 await self.handle_message(mapped)
+
+        # Button clicks on interactive prompts (action_id `ocw_*`). Socket mode delivers these over
+        # the same connection — no public endpoint, just "Interactivity" enabled in the Slack app.
+        import re as _re
+
+        @self._app.action(_re.compile(r"^ocw_"))
+        async def _on_action(ack, body):
+            await ack()
+            actions = body.get("actions") or [{}]
+            value = actions[0].get("value", "")
+            user = body.get("user") or {}
+            channel = (body.get("channel") or {}).get("id", "")
+            ts = (body.get("message") or {}).get("ts")
+            await self.handle_interaction(
+                InteractionEvent(
+                    platform="slack",
+                    chat_id=str(channel),
+                    message_id=ts,
+                    value=str(value),
+                    user_name=user.get("username") or user.get("name"),
+                )
+            )
 
         self._socket = AsyncSocketModeHandler(self._app, self.app_token)
         self._task = asyncio.create_task(self._socket.start_async())
         logger.info("slack adapter connected (socket mode) as %s", self._bot_user_id)
         return True
+
+    async def _display_name(self, uid: Optional[str]) -> Optional[str]:
+        """Resolve a user id to a display name via users.info, cached. Best-effort: None on failure
+        (the caller falls back to the id)."""
+        if not uid:
+            return None
+        if uid in self._name_cache:
+            return self._name_cache[uid]
+        try:
+            info = await self._app.client.users_info(user=uid)
+            u = info.get("user") or {}
+            prof = u.get("profile") or {}
+            name = (
+                prof.get("display_name")
+                or prof.get("real_name")
+                or u.get("real_name")
+                or u.get("name")
+            )
+        except Exception:
+            name = None
+        if name:
+            self._name_cache[uid] = name
+        return name
+
+    async def _channel_name(self, chat_id: Optional[str]) -> Optional[str]:
+        """Resolve a channel/DM id to a display name via conversations.info, cached. Best-effort:
+        None on failure (the caller falls back to the id). Mirrors `_display_name`."""
+        if not chat_id:
+            return None
+        if chat_id in self._channel_cache:
+            return self._channel_cache[chat_id]
+        try:
+            info = await self._app.client.conversations_info(channel=chat_id)
+            chan = info.get("channel") or {}
+            name = chan.get("name") or chan.get("name_normalized")
+        except Exception:
+            name = None
+        if name:
+            self._channel_cache[chat_id] = name
+        return name
+
+    async def resolve_user_name(self, user_id: Optional[str]) -> Optional[str]:
+        """Public §2.1 wrapper over the cached user-name resolution."""
+        return await self._display_name(user_id)
+
+    async def resolve_channel_name(self, chat_id: Optional[str]) -> Optional[str]:
+        """Public §2.1 wrapper over the cached channel-name resolution."""
+        return await self._channel_name(chat_id)
 
     async def disconnect(self) -> None:
         if self._socket is not None:
@@ -171,7 +272,30 @@ class SlackAdapter(BasePlatformAdapter):
     async def send(
         self, chat_id: str, text: str, *, thread_id: Optional[str] = None
     ) -> SendResult:
-        return _send_slack(self.bot_token, chat_id, text, thread_id)
+        # The stateless senders use blocking httpx; offload so an outbound from the event loop
+        # (e.g. mirror_inbox_item / _on_interaction, which await this directly) never blocks the
+        # server loop on the Slack round-trip.
+        return await asyncio.to_thread(
+            _send_slack, self.bot_token, chat_id, text, thread_id
+        )
+
+    async def send_interactive(
+        self, chat_id: str, text: str, buttons, *, thread_id: Optional[str] = None
+    ) -> SendResult:
+        return await asyncio.to_thread(
+            _send_slack_interactive, self.bot_token, chat_id, text, buttons, thread_id
+        )
+
+    async def update_message(self, chat_id: str, message_id: str, text: str) -> None:
+        """Replace a resolved prompt's buttons with a plain-text outcome ("✅ Approved by …")."""
+        if self._app is None or not message_id:
+            return
+        try:
+            await self._app.client.chat_update(
+                channel=chat_id, ts=message_id, text=text, blocks=[]
+            )
+        except Exception:
+            logger.debug("slack chat_update failed", exc_info=True)
 
 
 def make_adapter(platform: str, profile: dict) -> Optional[BasePlatformAdapter]:

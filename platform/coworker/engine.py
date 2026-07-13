@@ -37,6 +37,7 @@ class PermissionRequest:
     arguments: dict[str, Any]
     metadata: Any
     reason: str
+    tool_call_id: Optional[str] = None  # for durable resume (idempotent inbox item)
 
 
 Approver = Callable[[PermissionRequest], Awaitable[ApprovalOutcome]]
@@ -67,6 +68,9 @@ class TurnEngine:
         plan_approver: Optional[
             Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
         ] = None,
+        question_asker: Optional[
+            Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
+        ] = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -90,28 +94,93 @@ class TurnEngine:
         # An approving result flips the live PermissionEngine out of plan mode (same session,
         # context kept). None on surfaces that can't prompt (the tool then no-ops).
         self.plan_approver = plan_approver
+        # Handles the `ask_user` tool: turns a question into an Inbox item and waits for the answer
+        # (answerable inline in a live session or from the Inbox when unattended). None on surfaces
+        # that can't ask (the tool then no-ops).
+        self.question_asker = question_asker
         self.audit_context: dict[str, Any] = {}
         if instructions and not (
             self.messages and self.messages[0].get("role") == "system"
         ):
             self.messages.insert(0, {"role": "system", "content": instructions})
         self._cancel = asyncio.Event()
-        self._steering: list[str] = []
+        # Each pending steering message: (text, optional MessageSource sidecar dict).
+        self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
         self._cancel.set()
 
-    def queue_steering(self, text: str) -> None:
-        self._steering.append(text)
+    def queue_steering(
+        self, text: str, source: Optional[dict[str, Any]] = None
+    ) -> None:
+        self._steering.append((text, source))
 
     # -- main loop --------------------------------------------------------------
-    async def run(self, user_input: "str | list") -> AsyncIterator[Event]:
+    async def run(
+        self, user_input: "str | list", *, source: Optional[dict[str, Any]] = None
+    ) -> AsyncIterator[Event]:
         # `user_input` is a string, or OpenAI content-parts (text + image_url) for attachments.
-        self.messages.append({"role": "user", "content": user_input})
+        # `source` (a MessageSource dict) is a display-only sidecar for connector messages: it
+        # rides on the persisted user message + the TURN_START event, but is stripped before the
+        # message reaches a provider (see `_outbound_messages`). `content` stays the framed text.
+        message: dict[str, Any] = {"role": "user", "content": user_input}
+        if source is not None:
+            message["source"] = source
+        self.messages.append(message)
         self._cancel.clear()
-        yield Event(EventType.TURN_START, {"input": user_input})
+        data: dict[str, Any] = {"input": user_input}
+        if source is not None:
+            data["source"] = source
+        yield Event(EventType.TURN_START, data)
+        async for event in self._loop():
+            yield event
 
+    async def resume(self) -> AsyncIterator[Event]:
+        """Continue a turn that was suspended at a prompt and persisted — durable resume after a
+        restart (or engine eviction). Re-process the trailing assistant message's UNANSWERED
+        tool-calls (the prompt callbacks find the already-resolved Inbox item and return without
+        re-prompting; answered calls are skipped, so nothing double-executes), then run the model
+        loop to finish the turn."""
+        pending = self._unanswered_trailing_tool_calls()
+        if not pending:
+            return
+        self._cancel.clear()
+        yield Event(EventType.TURN_START, {"input": "(resumed)"})
+        async for event in self._handle_tool_calls(pending):
+            yield event
+        yield Event(EventType.ITERATION_END, {"iteration": 0})
+        if not self._cancel.is_set():
+            async for event in self._loop():
+                yield event
+
+    def _unanswered_trailing_tool_calls(self) -> list[ToolCall]:
+        """The tool-calls of the last assistant message that don't yet have a tool result —
+        i.e. the prompt we suspended on (+ any after it). Reconstructed from the persisted thread.
+        """
+        answered = {
+            m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"
+        }
+        for msg in reversed(self.messages):
+            if msg.get("role") == "user":
+                return []
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                out: list[ToolCall] = []
+                for tc in msg["tool_calls"]:
+                    if tc.get("id") in answered:
+                        continue
+                    fn = tc.get("function") or {}
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except Exception:
+                        args = {}
+                    out.append(
+                        ToolCall(id=tc.get("id"), name=fn.get("name"), arguments=args)
+                    )
+                return out
+        return []
+
+    async def _loop(self) -> AsyncIterator[Event]:
         iterations = 0
         while True:
             if iterations >= self.max_iterations:
@@ -226,6 +295,10 @@ class TurnEngine:
                 async for event in self._handle_plan_proposal(tool_call):
                     yield event
                 continue
+            if tool_call.name == "ask_user":
+                async for event in self._handle_ask_user(tool_call):
+                    yield event
+                continue
             allowed = False
             async for item in self._authorize(tool_call):
                 if isinstance(item, Event):
@@ -297,6 +370,7 @@ class TurnEngine:
                     arguments=tool_call.arguments,
                     metadata=metadata,
                     reason=decision.reason,
+                    tool_call_id=tool_call.id,
                 )
             )
             if outcome is ApprovalOutcome.DENY:
@@ -416,7 +490,7 @@ class TurnEngine:
         else:
             yield Event(EventType.PLAN_PROPOSED, {"plan": plan})
             self._audit(tool_call, stage="plan_proposed")
-            result = await self.plan_approver(dict(args)) or {
+            result = await self.plan_approver(dict(args), tool_call.id) or {
                 "approved": False,
                 "error": "no response",
             }
@@ -477,7 +551,7 @@ class TurnEngine:
                 stage="directory_requested",
                 reason=str(args.get("reason", "")),
             )
-            result = await self.directory_requester(dict(args)) or {
+            result = await self.directory_requester(dict(args), tool_call.id) or {
                 "granted": False,
                 "error": "no response",
             }
@@ -500,23 +574,75 @@ class TurnEngine:
             },
         )
 
+    async def _handle_ask_user(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+        """Emit the question, await the user's out-of-band answer (inline in the live session or
+        from the Inbox when unattended), and return it as the tool result."""
+        args = tool_call.arguments or {}
+        question = str(args.get("question", "")).strip()
+        if self.question_asker is None or not question:
+            result: dict[str, Any] = {
+                "answer": "",
+                "error": (
+                    "no question was asked"
+                    if not question
+                    else "asking isn't available here"
+                ),
+            }
+        else:
+            # The asker is mode-aware (attended → live inline prompt; unattended → Inbox), so it
+            # owns surfacing the question. The engine just awaits the answer.
+            self._audit(tool_call, stage="question_requested", reason=question)
+            result = await self.question_asker(dict(args), tool_call.id) or {
+                "answer": "",
+                "error": "no response",
+            }
+
+        status = "ok" if result.get("answer") else "denied"
+        self.messages.append(_tool_result_message(tool_call, result))
+        self._audit(
+            tool_call,
+            stage="finished",
+            status=status,
+            result=result,
+            result_preview=_preview(result),
+        )
+        yield Event(
+            EventType.TOOL_FINISHED,
+            {
+                "name": tool_call.name,
+                "status": status,
+                "result_preview": _preview(result),
+            },
+        )
+
     def _inject_steering(self) -> None:
-        for text in self._steering:
-            self.messages.append({"role": "user", "content": text})
+        for text, source in self._steering:
+            message: dict[str, Any] = {"role": "user", "content": text}
+            if source is not None:
+                message["source"] = source
+            self.messages.append(message)
         self._steering = []
 
     def _outbound_messages(self) -> list[dict[str, Any]]:
-        """`self.messages` with an ephemeral `<system-context>` block appended to the last user
-        message. Returns the list unchanged when there's no context provider or it yields "".
-        Never mutates `self.messages`, so the block is sent but never persisted/replayed.
+        """`self.messages` prepared for the provider. The SOLE provider feed (see `_astream`).
+
+        Every message is stripped of the display-only `source` sidecar (providers reject unknown
+        keys), unconditionally — whether or not a `<system-context>` block is added. When a context
+        provider yields a non-empty string, an ephemeral `<system-context>` block is appended to the
+        last user message. Never mutates `self.messages`, so neither the strip nor the block is
+        persisted/replayed.
         """
-        if self.context_provider is None:
-            return self.messages
-        context = self.context_provider() or ""
+        # Strip `source` from every message (copy only those that carry it; reuse the rest).
+        out = [
+            {k: v for k, v in msg.items() if k != "source"} if "source" in msg else msg
+            for msg in self.messages
+        ]
+        context = (
+            self.context_provider() if self.context_provider is not None else ""
+        ) or ""
         if not context:
-            return self.messages
+            return out
         block = f"\n\n<system-context>\n{context}\n</system-context>"
-        out = list(self.messages)
         for i in range(len(out) - 1, -1, -1):
             if out[i].get("role") != "user":
                 continue

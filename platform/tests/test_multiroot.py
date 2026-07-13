@@ -166,7 +166,11 @@ def test_outbound_messages_noop_without_provider():
         model="x",
         messages=[{"role": "user", "content": "hello"}],
     )
-    assert eng._outbound_messages() is eng.messages
+    # No context provider → no `<system-context>` block appended (content unchanged). The list is
+    # now always a fresh copy (the `source` strip is unconditional), so compare by value not identity.
+    out = eng._outbound_messages()
+    assert out == eng.messages
+    assert out[-1]["content"] == "hello"
 
 
 # -- Slice C: add/remove session folders (RO/RW) + persistence ------------------
@@ -264,7 +268,7 @@ def test_add_root_before_first_turn_persists(tmp_path):
 def test_request_directory_emits_prompt_and_returns_grant():
     captured = {}
 
-    async def requester(args):
+    async def requester(args, tool_call_id=None):
         captured.update(args)
         return {"granted": True, "path": "/tmp/granted", "writable": True}
 
@@ -294,7 +298,7 @@ def test_request_directory_emits_prompt_and_returns_grant():
 
 
 def test_request_directory_denied_returns_denied_status():
-    async def requester(_args):
+    async def requester(_args, tool_call_id=None):
         return {"granted": False, "reason": "user declined"}
 
     eng = _bare_engine(directory_requester=requester)
