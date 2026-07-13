@@ -164,7 +164,6 @@ def _compat(
                 "api_key",
                 f"{vendor} API key",
                 secret=True,
-                help="Stored locally (0600). Never sent to the model.",
             ),
             ProviderField(
                 "base_url",
@@ -194,7 +193,6 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 "OpenAI API key",
                 secret=True,
                 placeholder="sk-…",
-                help="Stored locally (0600). Never sent to the model.",
             ),
             ProviderField(
                 "base_url",
@@ -219,7 +217,6 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 "Anthropic API key",
                 secret=True,
                 placeholder="sk-ant-…",
-                help="Stored locally (0600). Never sent to the model.",
             ),
         ],
         build=_build_anthropic,
@@ -236,7 +233,6 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 "Gemini API key",
                 secret=True,
                 placeholder="AIza…",
-                help="Stored locally (0600). Never sent to the model.",
             ),
         ],
         build=_build_gemini,

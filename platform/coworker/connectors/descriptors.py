@@ -68,6 +68,11 @@ class ConnectorDescriptor:
     # is an extra path, never a replacement (local-only open-source flow is
     # sacred).
     managed: bool = False
+    # Multi-account (accounts.py generic layer): the creds field that names an
+    # account (e.g. "project_id"), or "@identity" = the validator's identity
+    # string. Non-empty → profiles live at `<name>:account:<id>` and the
+    # `:default` profile is pointer-only. Empty → single-profile connector.
+    account_field: str = ""
 
 
 # -- validators (sync httpx, one-shot) -----------------------------------------
@@ -141,6 +146,81 @@ def _validate_whoami(
         return ValidationResult(True, identity=str(identity(data)))
     except Exception:
         return ValidationResult(False, error="unexpected response from API")
+
+
+def _validate_notion(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.notion.com/v1/users/me",
+        headers={
+            "Authorization": f"Bearer {creds.get('access_token', '')}",
+            "Notion-Version": "2022-06-28",
+        },
+        identity=lambda d: (d.get("bot") or {}).get("workspace_name") or d["name"],
+    )
+
+
+def _validate_attio(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.attio.com/v2/self",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d.get("workspace_name") or d["workspace_id"],
+    )
+
+
+def _validate_posthog(creds: dict) -> ValidationResult:
+    base = str(creds.get("base_url") or "https://us.posthog.com").rstrip("/")
+    return _validate_whoami(
+        "GET",
+        f"{base}/api/users/@me/",
+        headers={"Authorization": f"Bearer {creds.get('api_key', '')}"},
+        identity=lambda d: d["email"],
+    )
+
+
+def _validate_mixpanel(creds: dict) -> ValidationResult:
+    import base64 as _b64
+
+    pair = f"{creds.get('username', '')}:{creds.get('secret', '')}"
+    return _validate_whoami(
+        "GET",
+        "https://mixpanel.com/api/app/me",
+        headers={"Authorization": "Basic " + _b64.b64encode(pair.encode()).decode()},
+        identity=lambda d, u=creds.get("username", ""): u,
+    )
+
+
+def _validate_amplitude(creds: dict) -> ValidationResult:
+    import base64 as _b64
+
+    pair = f"{creds.get('api_key', '')}:{creds.get('secret_key', '')}"
+    return _validate_whoami(
+        "GET",
+        "https://amplitude.com/api/2/annotations",
+        headers={"Authorization": "Basic " + _b64.b64encode(pair.encode()).decode()},
+        # No user identity on this API — name the account by the key's tail so
+        # two projects stay tellable-apart in the accounts list.
+        identity=lambda d, k=str(creds.get("api_key", "")): f"key …{k[-6:]}",
+    )
+
+
+def _validate_apollo(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.apollo.io/api/v1/auth/health",
+        headers={"X-Api-Key": creds.get("api_key", "")},
+        identity=lambda d: str(creds.get("label") or "").strip() or "default",
+    )
+
+
+def _validate_hunter(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        f"https://api.hunter.io/v2/account?api_key={creds.get('api_key', '')}",
+        headers={},
+        identity=lambda d: d["data"]["email"],
+    )
 
 
 def _validate_linear(creds: dict) -> ValidationResult:
@@ -457,27 +537,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         available=True,
         # One-click managed path: install the GitHub App — no tokens typed.
         managed=True,
-    ),
-    ConnectorDescriptor(
-        name="notion",
-        title="Notion",
-        icon="□",
-        blurb="Search pages, summarize knowledge bases, and draft updates.",
-        auth="token",
-        two_way=False,
-        fields=[
-            Field(
-                "token",
-                "Integration token",
-                secret=True,
-                help="Internal integration secret from Notion.",
-            ),
-        ],
-        instructions=[
-            "Create a Notion internal integration and copy its secret.",
-            "Share the relevant pages/databases with that integration.",
-        ],
-        available=True,
     ),
     ConnectorDescriptor(
         name="outlook",
@@ -845,6 +904,182 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         available=False,
         brand_color="#00a1e0",
         logo="salesforce",
+    ),
+    ConnectorDescriptor(
+        name="notion",
+        title="Notion",
+        icon="◰",
+        blurb="Search pages, read content, query databases, create pages.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "Integration secret",
+                secret=True,
+                help="From an internal integration at notion.so/my-integrations; "
+                "share the pages it should see with the integration.",
+                placeholder="ntn_…",
+            ),
+        ],
+        instructions=[
+            "One click connects via OpenCoworker Cloud (recommended).",
+            "Manual: create an internal integration at notion.so/my-integrations,",
+            "copy its secret, and share the relevant pages with the integration.",
+        ],
+        validate=_validate_notion,
+        brand_color="#1f2328",
+        managed=True,
+        # Managed profiles key by the workspace id the broker sends
+        # (account_id); a manual integration token falls back to the
+        # validator's workspace name.
+        account_field="account_id",
+    ),
+    ConnectorDescriptor(
+        name="attio",
+        title="Attio",
+        icon="◵",
+        blurb="Read your Attio CRM: objects, records, notes.",
+        auth="oauth",
+        two_way=False,
+        fields=[
+            Field(
+                "access_token",
+                "API key",
+                secret=True,
+                help="Workspace Settings → Developers → API keys.",
+            ),
+        ],
+        instructions=[
+            "One click connects via OpenCoworker Cloud (recommended).",
+            "Manual: create an API key under Workspace Settings → Developers.",
+        ],
+        validate=_validate_attio,
+        brand_color="#2d7ff9",
+        managed=True,
+        account_field="account_id",
+    ),
+    ConnectorDescriptor(
+        name="posthog",
+        title="PostHog",
+        icon="◫",
+        blurb="Query product analytics: events, funnels, saved insights.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field(
+                "base_url",
+                "PostHog URL",
+                required=False,
+                help="Leave empty for US cloud; set for EU cloud or self-hosted.",
+                placeholder="https://us.posthog.com",
+            ),
+            Field(
+                "api_key",
+                "Personal API key",
+                secret=True,
+                help="Settings → Personal API keys (read access is enough).",
+                placeholder="phx_…",
+            ),
+            Field(
+                "project_id",
+                "Project ID",
+                help="Settings → Project → Project ID. Add more projects as extra accounts.",
+            ),
+        ],
+        instructions=[
+            "In PostHog, open Settings → Personal API keys and create a key.",
+            "Copy your Project ID from Settings → Project.",
+            "One project per account — connect again to add another project.",
+        ],
+        validate=_validate_posthog,
+        brand_color="#f54e00",
+        account_field="project_id",
+    ),
+    ConnectorDescriptor(
+        name="mixpanel",
+        title="Mixpanel",
+        icon="◭",
+        blurb="Query Mixpanel events and segmentation.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field("username", "Service account username", secret=False),
+            Field("secret", "Service account secret", secret=True),
+            Field(
+                "project_id",
+                "Project ID",
+                help="Add more projects as extra accounts.",
+            ),
+        ],
+        instructions=[
+            "In Mixpanel, open Organization Settings → Service Accounts and create one.",
+            "Copy the username, the secret, and your Project ID (Project Settings).",
+        ],
+        validate=_validate_mixpanel,
+        brand_color="#7856ff",
+        account_field="project_id",
+    ),
+    ConnectorDescriptor(
+        name="amplitude",
+        title="Amplitude",
+        icon="∿",
+        blurb="Query Amplitude charts data: active users, event totals.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field("api_key", "API key", secret=True, help="Project Settings → API Keys."),
+            Field("secret_key", "Secret key", secret=True),
+        ],
+        instructions=[
+            "In Amplitude, open Settings → Projects → your project → API Keys.",
+            "Copy the API key and secret key. One project per account.",
+        ],
+        validate=_validate_amplitude,
+        brand_color="#1e61f0",
+        account_field="@identity",
+    ),
+    ConnectorDescriptor(
+        name="apollo",
+        title="Apollo.io",
+        icon="☄",
+        blurb="Enrich people and companies; search the B2B database.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field("api_key", "API key", secret=True, help="Settings → Integrations → API."),
+            Field(
+                "label",
+                "Account label",
+                required=False,
+                help="Name this account (used if you connect more than one).",
+                placeholder="work",
+            ),
+        ],
+        instructions=[
+            "In Apollo, open Settings → Integrations → API and create an API key.",
+            "Enrichment and search endpoints require a paid Apollo plan.",
+        ],
+        validate=_validate_apollo,
+        brand_color="#fbbf24",
+        account_field="@identity",
+    ),
+    ConnectorDescriptor(
+        name="hunter",
+        title="Hunter",
+        icon="✉",
+        blurb="Find and verify professional email addresses by domain.",
+        auth="api_token",
+        two_way=False,
+        fields=[
+            Field("api_key", "API key", secret=True, help="hunter.io → API → API keys."),
+        ],
+        instructions=[
+            "In Hunter, open API → API keys and copy your key.",
+        ],
+        validate=_validate_hunter,
+        brand_color="#fa5320",
+        account_field="@identity",
     ),
     ConnectorDescriptor(
         name="pagerduty",

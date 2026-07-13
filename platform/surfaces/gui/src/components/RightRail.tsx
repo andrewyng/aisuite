@@ -288,7 +288,14 @@ function ArtifactViewer({
               <Icon name="panelOpen" size={16} />
             </button>
           )}
-          <button className="artifact-icon-btn" onClick={() => navigator.clipboard?.writeText(artifact.path)} aria-label="Copy path" title="Copy path">
+          {/* Copy the ABSOLUTE path — the workspace-relative one is useless outside the app
+              (tester catch 2026-07-12: it copied just "slack-connector-debug.md"). */}
+          <button
+            className="artifact-icon-btn"
+            onClick={() => navigator.clipboard?.writeText(artifact.abs_path || artifact.path)}
+            aria-label="Copy path"
+            title="Copy full path"
+          >
             <Icon name="copy" size={16} />
           </button>
           <button

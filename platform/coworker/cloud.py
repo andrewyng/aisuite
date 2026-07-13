@@ -46,6 +46,7 @@ PROVIDER_FOR_CONNECTOR = {
     "google_drive": "google",
     "slack": "slack",
     "notion": "notion",
+    "attio": "attio",
     "hubspot": "hubspot",
     "github": "github",
 }
@@ -118,7 +119,11 @@ def complete_login(
             "client_id": config.cloud_client_id,
             "code": code,
             "code_verifier": pending["verifier"],
-            "redirect_uri": f"http://127.0.0.1:{config.port}/auth/callback",
+            # MUST byte-match begin_login's authorize redirect_uri (RFC 6749 §4.1.3) — the
+            # broker bounce, not the loopback. The bounce change (eda23c9) updated only the
+            # authorize leg; the stale loopback here made Auth0 reject every exchange
+            # ("token exchange failed" on all sign-ins from 07-09 to 07-11).
+            "redirect_uri": config.cloud_base_url.rstrip("/") + "/v1/auth/callback",
         },
         timeout=15,
     )
@@ -339,6 +344,10 @@ def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
         "provider": form.get("provider", ""),
         "account": form.get("account", ""),
     }
+    if form.get("account_id"):
+        # The stable id behind the display name (workspace/portal id) — what
+        # the generic accounts layer keys multi-account profiles by.
+        profile["account_id"] = form["account_id"]
     if form.get("expires_in"):  # absent ⇒ non-expiring token (e.g. Slack bot tokens)
         profile["expires"] = _now() + int(form["expires_in"]) - 60
     return profile

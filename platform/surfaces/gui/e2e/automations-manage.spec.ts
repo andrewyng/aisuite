@@ -6,7 +6,7 @@ import { test } from "./fixtures";
 
 async function openAutomations(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Automations", exact: true }).click();
   await expect(page.getByText("Recurring tasks OpenCoworker runs on a schedule.")).toBeVisible();
 }

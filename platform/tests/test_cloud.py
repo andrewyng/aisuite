@@ -9,6 +9,7 @@ manual profiles are never touched by cloud refresh.
 from __future__ import annotations
 
 import time
+import urllib.parse
 
 import pytest
 
@@ -72,11 +73,20 @@ def test_begin_login_state_carries_the_actually_bound_port(config, monkeypatch):
 
 
 def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
-    state = cloud.begin_login(config)["state"]
+    begun = cloud.begin_login(config)
+    state = begun["state"]
+    # The redirect_uri the authorize leg advertised — the exchange MUST send the same one
+    # byte-for-byte (RFC 6749 §4.1.3). The 07-09 broker-bounce change updated only the
+    # authorize leg and every real sign-in failed at the exchange; this pin would have
+    # caught it.
+    authorize_redirect = urllib.parse.parse_qs(
+        urllib.parse.urlsplit(begun["authorize_url"]).query
+    )["redirect_uri"][0]
 
     def fake_post(url, **kwargs):
         assert url == "https://tenant.auth0.test/oauth/token"
         assert kwargs["data"]["code_verifier"]
+        assert kwargs["data"]["redirect_uri"] == authorize_redirect
         return FakeResponse(200, {"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600})
 
     def fake_get(url, **kwargs):

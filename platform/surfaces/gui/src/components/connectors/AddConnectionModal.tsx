@@ -26,7 +26,12 @@ export function AddConnectionModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const twoModes = c.name === "slack" || c.name === "hubspot" || c.name === "github";
+  const twoModes =
+    c.name === "slack" ||
+    c.name === "hubspot" ||
+    c.name === "github" ||
+    c.name === "notion" ||
+    c.name === "attio";
   const [pane, setPane] = useState<"one" | "manual">("one");
 
   useEffect(() => {
@@ -77,8 +82,10 @@ export function AddConnectionModal({
                 <HubSpotOneClick c={c} cloud={cloud} />
               ) : c.name === "github" ? (
                 <GithubOneClick c={c} cloud={cloud} />
-              ) : (
+              ) : c.name === "slack" ? (
                 <SlackOneClick c={c} cloud={cloud} />
+              ) : (
+                <GenericOneClick c={c} cloud={cloud} />
               )
             ) : c.name === "slack" ? (
               <SlackManual onConnected={() => { onChanged(); onClose(); }} />
@@ -95,6 +102,43 @@ export function AddConnectionModal({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// One-click pane for generic managed connectors (Notion, Attio, …): sign in
+// with the service in the browser; each consent lands as its own account.
+function GenericOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setError(null);
+    const res = await connectManaged(c.name);
+    if (res.ok) setWaiting(true);
+    else setError(res.error || "could not start the connect");
+  };
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <p className="text-[13px] text-muted">
+        Opens {c.title} in your browser — approve access there. No tokens typed; connect
+        again with another account to add it alongside.
+      </p>
+      {cloud?.signed_in ? (
+        <button
+          className={PILL_ACCENT + " w-full !py-2"}
+          data-testid="modal-generic-one-click"
+          onClick={go}
+          disabled={waiting}
+        >
+          {waiting ? "Check your browser…" : `Connect ${c.title}`}
+        </button>
+      ) : (
+        <CloudSignInInline />
+      )}
+      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
+        <span className={TAG_ACCENT}>Recommended</span> tokens stay on this computer
+      </p>
     </div>
   );
 }
@@ -132,9 +176,9 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
 function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const go = async () => {
+  const go = async (flow?: "authorize") => {
     setError(null);
-    const res = await connectManaged(c.name);
+    const res = await connectManaged(c.name, flow ? { flow } : undefined);
     if (res.ok) setWaiting(true);
     else setError(res.error || "could not start the install");
   };
@@ -145,9 +189,23 @@ function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null 
         pick the repos there. No tokens typed; the agent acts as ocw-agent[bot].
       </p>
       {cloud?.signed_in ? (
-        <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={go} disabled={waiting}>
-          {waiting ? "Check your browser…" : "Install the GitHub App"}
-        </button>
+        <>
+          <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={() => go()} disabled={waiting}>
+            {waiting ? "Check your browser…" : "Install the GitHub App"}
+          </button>
+          {/* Already-installed escape hatch: GitHub's install page shows "Configure" for an
+              existing installation and never fires our callback (owner hit this on a fresh
+              state dir, 2026-07-11). The authorize flow links the existing installation via
+              plain OAuth instead. */}
+          <button
+            className="w-full text-[12.5px] text-accent hover:underline"
+            data-testid="modal-link-github-install"
+            onClick={() => go("authorize")}
+            disabled={waiting}
+          >
+            Already installed on GitHub? Link your installation ›
+          </button>
+        </>
       ) : (
         <CloudSignInInline />
       )}

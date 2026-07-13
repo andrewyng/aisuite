@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  cloudLogin,
-  cloudLogout,
-  setCloudTelemetry,
-  type CloudStatus,
-  type Connector,
-  type SlackStatus,
-} from "../../api";
+import { type CloudStatus, type Connector, type SlackStatus } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AddConnectionModal } from "./AddConnectionModal";
 import { CHIP_OK, CHIP_OFF, CHIP_WARN, GRP, GRP_H, FOOT, PILL_QUIET, ROW } from "./ui";
@@ -52,11 +45,8 @@ export function ConnectorsList({
         />
       </div>
 
-      {/* The cloud account leads the page: sign-in gates every one-click connect,
-          so it can't live below the fold of a 25-row list (a fresh install would
-          never find it — that shipped once as a de-facto regression). */}
-      <CloudStrip cloud={cloud} onChanged={onChanged} />
-
+      {/* No cloud strip here anymore (§26): the sidebar's account row is the permanent
+          sign-in home, and the connect modals keep their inline sign-in panes. */}
       {connected.length > 0 && (
         <>
           <div className={GRP_H + " !mt-0"}>Connected · {connected.length}</div>
@@ -148,73 +138,3 @@ function healthChip(c: Connector, slack: SlackStatus | null) {
   return <span className={CHIP_OK}>● Ready</span>;
 }
 
-// The cloud account, shrunk to a slim strip (was a full card). Keeps the e2e-pinned
-// affordances: sign-in/out, account text, and the telemetry opt-out when signed in.
-function CloudStrip({ cloud, onChanged }: { cloud: CloudStatus | null; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [telemetry, setTelemetry] = useState<boolean | null>(null);
-
-  const signIn = async () => {
-    setBusy(true);
-    await cloudLogin(); // opens the system browser; the section poll picks up completion
-    setTimeout(() => {
-      setBusy(false);
-      onChanged();
-    }, 2500);
-  };
-
-  return (
-    <div className={GRP + " mb-6"} data-testid="cloud-account">
-      <div className={ROW}>
-        <span
-          className={
-            "w-2 h-2 rounded-full shrink-0 " + (cloud?.signed_in ? "bg-ok" : "bg-faint/60")
-          }
-        />
-        {cloud?.signed_in ? (
-          <span className="min-w-0 flex-1 text-[12.5px] text-muted truncate">
-            Signed in as <span className="text-ink font-medium">{cloud.account || "cloud"}</span>
-            <span className="text-faint"> — one-click connects enabled</span>
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1 text-[12.5px] text-muted truncate">
-            OpenCoworker Cloud: sign in for one-click connects. Manual token setup always works.
-          </span>
-        )}
-        {cloud?.signed_in ? (
-          <button
-            className="text-[12.5px] text-muted hover:text-ink shrink-0"
-            onClick={async () => {
-              await cloudLogout();
-              onChanged();
-            }}
-          >
-            Sign out
-          </button>
-        ) : (
-          <button className="text-[12.5px] text-accent font-medium shrink-0" onClick={signIn} disabled={busy}>
-            {busy ? "Check your browser…" : "Sign in"}
-          </button>
-        )}
-      </div>
-      {cloud?.signed_in && (
-        <label className={ROW + " select-none"}>
-          <input
-            type="checkbox"
-            checked={telemetry ?? cloud.telemetry_enabled !== false}
-            data-testid="telemetry-toggle"
-            onChange={async (e) => {
-              setTelemetry(e.target.checked);
-              await setCloudTelemetry(e.target.checked);
-              onChanged();
-            }}
-          />
-          <span className="text-[12px] text-muted">
-            Help improve OpenCoworker — which coworker type was started and when; never your
-            prompts, files, or connector data.
-          </span>
-        </label>
-      )}
-    </div>
-  );
-}

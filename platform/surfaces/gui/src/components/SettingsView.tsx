@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
-import { getSettings, setOnboarded, setScratchBase, setSessionsPeek, type ModelSettings } from "../api";
+import {
+  CLOUD_CHANGED,
+  getCloudStatus,
+  getSettings,
+  setCloudTelemetry,
+  setOnboarded,
+  setScratchBase,
+  setSessionsPeek,
+  type CloudStatus,
+  type ModelSettings,
+} from "../api";
 import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
 import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
@@ -163,6 +173,8 @@ function AppearanceSection() {
 
       <SidebarCard />
 
+      <TelemetryCard />
+
       {desktop && (
         <div className={CARD + " p-4"}>
           <div className={FIELD_LABEL + " mb-2.5"}>Always-on</div>
@@ -180,14 +192,60 @@ function AppearanceSection() {
               <span className="block text-[12px] text-muted">Prevent idle sleep so scheduled tasks fire on time.</span>
             </span>
           </label>
-          <div className="mt-3 pt-3 border-t border-line">
-            <button className={BTN_BORDERED} onClick={runSetupAgain}>
-              Run setup again
-            </button>
-          </div>
         </div>
       )}
+
+      {/* The onboarding replay entry (§24) — every build, not just desktop: the browser dev
+          shell runs the same first-run flow, and owner testing replays it here. */}
+      <div className={CARD + " p-4 mt-4"}>
+        <div className={FIELD_LABEL + " mb-2"}>Setup</div>
+        <button className={BTN_BORDERED} onClick={runSetupAgain}>
+          Run setup again
+        </button>
+        <div className={FIELD_HELP}>Replays the first-run setup: model, first automation, tips.</div>
+      </div>
     </section>
+  );
+}
+
+// -- Telemetry (moved here from the retired Connectors-page cloud strip, §26) -----
+function TelemetryCard() {
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [telemetry, setTelemetry] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const load = () => getCloudStatus().then(setCloud).catch(() => {});
+    load();
+    // Sign-in/out lands out-of-band (browser flow, account row) — refetch on the announce.
+    window.addEventListener(CLOUD_CHANGED, load);
+    return () => window.removeEventListener(CLOUD_CHANGED, load);
+  }, []);
+
+  // Signed out there is nothing to toggle — telemetry is a no-op without a cloud session.
+  if (!cloud?.signed_in) return null;
+  return (
+    <div className={CARD + " p-4 mb-4"}>
+      <div className={FIELD_LABEL + " mb-2.5"}>Privacy</div>
+      <label className="flex items-start gap-3 py-1 select-none">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={telemetry ?? cloud.telemetry_enabled !== false}
+          data-testid="telemetry-toggle"
+          onChange={async (e) => {
+            setTelemetry(e.target.checked);
+            await setCloudTelemetry(e.target.checked);
+          }}
+        />
+        <span>
+          <span className="block text-[13px] text-ink">Help improve OpenCoworker</span>
+          <span className="block text-[12px] text-muted">
+            Which coworker type was started and when; never your prompts, files, or connector
+            data. Signed-out installs send nothing regardless.
+          </span>
+        </span>
+      </label>
+    </div>
   );
 }
 

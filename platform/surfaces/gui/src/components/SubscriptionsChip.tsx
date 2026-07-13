@@ -67,13 +67,19 @@ export function ChannelPicker({
   }, [open, teams]);
 
   // Type a NAME → live roster suggestions (debounced; addresses/URLs skip the lookup).
+  // `searching` keeps the wait VISIBLE: the first lookup per workspace is a cold
+  // paginated conversations.list sweep — seconds on a big workspace — and a silent
+  // gap reads as "the typeahead doesn't work" (owner report, 2026-07-09).
   const [roster, setRoster] = useState<RosterHit[]>([]);
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     const name = value.trim().replace(/^#/, "");
     if (!open || !teams || teams.length === 0 || !name || name.includes(":") || name.includes("/")) {
       setRoster([]);
+      setSearching(false);
       return;
     }
+    setSearching(true);
     const t = setTimeout(async () => {
       const rows = await Promise.all(
         teams.map(async (tm) => {
@@ -93,6 +99,7 @@ export function ChannelPicker({
         }),
       );
       setRoster(rows.flat().slice(0, 12));
+      setSearching(false);
     }, 250);
     return () => clearTimeout(t);
   }, [value, open, teams]);
@@ -110,17 +117,40 @@ export function ChannelPicker({
   const seen = new Set(options.map((c) => c.channel));
   const lookups = roster.filter((r) => !seen.has(r.address));
 
+  // Display ≠ value (owner catch 2026-07-11: the box showed `slack:T…/C…`): the stored value
+  // stays the raw address, but at rest the input shows the channel's NAME when we know it —
+  // from a pick (remembered), the recent list, or a roster hit. Focus flips back to the raw
+  // address for editing; the tooltip always carries it.
+  const [focused, setFocused] = useState(false);
+  const [pickedName, setPickedName] = useState<Record<string, string>>({});
+  const knownName =
+    pickedName[value] ||
+    recent.find((c) => c.channel === value)?.name ||
+    roster.find((r) => r.address === value)?.name ||
+    "";
+  const display = !focused && knownName ? `#${knownName}` : value;
+
+  // A pick is a commit: blur the input so the display flips to the channel name (focus is
+  // otherwise held by the mousedown-preventDefault that protects the pick from the blur).
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
   return (
     <div className="relative flex-1 min-w-0" ref={wrap}>
       <input
+        ref={inputRef}
         className="chan-input w-full"
         placeholder="slack:C0123 or channel link"
-        value={value}
+        value={display}
+        title={value || undefined}
         onChange={(e) => {
           onChange(e.target.value);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setFocused(true);
+          setOpen(true);
+        }}
+        onBlur={() => setFocused(false)}
         onKeyDown={(e) => {
           if (e.key === "Escape") setOpen(false);
           if (e.key === "Enter" && onSubmit) {
@@ -129,7 +159,7 @@ export function ChannelPicker({
           }
         }}
       />
-      {open && (options.length > 0 || lookups.length > 0) && (
+      {open && (options.length > 0 || lookups.length > 0 || searching) && (
         <div
           className="absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border border-line bg-panel shadow-lg py-1 max-h-56 overflow-y-auto"
           role="listbox"
@@ -144,7 +174,9 @@ export function ChannelPicker({
                 // mousedown (not click) so the pick lands before the input's blur
                 e.preventDefault();
                 onChange(c.channel);
+                if (c.name) setPickedName((m) => ({ ...m, [c.channel]: c.name! }));
                 setOpen(false);
+                inputRef.current?.blur();
               }}
             >
               <span className="text-[12.5px] text-ink">
@@ -159,6 +191,16 @@ export function ChannelPicker({
               )}
             </button>
           ))}
+          {/* The wait is visible: the first lookup per workspace sweeps the full
+              channel roster (seconds on a big workspace; cached 15 min after). */}
+          {searching && lookups.length === 0 && (
+            <div
+              className="px-3 py-1.5 text-[12px] text-faint"
+              data-testid="roster-searching"
+            >
+              searching your workspace’s channels…
+            </div>
+          )}
           {/* Live workspace-roster hits: type the NAME, we resolved the id. */}
           {lookups.map((r) => (
             <button
@@ -169,7 +211,9 @@ export function ChannelPicker({
               onMouseDown={(e) => {
                 e.preventDefault();
                 onChange(r.address);
+                if (r.name) setPickedName((m) => ({ ...m, [r.address]: r.name }));
                 setOpen(false);
+                inputRef.current?.blur();
               }}
             >
               <span className="text-[12.5px] text-ink">

@@ -1,13 +1,16 @@
 import { test, expect } from "./fixtures";
 
-// The Inbox (owner testing pass, 2026-07-03): kind tabs (All/Approvals/Questions), persona filter
-// chips (only with >1 persona holding items), resolve-removes-card, and the INLINE Slack routing
-// config — bound → Change/Stop; slack-connected-but-unbound → "Also send to a Slack channel →".
+// The Inbox (owner testing pass, 2026-07-03; §28 two-tab split 2026-07-12): Pending holds the
+// kind chips (All/Approvals/Questions), persona filter chips (only with >1 persona holding
+// items), and resolve-removes-card. Routing moved to the Configure tab (the former Connectors ▸
+// Messaging routing page) — Pending's status line is read-only and links there; the old inline
+// editor (the mirror setting's SECOND editor) is gone.
 
 async function openInbox(page: import("@playwright/test").Page) {
   await page.goto("/");
-  // The sidebar's Inbox row (its accessible name includes the attention badge count).
-  await page.locator(".sidebar").getByRole("button", { name: /Inbox/ }).click();
+  // §26: the fixtures seed pending items, so the account row's inbox chip is unlocked and
+  // pending — clicking it goes STRAIGHT to Inbox (the menu is the row's target, not the chip's).
+  await page.getByTestId("inbox-chip").click();
   await expect(page.getByText("Approve: run_shell")).toBeVisible();
 }
 
@@ -44,20 +47,31 @@ test("resolving an approval removes its card; question options resolve on click"
   await expect(page.getByText("Nothing pending.")).toBeVisible();
 });
 
-test("routing: inline Slack config binds a channel, then Stop clears it", async ({ page }) => {
+test("routing: Configure tab binds the mirror channel; Pending's status line follows", async ({
+  page,
+}) => {
   await openInbox(page);
   const line = page.getByTestId("inbox-routing");
   await expect(line).toContainText("Delivered here only");
 
-  // Slack is connected in the fixture, so the inline configure affordance shows (no detour to
-  // the global connectors page).
+  // The status line is read-only — its Configure › link lands on the Configure tab, which
+  // holds the ONE editor (the old inline editor was a duplicate of this card).
   await page.getByTestId("inbox-route-configure").click();
-  await page.getByPlaceholder("slack:C0123 or channel link").fill("C0777");
-  await line.getByRole("button", { name: "Set", exact: true }).click();
+  const mirror = page.getByTestId("inbox-mirror-card");
+  await expect(mirror).toContainText("in-app Inbox only");
+  await mirror.getByPlaceholder("slack:C0123 or channel link").fill("C0777");
+  await mirror.getByRole("button", { name: "Set", exact: true }).click();
+  await expect(mirror).toContainText("slack:C0777");
 
+  // Back on Pending, the line reflects the new target immediately.
+  await page.getByTestId("inbox-tab-pending").click();
   await expect(line).toContainText("slack:C0777");
   await expect(line).toContainText("replies there resolve items here");
 
-  await line.getByRole("button", { name: "Stop" }).click();
+  // Clearing (also on Configure) returns Pending to local-only delivery.
+  await page.getByTestId("inbox-tab-configure").click();
+  await mirror.getByRole("button", { name: "clear" }).click();
+  await expect(mirror).toContainText("in-app Inbox only");
+  await page.getByTestId("inbox-tab-pending").click();
   await expect(line).toContainText("Delivered here only");
 });

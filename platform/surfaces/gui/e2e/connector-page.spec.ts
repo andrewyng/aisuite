@@ -6,15 +6,15 @@ import { test } from "./fixtures";
 
 async function openSlackPage(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
   await page.getByTestId("connector-slack").click();
 }
 
 test("list row status + navigation to the Slack page", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
 
   const row = page.getByTestId("connector-slack");
   await expect(row).toContainText("2 workspaces · relay");

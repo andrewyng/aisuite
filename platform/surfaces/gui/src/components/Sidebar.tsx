@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  announceCloudChanged,
+  CLOUD_CHANGED,
+  cloudLogin,
+  cloudLogout,
+  getCloudStatus,
   getPersonas,
   getSettings,
+  INBOX_UNLOCK,
   PERSONAS_CHANGED,
   setNavLayout,
+  type CloudStatus,
   type Persona,
   type RecentWorkspace,
   type SurfaceVisibility,
@@ -130,6 +137,31 @@ const compactAge = (iso?: string | null): string => {
 export function Sidebar(props: Props) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [appMenuOpen, setAppMenuOpen] = useState(false);
+  // The account row (§26): cloud sign-in status drives the avatar/name/dot; refreshed on
+  // focus and whenever the menu opens (sign-in completes out-of-band in the browser).
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  // Inbox chip sticky unlock (§26): absent until the product first parks an item (or a
+  // session first goes Unattended), then permanent. Per-device, like nav collapse.
+  const [inboxUnlocked, setInboxUnlocked] = useState(
+    () => localStorage.getItem("ocw:inbox-unlocked") === "1",
+  );
+  const refreshCloud = () => getCloudStatus().then(setCloud).catch(() => {});
+  useEffect(() => {
+    refreshCloud();
+    const onFocus = () => refreshCloud();
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(CLOUD_CHANGED, onFocus);
+    const unlock = () => {
+      localStorage.setItem("ocw:inbox-unlocked", "1");
+      setInboxUnlocked(true);
+    };
+    window.addEventListener(INBOX_UNLOCK, unlock);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(CLOUD_CHANGED, onFocus);
+      window.removeEventListener(INBOX_UNLOCK, unlock);
+    };
+  }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   // Two-step delete: first click arms the row (× → "Delete?"), second click deletes.
@@ -214,8 +246,14 @@ export function Sidebar(props: Props) {
   };
 
 
-  // A row in the bottom ⚙ "Settings & more" popup: closes the menu, then runs the destination.
-  const appMenuItem = (icon: IconName, label: string, onClick: () => void, active?: boolean) => (
+  // A row in the account menu (§26): closes the menu, then runs the destination.
+  const appMenuItem = (
+    icon: IconName,
+    label: string,
+    onClick: () => void,
+    active?: boolean,
+    trailing?: ReactNode,
+  ) => (
     <button
       className={
         "w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-left " +
@@ -226,9 +264,20 @@ export function Sidebar(props: Props) {
         onClick();
       }}
     >
-      <Icon name={icon} size={15} className="shrink-0 text-muted" /> {label}
+      <Icon name={icon} size={15} className="shrink-0 text-muted" />
+      <span className="flex-1">{label}</span>
+      {/* aria-hidden: the badge/shortcut must not leak into the accessible name (the old
+          Inbox row's name-includes-the-badge-count nuisance, not repeated). */}
+      {trailing != null && <span aria-hidden>{trailing}</span>}
     </button>
   );
+
+  // Display identity for the account row: the cloud profile only carries the email, so the
+  // row shows the capitalized local part ("rohit@…" → "Rohit"); the menu header shows it all.
+  const accountEmail = cloud?.signed_in ? cloud.account : "";
+  const accountName = accountEmail
+    ? accountEmail.split("@")[0].replace(/^./, (c) => c.toUpperCase())
+    : "";
 
   // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
   // accent count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
@@ -246,6 +295,15 @@ export function Sidebar(props: Props) {
     else if (s.liveness === "sleeping" && liveByPersona.get(s.agent) !== "working")
       liveByPersona.set(s.agent, "sleeping");
   }
+
+  // First pending item ever observed → the inbox chip unlocks and stays (§26 sticky unlock).
+  useEffect(() => {
+    if (totalAttention > 0 && !inboxUnlocked) {
+      localStorage.setItem("ocw:inbox-unlocked", "1");
+      setInboxUnlocked(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalAttention]);
 
   // Body data is keyed to the BROWSED persona (only one body renders at a time). Pinned sessions are
   // EXCLUDED here: they live in the cross-persona Pinned band only, so they don't repeat inside the
@@ -885,64 +943,156 @@ export function Sidebar(props: Props) {
         </div>
       </div>
 
-      {/* Bottom: Inbox stays visible (its attention badge needs to be glanceable); the occasional
-          destinations (Settings, Integrations, Automations, Activity) collapse into one ⚙ menu that
-          opens upward — Codex/Claude-style — so the bottom isn't a stack of rows. */}
-      <div className="px-2.5 py-2 border-t border-line space-y-0.5">
-        <button
-          className={
-            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
-            (props.inboxActive ? "bg-paper text-ink" : "hover:bg-paper")
-          }
-          onClick={props.onOpenInbox}
-        >
-          <Icon name="chat" size={15} className="shrink-0 text-muted" />
-          <span className="flex-1">Inbox</span>
-          <AttnBadge n={totalAttention} />
-        </button>
-
-        {/* The popup is anchored to THIS button (not the whole bottom block) so it opens directly
-            above the trigger instead of floating detached above the Inbox row. */}
+      {/* Bottom (§26): exactly ONE row — the account anchor. The inbox chip on it is
+          state-driven with a sticky unlock (quiet when empty, accent + count when pending);
+          everything else lives in the account menu, which ALWAYS lists Inbox + Connectors. */}
+      <div className="px-2.5 py-2 border-t border-line">
         <div className="relative">
+          {appMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setAppMenuOpen(false)} />
+              <div
+                className="absolute z-40 bottom-full left-0 right-0 mb-1 rounded-xl border border-line bg-panel shadow-2xl py-1"
+                data-testid="account-menu"
+                role="menu"
+              >
+                {cloud?.signed_in ? (
+                  <div
+                    className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
+                    title={`${accountEmail} · OpenCoworker Cloud`}
+                  >
+                    {accountEmail} · OpenCoworker Cloud
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-3 py-1.5 text-[11px] text-faint border-b border-line">
+                      Not signed in — one-click connections need OpenCoworker Cloud
+                    </div>
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-1.5 mb-1 text-[13px] text-left text-accent hover:bg-paper"
+                      data-testid="account-sign-in"
+                      onClick={async () => {
+                        setAppMenuOpen(false);
+                        // Opens the system browser server-side; completion lands out-of-band,
+                        // so poll briefly (refocusing the window also refetches).
+                        await cloudLogin().catch(() => {});
+                        let polls = 0;
+                        const t = setInterval(async () => {
+                          polls += 1;
+                          const s = await getCloudStatus().catch(() => null);
+                          if (s?.signed_in || polls > 60) {
+                            clearInterval(t);
+                            if (s) setCloud(s);
+                            // Other always-mounted consumers (Settings' telemetry card,
+                            // connector panes) refetch on this.
+                            if (s?.signed_in) announceCloudChanged();
+                          }
+                        }, 2000);
+                      }}
+                    >
+                      <Icon name="plug" size={15} className="shrink-0" /> Sign in to OpenCoworker
+                      Cloud
+                    </button>
+                  </>
+                )}
+                {appMenuItem(
+                  "inbox",
+                  "Inbox",
+                  props.onOpenInbox,
+                  props.inboxActive,
+                  <AttnBadge n={totalAttention} />,
+                )}
+                {appMenuItem("plug", "Connectors", props.onOpenIntegrations, props.integrationsActive)}
+                <div className="h-px bg-line my-1 mx-2" />
+                {appMenuItem(
+                  "gear",
+                  "Settings",
+                  props.onManage,
+                  false,
+                  <span className="text-[11px] text-faint">⌘ ,</span>,
+                )}
+                {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
+                {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
+                {cloud?.signed_in && (
+                  <>
+                    <div className="h-px bg-line my-1 mx-2" />
+                    {appMenuItem("signOut", "Sign out", async () => {
+                      await cloudLogout().catch(() => {});
+                      announceCloudChanged();
+                    })}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
           <button
             className={
-              "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left " +
-              (appMenuOpen || props.integrationsActive || props.scheduledActive || props.auditActive
-                ? "bg-paper text-ink"
-                : "hover:bg-paper")
+              "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] text-left " +
+              (appMenuOpen ? "bg-paper text-ink" : "hover:bg-paper")
             }
-            onClick={() => setAppMenuOpen((v) => !v)}
+            data-testid="account-row"
+            onClick={() => {
+              if (!appMenuOpen) refreshCloud();
+              setAppMenuOpen((v) => !v);
+            }}
             aria-haspopup="menu"
             aria-expanded={appMenuOpen}
+            aria-label={cloud?.signed_in ? `Account: ${accountEmail}` : "Account: not signed in"}
           >
-            <Icon name="gear" size={15} className="shrink-0 text-muted" />
-            <span className="flex-1">Settings &amp; more</span>
+            <span
+              className={
+                "w-6 h-6 rounded-full grid place-items-center text-[10.5px] font-semibold shrink-0 " +
+                (cloud?.signed_in
+                  ? "bg-accentSoft text-accent"
+                  : "bg-paper text-faint border border-line")
+              }
+              aria-hidden
+            >
+              {cloud?.signed_in ? accountName.slice(0, 1).toUpperCase() : "?"}
+            </span>
+            <span className={"truncate " + (cloud?.signed_in ? "" : "text-muted")}>
+              {cloud?.signed_in ? accountName : "Not signed in"}
+            </span>
+            {cloud?.signed_in && (
+              <span
+                className="w-[7px] h-[7px] rounded-full bg-ok shrink-0"
+                title="Signed in to OpenCoworker Cloud"
+                aria-hidden
+              />
+            )}
+            <span className="flex-1" />
+            {inboxUnlocked && (
+              <span
+                className={
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] shrink-0 cursor-pointer " +
+                  (totalAttention > 0
+                    ? "bg-accentSoft text-accent font-semibold"
+                    : "text-faint hover:text-ink")
+                }
+                data-testid="inbox-chip"
+                role="button"
+                aria-label={
+                  totalAttention > 0 ? `Inbox — ${totalAttention} items need you` : "Inbox"
+                }
+                title={totalAttention > 0 ? `Inbox — ${totalAttention} items need you` : "Inbox"}
+                onClick={(e) => {
+                  // The chip goes STRAIGHT to Inbox — the menu is the row's target, not the chip's.
+                  e.stopPropagation();
+                  setAppMenuOpen(false);
+                  props.onOpenInbox();
+                }}
+              >
+                <Icon name="inbox" size={13} />
+                {totalAttention > 0 ? totalAttention : null}
+              </span>
+            )}
             <Icon
               name="chevronDown"
               size={14}
               className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
             />
           </button>
-
-          {appMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setAppMenuOpen(false)} />
-              <div className="absolute z-40 bottom-full left-0 right-0 mb-1 rounded-xl border border-line bg-panel shadow-2xl py-1">
-                {props.workspace && (
-                  <div
-                    className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
-                    title={props.workspace}
-                  >
-                    {props.workspace}
-                  </div>
-                )}
-                {appMenuItem("gear", "Settings", props.onManage)}
-                {appMenuItem("plug", "Integrations", props.onOpenIntegrations, props.integrationsActive)}
-                {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
-                {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
-              </div>
-            </>
-          )}
         </div>
       </div>
 

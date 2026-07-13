@@ -85,6 +85,50 @@ def _profile(
     return profile, None
 
 
+def _account_profile(
+    secrets: SecretStore, connector: str, account: str = "", *keys: str
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
+    """(account_id, profile, err) for an account-patterned connector (generic
+    accounts.py layer): requested — or default — account, managed tokens
+    refreshed in place. The gmail/gcal/hubspot bespoke helpers predate this."""
+    from . import accounts as _accounts
+
+    account_id, key, profile = _accounts.resolve(secrets, connector, account)
+    if profile is None:
+        hint = (
+            f"no {connector} account matching {account!r}"
+            if account
+            else f"{connector} is not connected"
+        )
+        return "", None, {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), connector, profile_key=key)
+        profile = secrets.get(key) or profile
+    missing = [k for k in keys if not profile.get(k)]
+    if missing:
+        return account_id, None, {
+            "error": f"{connector} is not connected; missing {', '.join(missing)}"
+        }
+    return account_id, profile, None
+
+
+def _acct_result(account_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Stamp which account served a tool call — approvals and transcripts must
+    name the account once more than one is connected."""
+    if isinstance(result, dict) and account_id:
+        return {"account": account_id, **result}
+    return result
+
+
+_GEN_ACCOUNT_PROP = {
+    "type": "string",
+    "description": "Which connected account to use (default account when empty)",
+}
+
+
 def _gmail_profile(
     secrets: SecretStore, account: str = ""
 ) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
@@ -802,114 +846,6 @@ def make_integration_tools(
             ),
             approval=True,
             caps=["github", "read"],
-        )
-    )
-
-    def notion_search(query: str, max_results: int = 10) -> dict[str, Any]:
-        profile, err = _profile(secrets, "notion", "token")
-        if err:
-            return err
-        out = _request(
-            "POST",
-            "https://api.notion.com/v1/search",
-            headers={
-                "Authorization": f"Bearer {profile['token']}",
-                "Notion-Version": "2022-06-28",
-            },
-            json={"query": query, "page_size": max(1, min(int(max_results or 10), 20))},
-        )
-        return out
-
-    notion_search.__name__ = "notion_search"
-    tools.append(
-        _attach(
-            notion_search,
-            _schema(
-                "notion_search",
-                "Search pages and databases visible to the connected Notion integration.",
-                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
-                ["query"],
-            ),
-            caps=["notion", "read"],
-        )
-    )
-
-    def notion_get_page(page_id: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "notion", "token")
-        if err:
-            return err
-        headers = {
-            "Authorization": f"Bearer {profile['token']}",
-            "Notion-Version": "2022-06-28",
-        }
-        page = _request(
-            "GET", f"https://api.notion.com/v1/pages/{page_id}", headers=headers
-        )
-        blocks = _request(
-            "GET",
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=headers,
-        )
-        return {"page": page, "blocks": blocks}
-
-    notion_get_page.__name__ = "notion_get_page"
-    tools.append(
-        _attach(
-            notion_get_page,
-            _schema(
-                "notion_get_page",
-                "Read a Notion page and its top-level blocks.",
-                {"page_id": {"type": "string"}},
-                ["page_id"],
-            ),
-            caps=["notion", "read"],
-        )
-    )
-
-    def notion_create_page(
-        parent_page_id: str, title: str, body: str = ""
-    ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "notion", "token")
-        if err:
-            return err
-        payload = {
-            "parent": {"page_id": parent_page_id},
-            "properties": {"title": {"title": [{"text": {"content": title}}]}},
-            "children": [
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {"rich_text": [{"text": {"content": body[:1900]}}]},
-                }
-            ],
-        }
-        return _request(
-            "POST",
-            "https://api.notion.com/v1/pages",
-            headers={
-                "Authorization": f"Bearer {profile['token']}",
-                "Notion-Version": "2022-06-28",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-
-    notion_create_page.__name__ = "notion_create_page"
-    tools.append(
-        _attach(
-            notion_create_page,
-            _schema(
-                "notion_create_page",
-                "Create a child Notion page. Requires user approval.",
-                {
-                    "parent_page_id": {"type": "string"},
-                    "title": {"type": "string"},
-                    "body": {"type": "string"},
-                },
-                ["parent_page_id", "title"],
-            ),
-            approval=True,
-            caps=["notion", "write"],
         )
     )
 
@@ -2237,17 +2173,43 @@ def make_integration_tools(
     _HS_KINDS = ("contacts", "companies", "deals", "tickets")
 
     def hubspot_search(
-        query: str, object_type: str = "contacts", max_results: int = 10, portal: str = ""
+        query: str = "",
+        object_type: str = "contacts",
+        max_results: int = 10,
+        properties: str = "",
+        filters: str = "",
+        portal: str = "",
     ) -> dict[str, Any]:
         name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
         kind = object_type if object_type in _HS_KINDS else "contacts"
+        # The search API only returns HubSpot's default properties unless asked,
+        # and free-text `query` never matches custom properties — so property
+        # filters are the only way to select on them (e.g. an "org_type" field).
+        body: dict[str, Any] = {"limit": _clamp(max_results, ceiling=100)}
+        if query:
+            body["query"] = query
+        if properties:
+            body["properties"] = [p.strip() for p in properties.split(",") if p.strip()]
+        if filters:
+            try:
+                parsed = json.loads(filters)
+            except ValueError:
+                return {"error": "filters must be a JSON array of filter objects"}
+            if not isinstance(parsed, list) or not all(
+                isinstance(f, dict) and f.get("property") and f.get("operator")
+                for f in parsed
+            ):
+                return {"error": "each filter needs at least 'property' and 'operator'"}
+            body["filterGroups"] = [{"filters": parsed}]
+        if not query and not filters:
+            return {"error": "provide a query, filters, or both"}
         result = _request(
             "POST",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/search",
             headers=_bearer_headers(token),
-            json={"query": query, "limit": _clamp(max_results)},
+            json=body,
         )
         return _hubspot_result(secrets, name, result)
 
@@ -2257,30 +2219,53 @@ def make_integration_tools(
             hubspot_search,
             _schema(
                 "hubspot_search",
-                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type).",
+                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type). "
+                "Custom properties are only returned if named in `properties`, and only "
+                "matchable via `filters` (free-text query searches default fields only).",
                 {
-                    "query": {"type": "string"},
+                    "query": {"type": "string", "description": "Free-text search"},
                     "object_type": {"type": "string"},
                     "max_results": {"type": "integer"},
+                    "properties": {
+                        "type": "string",
+                        "description": "Comma-separated property names to return "
+                        "(include custom properties here)",
+                    },
+                    "filters": {
+                        "type": "string",
+                        "description": 'JSON array of {"property", "operator", "value"} '
+                        "objects, ANDed together. Operators: EQ, NEQ, LT, LTE, GT, GTE, "
+                        "CONTAINS_TOKEN, HAS_PROPERTY, NOT_HAS_PROPERTY, IN",
+                    },
                     "portal": _PORTAL_PROP,
                 },
-                ["query"],
+                [],
             ),
             caps=["hubspot", "read"],
         )
     )
 
     def hubspot_get_object(
-        object_type: str, object_id: str, portal: str = ""
+        object_type: str,
+        object_id: str,
+        properties: str = "",
+        associations: str = "",
+        portal: str = "",
     ) -> dict[str, Any]:
         name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
         kind = object_type if object_type in _HS_KINDS else "contacts"
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = properties  # API takes the comma string as-is
+        if associations:
+            params["associations"] = associations
         result = _request(
             "GET",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
             headers=_bearer_headers(token),
+            params=params or None,
         )
         return _hubspot_result(secrets, name, result)
 
@@ -2290,10 +2275,21 @@ def make_integration_tools(
             hubspot_get_object,
             _schema(
                 "hubspot_get_object",
-                "Read a HubSpot CRM record by ID.",
+                "Read a HubSpot CRM record by ID. Custom properties are only "
+                "returned if named in `properties`; pass `associations` to also get "
+                "linked record ids.",
                 {
                     "object_type": {"type": "string"},
                     "object_id": {"type": "string"},
+                    "properties": {
+                        "type": "string",
+                        "description": "Comma-separated property names to return",
+                    },
+                    "associations": {
+                        "type": "string",
+                        "description": "Comma-separated object types to return "
+                        "associated ids for (e.g. companies,contacts)",
+                    },
                     "portal": _PORTAL_PROP,
                 },
                 ["object_type", "object_id"],
@@ -2832,6 +2828,770 @@ def make_integration_tools(
             ),
             approval=True,
             caps=["whatsapp", "write"],
+        )
+    )
+
+    # -- notion (managed OAuth or integration token, multi-workspace) --
+
+    def _notion_headers(profile: dict[str, Any]) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {profile['access_token']}",
+            "Notion-Version": "2022-06-28",
+        }
+
+    def _notion_blocks_text(blocks: list[dict]) -> str:
+        """Flatten block children to readable lines (rich_text plain_text)."""
+        lines = []
+        for b in blocks:
+            content = b.get(b.get("type", ""), {})
+            texts = content.get("rich_text") or content.get("title") or []
+            line = "".join(t.get("plain_text", "") for t in texts if isinstance(t, dict))
+            if line:
+                lines.append(line)
+        return "\n".join(lines)
+
+    def notion_search(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "POST",
+            "https://api.notion.com/v1/search",
+            headers=_notion_headers(profile),
+            json={"query": query, "page_size": _clamp(max_results, ceiling=100)},
+        )
+        return _acct_result(aid, result)
+
+    notion_search.__name__ = "notion_search"
+    tools.append(
+        _attach(
+            notion_search,
+            _schema(
+                "notion_search",
+                "Search Notion pages and databases the integration can see.",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["query"],
+            ),
+            caps=["notion", "read"],
+        )
+    )
+
+    def notion_read_page(page_id: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        page = _request(
+            "GET",
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=_notion_headers(profile),
+        )
+        if "error" in page:
+            return _acct_result(aid, page)
+        blocks = _request(
+            "GET",
+            f"https://api.notion.com/v1/blocks/{page_id}/children",
+            headers=_notion_headers(profile),
+            params={"page_size": 100},
+        )
+        text = (
+            _notion_blocks_text((blocks.get("data") or {}).get("results") or [])
+            if "error" not in blocks
+            else ""
+        )
+        return _acct_result(
+            aid,
+            {
+                "ok": True,
+                "properties": (page.get("data") or {}).get("properties"),
+                "url": (page.get("data") or {}).get("url"),
+                "text": text,
+            },
+        )
+
+    notion_read_page.__name__ = "notion_read_page"
+    tools.append(
+        _attach(
+            notion_read_page,
+            _schema(
+                "notion_read_page",
+                "Read a Notion page: properties plus its content flattened to text.",
+                {"page_id": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["page_id"],
+            ),
+            caps=["notion", "read"],
+        )
+    )
+
+    def notion_query_database(
+        database_id: str, filter_json: str = "", max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        body: dict[str, Any] = {"page_size": _clamp(max_results, ceiling=100)}
+        if filter_json:
+            try:
+                body["filter"] = json.loads(filter_json)
+            except ValueError:
+                return {"error": "filter_json must be a Notion filter object (JSON)"}
+        result = _request(
+            "POST",
+            f"https://api.notion.com/v1/databases/{database_id}/query",
+            headers=_notion_headers(profile),
+            json=body,
+        )
+        return _acct_result(aid, result)
+
+    notion_query_database.__name__ = "notion_query_database"
+    tools.append(
+        _attach(
+            notion_query_database,
+            _schema(
+                "notion_query_database",
+                "Query a Notion database, optionally with a Notion filter object.",
+                {
+                    "database_id": {"type": "string"},
+                    "filter_json": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["database_id"],
+            ),
+            caps=["notion", "read"],
+        )
+    )
+
+    def notion_create_page(
+        parent_page_id: str, title: str, content: str = "", account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        children = [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"rich_text": [{"text": {"content": line}}]},
+            }
+            for line in content.splitlines()
+            if line.strip()
+        ]
+        result = _request(
+            "POST",
+            "https://api.notion.com/v1/pages",
+            headers=_notion_headers(profile),
+            json={
+                "parent": {"page_id": parent_page_id},
+                "properties": {"title": {"title": [{"text": {"content": title}}]}},
+                "children": children,
+            },
+        )
+        return _acct_result(aid, result)
+
+    notion_create_page.__name__ = "notion_create_page"
+    tools.append(
+        _attach(
+            notion_create_page,
+            _schema(
+                "notion_create_page",
+                "Create a Notion page under a parent page (plain-text paragraphs).",
+                {
+                    "parent_page_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["parent_page_id", "title"],
+            ),
+            approval=True,
+            caps=["notion", "write"],
+        )
+    )
+
+    # -- attio (managed OAuth or API key, multi-workspace) --
+
+    def attio_list_objects(account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://api.attio.com/v2/objects",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+        return _acct_result(aid, result)
+
+    attio_list_objects.__name__ = "attio_list_objects"
+    tools.append(
+        _attach(
+            attio_list_objects,
+            _schema(
+                "attio_list_objects",
+                "List Attio object types (companies, people, deals, custom).",
+                {"account": _GEN_ACCOUNT_PROP},
+                [],
+            ),
+            caps=["attio", "read"],
+        )
+    )
+
+    def attio_query_records(
+        object_type: str, filter_json: str = "", max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        body: dict[str, Any] = {"limit": _clamp(max_results, ceiling=100)}
+        if filter_json:
+            try:
+                body["filter"] = json.loads(filter_json)
+            except ValueError:
+                return {"error": "filter_json must be an Attio filter object (JSON)"}
+        result = _request(
+            "POST",
+            f"https://api.attio.com/v2/objects/{object_type}/records/query",
+            headers=_bearer_headers(profile["access_token"]),
+            json=body,
+        )
+        return _acct_result(aid, result)
+
+    attio_query_records.__name__ = "attio_query_records"
+    tools.append(
+        _attach(
+            attio_query_records,
+            _schema(
+                "attio_query_records",
+                "List/filter records of an Attio object (e.g. companies, people); "
+                "filter_json is an Attio filter object.",
+                {
+                    "object_type": {"type": "string"},
+                    "filter_json": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["object_type"],
+            ),
+            caps=["attio", "read"],
+        )
+    )
+
+    def attio_get_record(
+        object_type: str, record_id: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            f"https://api.attio.com/v2/objects/{object_type}/records/{record_id}",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+        return _acct_result(aid, result)
+
+    attio_get_record.__name__ = "attio_get_record"
+    tools.append(
+        _attach(
+            attio_get_record,
+            _schema(
+                "attio_get_record",
+                "Read one Attio record by object type and record id.",
+                {
+                    "object_type": {"type": "string"},
+                    "record_id": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["object_type", "record_id"],
+            ),
+            caps=["attio", "read"],
+        )
+    )
+
+    def attio_create_note(
+        parent_object: str,
+        parent_record_id: str,
+        title: str,
+        content: str,
+        account: str = "",
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "POST",
+            "https://api.attio.com/v2/notes",
+            headers=_bearer_headers(profile["access_token"]),
+            json={
+                "data": {
+                    "parent_object": parent_object,
+                    "parent_record_id": parent_record_id,
+                    "title": title,
+                    "format": "plaintext",
+                    "content": content,
+                }
+            },
+        )
+        return _acct_result(aid, result)
+
+    attio_create_note.__name__ = "attio_create_note"
+    tools.append(
+        _attach(
+            attio_create_note,
+            _schema(
+                "attio_create_note",
+                "Log a note on an Attio record (e.g. a company or person).",
+                {
+                    "parent_object": {"type": "string"},
+                    "parent_record_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["parent_object", "parent_record_id", "title", "content"],
+            ),
+            approval=True,
+            caps=["attio", "write"],
+        )
+    )
+
+    # -- product analytics: posthog / mixpanel / amplitude (manual keys, multi-account) --
+
+    def _posthog_base(profile: dict[str, Any]) -> str:
+        return str(profile.get("base_url") or "https://us.posthog.com").rstrip("/")
+
+    def posthog_query(hogql: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "posthog", account, "api_key", "project_id"
+        )
+        if err:
+            return err
+        result = _request(
+            "POST",
+            f"{_posthog_base(profile)}/api/projects/{profile['project_id']}/query",
+            headers=_bearer_headers(profile["api_key"]),
+            json={"query": {"kind": "HogQLQuery", "query": hogql}},
+        )
+        return _acct_result(aid, result)
+
+    posthog_query.__name__ = "posthog_query"
+    tools.append(
+        _attach(
+            posthog_query,
+            _schema(
+                "posthog_query",
+                "Run a HogQL (SQL-like) query against PostHog analytics, e.g. "
+                "SELECT event, count() FROM events WHERE timestamp > now() - "
+                "INTERVAL 7 DAY GROUP BY event.",
+                {"hogql": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["hogql"],
+            ),
+            caps=["posthog", "read"],
+        )
+    )
+
+    def posthog_list_insights(
+        query: str = "", max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "posthog", account, "api_key", "project_id"
+        )
+        if err:
+            return err
+        params: dict[str, Any] = {"limit": _clamp(max_results)}
+        if query:
+            params["search"] = query
+        result = _request(
+            "GET",
+            f"{_posthog_base(profile)}/api/projects/{profile['project_id']}/insights",
+            headers=_bearer_headers(profile["api_key"]),
+            params=params,
+        )
+        return _acct_result(aid, result)
+
+    posthog_list_insights.__name__ = "posthog_list_insights"
+    tools.append(
+        _attach(
+            posthog_list_insights,
+            _schema(
+                "posthog_list_insights",
+                "List saved PostHog insights (dashboards' building blocks).",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                [],
+            ),
+            caps=["posthog", "read"],
+        )
+    )
+
+    def mixpanel_segmentation(
+        event: str,
+        from_date: str,
+        to_date: str,
+        unit: str = "day",
+        where: str = "",
+        account: str = "",
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "mixpanel", account, "username", "secret", "project_id"
+        )
+        if err:
+            return err
+        params = {
+            "project_id": profile["project_id"],
+            "event": event,
+            "from_date": from_date,
+            "to_date": to_date,
+            "unit": unit if unit in ("minute", "hour", "day", "week", "month") else "day",
+        }
+        if where:
+            params["where"] = where
+        result = _request(
+            "GET",
+            "https://mixpanel.com/api/query/segmentation",
+            params=params,
+            auth=(profile["username"], profile["secret"]),
+        )
+        return _acct_result(aid, result)
+
+    mixpanel_segmentation.__name__ = "mixpanel_segmentation"
+    tools.append(
+        _attach(
+            mixpanel_segmentation,
+            _schema(
+                "mixpanel_segmentation",
+                "Mixpanel event counts over a date range (YYYY-MM-DD), optionally "
+                'filtered by a `where` expression like properties["plan"]=="pro".',
+                {
+                    "event": {"type": "string"},
+                    "from_date": {"type": "string"},
+                    "to_date": {"type": "string"},
+                    "unit": {"type": "string"},
+                    "where": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["event", "from_date", "to_date"],
+            ),
+            caps=["mixpanel", "read"],
+        )
+    )
+
+    def mixpanel_top_events(max_results: int = 10, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "mixpanel", account, "username", "secret", "project_id"
+        )
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://mixpanel.com/api/query/events/top",
+            params={
+                "project_id": profile["project_id"],
+                "type": "general",
+                "limit": _clamp(max_results, ceiling=100),
+            },
+            auth=(profile["username"], profile["secret"]),
+        )
+        return _acct_result(aid, result)
+
+    mixpanel_top_events.__name__ = "mixpanel_top_events"
+    tools.append(
+        _attach(
+            mixpanel_top_events,
+            _schema(
+                "mixpanel_top_events",
+                "Today's top Mixpanel events by volume.",
+                {"max_results": {"type": "integer"}, "account": _GEN_ACCOUNT_PROP},
+                [],
+            ),
+            caps=["mixpanel", "read"],
+        )
+    )
+
+    def amplitude_active_users(
+        start: str, end: str, metric: str = "active", account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "amplitude", account, "api_key", "secret_key"
+        )
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://amplitude.com/api/2/users",
+            params={
+                "m": metric if metric in ("active", "new") else "active",
+                "start": start.replace("-", ""),
+                "end": end.replace("-", ""),
+                "i": 1,
+            },
+            auth=(profile["api_key"], profile["secret_key"]),
+        )
+        return _acct_result(aid, result)
+
+    amplitude_active_users.__name__ = "amplitude_active_users"
+    tools.append(
+        _attach(
+            amplitude_active_users,
+            _schema(
+                "amplitude_active_users",
+                "Amplitude daily active or new users between two dates (YYYYMMDD "
+                "or YYYY-MM-DD).",
+                {
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "metric": {"type": "string", "description": "active | new"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["start", "end"],
+            ),
+            caps=["amplitude", "read"],
+        )
+    )
+
+    def amplitude_event_totals(
+        event_type: str, start: str, end: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "amplitude", account, "api_key", "secret_key"
+        )
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://amplitude.com/api/2/events/segmentation",
+            params={
+                "e": json.dumps({"event_type": event_type}),
+                "start": start.replace("-", ""),
+                "end": end.replace("-", ""),
+                "m": "totals",
+            },
+            auth=(profile["api_key"], profile["secret_key"]),
+        )
+        return _acct_result(aid, result)
+
+    amplitude_event_totals.__name__ = "amplitude_event_totals"
+    tools.append(
+        _attach(
+            amplitude_event_totals,
+            _schema(
+                "amplitude_event_totals",
+                "Daily totals for one Amplitude event between two dates.",
+                {
+                    "event_type": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["event_type", "start", "end"],
+            ),
+            caps=["amplitude", "read"],
+        )
+    )
+
+    # -- prospecting/enrichment: apollo / hunter (manual keys, multi-account) --
+
+    def _apollo_headers(profile: dict[str, Any]) -> dict[str, str]:
+        return {"X-Api-Key": profile["api_key"], "Content-Type": "application/json"}
+
+    def apollo_enrich_person(
+        email: str = "", name: str = "", company_domain: str = "", account: str = ""
+    ) -> dict[str, Any]:
+        if not email and not name:
+            return {"error": "provide an email, a name, or both"}
+        aid, profile, err = _account_profile(secrets, "apollo", account, "api_key")
+        if err:
+            return err
+        body: dict[str, Any] = {}
+        if email:
+            body["email"] = email
+        if name:
+            body["name"] = name
+        if company_domain:
+            body["domain"] = company_domain
+        result = _request(
+            "POST",
+            "https://api.apollo.io/api/v1/people/match",
+            headers=_apollo_headers(profile),
+            json=body,
+        )
+        return _acct_result(aid, result)
+
+    apollo_enrich_person.__name__ = "apollo_enrich_person"
+    tools.append(
+        _attach(
+            apollo_enrich_person,
+            _schema(
+                "apollo_enrich_person",
+                "Enrich a person from Apollo: title, company, LinkedIn, location "
+                "— by email and/or name (+ optional company domain).",
+                {
+                    "email": {"type": "string"},
+                    "name": {"type": "string"},
+                    "company_domain": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                [],
+            ),
+            caps=["apollo", "read"],
+        )
+    )
+
+    def apollo_enrich_company(domain: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "apollo", account, "api_key")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://api.apollo.io/api/v1/organizations/enrich",
+            headers=_apollo_headers(profile),
+            params={"domain": domain},
+        )
+        return _acct_result(aid, result)
+
+    apollo_enrich_company.__name__ = "apollo_enrich_company"
+    tools.append(
+        _attach(
+            apollo_enrich_company,
+            _schema(
+                "apollo_enrich_company",
+                "Enrich a company from Apollo by domain: size, industry, funding, "
+                "tech stack.",
+                {"domain": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["domain"],
+            ),
+            caps=["apollo", "read"],
+        )
+    )
+
+    def apollo_search_people(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "apollo", account, "api_key")
+        if err:
+            return err
+        result = _request(
+            "POST",
+            "https://api.apollo.io/api/v1/mixed_people/search",
+            headers=_apollo_headers(profile),
+            json={"q_keywords": query, "page": 1, "per_page": _clamp(max_results)},
+        )
+        return _acct_result(aid, result)
+
+    apollo_search_people.__name__ = "apollo_search_people"
+    tools.append(
+        _attach(
+            apollo_search_people,
+            _schema(
+                "apollo_search_people",
+                "Keyword-search people in Apollo's B2B database (e.g. 'VP "
+                "engineering fintech Berlin').",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["query"],
+            ),
+            caps=["apollo", "read"],
+        )
+    )
+
+    def _hunter_get(
+        profile: dict[str, Any], path: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _request(
+            "GET",
+            f"https://api.hunter.io/v2/{path}",
+            params={**params, "api_key": profile["api_key"]},
+        )
+
+    def hunter_domain_search(
+        domain: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
+        if err:
+            return err
+        result = _hunter_get(
+            profile, "domain-search", {"domain": domain, "limit": _clamp(max_results)}
+        )
+        return _acct_result(aid, result)
+
+    hunter_domain_search.__name__ = "hunter_domain_search"
+    tools.append(
+        _attach(
+            hunter_domain_search,
+            _schema(
+                "hunter_domain_search",
+                "Find published email addresses for a company domain (Hunter).",
+                {
+                    "domain": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["domain"],
+            ),
+            caps=["hunter", "read"],
+        )
+    )
+
+    def hunter_find_email(
+        domain: str, first_name: str, last_name: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
+        if err:
+            return err
+        result = _hunter_get(
+            profile,
+            "email-finder",
+            {"domain": domain, "first_name": first_name, "last_name": last_name},
+        )
+        return _acct_result(aid, result)
+
+    hunter_find_email.__name__ = "hunter_find_email"
+    tools.append(
+        _attach(
+            hunter_find_email,
+            _schema(
+                "hunter_find_email",
+                "Find a person's most likely email address from their name and "
+                "company domain (Hunter).",
+                {
+                    "domain": {"type": "string"},
+                    "first_name": {"type": "string"},
+                    "last_name": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["domain", "first_name", "last_name"],
+            ),
+            caps=["hunter", "read"],
+        )
+    )
+
+    def hunter_verify_email(email: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
+        if err:
+            return err
+        return _acct_result(aid, _hunter_get(profile, "email-verifier", {"email": email}))
+
+    hunter_verify_email.__name__ = "hunter_verify_email"
+    tools.append(
+        _attach(
+            hunter_verify_email,
+            _schema(
+                "hunter_verify_email",
+                "Check whether an email address is deliverable (Hunter).",
+                {"email": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["email"],
+            ),
+            caps=["hunter", "read"],
         )
     )
 

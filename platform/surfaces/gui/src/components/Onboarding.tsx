@@ -1,551 +1,648 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  detectProvider,
+  cloudLogin,
+  connectManaged,
+  createAutomation,
+  getCloudStatus,
+  getConnectors,
   getProviders,
-  getSettings,
+  getRecentChannels,
   setOnboarded,
   setProvider,
-  setScratchBase,
   verifyProvider,
+  type CloudStatus,
+  type Connector,
   type ProviderInfo,
+  type RecentChannel,
 } from "../api";
-import {
-  getAutostart,
-  getKeepAwake,
-  isTauri,
-  openExternal,
-  pickFolder,
-  setAutostart,
-  setKeepAwake,
-} from "../tauri";
-import { ModelChecklist } from "./ModelChecklist";
+import { openExternal } from "../tauri";
+import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { ChannelPicker } from "./SubscriptionsChip";
+import { Icon } from "./Icon";
+import { SelectMenu } from "./SelectMenu";
 
-const STEPS = ["Welcome", "Files", "Model", "Always-on"];
+// First-run onboarding (UX-DECISIONS §24): model → recipe → tips. Only step 1 gates;
+// steps 2–3 are skippable. Replayable anytime from Settings ▸ Appearance ▸ "Run setup again".
 
-// Where a non-developer gets an API key for each provider — shown in the "Don't have a key?"
-// helper on the model step. Rendered as a copyable link so it works even in the desktop webview.
-const KEY_HELP: Record<string, { url: string; steps: string }> = {
-  openai: {
-    url: "https://platform.openai.com/api-keys",
-    steps: "Sign in, click “Create new secret key”, then copy it here.",
+// Where a non-developer gets an API key — deep link + one line of instructions.
+const KEY_HELP: Record<string, { url: string; label: string }> = {
+  anthropic: { url: "https://console.anthropic.com/settings/keys", label: "console.anthropic.com" },
+  openai: { url: "https://platform.openai.com/api-keys", label: "platform.openai.com" },
+  gemini: { url: "https://aistudio.google.com/apikey", label: "aistudio.google.com" },
+  fireworks: { url: "https://fireworks.ai/account/api-keys", label: "fireworks.ai" },
+  together: { url: "https://api.together.xyz/settings/api-keys", label: "together.xyz" },
+};
+
+// The role tabs (§24 step 2): each names its recipe, the two connectors it needs, and how the
+// recipe card assembles. Cron strings are explicit — the user picks a phrase, we map it.
+// "When" = day choice × free time (owner call 2026-07-11: the fixed day+time pairs were
+// limiting). The cron assembles from the two.
+const DAYS: Record<string, { label: string; dow: string }> = {
+  mon: { label: "Mondays", dow: "1" },
+  tue: { label: "Tuesdays", dow: "2" },
+  wed: { label: "Wednesdays", dow: "3" },
+  thu: { label: "Thursdays", dow: "4" },
+  fri: { label: "Fridays", dow: "5" },
+  sat: { label: "Saturdays", dow: "6" },
+  sun: { label: "Sundays", dow: "0" },
+  weekdays: { label: "Weekdays", dow: "1-5" },
+  daily: { label: "Every day", dow: "*" },
+};
+const cronFor = (dayKey: string, hhmm: string) => {
+  const [h, m] = hhmm.split(":");
+  return `${Number(m) || 0} ${Number(h) || 9} * * ${DAYS[dayKey].dow}`;
+};
+
+type TabKey = "eng" | "sales" | "everyday";
+
+const TABS: Record<
+  TabKey,
+  { label: string; line: string; conns: { name: string; why: string }[] }
+> = {
+  eng: {
+    label: "Engineering",
+    line: "Every Monday: a digest of merged PRs and commits, posted to your team's Slack.",
+    conns: [
+      { name: "slack", why: "Where the digest posts" },
+      { name: "github", why: "What the digest summarizes" },
+    ],
   },
-  anthropic: {
-    url: "https://console.anthropic.com/settings/keys",
-    steps: "Sign in, click “Create Key”, then copy it here.",
+  sales: {
+    label: "Sales",
+    line: "Every Monday: deals that moved — and deals going quiet — posted to Slack.",
+    conns: [
+      { name: "slack", why: "Where the digest posts" },
+      { name: "hubspot", why: "Pipeline and deal activity" },
+    ],
   },
-  gemini: {
-    url: "https://aistudio.google.com/apikey",
-    steps: "Sign in, click “Create API key”, then copy it here.",
+  everyday: {
+    label: "Everyday",
+    line: "Each morning: your calendar and unread email, summarized before your day starts.",
+    conns: [
+      { name: "google_calendar", why: "Today's meetings and gaps" },
+      { name: "gmail", why: "What arrived overnight" },
+    ],
   },
 };
 
 type Verify = { state: "idle" | "testing" | "ok" | "error"; msg?: string };
 
-/**
- * First-run setup wizard (desktop). Walks through where files are saved, connecting a model
- * (API key or local Ollama), and the always-on toggles. Each field saves as you go; "Finish"
- * records completion unless you unticked "Show this on next startup".
- *
- * NOTE: MyHelper's working-folder step is hidden for now — the always-on helper isn't shipping
- * in this beta. Restore it from git history when MyHelper lands in a future version.
- */
-export function Onboarding({ onDone }: { onDone: () => void }) {
+export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => void }) {
   const [step, setStep] = useState(0);
 
-  // Cowork scratch location (where each conversation's per-conversation folder is created)
-  const [scratch, setScratch] = useState("");
-  const [scratchMsg, setScratchMsg] = useState<string | null>(null);
-
-  // model + key
-  const [models, setModels] = useState<string[]>([]);
-  const [modelLabels, setModelLabels] = useState<Record<string, string>>({});
-  const [model, setModel] = useState("");
-  const [keyDraft, setKeyDraft] = useState("");
-  const [keyMsg, setKeyMsg] = useState<string | null>(null);
-  const [secretsPath, setSecretsPath] = useState("");
-
-  // provider choice (API pane) + local models (Ollama)
-  const [conn, setConn] = useState<"api" | "local">("api");
-  const [apiProv, setApiProv] = useState("openai");
-  // True once the user manually picks a provider — stops key auto-detect from overriding them.
-  const [manualProv, setManualProv] = useState(false);
-  const [detected, setDetected] = useState<string | null>(null);
-  const [verify, setVerify] = useState<Verify>({ state: "idle" });
-  const [keyHelpOpen, setKeyHelpOpen] = useState(false);
-  const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
+  // -- step 1: model ------------------------------------------------------------
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [ollamaUrl, setOllamaUrl] = useState("");
-  const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
-  // First Skip click with no model connected asks for confirmation rather than leaving silently.
+  const [prov, setProv] = useState("anthropic");
+  const [fields, setFields] = useState<Record<string, string>>({});
+  // Optional endpoint (a base_url WITH a default, on a keyed provider) collapses behind a
+  // "Configure custom endpoint" link (owner call 2026-07-11) — most users never touch it.
+  const [showEndpoint, setShowEndpoint] = useState(false);
+  const [verify, setVerify] = useState<Verify>({ state: "idle" });
   const [skipConfirm, setSkipConfirm] = useState(false);
 
-  // always-on
-  const [autostart, setAuto] = useState(false);
-  const [keepAwake, setKeep] = useState(false);
-  const [showAgain, setShowAgain] = useState(false); // inverse of "don't show again"; default = don't show
-
-  const refreshSettings = () =>
-    getSettings()
-      .then((s) => {
-        setModels(s.models || []);
-        setModelLabels(s.model_labels || {});
-        setModel(s.model);
-        setScratch((cur) => cur || s.scratch_base || "");
-        setSecretsPath(s.secrets_path || "");
-      })
-      .catch(() => {});
-  const refreshProviders = () =>
+  useEffect(() => {
     getProviders()
       .then((ps) => {
         setProviders(ps);
-        const oll = ps.find((p) => p.name === "ollama");
-        if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
-        const oai = ps.find((p) => p.name === "openai");
-        if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
+        // Prefer a provider with a REAL credential; keyless ones (Ollama) report configured
+        // without proving anything is running — they must pass Test instead.
+        const preferred =
+          ps.find((p) => p.configured && p.needs_key) ||
+          ps.find((p) => p.name === "anthropic") ||
+          ps[0];
+        if (preferred) pickProvider(preferred.name, ps);
       })
       .catch(() => {});
-
-  useEffect(() => {
-    refreshSettings();
-    refreshProviders();
-    if (isTauri()) {
-      getAutostart().then((v) => setAuto(!!v));
-      getKeepAwake().then((v) => setKeep(!!v));
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const browseScratch = async () => {
-    const p = await pickFolder();
-    if (p) saveScratch(p);
-  };
-  const saveScratch = async (p: string) => {
-    setScratch(p);
-    setScratchMsg(null);
-    const res = await setScratchBase(p.trim());
-    setScratchMsg(res.ok ? "Saved." : res.error || "Couldn't use that folder.");
-  };
+  const info = providers.find((p) => p.name === prov);
 
-  // Build the {api_key, base_url?} payload for the currently selected API provider.
-  const keyFields = (): Record<string, string> => {
-    const fields: Record<string, string> = { api_key: keyDraft.trim() };
-    if (apiProv === "openai") fields.base_url = endpoint.trim();
-    return fields;
-  };
-
-  // Guess the provider from the key as the user types/pastes it, and switch the dropdown to match
-  // (until they pick one by hand). Mirrors the "OpenAI key detected automatically" affordance.
-  const onKeyChange = (v: string) => {
-    setKeyDraft(v);
-    setKeyMsg(null);
+  const pickProvider = (name: string, list?: ProviderInfo[]) => {
+    const p = (list || providers).find((x) => x.name === name);
+    setProv(name);
     setVerify({ state: "idle" });
-    const det = detectProvider(v);
-    setDetected(det);
-    if (det && !manualProv && det !== apiProv && providers.some((p) => p.name === det)) {
-      setApiProv(det);
-    }
+    setShowEndpoint(false);
+    const next: Record<string, string> = {};
+    for (const f of p?.fields || []) next[f.key] = p?.values?.[f.key] || f.default || "";
+    setFields(next);
   };
 
-  const testKey = async () => {
-    if (!keyDraft.trim() && !selProv?.configured) return;
+  const runTest = async (): Promise<boolean> => {
     setVerify({ state: "testing" });
-    setKeyMsg(null);
-    const res = await verifyProvider(apiProv, keyFields());
-    setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "Couldn't verify." });
+    const res = await verifyProvider(prov, fields).catch(() => ({ ok: false, error: "unreachable" }));
+    setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "couldn't verify" });
+    return res.ok;
   };
 
-  const saveKey = async () => {
-    if (!keyDraft.trim()) return;
-    setKeyMsg(null);
-    const res = await setProvider(apiProv, keyFields());
-    if (res.ok) {
-      setKeyDraft("");
-      setVerify({ state: "idle" });
-      setKeyMsg("Saved locally.");
-      refreshProviders();
-      refreshSettings(); // the provider's recommended model may have been added to the list
-    } else {
-      setKeyMsg(res.error || "Couldn't save key.");
-    }
-  };
-
-  const ollama = providers.find((p) => p.name === "ollama");
-  const saveOllama = async () => {
-    setOllamaMsg(null);
-    const res = await setProvider("ollama", { base_url: ollamaUrl.trim() });
-    if (res.ok) {
-      const rec = res.recommended_model;
-      setOllamaMsg(
-        rec
-          ? `Saved. ${rec} is the recommended model — pick it below (pull it first with: ollama pull ${rec}).`
-          : "Saved.",
-      );
-      refreshSettings(); // the recommended model may have been added to the list
-    } else {
-      setOllamaMsg(res.error || "Couldn't save the Ollama URL.");
-    }
-  };
-
-  // The provider the model step is currently configuring. Its models render as a checklist
-  // (tick = in the composer picker, black badge = default) once the provider is usable.
-  const apiProviders = providers.filter((p) => p.name !== "ollama");
-  const provName = conn === "local" ? "ollama" : apiProv;
-  const selProv = providers.find((p) => p.name === provName);
-  const knownNames = providers.map((p) => p.name);
-
-  const toggleAuto = async (v: boolean) => setAuto(!!(await setAutostart(v)));
-  const toggleKeep = async (v: boolean) => setKeep(!!(await setKeepAwake(v)));
-
-  // The provider the default model routes to (prefix before `:`, else OpenAI). A model is "ready"
-  // only if that provider is configured — used to warn when Skipping with nothing connected.
-  const modelProviderName = (m: string): string => {
-    const i = (m || "").indexOf(":");
-    if (i > 0) {
-      const p = m.slice(0, i);
-      if (providers.some((x) => x.name === p)) return p;
-    }
-    return "openai";
-  };
-  const modelReady = providers.some(
-    (p) => p.name === modelProviderName(model) && p.configured,
+  const credentialed = !!info?.configured && !!info?.needs_key;
+  // What the Test button shows: a fresh pass OR already-stored credentials read "✓ Connected".
+  const verified = verify.state === "ok" || (credentialed && verify.state === "idle");
+  // Continue is clickable as soon as the required (secret) fields are filled — the verify runs
+  // AUTOMATICALLY on Continue (tester catch 2026-07-12: "did I have to click Test first?" — the
+  // manual Test-then-Continue two-step read as a puzzle). Test stays as an optional explicit check.
+  const requiredFilled = (info?.fields || []).every(
+    (f) => !f.secret || (fields[f.key] || "").trim(),
   );
+  const canContinue = credentialed || requiredFilled;
 
-  const finish = async () => {
-    await setOnboarded(!showAgain); // ticked "show again" → keep showing → onboarded=false
-    onDone();
+  const saveAndContinue = async () => {
+    if (!credentialed && verify.state !== "ok" && !(await runTest())) return;
+    if (!info?.configured || Object.values(fields).some(Boolean)) {
+      await setProvider(prov, fields).catch(() => {});
+    }
+    setStep(1);
   };
-  // Skip warns once if no model is connected (chat would stay paused), then leaves on confirm.
-  const requestSkip = () => {
-    if (!modelReady && !skipConfirm) {
-      setSkipConfirm(true);
+
+  // -- step 2: recipe -------------------------------------------------------------
+  const [tab, setTab] = useState<TabKey>("eng");
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [pendingConn, setPendingConn] = useState<string | null>(null);
+  const [recent, setRecent] = useState<RecentChannel[]>([]);
+  const [repo, setRepo] = useState("");
+  const [channel, setChannel] = useState("");
+  const [day, setDay] = useState("mon");
+  const [digestTime, setDigestTime] = useState("09:00");
+  const [briefTime, setBriefTime] = useState("08:00");
+  const [deliver, setDeliver] = useState<"app" | "slack">("app");
+  const [consent, setConsent] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [recap, setRecap] = useState<string | null>(null);
+
+  const refreshStep2 = () => {
+    getConnectors().then(setConnectors).catch(() => {});
+    getCloudStatus().then(setCloud).catch(() => {});
+  };
+  // Poll while on the recipe step: connects and the cloud sign-in land out-of-band.
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (step !== 1) return;
+    refreshStep2();
+    getRecentChannels().then(setRecent).catch(() => {});
+    pollRef.current = setInterval(refreshStep2, 3000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [step]);
+
+  const connState = (name: string) => connectors.find((c) => c.name === name);
+  // Human copy shows the channel NAME when known; the raw address stays the stored target.
+  const channelName = recent.find((c) => c.channel === channel)?.name;
+  const channelLabel = channelName ? `#${channelName}` : channel;
+  const tabConns = TABS[tab].conns;
+  const allConnected = tabConns.every((c) => connState(c.name)?.connected);
+
+  const startConnect = async (name: string, flow?: "authorize") => {
+    if (!cloud?.signed_in) {
+      setPendingConn(name); // the pane appears; sign-in completes it
       return;
     }
-    finish();
+    // flow="authorize" (GitHub only) links an EXISTING App installation — the install page
+    // dead-ends on "Configure" when the App is already installed and never fires a callback.
+    await connectManaged(name, flow ? { flow } : undefined).catch(() => {});
+    refreshStep2();
   };
 
-  const last = step === STEPS.length - 1;
+  const signInThenConnect = async () => {
+    await cloudLogin().catch(() => {});
+    // Poll until the browser flow lands, then finish the pending connect (bounded).
+    let polls = 0;
+    const t = setInterval(async () => {
+      polls += 1;
+      const s = await getCloudStatus().catch(() => null);
+      if (s?.signed_in) {
+        clearInterval(t);
+        setCloud(s);
+        if (pendingConn) {
+          await connectManaged(pendingConn).catch(() => {});
+          setPendingConn(null);
+          refreshStep2();
+        }
+      } else if (polls > 90) clearInterval(t);
+    }, 2000);
+  };
+
+  const create = async () => {
+    setCreating(true);
+    let payload: Parameters<typeof createAutomation>[0] & { permissions?: unknown[] };
+    if (tab === "eng") {
+      payload = {
+        title: "GitHub digest",
+        instructions:
+          `Summarize activity since the last digest in the GitHub repository ${repo || "(the connected repository)"}: ` +
+          `merged pull requests, notable commits, and anything needing attention. ` +
+          `Post the digest to the Slack channel ${channel} using send_message.`,
+        cron: cronFor(day, digestTime),
+        permissions: consent && channel ? [{ tool: "send_message", target: channel, access: "write" }] : [],
+      };
+    } else if (tab === "sales") {
+      payload = {
+        title: "Pipeline digest",
+        instructions:
+          `Review HubSpot activity since the last digest: deals that changed stage, deals going ` +
+          `quiet, and deals past their close date. Post a short pipeline digest to the Slack ` +
+          `channel ${channel} using send_message.`,
+        cron: cronFor(day, digestTime),
+        permissions: consent && channel ? [{ tool: "send_message", target: channel, access: "write" }] : [],
+      };
+    } else {
+      const [h, m] = briefTime.split(":");
+      payload = {
+        title: "Morning brief",
+        instructions:
+          `Prepare a short morning brief: today's calendar events and gaps, plus email that ` +
+          `arrived since yesterday evening. ` +
+          (deliver === "app" ? "Save it as the session deliverable." : "Send it to me as a Slack DM."),
+        cron: `${Number(m) || 0} ${Number(h) || 8} * * *`,
+        permissions: [], // reads don't gate; the consent line here is disclosure
+      };
+    }
+    const res = await createAutomation(payload as any).catch(() => ({ ok: false }) as any);
+    setCreating(false);
+    if (res.ok) {
+      const when =
+        tab === "everyday" ? `every day ${briefTime}` : `${DAYS[day].label} at ${digestTime}`;
+      setRecap(`${payload.title} · ${when} · manage under Automations`);
+      setStep(2);
+    }
+  };
+
+  const finish = async (next?: "work" | "gallery") => {
+    await setOnboarded(true).catch(() => {});
+    onDone(next);
+  };
+
+  // -- shared bits ----------------------------------------------------------------
+  const seg = (on: boolean) =>
+    "px-4 py-1.5 rounded-full text-[12.5px] " + (on ? "bg-ink text-panel" : "text-muted hover:text-ink");
+  const label = "block text-[12px] text-muted mt-3 mb-1";
+  const input =
+    "w-full px-3 py-2 rounded-lg border border-line bg-panel text-[13.5px] outline-none focus:border-accent";
+  const dots = (
+    <div className="flex justify-center gap-2 mb-6">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className={"w-1.5 h-1.5 rounded-full " + (i <= step ? "bg-accent" : "bg-line")} />
+      ))}
+    </div>
+  );
 
   return (
-    <div className="ob-overlay">
-      <div className="ob">
-        <div className="ob-rail">
-          {STEPS.map((s, i) => (
-            <div key={s} className={"ob-rail-item" + (i === step ? " active" : i < step ? " done" : "")}>
-              <span className="ob-dot">{i < step ? "✓" : i + 1}</span>
-              {s}
-            </div>
-          ))}
-        </div>
+    <div className="fixed inset-0 z-50 bg-ink/30 grid place-items-center" data-testid="onboarding">
+      {/* FIXED height across all three steps (owner call 2026-07-12: the modal resizing per
+          step felt unsettled). Steps are flex columns; each action row `mt-auto`-pins to the
+          bottom; taller content scrolls inside the step. */}
+      {/* 700px fits the tallest step (the recipe, ~593px content) with headroom; shorter
+          windows cap at 88vh and the step scrolls inside. */}
+      <div className="w-[600px] max-w-[92vw] h-[700px] max-h-[88vh] rounded-2xl border border-line bg-panel shadow-2xl p-8 flex flex-col">
+        {dots}
 
-        <div className="ob-body">
-          {step === 0 && (
-            <div className="ob-step">
-              <div className="ob-mark">✳</div>
-              <h2>Welcome to OpenCoworker</h2>
-              <p className="ob-sub">
-                An open-source desktop agent that does real work on your machine — research, code,
-                and documents. Your files and your keys stay on this computer; nothing leaves
-                unless you say so.
-              </p>
-              <ul className="ob-valueprops">
-                <li><strong>Private by default</strong> — runs locally, bring your own API key (or use a free local model).</li>
-                <li><strong>Real deliverables</strong> — it writes files, reports, and code, not just chat.</li>
-                <li><strong>Always reachable</strong> — schedule automations and connect your tools.</li>
-              </ul>
-              <p className="ob-sub dim">A quick setup takes about a minute.</p>
-            </div>
-          )}
+        {step === 0 && (
+          <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            <h1 className="text-[19px] font-semibold">Welcome to OpenCoworker</h1>
+            <p className="text-[13px] text-muted mt-0.5 mb-5">
+              Connect a model to get started — OpenCoworker runs on your own API key, and your
+              key and your data stay on this Mac.
+            </p>
+            <label className={label}>Provider</label>
+            {/* The same SelectMenu Settings ▸ Models uses (owner call 2026-07-11: the native
+                <select> read as a raw OS control) — sections + green key-set dots included. */}
+            <SelectMenu
+              ariaLabel="Provider"
+              value={prov}
+              options={[...providers]
+                .sort(
+                  (a, b) =>
+                    Number(b.configured && b.needs_key) - Number(a.configured && a.needs_key),
+                )
+                .map((p) => {
+                  const ready = p.configured && p.needs_key;
+                  return {
+                    value: p.name,
+                    label: p.title,
+                    group: ready ? "Ready to use" : "Needs setup",
+                    dot: ready,
+                  };
+                })}
+              onChange={(name) => pickProvider(name)}
+            />
+            {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
 
-          {step === 1 && (
-            <div className="ob-step">
-              <h2>Where files go</h2>
-              <p className="ob-sub">
-                Each conversation gets its own folder under the location below — that's where the
-                agent saves the files it produces. You can grant access to more folders any time.
-              </p>
-
-              <label className="ob-label">Save files under</label>
-              <div className="ob-row">
-                <input
-                  placeholder="~/OpenCoworker"
-                  value={scratch}
-                  onChange={(e) => setScratch(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveScratch(scratch)}
-                />
-                {isTauri() && (
-                  <button className="btn" onClick={browseScratch}>
-                    Browse…
-                  </button>
-                )}
-                <button className="btn primary" onClick={() => saveScratch(scratch)} disabled={!scratch.trim()}>
-                  Set
-                </button>
-              </div>
-              {scratchMsg && <div className="ob-note">{scratchMsg}</div>}
-
-              {/* MyHelper's working folder lived here. Hidden for this beta (MyHelper isn't
-                  shipping yet) — bring it back in a future version. */}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="ob-step">
-              <h2>Connect a model</h2>
-              <p className="ob-sub">
-                Connect a model provider with an API key — or run models locally with Ollama
-                (free, runs on your Mac) — then pick the default model for new sessions.
-              </p>
-
-              <div className="subtabs ob-subtabs">
-                <div className="manage-tabs">
-                  <div className={"mtab" + (conn === "api" ? " active" : "")} onClick={() => setConn("api")}>
-                    API key
-                  </div>
-                  <div className={"mtab" + (conn === "local" ? " active" : "")} onClick={() => setConn("local")}>
-                    Local (Ollama)
-                  </div>
-                </div>
-              </div>
-              {conn === "api" ? (
-                <>
-                  <label className="ob-label">Provider</label>
-                  <select
-                    className="ob-select"
-                    value={apiProv}
-                    onChange={(e) => {
-                      setManualProv(true);
-                      setApiProv(e.target.value);
-                      setKeyDraft("");
-                      setKeyMsg(null);
-                      setVerify({ state: "idle" });
-                      setDetected(null);
-                    }}
+            {(info?.fields || []).map((f) => {
+              // ANY base_url on a keyed provider is an expert option: collapsed behind a link
+              // (owner catch 2026-07-12: OpenAI's endpoint has no default, so the earlier
+              // default-only condition left it visible on the first pass). Keyless providers
+              // (Ollama) keep it visible — the endpoint IS the connection there.
+              const keyed = (info?.fields || []).some((x) => x.secret);
+              if (f.key === "base_url" && keyed && !showEndpoint) {
+                return (
+                  <button
+                    key={f.key}
+                    className="block self-start text-[12px] text-accent hover:underline mt-3"
+                    onClick={() => setShowEndpoint(true)}
+                    data-testid="ob-endpoint-link"
                   >
-                    {apiProviders.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.title}
-                      </option>
-                    ))}
-                  </select>
-
-                  {apiProv === "openai" && (
-                    <>
-                      <label className="ob-label">Custom endpoint (optional)</label>
-                      <input
-                        className="ob-input"
-                        placeholder="https://…/openai/v1 — for Azure OpenAI or any OpenAI-compliant server"
-                        value={endpoint}
-                        autoComplete="off"
-                        spellCheck={false}
-                        onChange={(e) => setEndpoint(e.target.value)}
-                      />
-                    </>
-                  )}
-
-                  <label className="ob-label">
-                    {selProv?.fields.find((f) => f.key === "api_key")?.label || "API key"}{" "}
-                    {selProv?.configured && <span className="ob-ok">· configured</span>}
-                  </label>
-                  <div className="ob-row">
-                    <input
-                      type="password"
-                      placeholder={
-                        selProv?.configured
-                          ? "•••••••• (saved) — enter to replace"
-                          : selProv?.fields.find((f) => f.key === "api_key")?.placeholder || "sk-…"
-                      }
-                      value={keyDraft}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(e) => onKeyChange(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && testKey()}
-                    />
-                    <button
-                      className="btn"
-                      onClick={testKey}
-                      disabled={verify.state === "testing" || (!keyDraft.trim() && !selProv?.configured)}
-                      title="Check the key works — without saving it"
-                    >
-                      {verify.state === "testing" ? "Testing…" : "Test"}
-                    </button>
-                    <button
-                      className="btn primary"
-                      onClick={saveKey}
-                      disabled={!keyDraft.trim() && !(apiProv === "openai" && endpoint.trim())}
-                    >
-                      Save
-                    </button>
-                  </div>
-
-                  {/* One status line at a time: verified (strongest) > error > auto-detected. */}
-                  {verify.state === "ok" ? (
-                    <div className="ob-status ob-ok">✓ Key verified — you're good to go.</div>
-                  ) : verify.state === "error" ? (
-                    <div className="ob-status ob-err">{verify.msg}</div>
-                  ) : detected && !manualProv ? (
-                    <div className="ob-status ob-detected">
-                      ✓ {providers.find((p) => p.name === detected)?.title || detected} key detected
-                      automatically. <span className="dim">Not right? Pick a provider above.</span>
-                    </div>
-                  ) : null}
-
-                  <div className="ob-keyhelp">
-                    <button className="ob-link" onClick={() => setKeyHelpOpen((o) => !o)}>
-                      {keyHelpOpen ? "▾" : "▸"} Don't have an API key? Get one in about 2 minutes
-                    </button>
-                    {keyHelpOpen && KEY_HELP[apiProv] && (
-                      <div className="ob-keyhelp-body">
-                        <div>{KEY_HELP[apiProv].steps}</div>
-                        <div className="ob-row" style={{ marginTop: 6 }}>
-                          <button className="btn" onClick={() => openExternal(KEY_HELP[apiProv].url)}>
-                            Open {selProv?.title || "provider"} ↗
-                          </button>
-                          <code className="ob-url">{KEY_HELP[apiProv].url}</code>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="ob-note dim" style={{ marginTop: 18 }}>
-                    Stored locally{secretsPath ? ` at ${secretsPath}` : ""}, readable only by your account. Never sent to the model.
-                  </div>
-                  {keyMsg && <div className="ob-note">{keyMsg}</div>}
-
-                  {selProv?.configured && (
-                    <>
-                      <label className="ob-label">Models</label>
-                      <div className="ob-note dim" style={{ margin: "0 0 4px" }}>
-                        Ticked models show in the composer's picker; the default is what new
-                        sessions start with.
-                      </div>
-                      <ModelChecklist
-                        provider={provName}
-                        labels={modelLabels}
-                        knownProviders={knownNames}
-                        suggested={selProv.suggested_models}
-                        curated={models}
-                        defaultModel={model}
-                        onChanged={(next) => {
-                          setModels(next.models);
-                          setModel(next.model);
-                        }}
-                      />
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <label className="ob-label">Ollama server URL</label>
-                  <div className="ob-row">
-                    <input
-                      placeholder="http://localhost:11434"
-                      value={ollamaUrl}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(e) => setOllamaUrl(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && saveOllama()}
-                    />
-                    <button className="btn primary" onClick={saveOllama}>
-                      Save
-                    </button>
-                  </div>
-                  <div className="ob-note dim">
-                    Needs <code>ollama serve</code> running
-                    {ollama?.recommended_model ? (
-                      <> and a tool-capable model pulled, e.g. <code>ollama pull {ollama.recommended_model}</code></>
-                    ) : null}
-                    . No API key needed; you can fine-tune models later in Manage.
-                  </div>
-                  {ollamaMsg && <div className="ob-note">{ollamaMsg}</div>}
-
-                  <label className="ob-label">Models</label>
-                  <div className="ob-note dim" style={{ margin: "0 0 4px" }}>
-                    Your pulled models. Ticked ones show in the composer's picker; the default is
-                    what new sessions start with.
-                  </div>
-                  <ModelChecklist
-                    provider="ollama"
-                    labels={modelLabels}
-                    knownProviders={knownNames}
-                    suggested={ollama?.suggested_models || []}
-                    curated={models}
-                    defaultModel={model}
-                    onChanged={(next) => {
-                      setModels(next.models);
-                      setModel(next.model);
+                    Configure custom endpoint ›
+                  </button>
+                );
+              }
+              return (
+                <div key={f.key}>
+                  <label className={label}>{f.label}</label>
+                  <input
+                    className={input}
+                    type={f.secret ? "password" : "text"}
+                    placeholder={f.placeholder}
+                    value={fields[f.key] || ""}
+                    data-testid={`ob-field-${f.key}`}
+                    onChange={(e) => {
+                      setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
+                      setVerify({ state: "idle" });
                     }}
                   />
-                </>
-              )}
-            </div>
-          )}
+                  {f.help && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
+                </div>
+              );
+            })}
 
-          {step === 3 && (
-            <div className="ob-step">
-              <h2>Staying on</h2>
-              <p className="ob-sub">
-                Scheduled automations only run while OpenCoworker is running.
-                {!isTauri() && " (Desktop app only.)"}
+            {KEY_HELP[prov] && (
+              <p className="text-[11.5px] text-faint mt-2">
+                No key yet?{" "}
+                <button
+                  className="text-accent hover:underline"
+                  onClick={() => openExternal(KEY_HELP[prov].url)}
+                >
+                  Create one at {KEY_HELP[prov].label} ↗
+                </button>{" "}
+                — takes about a minute.
               </p>
-              <label className={"ob-toggle" + (isTauri() ? "" : " disabled")}>
-                <input type="checkbox" checked={autostart} disabled={!isTauri()} onChange={(e) => toggleAuto(e.target.checked)} />
-                <span>
-                  <strong>Open at login</strong>
-                  <small>Launch OpenCoworker automatically when you sign in.</small>
-                </span>
-              </label>
-              <label className={"ob-toggle" + (isTauri() ? "" : " disabled")}>
-                <input type="checkbox" checked={keepAwake} disabled={!isTauri()} onChange={(e) => toggleKeep(e.target.checked)} />
-                <span>
-                  <strong>Keep this system awake</strong>
-                  <small>Prevent idle sleep so scheduled tasks fire on time.</small>
-                </span>
-              </label>
+            )}
 
-              <label className="ob-check">
-                <input type="checkbox" checked={showAgain} onChange={(e) => setShowAgain(e.target.checked)} />
-                Show this setup again on next startup
-              </label>
-            </div>
-          )}
-        </div>
+            {/* No model picker here (owner call 2026-07-11): the model is chosen per session,
+                and the old select never persisted anything anyway. One pointer instead. */}
+            <p className="text-[11.5px] text-faint mt-3">
+              Models can be enabled or hidden anytime in Settings ▸ Models.
+            </p>
 
-        {skipConfirm && (
-          <div className="ob-skipwarn">
-            <span>
-              No model is connected yet — chat stays paused until you add one. You can still browse,
-              and connect a model later from Settings.
-            </span>
-            <div className="ob-skipwarn-actions">
-              <button className="btn" onClick={() => { setSkipConfirm(false); setStep(2); setConn("api"); }}>
-                Connect a model
+            {/* Error line: fixed height so verify failures never reflow the form. Success is
+                NOT a line — the Test button itself flips to "✓ Connected" (owner call
+                2026-07-12: the green status text was louder than the moment deserved). */}
+            <div className="mt-3 min-h-[19px] text-[12.5px]">
+              {verify.state === "error" && <span className="text-warnInk">{verify.msg}</span>}
+            </div>
+
+            <div className="flex items-center gap-3 mt-auto pt-5">
+              {!skipConfirm ? (
+                <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setSkipConfirm(true)}>
+                  Skip setup
+                </button>
+              ) : (
+                <span className="text-[12.5px] text-muted">
+                  Nothing works without a model —{" "}
+                  <button className="text-accent" onClick={() => finish()}>
+                    skip anyway
+                  </button>
+                </span>
+              )}
+              <button
+                className={
+                  "ml-auto px-4 py-2 rounded-full border text-[13px] disabled:opacity-40 " +
+                  (verified ? "border-ok/40 text-ok" : "border-line hover:bg-paper")
+                }
+                onClick={runTest}
+                disabled={verify.state === "testing"}
+                data-testid="ob-test"
+              >
+                {verify.state === "testing" ? "Testing…" : verified ? "✓ Connected" : "Test"}
               </button>
-              <button className="btn ghost" onClick={finish}>
-                Skip anyway
+              <button
+                className="px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                disabled={!canContinue || verify.state === "testing"}
+                onClick={saveAndContinue}
+                data-testid="ob-continue"
+              >
+                {verify.state === "testing" ? "Checking…" : "Continue"}
               </button>
             </div>
-          </div>
+          </section>
         )}
-        <div className="ob-foot">
-          <button className="btn ghost" onClick={requestSkip}>
-            Skip
-          </button>
-          <div className="ob-foot-right">
-            {step > 0 && (
-              <button className="btn" onClick={() => setStep(step - 1)}>
-                Back
-              </button>
+
+        {step === 1 && (
+          <section data-testid="ob-step-recipe" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            <h1 className="text-[19px] font-semibold">Get your first automation running</h1>
+            <p className="text-[13px] text-muted mt-0.5 mb-4">Pick what sounds most like your week:</p>
+
+            <div className="inline-flex border border-line rounded-full p-0.5 mb-3">
+              {(Object.keys(TABS) as TabKey[]).map((k) => (
+                <button key={k} className={seg(tab === k)} onClick={() => setTab(k)} data-testid={`ob-tab-${k}`}>
+                  {TABS[k].label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[13px] bg-paper rounded-lg px-3.5 py-2.5 mb-1">{TABS[tab].line}</p>
+
+            {tabConns.map(({ name, why }) => {
+              const c = connState(name);
+              return (
+                <div key={name} className="border-b border-line last:border-b-0">
+                  <div className="flex items-center gap-3 py-2.5">
+                    {c && <ConnectorBadge connector={c} size={26} title={c.title} />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-medium">{c?.title || name}</span>
+                      <span className="block text-[11.5px] text-faint">{why}</span>
+                    </span>
+                    {c?.connected ? (
+                      <span className="text-[12.5px] text-ok">✓ Connected</span>
+                    ) : (
+                      <button
+                        className="px-3.5 py-1 rounded-full border border-line text-[12.5px] hover:bg-paper"
+                        onClick={() => startConnect(name)}
+                        data-testid={`ob-connect-${name}`}
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                  {/* Already-installed escape hatch: GitHub's install page shows "Configure"
+                      for an existing installation and never calls back. */}
+                  {name === "github" && !c?.connected && cloud?.signed_in && (
+                    <button
+                      className="block pb-2.5 -mt-1 text-[11.5px] text-accent hover:underline"
+                      onClick={() => startConnect("github", "authorize")}
+                      data-testid="ob-link-github-install"
+                    >
+                      Already installed on GitHub? Link it ›
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            {pendingConn && !cloud?.signed_in && (
+              <div className="bg-accentSoft/50 rounded-xl px-4 py-3 mt-3 text-[12.5px] text-muted" data-testid="ob-cloudpane">
+                <span className="block text-[13px] text-ink font-medium">
+                  One sign-in unlocks every one-click connection
+                </span>
+                Connections are brokered by OpenCoworker Cloud — your tokens stay on this Mac.
+                <div>
+                  <button
+                    className="mt-2 px-3.5 py-1 rounded-full border border-line text-[12.5px] text-accent hover:bg-panel"
+                    onClick={signInThenConnect}
+                    data-testid="ob-cloud-signin"
+                  >
+                    Sign in to OpenCoworker Cloud
+                  </button>
+                </div>
+              </div>
             )}
-            {last ? (
-              <button className="btn primary" onClick={finish}>
-                Finish
-              </button>
-            ) : (
-              <button className="btn primary" onClick={() => setStep(step + 1)}>
-                Next
-              </button>
+
+            {allConnected && (
+              <div className="bg-paper rounded-xl px-4 py-3.5 mt-4" data-testid="ob-recipe">
+                {tab !== "everyday" ? (
+                  <>
+                    {tab === "eng" && (
+                      <>
+                        <label className={label}>Repository</label>
+                        <input
+                          className={input}
+                          placeholder="owner/repo"
+                          value={repo}
+                          onChange={(e) => setRepo(e.target.value)}
+                          data-testid="ob-repo"
+                        />
+                      </>
+                    )}
+                    <label className={label}>Post to channel</label>
+                    <div data-testid="ob-channel">
+                      <ChannelPicker value={channel} onChange={setChannel} recent={recent} />
+                    </div>
+                    <p className="text-[11px] text-warnInk mt-1">
+                      The bot must be a member of the channel — invite @ocw in Slack if it isn't.
+                    </p>
+                    <label className={label}>When</label>
+                    <div className="flex gap-2">
+                      <div className="flex-1 min-w-0">
+                        <SelectMenu
+                          ariaLabel="Day"
+                          value={day}
+                          options={Object.entries(DAYS).map(([k, v]) => ({ value: k, label: v.label }))}
+                          onChange={setDay}
+                        />
+                      </div>
+                      <input
+                        className="w-28 px-3 py-2 rounded-lg border border-line bg-panel text-[13.5px] outline-none focus:border-accent"
+                        type="time"
+                        aria-label="Time"
+                        value={digestTime}
+                        onChange={(e) => setDigestTime(e.target.value)}
+                      />
+                    </div>
+                    <label className="flex items-start gap-2.5 mt-3.5 text-[12.5px] text-muted select-none">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={consent}
+                        onChange={(e) => setConsent(e.target.checked)}
+                        data-testid="ob-consent"
+                      />
+                      <span>
+                        Allow this automation to post its digest to{" "}
+                        <b className="text-ink">{channelLabel || "the channel"}</b> without asking each
+                        time. Anything else still asks first.
+                      </span>
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label className={label}>When</label>
+                    <input
+                      className={input}
+                      type="time"
+                      value={briefTime}
+                      onChange={(e) => setBriefTime(e.target.value)}
+                    />
+                    <label className={label}>Deliver to</label>
+                    <SelectMenu
+                      ariaLabel="Deliver to"
+                      value={deliver}
+                      options={[
+                        { value: "app", label: "In the app" },
+                        { value: "slack", label: "Slack DM (connect Slack later)" },
+                      ]}
+                      onChange={(v) => setDeliver(v as "app" | "slack")}
+                    />
+                    <p className="text-[12.5px] text-muted mt-3">
+                      This brief only <b className="text-ink">reads</b> Calendar and Gmail on
+                      schedule — reading never needs approval.
+                    </p>
+                  </>
+                )}
+              </div>
             )}
-          </div>
-        </div>
+
+            <div className="flex items-center gap-3 mt-auto pt-6">
+              <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setStep(2)}>
+                Skip for now
+              </button>
+              {/* A silently-disabled primary reads as a bug (tester catch 2026-07-12: both
+                  connectors green, button gray, no clue why) — always name the missing piece. */}
+              {allConnected && tab !== "everyday" && !channel && (
+                <span className="ml-auto text-[11.5px] text-faint" data-testid="ob-create-hint">
+                  Pick a channel to post to first
+                </span>
+              )}
+              <button
+                className={
+                  (allConnected && tab !== "everyday" && !channel ? "" : "ml-auto ") +
+                  "px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                }
+                disabled={!allConnected || creating || (tab !== "everyday" && !channel)}
+                onClick={create}
+                data-testid="ob-create"
+              >
+                {creating ? "Creating…" : "Create automation"}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {step === 2 && (
+          <section data-testid="ob-step-done" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-full bg-okSoft text-ok grid place-items-center mx-auto mb-3 text-[22px]">
+                ✓
+              </div>
+              <h1 className="text-[19px] font-semibold mb-4">You're set up</h1>
+            </div>
+
+            {recap && (
+              <div className="flex items-start gap-3 border border-ok/50 bg-okSoft/40 rounded-xl px-4 py-3 mb-3" data-testid="ob-recap">
+                <Icon name="clock" size={16} className="text-ok mt-0.5 shrink-0" />
+                <span className="text-[12.5px]">
+                  <b className="block text-[13px]">Your automation is scheduled</b>
+                  <span className="text-muted">{recap}</span>
+                </span>
+              </div>
+            )}
+
+            {/* The Specialist-coworkers gallery card and the per-session-scope line are HIDDEN
+                for now (owner call 2026-07-12, simplification pass) — the gallery gets its
+                entry point back later; `finish("gallery")` plumbing stays for that. */}
+
+            <div className="text-center mt-auto pt-5">
+              <button
+                className="px-5 py-2 rounded-full bg-ink text-panel text-[13px]"
+                onClick={() => finish("work")}
+                data-testid="ob-start"
+              >
+                Start working
+              </button>
+              <p className="text-[11px] text-faint mt-3">
+                Replay this setup anytime: Settings ▸ Appearance ▸ Run setup again.
+              </p>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

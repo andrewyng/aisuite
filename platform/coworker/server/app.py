@@ -662,6 +662,33 @@ def create_app(manager: SessionManager) -> FastAPI:
 
         return hubspot_portals.set_default(manager.secrets, hub_id)
 
+    @app.post("/v1/connectors/{name}/accounts/{account_id}/disconnect")
+    async def account_disconnect(name: str, account_id: str) -> dict[str, Any]:
+        """Generic per-account disconnect for account-patterned connectors
+        (batch 2+). Gmail/Calendar keep their specific email routes."""
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import accounts
+
+        if not accounts.is_account_connector(name):
+            return {"ok": False, "error": "not a multi-account connector"}
+        _id, profile_key, profile = accounts.resolve(manager.secrets, name, account_id)
+        if profile and profile.get("managed"):
+            await asyncio.to_thread(
+                lambda: cloud.cloud_disconnect(
+                    manager.secrets, load_config(), name, profile_key=profile_key
+                )
+            )
+        return accounts.disconnect_account(manager.secrets, name, account_id)
+
+    @app.post("/v1/connectors/{name}/accounts/{account_id}/default")
+    def account_default(name: str, account_id: str) -> dict[str, Any]:
+        from ..connectors import accounts
+
+        if not accounts.is_account_connector(name):
+            return {"ok": False, "error": "not a multi-account connector"}
+        return accounts.set_default(manager.secrets, name, account_id)
+
     @app.patch("/v1/connectors/hubspot/hidden-fields")
     def hubspot_hidden_fields(body: dict) -> dict[str, Any]:
         """Replace the hidden-fields denylist (property names stripped from every

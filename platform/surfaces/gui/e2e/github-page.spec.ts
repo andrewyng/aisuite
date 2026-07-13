@@ -7,8 +7,8 @@ import { test } from "./fixtures";
 
 async function openGithubPage(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
   await page.getByTestId("connector-github").click();
 }
 
@@ -50,8 +50,9 @@ test("add installation opens the modal; signed in installs a second org", async 
 
   // sign in from the list's cloud strip, then install one-click
   await page.getByTestId("connectors-breadcrumb").click();
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app");
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
   await page.getByTestId("connector-github").click();
   await page.getByTestId("add-installation-btn").click();
   await page.getByTestId("modal-install-github-app").click();
@@ -63,11 +64,36 @@ test("add installation opens the modal; signed in installs a second org", async 
   await expect(page.getByTestId("github-install-101")).toBeVisible(); // existing stays
 });
 
+test("modal offers linking an existing installation — sends flow=authorize", async ({
+  page,
+}) => {
+  // GitHub's install page dead-ends on "Configure" when the App is already installed (no
+  // callback ever fires — owner hit this on a fresh state dir). The modal's secondary link
+  // must start the plain-OAuth authorize flow instead.
+  await openGithubPage(page);
+  await page.getByTestId("connectors-breadcrumb").click();
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
+  await page.getByTestId("connector-github").click();
+
+  let flowSent: string | null = null;
+  await page.route("**/v1/connectors/github/connect-managed", async (route) => {
+    flowSent = (route.request().postDataJSON() || {}).flow || "";
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+  await page.getByTestId("add-installation-btn").click();
+  await page.getByTestId("modal-link-github-install").click();
+  await expect.poll(() => flowSent).toBe("authorize");
+});
+
 test("disconnect removes one installation and keeps the rest", async ({ page }) => {
   await openGithubPage(page);
   // add a second installation first (signed-in one-click)
   await page.getByTestId("connectors-breadcrumb").click();
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
   await page.getByTestId("connector-github").click();
   await page.getByTestId("add-installation-btn").click();
   await page.getByTestId("modal-install-github-app").click();

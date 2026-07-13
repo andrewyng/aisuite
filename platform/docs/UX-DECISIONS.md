@@ -61,6 +61,9 @@ the HTML mock), **Built** (in the real React/Python app).
 - **Rationale:** Turns an empty integration state into a capability story; progressive setup the user
   can finish later (explicitly *not* gating onboarding). Per-session scope keeps it contextual; the
   drawer reuses the global Integrations visual language so it's one mental model.
+- ↪ **Superseded (2026-07-11):** the always-visible bar + `⚠ N` badge is replaced by the
+  session-settings row (rest = one icon; the nudge moves into the drawer) — see §23. The drawer
+  itself lives on, renamed "Session settings" and extended with working directories.
 
 ## 4. Connection hierarchy: persona-level vs session-level enablement  *(Decided — data-model change)*
 - **Decision (Decided 2026-06-29 by owner):** Today connectors are enabled **per persona**. We're
@@ -166,6 +169,9 @@ the HTML mock), **Built** (in the real React/Python app).
 - **Not chosen:** moving Inbox to the top cluster (kept it bottom-adjacent to its badge); keeping
   Integrations/Automations visible (folded them in for a cleaner bottom — promotable later if usage
   warrants).
+- ↪ **Superseded (2026-07-11):** the no-account premise went stale when Phase 3 shipped cloud
+  sign-in — the bottom is now a single account row with a state-driven inbox chip, and the ⚙
+  menu became the account menu. See §26.
 
 ---
 
@@ -379,8 +385,302 @@ the interim "Slack workspaces" Integrations tab was the wrong shape. One pattern
   org-blocked = Teams' native "Request approval" asks IT once. No tenant-admin Graph permissions
   by design — same per-actor privacy posture as the Slack relay.
 
+## 22. Session screen cleanup: contextual top-left cluster, facts subtitle, three-control composer  *(Decided 2026-07-11 by owner; mocks: `ocw-context/docs/ux-improvements/mocks/UX-002-session-screen.html`)*
+
+Owner sketch (hand-drawn) → discussed and resolved in the UX ledger (ocw-context, UX-002). Both the
+fresh-session and in-progress screens shed chrome:
+
+- **Top-left cluster `[sidebar] [+ new session] [search]` renders only when the sidebar is
+  collapsed** — the expanded sidebar already owns those actions; never duplicate them. Build note:
+  the cluster sits inside §20's hover-peek zone — the peek must not fire while the cursor is on
+  these icons (start the zone below the icon row or add a short delay; the pin/reveal co-location
+  logic already handles this corner). Keyboard shortcuts stay global regardless of sidebar state.
+- **Centered title with a facts subtitle** beneath: `(Coworker · Opus 4.8)`; code sessions include
+  the workspace folder. The subtitle is the session's **fixed facts, not controls** — it replaces
+  the locked-model pill (§17's lock expressed spatially) and the topbar "About this persona"
+  sliders button (subtitle click → the coworker page). Topbar right: the **panel toggle only**
+  (mirrored variant of the left nav's sidebar glyph, one glyph both states); the right rail
+  absorbs **artifacts only**. *(Revised at visual review 2026-07-11: the topbar
+  session-settings icon was dropped as redundant — §23's row owns the drawer.)* *(Revised
+  again 2026-07-11: the ⋮ conversation menu is REMOVED — the nav row's hover cluster owns
+  pin/rename/archive/delete, so the topbar menu was a strict subset; the title STAYS (with
+  the sidebar collapsed it is the only session identifier, and the subtitle orphans without
+  it). The topbar goes edgeless: no bottom border, paper-tinted glass — invisible at rest,
+  frosts only when the transcript scrolls under it.)* *(Revised 2026-07-11, third pass —
+  ledger UX-008, mock `UX-008-merged-topbar.html`: the §23 session-settings row DOCKS into
+  the bar's left region — one bar, not two strips. With the nav expanded the settings icon
+  is the first element after the panel edge; collapsed, it follows the [sidebar][+][search]
+  cluster. The §23 contract is unchanged.)*
+- **Composer = `[+ attach] [Mode ⌄] [send]`.** The **Mode menu** carries the five permission
+  options (Discuss / Plan / Ask for approval / Full access / Custom) **plus the
+  Unattended/send-approvals-to-Inbox toggle** at the bottom — "who approves, and when" is one
+  mental model; the separate InboxControl leaves the row. *(Revised 2026-07-11, competitor
+  composer comparison: the trigger is borderless and names the CHOSEN mode — "Ask for
+  approval ⌄", not a generic bordered "Mode ⌄" pill.)*
+- **The model picker appears only on a fresh session** (quiet chip on the composer's right);
+  after the first turn the fact moves up to the subtitle. No interactive-then-disabled control.
+- **Folder/roots control and branch chip leave the composer** → the session-settings drawer
+  (§23). Folder access is standing session config, not per-message attachment — the same
+  reasoning §14 used to keep channels out of the `+` menu. The `+` menu stays attachments-only.
+- **Open at build time:** fresh-session greeting copy; whether suggestion chips survive.
+
+## 23. Session settings row: hover to glance, click to manage  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-003-session-row.html`)*
+
+Replaces §3's always-visible SourcesBar (ledger UX-003). One sub-header row above the conversation
+whose contract is **rest = icon · hover/focus = glance · click = manage**:
+
+> **↪ Geometry revised 2026-07-11 (ledger UX-008):** the row DOCKS into the topbar's left
+> region — the standalone strip under the bar is gone (one 48px bar, ~36px returned to the
+> conversation). Everything below — the rest/glance/click contract, gray-is-the-nudge, zero
+> reflow, deep links — is unchanged; only where the row renders moved.
+
+- **Rest:** a single quiet icon, constant row height. **No nudge text at rest, ever** — the
+  "recommended source not connected" nudge lives only in the drawer.
+- **Hover/focus** (~150–200ms reveal delay so mouse-crossing doesn't flicker; reveals on keyboard
+  focus too): a glance strip — **connected source icons in brand color**, persona-**recommended
+  but unavailable ones in grayscale** (the gray icon IS the nudge, wordless), a **folder count**
+  ("2 folders"; code sessions show the folder *name* — the workspace is the session's identity),
+  and a trailing **"Configure ›"**. Icons only, no labels or chips. **No reflow** — row height is
+  identical resting and hovered.
+- **Gray covers both** "not connected" and "connected but muted for this session" (§4 override):
+  the strip answers "what can *this session* touch right now"; tooltips disambiguate. Only
+  persona-recommended connectors ever appear gray — never the whole catalog.
+- **Everything in the glance is a shortcut:** icons and the folder count click straight into the
+  matching drawer section. Tooltips are load-bearing once labels are gone (per-icon name + state;
+  folder paths on the count).
+- **Click:** opens the drawer, renamed **"Session settings"** — sources (connect-in-context,
+  channels child panel §14, mute toggles §4) plus a new **working directories** section (roots
+  list, add/remove, branch). ⚠ recommendations render here.
+- **Rejected:** the icon morphing to "Click to configure" on hover (self-narrating UI, layout
+  shift, permanent noise — affordance comes from the glance's content being clickable); at-rest
+  nudge text (owner call: drawer only); placing the icon in the topbar with an anchored popover
+  (max-clean but spatially disconnected — in-place morph keeps discoverability; cf. the
+  cloud-sign-in placement regression, 2026-07-09).
+
+## 24. First-run onboarding: model → recipe → tips  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-004-onboarding.html`; ledger UX-004)*
+
+Replaces the settings-shaped first run. Three steps; **only step 1 gates** (§10's
+progressive-never-gating rule):
+
+- **1 — Connect a model.** Fields adapt per provider from the existing descriptors: key-only
+  (Anthropic/OpenAI/Gemini, each with a create-a-key deep-link), endpoint-only (Ollama, prefilled
+  — the free/local escape hatch), endpoint+key (Fireworks etc.). One **default-model dropdown**
+  per provider (curated matrix, recommended pre-selected) — deliberately *not* an
+  enable-checklist; curation stays in Settings ▸ Models. Inline Test/verify.
+  *(Revised 2026-07-11 at owner's Mac-app walkthrough: headline = **"Welcome to
+  OpenCoworker"** with "connect a model to get started" as the sub-line; native `<select>`s
+  → the Settings-Models **SelectMenu** (sectioned Ready-to-use / Needs-setup, key-set dots);
+  the **default-model dropdown is DROPPED** — the model is per-session (§17) and the old
+  select never persisted anything — replaced by one pointer line to Settings ▸ Models; an
+  optional endpoint (base_url with a default, on a keyed provider) collapses behind a
+  **"Configure custom endpoint ›"** link (keyless providers keep it visible — the endpoint IS
+  the connection); Test joins the action row: Skip setup … [Test] [Continue], status line
+  fixed-height above it.)*
+- **2 — Get your first automation running** (skippable). **Role tabs — Engineering · Sales ·
+  Everyday** — each with a recipe one-liner, two connect rows, then the recipe card (source ·
+  channel/time · cadence · consent). **One Cloud sign-in, lazily triggered by the first Connect**
+  — never per-integration; tokens-stay-local copy on the pane. **Connections persist across
+  tabs.** Channel fields carry the invite-@ocw hint. **Everyday** = morning brief (Calendar +
+  Gmail) delivered in-app, Slack DM secondary. **Create automation enables only when the tab's
+  connectors are connected.** The consent line — "post the digest to #X without asking each time;
+  anything else still asks first" — is a **standing scoped approval: ledger UX-005, design
+  pending — this section's BUILD IS BLOCKED on it.**
+- **3 — You're set up.** Recap card of the created automation (absent if skipped) → Specialist
+  coworkers tip (Show me → gallery) → one quiet session-control line, with **"Start working"
+  opening the first session with the session-settings panel (§23) open** — teaching by landing,
+  not telling.
+- **Deferred (owner):** tab choice seeding which specialists the gallery features — revisit after
+  the UI cleanup lands.
+
+## 25. Standing scoped approvals for automations  *(Decided 2026-07-11 by owner; ledger UX-005 — unblocks §24's build)*
+
+Recurring automations using gated tools (e.g. `send_message`) park an approval **every run** —
+a weekly summary needing a weekly click isn't an automation. The fix is a remembered,
+narrowly-scoped rule: *"this automation may call this tool against this exact target without
+asking"* — **tool + target + owner (task id)**, none optional, no wildcards in v1. Rules live on
+the `ScheduledTask` record (revocation on the task detail page; deleted with the task).
+
+- **Minted on exactly two human-only surfaces — the model can never mint a rule:**
+  1. **The creation consent card** (already exists — `create_scheduled_task` is approval-gated).
+     Every automation surfaces its needs at creation: reads render as *disclosure* lines
+     (read-only, no gating), writes are the *grants*, pre-set to allow. The agent path proposes
+     the set via a new `permissions` field on the create-tool schema; the existing card renders
+     it. **Rejected:** the agent writing `config.toml` — model-authored permission expansion in a
+     global file, invisible in UI, outlives the automation.
+  2. **"Allow every time"** on a recurring run's approval card — persists to the task record
+     (unlike the session-scoped Always-allow). In-app only; not offered on Slack-mirrored
+     buttons. The retrofit path.
+- **Graceful degradation:** no grants → the automation still works; runs park approvals in the
+  Inbox as today.
+- **Invariants:** never offered for `risk=exec`/destructive tools (shell asks forever); additive
+  on top of the run's permission mode — never a silent full-access upgrade; every auto-allowed
+  call audits the rule; cards/audit name the account acted on (§21); persona install consent
+  stays availability-only — installs never ship pre-approved writes.
+- **Infra note:** `always_allowed_tools` + creation gating + run-time wiring already exist
+  (`automation/models.py`, `manager.py`); the build is target-shaping those entries, the
+  `permissions` create-field, the task-persistent Allow-every-time, and lifting `permissions.py`'s
+  connector exclusion **for task-scoped, target-matched rules only**.
+
+## 26. Sidebar bottom: one account row; Connectors renamed; Activity dedup  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-006-sidebar-account.html`; ledger UX-006)*
+
+Supersedes §12's bottom cluster. §12's rationale ("we have no account, so the bottom menu holds
+app destinations") went stale when Phase 3 shipped cloud sign-in two days later; the slot becomes
+the **account anchor** and the bottom is **exactly one row**:
+
+- **Account row:** avatar/initials + first name (email lives in the menu header, never on the
+  row) + a green dot when signed in to OpenCoworker Cloud; signed out = "Not signed in" and the
+  menu leads with the sign-in CTA. No workspace-path header (the path lives in Settings ▸ Files).
+  Telemetry toggle moves to Settings. "Settings & more", the Inbox row, and any Connectors row
+  are retired.
+- **State-driven inbox chip with a sticky unlock** (owner: many users never park an item or use
+  Unattended — a permanent Inbox row is dead chrome for them). Absent until the first item ever
+  parks or Unattended is first enabled, then permanent: quiet icon when empty, accent + count
+  when pending — §12's glanceability requirement, paid only when there's something to glance.
+  Auth-independent (Inbox is local). **Two click targets:** the chip → Inbox directly; anywhere
+  else on the row → the menu.
+- **Menu (fixed):** email header · **Inbox** (with count) · **Connectors** · Settings (⌘,) ·
+  Automations · Activity · Sign out. Inbox + Connectors are always listed — the permanent
+  discoverable path regardless of chip state. **"Integrations" is renamed "Connectors"**
+  everywhere (the findability complaint was the "& more" label; users think "connect Slack";
+  MCP servers sit fine under the Connectors roof). "Inbox" keeps its name — "Approvals" was
+  considered and rejected: the queue also holds questions, plan reviews, and folder-grant
+  requests.
+- **Activity dedup:** two unrelated pages were both named "Activity". The Integrations
+  dead-letter page dissolves into **Messaging routing** as an "Unrouted" section (badge kept);
+  the one remaining Activity = the audit log, in the account menu.
+- **Automations** stays in the menu for now (owner: deserves a visible row, deferred). The
+  Connectors-page sign-in strip retires — the account row supersedes it; connect-modal inline
+  sign-in panes stay (§24's lazy trigger). Designed-not-built: Messaging routing keeps
+  shrinking (§19/§21 moved per-connector cuts onto detail pages; the residual global table may
+  later dissolve entirely).
+
+> **Revision 2026-07-12 (§28):** Messaging routing did dissolve — the whole page (mirror
+> channel, DM route, channel subscriptions, Unrouted with its ⚠ badge) moved to
+> **Inbox ▸ Configure**; the Connectors sub-nav is now just Connectors · MCP servers.
+
+## 27. Start screen: template tasks carry their own setup  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-007-start-tasks.html`; ledger UX-007)*
+
+Extends §22's start-screen half and composes with §23. The fresh-Cowork empty state becomes
+**exactly three concrete template tasks** — flat hairline rows (the de-boxed grammar), staggered
+~300ms entrance — and nothing else between the greeting and the composer:
+
+1. **Analyze the files in a directory** — action "Pick a folder →": shares a folder (inline
+   add-folder form; straight to prefill when one is already shared), then prefills the composer.
+2. **Create a report from my HubSpot leads** — gated on HubSpot.
+3. **Automate a weekly GitHub progress report to Slack** — gated on GitHub + Slack; funnels
+   into §24/§25's recipe + consent machinery.
+
+- **No leading icon tiles** — the title is the row. Connector dots sit on the **sub-line**:
+  brand color = connected and enabled for this session, grayscale = not (§23's vocabulary).
+- **Sub-line copy is always the task's outcome** ("Sources, stages, and who needs follow-up"),
+  never connection state — the dots and the trailing action carry that.
+- **Row action contract:** sources ready → "Start →" revealed on hover, click prefills the
+  composer with the template stem. Not ready → **"Configure ›" always visible** (for a gated
+  row the setup action IS the row's meaning) and it opens the §23 Session settings drawer —
+  the start screen adds **no second setup surface**.
+- **"Set me up (optional)" is removed** — setup rides the task that needs it.
+- Rejected on the way (competitor comparison): boxed category tiles expanding into template
+  lists (reintroduces boxes + a navigation level); a specialist-coworker picker line on the
+  composer edge and a tip/picker under the tasks (placement + "X is on this session" copy).
+  The specialist entry point is **deliberately absent** — owner sketch to come.
+- Same day: the ✳ greeting/boot/gate mark (read as a competitor's logo) → **✦** app-wide.
+
+## 28. One page shell; Inbox absorbs Messaging routing  *(Decided 2026-07-12 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-009-inbox-merge.html`; ledger UX-009)*
+
+Owner walkthrough: Automations, Activity, and Inbox each had their own indentation and head
+style; and "Messaging routing" hid inbox-delivery config under Connectors while the mirror
+channel was editable in TWO places (that page's card + Inbox's inline configurator).
+
+- **One page shell for every top-level page** — the Connectors/Activity pattern: full-bleed
+  `main`, centered ≤4xl column, `PanelHead` (18px title, 12.5px muted subtitle BELOW it),
+  card-based content. Page-level actions ("+ New automation") right-align with the head.
+  Automations drops its icon-in-title and the boxed ⓘ banner (now a one-line muted note);
+  Inbox drops its title+subtitle-on-one-line head. No page invents its own indentation again.
+- **Inbox = two page-level tabs**, underline style — one visual level above the filter chips:
+  - **Pending** (default): approvals/questions exactly as before (kind chips, persona chips,
+    resolve-releases-agent). Badge = pending count. The routing status is a read-only line
+    ("Also delivered to #ops-alerts — replies there resolve items here. Configure ›") whose
+    link switches tabs; the inline editor is deleted — the mirror setting has ONE editor now.
+  - **Configure**: the former Messaging-routing page moved whole — Unattended-approvals
+    mirror + Direct-messages route (two-card row), Channel subscriptions, Unrouted. The ⚠
+    unrouted count rides this tab. Rationale: Unrouted is "messages that never reached you" —
+    the user asking "why didn't I get pinged?" looks in Inbox, not Connectors.
+  - Tab name: owner offered "Destination"/"Configure" over the drafted "Delivery" —
+    **Configure** won (honest umbrella for mixed settings; "Destination" names only the
+    mirror card). Mirror target and routing line show the channel **name** when the recent
+    list knows it (§24 revision 9's names-over-ids rule).
+- **Connectors sub-nav shrinks to Connectors · MCP servers** (amends §26, which had already
+  predicted the dissolution).
+
 ## Change log (requests, newest first)
 
+- **2026-07-12 (12)** — Friend-install bug-report doc (9 items, via owner): §24 revisions —
+  Continue on the model step verifies AUTOMATICALLY (fills-gated, "Checking…", error stays;
+  Test becomes an optional explicit check) and the recipe's gated Create-automation button
+  names its missing piece ("Pick a channel to post to first"). §3 revision — the drawer's
+  persona why-connect pane is HIDDEN for now (no multiple-persona mentions until personas
+  relaunch; `SHOW_PERSONA_PANE` flag restores it). Plus non-spec fixes: agent folder-scope
+  guardrail + Info.plist usage strings (macOS permission prompts), the double-ask approval
+  flash, artifact Copy-path copies the absolute path. See bugfix-ledger 2026-07-12.
+- **2026-07-12 (11)** — Owner (walkthrough, simplification pass on onboarding → §24 revision):
+  key fields lose the "Stored locally (0600)" help line (manual territory, removed at the
+  provider registry so Settings ▸ Models loses it too); OpenAI's optional endpoint joins the
+  "Configure custom endpoint ›" disclosure (ANY base_url on a keyed provider collapses now,
+  not just defaulted ones); the success state moves ONTO the Test button ("✓ Connected" —
+  the status line keeps only errors); the done step HIDES the Specialist-coworkers gallery
+  card (returns later; `finish("gallery")` plumbing kept) and drops the per-session-scope
+  line; the modal height is FIXED at 700px across all three steps (sized to the tallest —
+  the recipe at ~593px content — action rows pin to the bottom, overflow scrolls inside).
+- **2026-07-12 (10)** — Owner (walkthrough, screenshots of three pages): Automations /
+  Activity / Inbox must share one look; Messaging routing belongs in Inbox → §28 (one page
+  shell everywhere; Inbox tabs Pending / Configure; Connectors sub-nav = Connectors · MCP).
+- **2026-07-11 (9)** — Owner (walkthrough, step 2 recipe): the channel box must show the
+  channel NAME, not `slack:T…/C…` — ChannelPicker now separates display (#name at rest,
+  raw address while editing + in the tooltip) from the stored target, on BOTH its surfaces
+  (onboarding + session channel subscriptions); the consent line uses the name too. The
+  fixed day+time cadence pairs → a day SelectMenu (Mon–Sun, Weekdays, Every day) × a free
+  time field; digest instructions re-worded cadence-neutral ("since the last digest") →
+  §24 revision.
+- **2026-07-11 (8)** — Owner (Mac-app onboarding walkthrough): step 1 warms up ("Welcome to
+  OpenCoworker" + connect-to-get-started sub-line); native selects → SelectMenu (the Settings
+  Models control); default-model picker dropped (per-session anyway; never persisted);
+  optional endpoints behind "Configure custom endpoint ›"; Test joins the Skip/Continue
+  action row → §24 revision.
+- **2026-07-11 (7)** — Owner (ledger UX-008, mock approved): the §23 session-settings row
+  docks into the topbar's left region — one bar instead of two strips; contract untouched
+  (rest = icon · hover/focus = glance · click = drawer). Expanded nav: icon first after the
+  panel edge; collapsed: after the §22 cluster → §22/§23 amendments.
+- **2026-07-11 (6)** — Owner (visual pass on the new shell): topbar ⋮ conversation menu
+  removed (nav row's hover cluster covers it; title kept — sole identifier when the nav is
+  collapsed); topbar goes edgeless glass (border dropped, paper-tinted blur); composer Mode
+  trigger goes borderless and names the chosen mode → §22 amendments.
+- **2026-07-11 (5)** — Owner (competitor new-session comparison; ledger UX-007, mock v3
+  approved): start screen → three concrete template tasks that carry their own setup (no icon
+  tiles; outcome-voiced sub-lines with connector dots; ready = hover "Start →" + prefill,
+  gated = always-visible "Configure ›" → the §23 drawer); "Set me up (optional)" removed;
+  specialist entry point deferred to an owner sketch → §27. Also: ✳ mark → ✦ app-wide.
+- **2026-07-11 (4)** — Owner (Settings audit; ledger UX-006, mock v2 approved): sidebar bottom
+  → one account row (name + cloud status dot + state-driven sticky-unlock inbox chip);
+  "Settings & more" retired; Integrations renamed Connectors and lives in the account menu with
+  Inbox; the two same-named "Activity" pages deduped (dead-letter → Messaging routing ▸
+  Unrouted; audit log keeps the name); "Approvals" rename rejected → §26. Supersedes §12's
+  bottom cluster.
+- **2026-07-11 (3)** — Owner (UX-005 design discussion): per-automation standing scoped
+  approvals — tool+target+task rules on the ScheduledTask record, minted only at the creation
+  consent card (agent proposes via a `permissions` field) or a run card's "Allow every time";
+  agent-written config.toml rejected → §25. Unblocks §24's build.
+- **2026-07-11 (2)** — Owner (boss-flow study: new install → recurring GitHub→Slack digest;
+  ledger UX-004, mock v2 approved): onboarding restructured to model → role-tabbed recipe →
+  tips → §24. Recipe consent = standing scoped approval (ledger UX-005, design pending; §24
+  build blocked on it). Gallery-seeding-by-tab parked until after UI cleanup.
+- **2026-07-11** — Owner (hand-drawn sketch → UX ledger `ocw-context/docs/ux-improvements/`,
+  entries UX-002/UX-003, mocks reviewed + approved): session-screen cleanup — contextual
+  `[sidebar][+][search]` cluster (collapsed-sidebar only), facts subtitle replacing the locked
+  pill + persona button, composer reduced to `[+][Mode ⌄][send]` with Unattended folded into the
+  Mode menu, fresh-only model chip → §22. SourcesBar → session-settings row (hover glance, click
+  manage; gray icon = the nudge; drawer renamed "Session settings" + working directories) → §23,
+  superseding §3's bar. Naming (ledger UX-001, partial): in-app nav noun = **"Coworkers"**;
+  **"Specialist"** reserved for marketing/gallery voice; internals keep `persona`.
 - **2026-07-08** — Owner, reviewing the M3.5 Slack-workspaces tab: wanted connector detail as a
   subpage under Connectors (not a nav item), connected-first Connectors list, Apple-quiet styling,
   one add-connection entry point (header-button modal with One click | Manual pills), collapsed

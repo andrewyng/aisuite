@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
+  announceInboxUnlock,
   finalizeAutomationRun,
   getArtifacts,
   getHealth,
@@ -225,6 +226,11 @@ export function App() {
         e.preventDefault();
         toggleNav();
       }
+      // ⌘, — the platform Settings shortcut (advertised in the account menu, §26).
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSurface("settings");
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -232,10 +238,13 @@ export function App() {
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
   // the topbar when the side panel is hidden, so produced files are never buried.
   const [artifactCount, setArtifactCount] = useState(0);
-  const [topbarMenuOpen, setTopbarMenuOpen] = useState(false);
-  // Inline rename in the topbar (window.prompt is a no-op in the desktop webview).
-  const [renamingTitle, setRenamingTitle] = useState(false);
-  const [renameDraft, setRenameDraft] = useState("");
+  // The Session settings drawer (§23) — open state lives here because BOTH the sub-header row and
+  // the topbar's session-settings icon open it; the section is where a glance shortcut lands.
+  const [sessionSettings, setSessionSettings] = useState<DrawerSection | null>(null);
+  useEffect(() => setSessionSettings(null), [sessionId]); // never carry an open drawer across sessions
+  // The command-palette search, openable from the collapsed-sidebar topbar cluster (§22). The
+  // expanded sidebar owns its own instance; this one exists so search never disappears with it.
+  const [searchOpen, setSearchOpen] = useState(false);
   // A pending composer prefill (text + attachments) pushed from the session start panel.
   const [composerPrefill, setComposerPrefill] = useState<{ text: string; attachments?: Attachment[]; nonce: number }>();
 
@@ -260,6 +269,14 @@ export function App() {
     unattendedRef.current = on;
     setUnattendedState(on);
   }, []);
+
+  // The Mode menu's "Send approvals to Inbox" toggle (§22 — the old InboxControl, folded in).
+  const toggleUnattended = async (on: boolean) => {
+    await setUnattended(sessionId, on);
+    markUnattended(on);
+    // First Unattended enable = Inbox machinery engaged → the account row's chip unlocks (§26).
+    if (on) announceInboxUnlock();
+  };
   const resolveSessionInbox = async (id: string, resolution: string) => {
     await resolveInboxItem(id, resolution);
     getInbox(sessionId, "pending").then(setSessionInbox).catch(() => setSessionInbox([]));
@@ -655,21 +672,32 @@ export function App() {
     // The visible model rides along with the message (single source of truth per turn).
     sessionRef.current?.userMessage(text, attachments, model);
   };
+  // Resolving a LIVE prompt also resolves its parked Inbox mirror server-side, but the polled
+  // `sessionInbox` copy stays "pending" for up to a poll cycle — long enough for the docked
+  // answer-in-context card to flash the SAME request again right after the user answered it
+  // (tester catch 2026-07-12: a Slack send "asked twice"). Drop the mirror optimistically;
+  // the 4s poll restores anything genuinely still pending.
+  const dropSessionInbox = (kind: string) =>
+    setSessionInbox((cur) => cur.filter((it) => it.kind !== kind));
   const approve = (decision: ApprovalDecision) => {
     setItems((p) => resolveLastApproval(p, decision));
+    dropSessionInbox("approval");
     sessionRef.current?.approve(decision);
   };
   const respondPlan = (approved: boolean, mode?: string, feedback?: string) => {
     setItems((p) => resolveLastPlan(p, approved ? "approved" : "rejected"));
+    dropSessionInbox("plan");
     sessionRef.current?.respondPlan(approved, mode, feedback);
     if (approved && mode) setMode(mode); // the server flips the live engine to this mode
   };
   const respondDirectory = (granted: boolean, path?: string, writable?: boolean) => {
     setItems((p) => resolveLastDirReq(p, granted ? "granted" : "denied"));
+    dropSessionInbox("directory");
     sessionRef.current?.respondDirectory(granted, path, writable);
   };
   const answerQuestion = (answer: string) => {
     setItems((p) => resolveLastQuestion(p, answer));
+    dropSessionInbox("question");
     sessionRef.current?.respondQuestion(answer);
   };
   const prefillComposer = (text: string, attachments?: Attachment[]) =>
@@ -874,15 +902,21 @@ export function App() {
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
   const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
   const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
-  const activeInfo = sessions.find((s) => s.session_id === sessionId);
-  const activeTitle = activeInfo?.title || "New chat";
   // Topbar trim: the active persona's short display name (mock's "· SRE persona").
   const personaName = shortPersonaName(personaOf(agent)?.name, agent);
-  const commitTitleRename = () => {
-    const next = renameDraft.trim();
-    if (next && next !== activeTitle) renameConversation(sessionId, next);
-    setRenamingTitle(false);
-  };
+  // Facts subtitle (§22): the session's FIXED facts, not controls — persona · model (+ the
+  // workspace folder for project-scoped sessions). Renders only once the session has history;
+  // until then the model is still choosable in the composer, so there's no locked fact to state.
+  const hasHistory = items.length > 0;
+  // Curated labels read "Claude Opus 4.8 · Anthropic" — the provider suffix is dropdown context,
+  // noise in a facts line. Fall back to the raw id without its provider prefix.
+  const modelDisplay =
+    modelLabels[model]?.split(" · ")[0] ||
+    (model.includes(":") ? model.split(":").slice(1).join(":") : model);
+  const subtitleParts = [personaName, modelDisplay];
+  if (isProjectScoped(personaOf(agent)) && workspace) subtitleParts.push(baseName(workspace));
+  const activeInfo = sessions.find((s) => s.session_id === sessionId);
+  const activeTitle = activeInfo?.title || "New session";
 
   const desktop = isTauri();
   // Dev-only: `?overlay=1` simulates the desktop overlay layout in the browser (adds the
@@ -905,7 +939,7 @@ export function App() {
             </span>
           </div>
         )}
-        <div className="boot-mark">✳</div>
+        <div className="boot-mark">✦</div>
         <div className="boot-text">{resumedExisting ? "Restoring your session…" : "Starting coworker…"}</div>
       </div>
     );
@@ -948,10 +982,19 @@ export function App() {
       )}
       {onboarding && (
         <Onboarding
-          onDone={() => {
+          onDone={(next) => {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
+            if (next === "gallery") {
+              // The specialists tip: land on Settings ▸ Personas, where the Gallery link lives.
+              openSettings("personas");
+            } else if (next === "work") {
+              // "Start working" teaches by landing (§24): a fresh session with the session-
+              // settings panel open. The drawer state clears on session change, so open it after.
+              startNewSession();
+              setTimeout(() => setSessionSettings("sources"), 80);
+            }
           }}
         />
       )}
@@ -1016,6 +1059,7 @@ export function App() {
       ) : (
       <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
+<<<<<<< HEAD
           <div className="main-title" onPointerDown={beginWindowDrag}>
             {renamingTitle ? (
               <input
@@ -1089,6 +1133,84 @@ export function App() {
                 </button>
               </div>
             )}
+=======
+          {/* Left: the contextual cluster — [sidebar] [+ new session] [search] — rendered ONLY
+              while the sidebar is collapsed (§22; the expanded sidebar already owns those
+              actions). Clicks must not start a window drag. */}
+          <div className="main-topbar-side" onPointerDown={beginWindowDrag}>
+            {navCollapsed && (
+              <div
+                className="flex items-center gap-1"
+                data-testid="topbar-cluster"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  className="topbar-icon-btn"
+                  onClick={toggleNav}
+                  aria-label="Show sidebar"
+                  title="Show sidebar (⌘B)"
+                >
+                  <Icon name="sidebar" size={16} />
+                </button>
+                <button
+                  className="topbar-icon-btn"
+                  onClick={() => startNewSession()}
+                  aria-label="New session"
+                  title="New session"
+                >
+                  <Icon name="plus" size={16} />
+                </button>
+                <button
+                  className="topbar-icon-btn"
+                  onClick={() => setSearchOpen(true)}
+                  aria-label="Search"
+                  title="Search"
+                >
+                  <Icon name="search" size={16} />
+                </button>
+              </div>
+            )}
+            {/* Session-settings row (§23), DOCKED into the bar's left region (§22/§23 amendment
+                2026-07-11: the standalone strip under the bar is gone — one bar, not two). The
+                contract is unchanged: rest = icon · hover/focus = glance · click = the drawer. */}
+            {agent !== "chat" && (
+              <div className="flex-1 min-w-0" onPointerDown={(e) => e.stopPropagation()}>
+                <SessionSettingsRow
+                  sessionId={sessionId}
+                  personaId={agent}
+                  projectScoped={isProjectScoped(personaOf(agent))}
+                  workspace={workspace || undefined}
+                  branch={branch}
+                  scratchPrimary={agent === "cowork"}
+                  open={sessionSettings !== null}
+                  section={sessionSettings ?? "sources"}
+                  onOpen={setSessionSettings}
+                  onClose={() => setSessionSettings(null)}
+                  onOpenIntegrations={() => setSurface("integrations")}
+                  onOpenPersona={(id) => openPersona(id, "session")}
+                />
+              </div>
+            )}
+          </div>
+          {/* Center: title + facts subtitle (§22, amended: the ⋯ menu removed — the nav row's
+              hover cluster owns pin/rename/archive/delete). The title stays: with the sidebar
+              collapsed it is the only session identifier, and it anchors the subtitle. */}
+          <div className="main-title" onPointerDown={beginWindowDrag}>
+            <span className={"main-title-text" + (activeInfo ? "" : " title-ghost")}>
+              {activeTitle}
+            </span>
+            {hasHistory && (
+              <button
+                className="title-sub"
+                data-testid="session-subtitle"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={agent !== "chat" ? () => openPersona(agent, "session") : undefined}
+                title={agent !== "chat" ? "About this coworker" : undefined}
+              >
+                {subtitleParts.join(" · ")}
+              </button>
+            )}
+>>>>>>> 97cd537 (Session topbar: drop the conversation menu, go edgeless; mode chip names its choice (§22 amendments))
           </div>
           <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
           <div className="main-topbar-actions">
@@ -1164,6 +1286,7 @@ export function App() {
                 </button>
               </div>
             )}
+<<<<<<< HEAD
             {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute
                 glass topbar), as a fixed sub-header above the scrolling conversation — mock §6. */}
             {agent !== "chat" && (
@@ -1174,18 +1297,20 @@ export function App() {
                 onOpenPersona={(id) => openPersona(id, "session")}
               />
             )}
+=======
+>>>>>>> 48acdf2 (Session-settings row docks into the topbar (§22/§23 amendment))
             <div className="main-scroll" ref={scrollRef}>
               {idle ? (
                 agent === "cowork" ? (
                   <SessionIntro
                     sessionId={sessionId}
-                    onOpenIntegrations={() => setSurface("integrations")}
+                    onOpenSessionSettings={() => setSessionSettings("sources")}
                     onPrefill={prefillComposer}
                   />
                 ) : (
                   <div className="hero">
                     <h1 className="greeting">
-                      <span className="mark">✳</span>
+                      <span className="mark">✦</span>
                       {agent === "chat" ? "How can I help?" : "Let's build something."}
                     </h1>
                     {needsWorkspace(agent) && (

@@ -5,7 +5,7 @@ import { test, expect } from "./fixtures";
 test("Settings opens as a full page and navigates sections", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
 
   // Full-page: left sub-nav + Appearance section (no modal backdrop).
@@ -29,7 +29,7 @@ test("Settings opens as a full page and navigates sections", async ({ page }) =>
 // Last-used sub-line; picking an OpenAI-compatible vendor prefills its endpoint + blurb.
 test("Models: provider picker shows key status; vendor endpoint prefills", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
+  await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Models", exact: true }).click();
 

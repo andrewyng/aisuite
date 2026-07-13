@@ -988,6 +988,9 @@ class SessionManager:
                 out.append(
                     {
                         "path": str(rel),
+                        # Absolute path for "Copy path" — the relative one is useless outside
+                        # the app (tester catch 2026-07-12: it copied just the filename).
+                        "abs_path": str(path),
                         "name": path.name,
                         "kind": _artifact_kind(path),
                         "size": st.st_size,

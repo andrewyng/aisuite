@@ -120,7 +120,8 @@ export async function deleteSession(sessionId: string): Promise<{ ok: boolean; e
 }
 
 export interface ArtifactInfo {
-  path: string;
+  path: string; // workspace-relative (the display/API identifier)
+  abs_path?: string; // absolute — what "Copy path" copies
   name: string;
   kind: "markdown" | "html" | "image" | "code" | "text" | string;
   size: number;
@@ -326,6 +327,16 @@ export interface GmailFilters {
   labels: string[];
 }
 
+// One account of a generic multi-account connector (`<name>:account:<id>`
+// profiles — Notion workspaces, PostHog projects, …). Gmail/Calendar predate
+// the generic layer and keep their email-keyed shape above.
+export interface AccountRow {
+  account_id: string;
+  name: string; // display identity captured at connect (workspace name, email, …)
+  default: boolean;
+  managed: boolean;
+}
+
 export interface Connector {
   name: string;
   title: string;
@@ -350,7 +361,9 @@ export interface Connector {
   managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
   mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
   workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
-  accounts?: GmailAccount[]; // Gmail + Google Calendar: connected accounts (multi-account)
+  // Gmail/Calendar: email-keyed rows; generic account connectors (notion,
+  // attio, posthog, …): AccountRow. The detail pages narrow by connector.
+  accounts?: GmailAccount[] | AccountRow[];
   filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
   portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
   hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
@@ -396,7 +409,7 @@ export async function cloudLogout(): Promise<{ ok: boolean }> {
 
 export async function connectManaged(
   name: string,
-  options?: { access?: "read" | "write" },
+  options?: { access?: "read" | "write"; flow?: "authorize" },
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
@@ -404,7 +417,13 @@ export async function connectManaged(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // `access` names a broker-defined consent tier (hubspot read | write).
-      body: JSON.stringify(options?.access ? { access: options.access } : {}),
+      // `flow` is GitHub-only: "authorize" links to an EXISTING App installation via plain
+      // OAuth — the install page dead-ends when the App is already installed (its
+      // "Configure" path never fires the callback).
+      body: JSON.stringify({
+        ...(options?.access ? { access: options.access } : {}),
+        ...(options?.flow ? { flow: options.flow } : {}),
+      }),
     },
   );
   return res.json();
@@ -587,6 +606,20 @@ export async function setNavLayout(
     body: JSON.stringify({ nav_layout: layout }),
   });
   return res.json();
+}
+
+// Fired after a cloud sign-in/out completes so the account row (§26) refreshes without
+// waiting for the next window focus.
+export const CLOUD_CHANGED = "coworker:cloud-changed";
+export function announceCloudChanged() {
+  window.dispatchEvent(new CustomEvent(CLOUD_CHANGED));
+}
+
+// Fired the first time Inbox machinery is engaged (an item parks, or a session goes
+// Unattended) — the account row's inbox chip unlocks stickily on it (§26).
+export const INBOX_UNLOCK = "coworker:inbox-unlock";
+export function announceInboxUnlock() {
+  window.dispatchEvent(new CustomEvent(INBOX_UNLOCK));
 }
 
 // -- Personas -----------------------------------------------------------------
@@ -1190,6 +1223,9 @@ export async function createAutomation(payload: {
   cron?: string;
   fire_at?: string;
   timezone?: string;
+  // §25 standing grants (the creating surface rendered them; submit IS the consent).
+  // Only target-bound write entries survive server-side validation.
+  permissions?: { tool: string; target: string; access: "read" | "write" }[];
 }): Promise<{ ok: boolean; error?: string; task?: Automation }> {
   const res = await fetch(`${httpBase()}/v1/automations`, {
     method: "POST",
@@ -1365,6 +1401,24 @@ export async function disconnectGcalAccount(email: string): Promise<{ ok: boolea
 export async function setGcalDefaultAccount(email: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/google_calendar/accounts/${encodeURIComponent(email)}/default`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+/** Drop ONE account of a generic multi-account connector (notion, attio,
+ * posthog, …); the default pointer moves to the next account. */
+export async function disconnectAccount(connector: string, accountId: string): Promise<{ ok: boolean; error?: string; remaining_accounts?: number }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(connector)}/accounts/${encodeURIComponent(accountId)}/disconnect`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setDefaultAccount(connector: string, accountId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(connector)}/accounts/${encodeURIComponent(accountId)}/default`,
     { method: "POST" },
   );
   return res.json();

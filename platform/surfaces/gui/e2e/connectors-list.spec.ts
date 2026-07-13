@@ -7,8 +7,8 @@ import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
 }
 
 test("connected connectors come first with status + health chip", async ({ page }) => {

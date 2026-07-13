@@ -8,7 +8,8 @@
 // the SourcesBar and passed down so toggling re-reads via `onReload`, keeping the bar's avatar stack +
 // ⚠ count in sync. The persona blurb is fetched here, only when a `personaId` is provided.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   getCloudStatus,
   getConnectors,
@@ -37,6 +38,10 @@ import { labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
 // A channel address's platform: "slack:C0123" → "slack"; a bare id or "#mention" defaults to slack
 // (the backend's own default when no platform prefix is given).
 const platformOf = (channel: string) => (channel.includes(":") ? channel.split(":")[0] : "slack");
+
+// Persona pane visibility — hidden 2026-07-12 (owner simplification pass); typed as boolean so
+// the guarded JSX keeps type-checking while unreachable.
+const SHOW_PERSONA_PANE: boolean = false;
 
 const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
 const TAG_CORE =
@@ -132,7 +137,10 @@ export function SourcesDrawer({
   const got = persona?.recommends.filter((r) => r.connected).length ?? 0;
   const pct = total > 0 ? Math.round((got / total) * 100) : 0;
 
-  return (
+  // Portaled to <body>: the opener row is docked inside the glass topbar (UX-008), whose
+  // backdrop-filter creates a containing block — `fixed` would resolve against the 48px bar,
+  // not the viewport, clipping the drawer. The portal makes the overlay ancestor-proof.
+  return createPortal(
     <div className="fixed inset-0 z-40">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
       <aside
@@ -190,8 +198,10 @@ export function SourcesDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto hairline-scroll px-4 py-4 space-y-5">
-          {/* persona why-connect blurb (when a persona is known) */}
-          {persona && (
+          {/* Persona why-connect blurb — HIDDEN for now (owner simplification pass 2026-07-12,
+              via tester feedback: no multiple-persona mentions until personas relaunch). Flip
+              SHOW_PERSONA_PANE to restore; the plumbing (persona, pct, onOpenPersona) stays. */}
+          {SHOW_PERSONA_PANE && persona && (
             <div className="rounded-xl2 border border-accent/25 bg-accentSoft/50 p-3.5">
               <div className="flex items-center gap-2 text-[13px] font-semibold">
                 <span>⚡</span> Get the most out of {shortPersonaName(persona.name, personaId)}
@@ -323,7 +333,8 @@ export function SourcesDrawer({
         </>
         )}
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

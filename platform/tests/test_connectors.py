@@ -663,6 +663,16 @@ _NEW_CONNECTORS = {
     "box": {"access_token": "boxtok"},
     "quickbooks": {"access_token": "qbo", "realm_id": "9341453"},
     "whatsapp": {"access_token": "wa_tok", "phone_number_id": "555111"},
+    # Batch-2 account-patterned connectors: stored as legacy flat :default
+    # profiles on purpose — the accounts layer migrates them lazily, so these
+    # also regression-pin the migration on the tool path.
+    "posthog": {"api_key": "phx_x", "project_id": "77"},
+    "mixpanel": {"username": "svc.user", "secret": "mp_sec", "project_id": "88"},
+    "amplitude": {"api_key": "amp_key_abc123", "secret_key": "amp_sec"},
+    "apollo": {"api_key": "apo_x"},
+    "hunter": {"api_key": "hun_x"},
+    "notion": {"access_token": "ntn_x"},
+    "attio": {"access_token": "attio_x"},
 }
 
 
@@ -717,6 +727,11 @@ def test_new_tools_error_when_not_connected(tmp_path):
     assert "not connected" in tools["stripe_search_customers"]("e:'a'")["error"]
     assert "not connected" in tools["asana_get_task"]("1")["error"]
     assert "not connected" in tools["hubspot_search"]("acme")["error"]
+    assert "not connected" in tools["posthog_query"]("SELECT 1")["error"]
+    assert "not connected" in tools["mixpanel_top_events"]()["error"]
+    assert "not connected" in tools["amplitude_active_users"]("20260701", "20260707")["error"]
+    assert "not connected" in tools["apollo_enrich_company"]("acme.io")["error"]
+    assert "not connected" in tools["hunter_verify_email"]("a@b.co")["error"]
     assert "not connected" in tools["dropbox_list_folder"]()["error"]
     assert "not connected" in tools["box_read_file"]("1")["error"]
     assert "not connected" in tools["quickbooks_query"]("SELECT * FROM Bill")["error"]
@@ -812,6 +827,241 @@ def test_new_tools_request_routing(tmp_path, monkeypatch):
     }
 
 
+def test_registry_has_no_duplicate_names():
+    """A new full descriptor once coexisted with a stale placeholder (both
+    named "notion") — the Connectors page showed the connector twice and the
+    tool registry carried colliding tool names. Guard both registries."""
+    from coworker.connectors.descriptors import DESCRIPTORS
+    from coworker.connectors.tool_defs import TOOL_DEFS
+
+    names = [d.name for d in DESCRIPTORS]
+    assert len(names) == len(set(names)), sorted(n for n in names if names.count(n) > 1)
+    tools = [t.name for t in TOOL_DEFS]
+    assert len(tools) == len(set(tools)), sorted(t for t in tools if tools.count(t) > 1)
+
+
+def test_batch2_tools_request_routing(tmp_path, monkeypatch):
+    """The five key-based batch-2 connectors: right endpoints, right auth style,
+    and every result stamped with the serving account (legacy flat profiles
+    migrate on first use — see _NEW_CONNECTORS)."""
+    calls = []
+    tools = _connected_tools(tmp_path, monkeypatch, calls)
+
+    out = tools["posthog_query"]("SELECT event FROM events")
+    assert calls[-1]["url"] == "https://us.posthog.com/api/projects/77/query"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer phx_x"
+    assert calls[-1]["json"]["query"]["kind"] == "HogQLQuery"
+    assert out["account"] == "77"  # stamped for approvals/transcripts
+
+    tools["posthog_list_insights"]("signups", max_results=5)
+    assert calls[-1]["url"].endswith("/api/projects/77/insights")
+    assert calls[-1]["params"] == {"limit": 5, "search": "signups"}
+
+    tools["mixpanel_segmentation"]("purchase", "2026-07-01", "2026-07-07", unit="bogus")
+    assert calls[-1]["url"] == "https://mixpanel.com/api/query/segmentation"
+    assert calls[-1]["params"]["project_id"] == "88"
+    assert calls[-1]["params"]["unit"] == "day"  # bogus unit falls back
+
+    tools["mixpanel_top_events"]()
+    assert calls[-1]["url"].endswith("/api/query/events/top")
+
+    tools["amplitude_active_users"]("2026-07-01", "2026-07-07", metric="new")
+    assert calls[-1]["url"] == "https://amplitude.com/api/2/users"
+    assert calls[-1]["params"]["start"] == "20260701"  # dashes normalized
+    assert calls[-1]["params"]["m"] == "new"
+
+    tools["amplitude_event_totals"]("signup", "20260701", "20260707")
+    assert calls[-1]["url"].endswith("/api/2/events/segmentation")
+    assert '"event_type": "signup"' in calls[-1]["params"]["e"]
+
+    tools["apollo_enrich_person"](email="maya@acme.io")
+    assert calls[-1]["url"] == "https://api.apollo.io/api/v1/people/match"
+    assert calls[-1]["headers"]["X-Api-Key"] == "apo_x"
+    assert "provide an email" in tools["apollo_enrich_person"]()["error"]
+
+    tools["apollo_enrich_company"]("acme.io")
+    assert calls[-1]["params"] == {"domain": "acme.io"}
+
+    tools["apollo_search_people"]("VP engineering fintech", max_results=7)
+    assert calls[-1]["json"]["per_page"] == 7
+
+    tools["hunter_domain_search"]("acme.io", max_results=3)
+    assert calls[-1]["url"] == "https://api.hunter.io/v2/domain-search"
+    assert calls[-1]["params"] == {"domain": "acme.io", "limit": 3, "api_key": "hun_x"}
+
+    tools["hunter_find_email"]("acme.io", "Maya", "Chen")
+    assert calls[-1]["params"]["first_name"] == "Maya"
+
+    tools["hunter_verify_email"]("maya@acme.io")
+    assert calls[-1]["url"].endswith("/email-verifier")
+
+    tools["notion_search"]("roadmap", max_results=5)
+    assert calls[-1]["url"] == "https://api.notion.com/v1/search"
+    assert calls[-1]["headers"]["Notion-Version"] == "2022-06-28"
+    assert calls[-1]["json"] == {"query": "roadmap", "page_size": 5}
+
+    tools["notion_query_database"]("db1")
+    assert calls[-1]["url"].endswith("/v1/databases/db1/query")
+    assert "must be a Notion filter" in tools["notion_query_database"]("db1", "nope")["error"]
+
+    tools["notion_create_page"]("pg1", "Weekly notes", "line one\n\nline two")
+    assert calls[-1]["json"]["parent"] == {"page_id": "pg1"}
+    assert len(calls[-1]["json"]["children"]) == 2  # blank lines dropped
+
+    tools["attio_list_objects"]()
+    assert calls[-1]["url"] == "https://api.attio.com/v2/objects"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer attio_x"
+
+    tools["attio_query_records"]("companies", max_results=50)
+    assert calls[-1]["url"].endswith("/v2/objects/companies/records/query")
+    assert calls[-1]["json"] == {"limit": 50}
+
+    tools["attio_get_record"]("people", "r1")
+    assert calls[-1]["url"].endswith("/v2/objects/people/records/r1")
+
+    tools["attio_create_note"]("companies", "r1", "Call notes", "went well")
+    assert calls[-1]["url"] == "https://api.attio.com/v2/notes"
+    assert calls[-1]["json"]["data"]["parent_record_id"] == "r1"
+    assert calls[-1]["json"]["data"]["format"] == "plaintext"
+
+
+def test_notion_read_page_flattens_blocks(tmp_path, monkeypatch):
+    import coworker.connectors.integration_tools as it
+    from coworker.connectors import accounts
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    accounts.add_account(secrets, "notion", "ws1", {"access_token": "t"})
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        if "/blocks/" in url:
+            return {
+                "ok": True,
+                "data": {
+                    "results": [
+                        {
+                            "type": "heading_1",
+                            "heading_1": {"rich_text": [{"plain_text": "Title"}]},
+                        },
+                        {
+                            "type": "paragraph",
+                            "paragraph": {"rich_text": [{"plain_text": "Body text"}]},
+                        },
+                        {"type": "divider", "divider": {}},
+                    ]
+                },
+            }
+        return {"ok": True, "data": {"properties": {"p": 1}, "url": "https://n/x"}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    out = tools["notion_read_page"]("pg1")
+    assert out["text"] == "Title\nBody text"
+    assert out["account"] == "ws1" and out["url"] == "https://n/x"
+
+
+def test_managed_callback_profile_keys_by_account_id(tmp_path):
+    """Managed OAuth on an account-patterned connector: the broker's account_id
+    keys the profile; a second workspace is a second account."""
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    p1 = managed_profile_from_callback(
+        {
+            "access_token": "t1",
+            "account": "Rohit's Workspace",
+            "account_id": "ws-1",
+            "provider": "notion",
+            "connection_id": "c1",
+        }
+    )
+    out = managed_connect_connector(secrets, "notion", p1)
+    assert out["ok"] and out["account_id"] == "ws-1"
+    p2 = managed_profile_from_callback(
+        {"access_token": "t2", "account": "Ops Space", "account_id": "ws-2"}
+    )
+    managed_connect_connector(secrets, "notion", p2)
+    assert [a for a, _ in accounts.list_accounts(secrets, "notion")] == ["ws-1", "ws-2"]
+    # display names survive; default stays the first workspace
+    rows = accounts.account_rows(secrets, "notion")
+    assert rows[0]["name"] == "Rohit's Workspace" and rows[0]["default"]
+
+
+def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):
+    """Two PostHog projects connected → the account param routes the call; the
+    default pointer serves bare calls; unknown accounts fail closed."""
+    import coworker.connectors.integration_tools as it
+    from coworker.connectors import accounts
+
+    calls = []
+    secrets = SecretStore(tmp_path / "secrets.json")
+    accounts.add_account(
+        secrets, "posthog", "11", {"api_key": "k11", "project_id": "11"}
+    )
+    accounts.add_account(
+        secrets, "posthog", "22", {"api_key": "k22", "project_id": "22"}
+    )
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"url": url, "headers": headers or {}})
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+
+    out = tools["posthog_query"]("SELECT 1", account="22")
+    assert "/projects/22/" in calls[-1]["url"]
+    assert calls[-1]["headers"]["Authorization"] == "Bearer k22"
+    assert out["account"] == "22"
+
+    out = tools["posthog_query"]("SELECT 1")  # default = first added
+    assert "/projects/11/" in calls[-1]["url"] and out["account"] == "11"
+
+    out = tools["posthog_query"]("SELECT 1", account="99")
+    assert "no posthog account matching" in out["error"]
+
+
+def test_hubspot_search_properties_and_filters(tmp_path, monkeypatch):
+    """Custom properties (VC-thesis fields etc.) are invisible to the search API
+    unless requested, and unmatchable by free-text query — the properties/filters
+    params are what make property-driven workflows possible at all."""
+    calls = []
+    tools = _connected_tools(tmp_path, monkeypatch, calls)
+
+    tools["hubspot_search"](
+        object_type="companies",
+        properties="org_type, check_min,check_max",
+        filters='[{"property":"org_type","operator":"EQ","value":"VC"}]',
+        max_results=50,
+    )
+    body = calls[-1]["json"]
+    assert body["properties"] == ["org_type", "check_min", "check_max"]
+    assert body["filterGroups"] == [
+        {"filters": [{"property": "org_type", "operator": "EQ", "value": "VC"}]}
+    ]
+    assert body["limit"] == 50 and "query" not in body
+
+    tools["hubspot_search"]("acme")  # plain free-text still works
+    assert calls[-1]["json"]["query"] == "acme"
+
+    n = len(calls)  # none of the error paths below may reach the network
+    assert "JSON array" in tools["hubspot_search"](filters="not json")["error"]
+    assert "property" in tools["hubspot_search"](filters='[{"value":"x"}]')["error"]
+    assert "query" in tools["hubspot_search"]()["error"]
+    assert len(calls) == n
+
+    tools["hubspot_get_object"](
+        "deals", "42", properties="round,portfolio_company", associations="companies"
+    )
+    assert calls[-1]["params"] == {
+        "properties": "round,portfolio_company",
+        "associations": "companies",
+    }
+    tools["hubspot_get_object"]("deals", "42")  # no params → none sent
+    assert calls[-1]["params"] is None
+
+
 def test_new_write_tools_require_approval(tmp_path, monkeypatch):
     # every connector tool is approval-gated in this codebase (see _attach default);
     # the write tools matter most, so pin them explicitly
@@ -827,6 +1077,8 @@ def test_new_write_tools_require_approval(tmp_path, monkeypatch):
         "box_search",
         "whatsapp_send_message",
         "whatsapp_send_template",
+        "notion_create_page",
+        "attio_create_note",
     ):
         assert tools[name].__aisuite_tool_metadata__.requires_approval is True, name
 

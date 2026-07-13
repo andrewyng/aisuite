@@ -20,7 +20,7 @@ const LABEL = "text-[12.5px] text-muted w-24 shrink-0";
 
 export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
   const [busy, setBusy] = useState(false);
-  const accounts = c.accounts ?? [];
+  const accounts = (c.accounts ?? []) as GmailAccount[]; // email-keyed (pre-generic-layer shape)
 
   const addAccount = async () => {
     setBusy(true);

@@ -6,8 +6,8 @@ import { test } from "./fixtures";
 
 async function openSlackPage(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
   await page.getByTestId("connector-slack").click();
 }
 
@@ -60,7 +60,10 @@ test("channel typeahead: a NAME resolves to the workspace's id-address", async (
   await expect(hit).toContainText("#launch-team");
   await expect(hit).toContainText("deeplearning.ai");
   await hit.click();
-  await expect(input).toHaveValue("slack:T1DL/C9LAUNCH");
+  // Display = the NAME after a pick (owner catch 2026-07-11: raw ids leaked into the box);
+  // the raw address survives underneath — the tooltip carries it and Add subscribes by id.
+  await expect(input).toHaveValue("#launch-team");
+  await expect(input).toHaveAttribute("title", "slack:T1DL/C9LAUNCH");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText(/Subscribed channels · 1/)).toBeVisible();
 });

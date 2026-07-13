@@ -43,6 +43,10 @@ echo "==> [1/4] PyInstaller: bundling coworker-server ($TRIPLE)"
 
 echo "==> [2/4] staging externalBin"
 mkdir -p "$GUI/src-tauri/binaries"
+# rm first: cp WRITES THROUGH a symlink at the destination. A dev-convenience symlink left in
+# this slot once routed the fresh binary into another worktree's venv, clobbering its console
+# script (caught 2026-07-11) — the bundle stayed correct only by accident.
+rm -f "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
 cp "$HERE/dist/coworker-server" "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
 chmod +x "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
 
