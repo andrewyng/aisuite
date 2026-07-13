@@ -206,3 +206,108 @@ def test_fresh_profile_not_refreshed(secrets, config, monkeypatch):
     )
     cloud.ensure_fresh_connector_token(secrets, config, "gmail")
     assert secrets.get("gmail:default")["access_token"] == "current"
+
+
+# --- telemetry (Phase 5) ------------------------------------------------------
+
+
+def test_install_id_stable_across_calls(secrets):
+    first = cloud.install_id(secrets)
+    assert first.startswith("ins_")
+    assert cloud.install_id(secrets) == first
+
+
+def test_emit_sends_nothing_signed_out(secrets, config, monkeypatch):
+    def boom(*a, **k):  # any network call would violate the local-only promise
+        raise AssertionError("signed-out users must send no telemetry")
+
+    monkeypatch.setattr(cloud.httpx, "post", boom)
+    assert cloud.emit_session_created(
+        secrets, config, session_id="s1", persona_id="sales",
+        persona_family="knowledge", workspace_kind="deliverable",
+    ) is False
+
+
+def test_emit_sends_nothing_when_opted_out(secrets, config, monkeypatch):
+    _signed_in(secrets)
+    cloud.set_telemetry_enabled(secrets, False)
+    monkeypatch.setattr(
+        cloud.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError())
+    )
+    assert not cloud.emit_session_created(
+        secrets, config, session_id="s1", persona_id="sales",
+        persona_family="knowledge", workspace_kind="deliverable",
+    )
+
+
+def test_emit_is_content_free_and_hashes_session_id(secrets, config, monkeypatch):
+    _signed_in(secrets)
+    sent = {}
+
+    def fake_post(url, **kwargs):
+        sent["url"] = url
+        sent["body"] = kwargs["json"]
+        return FakeResponse(200, {"ok": True})
+
+    monkeypatch.setattr(cloud.httpx, "post", fake_post)
+    ok = cloud.emit_session_created(
+        secrets, config, session_id="sess-secret-id", persona_id="sales",
+        persona_family="knowledge", workspace_kind="deliverable",
+    )
+    assert ok
+    assert sent["url"] == "https://cloud.test/v1/telemetry/events"
+    body = sent["body"]
+    assert body["event"] == "coworker_session_created"
+    assert body["install_id"].startswith("ins_")
+    assert "sess-secret-id" not in str(body)  # raw id never leaves the device
+    assert body["session"]["session_id_hash"].startswith("sha256:")
+    assert set(body["session"]) == {
+        "session_id_hash", "persona_id", "persona_family", "workspace_kind",
+    }
+
+
+# --- gallery solo page ------------------------------------------------------
+
+
+def test_gallery_detail_derives_capabilities_locally(secrets, config, monkeypatch):
+    manifest_md = """---
+id: sales
+name: Sales Coworker
+tools: [files, search, todo]
+messaging: true
+connectors: true
+default_permission_mode: interactive
+recommends:
+  - connector: hubspot
+    reason: read deals
+    tier: core
+---
+You are the Sales Coworker."""
+
+    def fake_get(s, c, path):
+        if path.endswith("/manifest"):
+            return {"slug": "sales", "manifest_markdown": manifest_md, "manifest_hash": ""}
+        return {"slug": "sales", "name": "Sales Coworker", "pitch_markdown": "**pitch**"}
+
+    monkeypatch.setattr(cloud, "_gallery_get", fake_get)
+    out = cloud.gallery_detail(secrets, config, "sales")
+    assert out["ok"]
+    assert out["card"]["pitch_markdown"] == "**pitch**"
+    caps = out["capabilities"]
+    assert caps["tools"] == ["files", "search", "todo"]
+    assert caps["messaging"] is True
+    assert out["recommends"] == [
+        {"kind": "connector", "ref": "hubspot", "reason": "read deals", "tier": "core"}
+    ]
+
+
+def test_gallery_detail_rejects_malformed_manifest(secrets, config, monkeypatch):
+    def fake_get(s, c, path):
+        if path.endswith("/manifest"):
+            return {"slug": "bad", "manifest_markdown": "no frontmatter here"}
+        return {"slug": "bad"}
+
+    monkeypatch.setattr(cloud, "_gallery_get", fake_get)
+    out = cloud.gallery_detail(secrets, config, "bad")
+    assert not out["ok"]
+    assert "validation" in out["error"]

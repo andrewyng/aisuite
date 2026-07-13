@@ -89,6 +89,37 @@ def test_invalid_third_party_manifest_fails_loud(tmp_path):
         reg.install_from_dir(_persona_dir(tmp_path, name="broken.md", text=bad))
 
 
+def test_uninstall_removes_entry_state_and_snapshot(tmp_path):
+    reg = PersonaRegistry(state_path=tmp_path / "personas.json")
+    reg.install_from_dir(_persona_dir(tmp_path))
+    reg.set_enabled("acme-ops", True)
+    snap = reg.installed_dir / "acme-ops"
+    assert snap.is_dir()
+
+    reg.uninstall("acme-ops")
+    assert "acme-ops" not in reg.ids()
+    assert not snap.exists()
+    # Gone for good — a fresh registry must not resurrect it from the snapshot area.
+    reg2 = PersonaRegistry(state_path=tmp_path / "personas.json")
+    assert "acme-ops" not in reg2.ids()
+
+
+def test_uninstall_default_falls_back_to_cowork(tmp_path):
+    reg = PersonaRegistry(state_path=tmp_path / "personas.json")
+    reg.install_from_dir(_persona_dir(tmp_path))
+    reg.set_default("acme-ops")
+    reg.uninstall("acme-ops")
+    assert reg.default_id() == "cowork"
+
+
+def test_uninstall_refuses_builtins_and_unknown(tmp_path):
+    reg = PersonaRegistry(state_path=tmp_path / "personas.json")
+    with pytest.raises(ValueError):
+        reg.uninstall("cowork")
+    with pytest.raises(KeyError):
+        reg.uninstall("ghost")
+
+
 def test_install_snapshots_independently_of_source(tmp_path):
     # The snapshot must survive the user deleting/moving their source dir.
     import shutil

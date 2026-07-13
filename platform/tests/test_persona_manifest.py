@@ -51,8 +51,10 @@ def test_list_field_accepts_comma_string():
     assert parse_manifest(text).tools == ["files", "search"]
 
 
-def test_project_workspace_is_valid():
-    # A project-scoped persona (like Ops): `project` is a valid workspace and needs_workspace is True.
+def test_workspace_key_is_accepted_but_derived_from_family():
+    # §16 collapse: the old enum still parses (back-compat + typo detection) but behavior
+    # derives from family — knowledge → scratch ("deliverable"), code → "git". A manifest
+    # can no longer demand a folder gate (`project`) or opt out of a workspace (`none`).
     text = """---
 id: opsy
 workspace: project
@@ -61,19 +63,12 @@ tools: [files, search, shell, todo]
 Operate things.
 """
     m = parse_manifest(text)
-    assert m.workspace == "project" and m.needs_workspace is True
+    assert m.workspace == "deliverable" and m.needs_workspace is True
 
-
-def test_no_workspace_persona():
-    text = """---
-id: chatty
-workspace: none
-tools: []
----
-Just chat.
-"""
-    m = parse_manifest(text)
-    assert m.needs_workspace is False and m.tools == []
+    coded = parse_manifest(
+        "---\nid: dev\nfamily: code\nworkspace: none\ntools: [git]\n---\nCode."
+    )
+    assert coded.workspace == "git" and coded.needs_workspace is True
 
 
 @pytest.mark.parametrize(

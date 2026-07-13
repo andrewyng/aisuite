@@ -80,14 +80,14 @@ def test_agent_resolution(tmp_path):
 
 
 def test_list_all_carries_workspace_enum(tmp_path):
-    # Every persona exposes a `workspace` enum so the GUI can detect project-scoped uniformly:
-    # builtins map family/needs_workspace into it; Ops (markdown) carries `project` verbatim.
+    # Post-§16 collapse: workspace derives from family — code → git, knowledge → deliverable
+    # (scratch). Only builder-registered Chat keeps "none". Ops is a scratch persona now.
     reg = _reg(tmp_path)
     ws = {p["id"]: p["workspace"] for p in reg.list_all()}
     assert ws["code"] == "git"
     assert ws["cowork"] == "deliverable"
     assert ws["chat"] == "none"
-    assert ws["ops"] == "project"
+    assert ws["ops"] == "deliverable"
 
 
 def test_set_unknown_persona_raises(tmp_path):

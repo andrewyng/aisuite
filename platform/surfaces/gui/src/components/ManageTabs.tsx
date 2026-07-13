@@ -4,6 +4,7 @@ import {
   allowUser,
   cloudLogin,
   cloudLogout,
+  setCloudTelemetry,
   connectConnector,
   connectManaged,
   deleteMcpServer,
@@ -537,7 +538,9 @@ export function ConnectorsTab() {
   return (
     <div className="space-y-3">
       <CloudAccountCard cloud={cloud} onChanged={refresh} />
-      <div className="grid grid-cols-2 gap-3">
+      {/* Single-column list (owner call, 2026-07-03 #2): expanding a card just pushes rows
+          down — a mixed-width grid reordered visually every time one opened. */}
+      <div className="space-y-3">
         {connectors.map((c) => (
           <ConnectorRow
             key={c.name}
@@ -567,6 +570,9 @@ function CloudAccountCard({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Optimistic local echo of the toggle (the server refetch confirms it) so the
+  // checkbox responds instantly instead of snapping back until status reloads.
+  const [telemetry, setTelemetry] = useState<boolean | null>(null);
 
   const signIn = async () => {
     setBusy(true);
@@ -578,37 +584,61 @@ function CloudAccountCard({
   };
 
   return (
-    <div className={CARD + " flex items-center gap-3 p-3.5"} data-testid="cloud-account">
-      <div className="min-w-0">
-        <div className="font-semibold text-[14px]">OpenCoworker Cloud</div>
-        {cloud?.signed_in ? (
-          <div className="text-[12px] text-muted flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
-            {cloud.account || "signed in"}
-          </div>
-        ) : (
-          <div className="text-[12px] text-muted">
-            Sign in for one-click connectors. Manual token setup always works without it.
-          </div>
-        )}
+    <div className={CARD + " p-3.5"} data-testid="cloud-account">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0">
+          <div className="font-semibold text-[14px]">OpenCoworker Cloud</div>
+          {cloud?.signed_in ? (
+            <div className="text-[12px] text-muted flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
+              {cloud.account || "signed in"}
+            </div>
+          ) : (
+            <div className="text-[12px] text-muted">
+              Sign in for one-click connectors. Manual token setup always works without it.
+            </div>
+          )}
+        </div>
+        <div className="ml-auto">
+          {cloud?.signed_in ? (
+            <button
+              className={BTN_BORDERED}
+              onClick={async () => {
+                await cloudLogout();
+                onChanged();
+              }}
+            >
+              Sign out
+            </button>
+          ) : (
+            <button className={BTN_ACCENT} onClick={signIn} disabled={busy}>
+              {busy ? "Check your browser…" : "Sign in"}
+            </button>
+          )}
+        </div>
       </div>
-      <div className="ml-auto">
-        {cloud?.signed_in ? (
-          <button
-            className={BTN_BORDERED}
-            onClick={async () => {
-              await cloudLogout();
+      {cloud?.signed_in && (
+        <label className="flex items-start gap-2.5 mt-3 pt-3 border-t border-line select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={telemetry ?? cloud.telemetry_enabled !== false}
+            data-testid="telemetry-toggle"
+            onChange={async (e) => {
+              setTelemetry(e.target.checked);
+              await setCloudTelemetry(e.target.checked);
               onChanged();
             }}
-          >
-            Sign out
-          </button>
-        ) : (
-          <button className={BTN_ACCENT} onClick={signIn} disabled={busy}>
-            {busy ? "Check your browser…" : "Sign in"}
-          </button>
-        )}
-      </div>
+          />
+          <span>
+            <span className="block text-[12.5px] text-ink">Help improve OpenCoworker</span>
+            <span className="block text-[12px] text-muted">
+              Tells us which coworker type was started and when — never your prompts, files,
+              or connector data. Off means nothing is sent.
+            </span>
+          </span>
+        </label>
+      )}
     </div>
   );
 }
@@ -628,12 +658,8 @@ function ConnectorRow({
   onChanged: () => void;
   onRefresh: () => void;
 }) {
-  // Connected (with its expandable settings) and any open card claim the full row width so the
-  // expanded section has room; compact unconnected/soon cards stay one-per-column (mock grid).
-  const wide = c.connected || open;
-
   return (
-    <div className={CARD + (wide ? " col-span-2" : "")} data-testid={`connector-${c.name}`}>
+    <div className={CARD} data-testid={`connector-${c.name}`}>
       <div className="flex items-center gap-3 p-3.5">
         {/* Real brand color + logo from the API descriptor (Phase 1) via ConnectorBadge; unknown
             logo ids fall back to the neutral plug glyph. */}
@@ -802,7 +828,9 @@ function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void 
   );
 }
 
-function ConnectSetup({
+// Exported: also hosted inside the SourcesDrawer's connect-in-context child panel, so a
+// recommended connector can be connected without leaving the session (owner ask, 2026-07-03).
+export function ConnectSetup({
   c,
   cloud,
   onConnected,

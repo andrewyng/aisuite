@@ -49,6 +49,7 @@ const baseProps = {
   onNewProject: vi.fn(),
   onRenameSession: vi.fn(),
   onDeleteSession: vi.fn(),
+  onArchiveSession: vi.fn(),
   onTogglePin: vi.fn(),
   onManage: vi.fn(),
   onOpenPersona: vi.fn(),

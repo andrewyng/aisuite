@@ -48,7 +48,9 @@ class PersonaManifest:
     description: str = ""
     tools: list[str] = field(default_factory=list)
     family: str = "knowledge"  # "code" | "knowledge"
-    workspace: str = "deliverable"  # "git" | "project" | "deliverable" | "none"
+    # Derived from family since the enum collapse (§16): code → "git", knowledge →
+    # "deliverable". Builtins registered via builders may still carry "none" (Chat).
+    workspace: str = "deliverable"
     messaging: bool = False
     connectors: bool = False
     default_permission_mode: str = "interactive"
@@ -173,11 +175,16 @@ def parse_manifest(
             f"persona {persona_id!r}: family must be one of {sorted(VALID_FAMILIES)}"
         )
 
-    workspace = str(meta.get("workspace", "deliverable")).strip().lower()
-    if workspace not in VALID_WORKSPACES:
+    # The workspace enum collapsed into family (owner decision 2026-07-03, UX-DECISIONS §16):
+    # knowledge → transparent scratch + user-added roots (no folder gate, ever); code → an
+    # explicit directory picked by the user. The manifest key is still accepted — and
+    # typo-checked — so older manifests parse, but it no longer drives behavior.
+    declared = str(meta.get("workspace", "")).strip().lower()
+    if declared and declared not in VALID_WORKSPACES:
         raise ManifestError(
             f"persona {persona_id!r}: workspace must be one of {sorted(VALID_WORKSPACES)}"
         )
+    workspace = "git" if family == "code" else "deliverable"
 
     mode = str(meta.get("default_permission_mode", "interactive")).strip().lower()
     if mode not in VALID_MODES:

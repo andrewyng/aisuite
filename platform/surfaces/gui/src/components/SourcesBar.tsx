@@ -29,10 +29,12 @@ export function SourcesBar({
   const [open, setOpen] = useState(false);
 
   const reload = useCallback(() => {
-    getSessionConnections(sessionId)
+    // personaId hint: a brand-new session has no server-side record yet, so without it the
+    // view would resolve to the DEFAULT persona's defaults/recommends.
+    getSessionConnections(sessionId, personaId)
       .then(setConns)
       .catch(() => setConns(null));
-  }, [sessionId]);
+  }, [sessionId, personaId]);
 
   useEffect(() => {
     reload();
@@ -48,7 +50,9 @@ export function SourcesBar({
     };
   }, []);
 
-  const connected = conns?.connected ?? [];
+  // The avatar stack shows only the effective-ENABLED connectors; muted ones stay in the
+  // drawer (toggled off) but shouldn't advertise themselves in the header.
+  const connected = (conns?.connected ?? []).filter((c) => c.enabled);
   const attention = conns?.attention ?? 0;
 
   // Nothing connected and nothing flagged → don't clutter the header.

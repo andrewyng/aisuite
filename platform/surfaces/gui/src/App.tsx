@@ -620,8 +620,13 @@ export function App() {
     // doesn't switch; this explicit action does).
     if (target !== agent) {
       setAgent(target);
-      if (gatesWorkspace(target)) setShowGate(true);
-      else setShowGate(false);
+      if (gatesWorkspace(target)) {
+        // Never inherit the previous persona's folder — it may be a scratch dir. Clearing it
+        // also blocks the connection effect, so nothing can chat behind the open gate.
+        setWorkspace(null);
+        setBranch(null);
+        setShowGate(true);
+      } else setShowGate(false);
     }
     // Knowledge family: a new conversation starts fresh (orphan) — clear the workspace so the
     // server provisions a NEW scratch dir for the new session id. Code keeps its repo.
@@ -663,11 +668,16 @@ export function App() {
     setTodo([]);
     setRunning(false);
 
+    // The live workspace is only a valid fallback for a gated persona if it came from
+    // another gated persona — a knowledge persona's workspace is a scratch dir, and a
+    // code-family session must never adopt one. (`agent` is still the previous persona here.)
+    const inheritable = gatesWorkspace(agent) ? workspace : null;
+
     if (target) {
       // Code falls back to a recent folder; Cowork resumes its scratch (target.workspace) or
       // starts orphan ("" → server provisions). Chat has no workspace.
       const targetWorkspace = gatesWorkspace(name)
-        ? target.workspace || fallbackWorkspace(workspace, knownProjects)
+        ? target.workspace || fallbackWorkspace(inheritable, knownProjects)
         : needsWorkspace(name)
           ? target.workspace || ""
           : "";
@@ -690,7 +700,7 @@ export function App() {
     }
 
     const id = newId();
-    const fallback = gatesWorkspace(name) ? fallbackWorkspace(workspace, knownProjects) : "";
+    const fallback = gatesWorkspace(name) ? fallbackWorkspace(inheritable, knownProjects) : "";
     if (fallback && fallback !== workspace) {
       setWorkspace(fallback);
       setBranch(null);
@@ -839,6 +849,7 @@ export function App() {
         onNewProject={newProject}
         onRenameSession={renameConversation}
         onDeleteSession={deleteConversation}
+        onArchiveSession={toggleArchived}
         onTogglePin={togglePinned}
         onManage={() => openSettings("appearance")}
         onOpenPersona={(id) => {
@@ -1142,7 +1153,6 @@ export function App() {
         <FolderGate
           create={gateCreate}
           onChoose={chooseWorkspace}
-          onChat={() => switchAgent("chat")}
           onCancel={
             workspace
               ? () => {

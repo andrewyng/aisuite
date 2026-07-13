@@ -36,6 +36,8 @@ from .secrets import SecretStore
 CLOUD_AUTH_PROFILE = "cloud:auth"
 LOGIN_SCOPES = "openid profile email offline_access"
 
+from . import __version__ as APP_VERSION  # noqa: E402
+
 # connector id (canonical, = descriptor name) -> broker provider key
 PROVIDER_FOR_CONNECTOR = {
     "gmail": "google",
@@ -184,6 +186,80 @@ def fetch_me(secrets: SecretStore, config: Config) -> Optional[dict]:
     except httpx.HTTPError:
         return None
     return resp.json() if resp.status_code == 200 else None
+
+
+# --- telemetry (Phase 5) ---------------------------------------------------------
+# One sentence: which coworker type was started and when — nothing else. Signed-in
+# users only, default-on with an opt-out; signed out (or opted out) sends NOTHING.
+# Never sent: titles, prompts, outputs, tool args, file paths, connector content.
+
+TELEMETRY_PROFILE = "cloud:telemetry"
+
+
+def install_id(secrets: SecretStore) -> str:
+    """Stable random per-install id, minted on first use (spec Phase 5)."""
+    profile = secrets.get(TELEMETRY_PROFILE) or {}
+    if not profile.get("install_id"):
+        profile["install_id"] = "ins_" + _secrets.token_hex(12)
+        secrets.put(TELEMETRY_PROFILE, profile)
+    return profile["install_id"]
+
+
+def telemetry_enabled(secrets: SecretStore) -> bool:
+    profile = secrets.get(TELEMETRY_PROFILE) or {}
+    return bool(profile.get("enabled", True))  # default-on (only matters signed in)
+
+
+def set_telemetry_enabled(secrets: SecretStore, enabled: bool) -> dict[str, Any]:
+    profile = secrets.get(TELEMETRY_PROFILE) or {}
+    profile["enabled"] = bool(enabled)
+    secrets.put(TELEMETRY_PROFILE, profile)
+    return {"ok": True, "telemetry_enabled": bool(enabled)}
+
+
+def emit_session_created(
+    secrets: SecretStore,
+    config: Config,
+    *,
+    session_id: str,
+    persona_id: str,
+    persona_family: str,
+    workspace_kind: str,
+) -> bool:
+    """Best-effort, content-free session event. Hard no-op unless signed in AND
+    the toggle is on; failures are swallowed (telemetry must never break a session)."""
+    import platform as _platform
+    import sys
+
+    if not telemetry_enabled(secrets):
+        return False
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return False  # signed out: local-only users send nothing, by design
+    body = {
+        "event": "coworker_session_created",
+        "install_id": install_id(secrets),
+        "app_version": APP_VERSION,
+        "platform": {"darwin": "macos", "win32": "windows"}.get(
+            sys.platform, _platform.system().lower() or "unknown"
+        ),
+        "session": {
+            "session_id_hash": "sha256:" + hashlib.sha256(session_id.encode()).hexdigest(),
+            "persona_id": persona_id,
+            "persona_family": persona_family,
+            "workspace_kind": workspace_kind,
+        },
+    }
+    try:
+        resp = httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/telemetry/events",
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except httpx.HTTPError:
+        return False
 
 
 # --- managed connectors --------------------------------------------------------
@@ -356,3 +432,27 @@ def gallery_install_event(secrets: SecretStore, config: Config, slug: str) -> No
         )
     except httpx.HTTPError:
         pass
+
+
+def gallery_detail(secrets: SecretStore, config: Config, slug: str) -> Optional[dict]:
+    """Solo-page payload: the cloud card + publisher pitch, with capability
+    facts derived LOCALLY from the manifest via the desktop's own strict
+    parser — the pitch can never advertise what install-time consent wouldn't
+    show, because both views come from the same parsed manifest."""
+    card = _gallery_get(secrets, config, f"/v1/personas/gallery/{slug}")
+    manifest = gallery_manifest(secrets, config, slug)
+    if card is None or manifest is None:
+        return None
+    try:
+        from .personas.loading import consent_summary
+        from .personas.manifest import parse_manifest
+
+        m = parse_manifest(manifest.get("manifest_markdown", ""), fallback_id=slug)
+        capabilities = consent_summary(m)
+        recommends = [
+            {"kind": r.kind, "ref": r.ref, "reason": r.reason, "tier": r.tier}
+            for r in m.recommends
+        ]
+    except Exception as exc:  # malformed manifest: surface, don't crash
+        return {"ok": False, "error": f"manifest failed local validation: {exc}"}
+    return {"ok": True, "card": card, "capabilities": capabilities, "recommends": recommends}

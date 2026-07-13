@@ -34,7 +34,8 @@ export type IconName =
   | "file"
   | "fileCode"
   | "image"
-  | "table";
+  | "table"
+  | "x";
 
 export function Icon({
   name,
@@ -111,6 +112,12 @@ export function Icon({
         <svg {...s}>
           <rect x="4" y="5" width="16" height="14" rx="2" />
           <path d="M4 10h16M10 10v9M4 14.5h16" />
+        </svg>
+      );
+    case "x":
+      return (
+        <svg {...s}>
+          <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       );
     case "folderPlus":

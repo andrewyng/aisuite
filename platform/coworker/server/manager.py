@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -197,9 +198,18 @@ class SessionManager:
         return {"path": str(resolved), "ok": True, "git_branch": _git_branch(resolved)}
 
     def recent_workspaces(self) -> list[dict[str, Any]]:
+        """Recent real projects for the folder gate. Per-conversation scratch dirs are
+        excluded — they're workspaces to the session store, but never something a user
+        should re-open as a 'project'."""
+        scratch = self.scratch_base().resolve()
         out = []
         for path in self.session_store.recent_workspaces():
             p = Path(path)
+            try:
+                if p.resolve().is_relative_to(scratch):
+                    continue
+            except OSError:
+                pass
             out.append({"path": path, "name": p.name, "exists": p.is_dir()})
         return out
 
@@ -260,6 +270,7 @@ class SessionManager:
             return engine
 
         record = self.session_store.load(session_id)
+        is_new_session = record is None
         agent_name = (record.agent if record else agent) or "code"
         ag = get_agent(agent_name)
 
@@ -323,7 +334,37 @@ class SessionManager:
             connector_filter=self.effective_connectors(session_id, agent_name),
         )
         self._engines[session_id] = engine
+        if is_new_session:
+            self._emit_session_created(session_id, agent_name)
         return engine
+
+    def _emit_session_created(self, session_id: str, persona_id: str) -> None:
+        """Phase 5 telemetry, fired once per brand-new session on a background thread
+        (never blocks session start). cloud.emit_session_created is a hard no-op when
+        signed out or opted out, and sends only content-free facts."""
+        import threading
+
+        from .. import cloud
+        from ..config import load_config
+
+        entry = self.personas.get(persona_id)
+        family = entry.family if entry else ""
+        workspace_kind = entry.workspace if entry else ""
+
+        def _send() -> None:
+            try:
+                cloud.emit_session_created(
+                    self.secrets,
+                    load_config(),
+                    session_id=session_id,
+                    persona_id=persona_id,
+                    persona_family=family,
+                    workspace_kind=workspace_kind,
+                )
+            except Exception:
+                pass  # telemetry must never surface as a session error
+
+        threading.Thread(target=_send, daemon=True).start()
 
     def _routing_targets(self, session_id: str, agent: str) -> list[str]:
         """The channel address(es) this session's Inbox routes OUT to — used to warn when a
@@ -482,12 +523,19 @@ class SessionManager:
             return " · ".join(parts)
         return (info or {}).get("title") or connector
 
-    def session_connections_view(self, session_id: str) -> dict[str, Any]:
-        """The per-session connections drawer payload (UI-REFRESH §6): the effective-enabled
-        connectors (each with a short detail), the persona's connector recommends that aren't yet
-        account-connected, and the attention count (= those unconnected recommends). mcp recommends
-        are out of scope here — the ⚠ badge counts connectors to connect."""
-        persona = self._persona_of(session_id)
+    def session_connections_view(
+        self, session_id: str, persona_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        """The per-session connections drawer payload (UI-REFRESH §6): every account-connected
+        connector with its effective on/off state (muted ones stay VISIBLE as off — a §4.2 toggle
+        must never make a row vanish), the persona's connector recommends that aren't yet
+        account-connected, and the attention count (= those unconnected recommends).
+
+        ``persona_id`` is the caller's hint (the GUI knows the active persona). It matters for a
+        brand-new session: no SessionRecord exists until the first turn persists, so without the
+        hint the view would resolve to the DEFAULT persona and show its defaults/recommends —
+        the owner's 2026-07-03 finding (a fresh Project Manager session rendered cowork's view)."""
+        persona = self._persona_of(session_id, persona_id)
         entry = self.personas.get(persona)
         manifest = entry.manifest if entry else None
         connectors = connector_list(self.secrets)
@@ -497,10 +545,10 @@ class SessionManager:
         connected = [
             {
                 "connector": name,
-                "enabled": True,
+                "enabled": name in effective,
                 "detail": self._connection_detail(session_id, name, by_name.get(name)),
             }
-            for name in sorted(effective)
+            for name in sorted(connected_names)
         ]
         recommended = [
             {
@@ -1263,6 +1311,7 @@ class SessionManager:
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
             "nav_layout": self._nav_layout(),
+            "sessions_peek": self.sessions_peek(),
             "scratch_base": self._prefs.get("scratch_base")
             or self.DEFAULT_SCRATCH_BASE,
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
@@ -1301,6 +1350,24 @@ class SessionManager:
         self._prefs["nav_layout"] = value
         self._save_prefs()
         return {"ok": True, "nav_layout": value}
+
+    DEFAULT_SESSIONS_PEEK = 5
+
+    def sessions_peek(self) -> int:
+        """How many sessions a sidebar group shows before "Show more" (owner ask, 2026-07-03)."""
+        try:
+            n = int(self._prefs.get("sessions_peek", self.DEFAULT_SESSIONS_PEEK))
+        except (TypeError, ValueError):
+            n = self.DEFAULT_SESSIONS_PEEK
+        return max(1, min(n, 50))
+
+    def set_sessions_peek(self, n: int) -> dict[str, Any]:
+        try:
+            self._prefs["sessions_peek"] = max(1, min(int(n), 50))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "sessions_peek must be a number"}
+        self._save_prefs()
+        return {"ok": True, "sessions_peek": self.sessions_peek()}
 
     def set_model_key(self, api_key: str) -> dict[str, Any]:
         """Persist the model API key to the SecretStore (0600). The new provider client is
@@ -2089,11 +2156,30 @@ class SessionManager:
                 engine.interrupt()
             except Exception:
                 pass
+        record = self.session_store.load(session_id)
         ok = self.session_store.delete(session_id)
         # Deleting a session is the one implicit unsubscribe (otherwise subscriptions are permanent).
         self.subscriptions.remove_session(session_id)
         # ...and drops its per-session connector overrides (§4.2, like subscriptions).
         self.session_connections.remove_session(session_id)
+        # ...and closes its pending Inbox items — an orphaned approval/question can never be
+        # meaningfully answered (owner call, 2026-07-03).
+        self.inbox.resolve_session(session_id)
+        # ...and its scratch dir. STRICTLY scoped: only a directory inside scratch_base is
+        # removed — a real project folder the user picked is never touched.
+        if ok and record and record.workspace:
+            scratch = self.scratch_base().resolve()
+            ws = Path(record.workspace)
+            try:
+                resolved = ws.resolve()
+                if (
+                    resolved.is_relative_to(scratch)
+                    and resolved != scratch
+                    and resolved.is_dir()
+                ):
+                    shutil.rmtree(resolved)
+            except OSError:
+                pass  # a stale/foreign path must not fail the delete
         return {"ok": ok, "session_id": session_id}
 
     # -- provider proxy ---------------------------------------------------------

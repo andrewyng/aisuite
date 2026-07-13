@@ -349,6 +349,50 @@ def test_open_and_recent_workspaces(tmp_path):
     assert any(w["path"] == str(proj.resolve()) for w in recents)
 
 
+def test_recent_workspaces_exclude_scratch_dirs(tmp_path):
+    # Scratch dirs get touched like any workspace, but must never show up as
+    # "recent projects" in the folder gate (owner call, 2026-07-03).
+    from coworker.server.manager import SessionManager
+
+    proj = tmp_path / "real-project"
+    proj.mkdir()
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr._prefs["scratch_base"] = str(tmp_path / "scratch")
+    scratch = mgr._provision_scratch("sess-1")
+    mgr.session_store.touch_workspace(str(proj.resolve()))
+    mgr.session_store.touch_workspace(scratch)
+    paths = [w["path"] for w in mgr.recent_workspaces()]
+    assert str(proj.resolve()) in paths
+    assert scratch not in paths
+
+
+def test_delete_session_removes_its_scratch_dir_only(tmp_path):
+    # Deleting a session also deletes its per-conversation scratch dir (owner call,
+    # 2026-07-03) — but NEVER a real project folder the user picked.
+    from pathlib import Path
+
+    from coworker.server.manager import SessionManager
+    from coworker.sessions import SessionRecord
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr._prefs["scratch_base"] = str(tmp_path / "scratch")
+
+    scratch = Path(mgr._provision_scratch("sess-scratch"))
+    mgr.session_store.save(
+        SessionRecord(session_id="sess-scratch", workspace=str(scratch), model="m", mode="interactive")
+    )
+    assert mgr.delete_session("sess-scratch")["ok"]
+    assert not scratch.exists()
+
+    proj = tmp_path / "real-project"
+    proj.mkdir()
+    mgr.session_store.save(
+        SessionRecord(session_id="sess-proj", workspace=str(proj), model="m", mode="interactive")
+    )
+    assert mgr.delete_session("sess-proj")["ok"]
+    assert proj.is_dir()  # user folders are sacred
+
+
 def test_open_invalid_workspace(tmp_path):
     client = _client(tmp_path, [])
     bad = client.post(

@@ -66,7 +66,7 @@ def test_persona_detail_endpoint(tmp_path, monkeypatch):
     assert detail["id"] == "ops"
     assert detail["name"] == "Ops Coworker"
     assert detail["enabled"] is True
-    assert detail["workspace"] == "project"
+    assert detail["workspace"] == "deliverable"  # §16 collapse: ops is a scratch persona now
     assert detail["default_permission_mode"] == "interactive"
     assert "anthropic:claude-opus-4-8" in detail["recommended_models"]
     assert set(detail["tools"]) == {"files", "search", "shell", "todo"}
@@ -180,6 +180,29 @@ def test_session_connections_endpoint(tmp_path, monkeypatch):
     assert view["attention"] == 2
 
 
+def test_fresh_session_view_uses_persona_hint(tmp_path, monkeypatch):
+    # A brand-new session has no SessionRecord until its first turn persists. Without the
+    # GUI's persona hint the view resolved to the DEFAULT persona (cowork) — the owner's
+    # 2026-07-03 finding: a fresh session showed the wrong defaults and no recommends.
+    mgr = _mgr(tmp_path, monkeypatch)
+    _connect_slack(mgr)
+    # ops persona default: slack OFF (user's "New sessions get by default" choice)
+    mgr.persona_connections.defaults_for(
+        "ops", mgr.personas.get("ops").manifest, connected={"slack"}
+    )
+    mgr.persona_connections.set("ops", "slack", False)
+    client = TestClient(create_app(mgr))
+
+    view = client.get("/v1/sessions/brand-new/connections?persona=ops").json()
+    conn = {c["connector"]: c for c in view["connected"]}
+    assert conn["slack"]["enabled"] is False  # persona default honored pre-persist
+    assert view["recommended"], "ops recommends must show for a fresh ops session"
+
+    # without the hint the same fresh session would fall back to the default persona
+    fallback = client.get("/v1/sessions/brand-new/connections").json()
+    assert {c["connector"]: c for c in fallback["connected"]}["slack"]["enabled"] is True
+
+
 def test_session_set_override(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path, monkeypatch)
     _connect_slack(mgr)
@@ -202,12 +225,15 @@ def test_session_set_override(tmp_path, monkeypatch):
     assert resp["ok"] is True
     assert mgr.session_connections.get("s1") == {"slack": False}
     assert "slack" not in mgr.effective_connectors("s1", "ops")
-    # the returned view + a fresh GET both reflect the mute
-    assert "slack" not in {c["connector"] for c in resp["connections"]["connected"]}
-    assert "slack" not in {
-        c["connector"]
+    # a muted connector stays VISIBLE in the drawer as toggled-off (owner finding
+    # 2026-07-03: "where did Slack go?") — both in the returned view and a fresh GET
+    view_conn = {c["connector"]: c for c in resp["connections"]["connected"]}
+    assert view_conn["slack"]["enabled"] is False
+    fresh = {
+        c["connector"]: c
         for c in client.get("/v1/sessions/s1/connections").json()["connected"]
     }
+    assert fresh["slack"]["enabled"] is False
 
     # clear → revert to the persona default (slack on again)
     resp2 = client.post(

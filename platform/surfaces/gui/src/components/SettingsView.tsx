@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { getSettings, setOnboarded, setScratchBase, type ModelSettings } from "../api";
+import { getSettings, setOnboarded, setScratchBase, setSessionsPeek, type ModelSettings } from "../api";
 import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
 import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { ModelsTab } from "./ManageTabs";
-import { GalleryTab } from "./GalleryTab";
+import { GalleryModal } from "./GalleryModal";
 import { PersonasTab } from "./PersonasTab";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
@@ -13,7 +13,7 @@ import { PersonasTab } from "./PersonasTab";
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
-type SetTab = "appearance" | "files" | "models" | "personas" | "gallery";
+type SetTab = "appearance" | "files" | "models" | "personas";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -29,7 +29,6 @@ const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "folder" | "code
   { key: "files", label: "Files", icon: "folder" },
   { key: "models", label: "Models", icon: "code" },
   { key: "personas", label: "Personas", icon: "sparkle" },
-  { key: "gallery", label: "Gallery", icon: "sparkle" },
 ];
 
 export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
@@ -72,26 +71,50 @@ export function SettingsView({ initialTab }: { initialTab?: SetTab }) {
               />
               <ModelsTab />
             </section>
-          ) : tab === "personas" ? (
-            <section>
-              <PanelHead
-                title="Personas"
-                sub="Which coworkers are enabled and shown in the picker, plus installing new persona bundles."
-              />
-              <PersonasTab />
-            </section>
           ) : (
-            <section>
-              <PanelHead
-                title="Gallery"
-                sub="Curated coworkers from OpenCoworker Cloud. Installs go through the same consent flow as any persona and stay disabled until you approve them."
-              />
-              <GalleryTab />
-            </section>
+            <PersonasSection />
           )}
         </div>
       </div>
     </main>
+  );
+}
+
+// -- Personas: installed/enabled/delete management, the dir/Git importer, and the
+// entry point to the Persona Gallery (a screen-sized modal — installs finish back
+// here, disabled pending consent; a gallery install re-mounts the list in place).
+function PersonasSection() {
+  const [galleryBump, setGalleryBump] = useState(0);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+
+  return (
+    <section>
+      <PanelHead
+        title="Personas"
+        sub="Which coworkers are enabled and shown in the picker, plus installing new persona bundles."
+      />
+      <PersonasTab key={galleryBump} />
+      <button
+        className="mt-6 w-full rounded-xl2 border border-line bg-panel px-4 py-3.5 flex items-center gap-3 text-left hover:border-lineStrong"
+        data-testid="gallery-link"
+        onClick={() => setGalleryOpen(true)}
+      >
+        <Icon name="sparkle" size={16} className="text-accent shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-medium">Browse the Persona Gallery</span>
+          <span className="block text-[12px] text-muted">
+            Curated coworkers from the OpenCoworker team — see what each can do before installing.
+          </span>
+        </span>
+        <span className="text-[12.5px] text-accent shrink-0">Open →</span>
+      </button>
+      {galleryOpen && (
+        <GalleryModal
+          onClose={() => setGalleryOpen(false)}
+          onInstalled={() => setGalleryBump((b) => b + 1)}
+        />
+      )}
+    </section>
   );
 }
 
@@ -132,6 +155,8 @@ function AppearanceSection() {
         <div className={FIELD_HELP}>Auto follows your Mac&rsquo;s appearance.</div>
       </div>
 
+      <SidebarCard />
+
       {desktop && (
         <div className={CARD + " p-4"}>
           <div className={FIELD_LABEL + " mb-2.5"}>Always-on</div>
@@ -157,6 +182,44 @@ function AppearanceSection() {
         </div>
       )}
     </section>
+  );
+}
+
+// -- Sidebar density -------------------------------------------------------------
+function SidebarCard() {
+  const [peek, setPeek] = useState<number | null>(null);
+
+  useEffect(() => {
+    getSettings()
+      .then((s) => setPeek(s.sessions_peek || 5))
+      .catch(() => setPeek(5));
+  }, []);
+
+  const save = async (n: number) => {
+    const clamped = Math.max(1, Math.min(n || 5, 50));
+    setPeek(clamped);
+    await setSessionsPeek(clamped);
+  };
+
+  if (peek === null) return null;
+  return (
+    <div className={CARD + " p-4 mb-4"}>
+      <div className={FIELD_LABEL}>Sidebar</div>
+      <label className="flex items-center gap-3 mt-2.5">
+        <span className="text-[13px] text-ink">Conversations shown per coworker</span>
+        <input
+          type="number"
+          min={1}
+          max={50}
+          value={peek}
+          className="w-16 px-2 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent"
+          onChange={(e) => save(Number(e.target.value))}
+        />
+      </label>
+      <div className={FIELD_HELP}>
+        Longer lists collapse behind &ldquo;Show more&rdquo;. Applies per coworker and per project.
+      </div>
+    </div>
   );
 }
 

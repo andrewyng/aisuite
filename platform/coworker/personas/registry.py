@@ -291,6 +291,11 @@ class PersonaRegistry:
         if persona_id not in self._entries:
             raise KeyError(persona_id)
         self._enabled[persona_id] = bool(enabled)
+        if enabled:
+            # Enabling implies surfacing (installs land unsurfaced, and "enabled but
+            # invisible in the picker" is never what a user just asked for). They can
+            # still untick "In picker" afterwards to hide it.
+            self._surfaced[persona_id] = True
         self.save()
 
     def set_surfaced(self, persona_id: str, surfaced: bool) -> None:
@@ -304,6 +309,26 @@ class PersonaRegistry:
             raise KeyError(persona_id)
         self._default = persona_id
         self._enabled[persona_id] = True  # a default must be enabled
+        self.save()
+
+    def uninstall(self, persona_id: str) -> None:
+        """Remove an installed persona: registry entry, lifecycle state, and its snapshot
+        dir. Built-ins can't be uninstalled (disable them instead). Live sessions born
+        from it resolve to the default persona afterwards (same as any unknown id)."""
+        entry = self._entries.get(persona_id)
+        if entry is None:
+            raise KeyError(persona_id)
+        if entry.builtin:
+            raise ValueError(f"{persona_id} is built-in and cannot be deleted")
+        del self._entries[persona_id]
+        self._enabled.pop(persona_id, None)
+        self._surfaced.pop(persona_id, None)
+        if self._default == persona_id:
+            self._default = DEFAULT_PERSONA_ID
+        if self.installed_dir is not None:
+            snap = self.installed_dir / persona_id
+            if snap.is_dir():
+                shutil.rmtree(snap)
         self.save()
 
     # -- install (third-party personas) -----------------------------------------

@@ -49,3 +49,17 @@ test("signed in: one-click connect appears, manual fields remain", async ({ page
     page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }),
   ).toBeVisible();
 });
+
+test("telemetry toggle: signed-in only, default on, opt-out round-trips", async ({ page }) => {
+  await openConnectors(page);
+  // Signed out: no toggle at all — nothing is sent, nothing to configure.
+  await expect(page.getByTestId("telemetry-toggle")).toHaveCount(0);
+
+  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
+  const toggle = page.getByTestId("telemetry-toggle");
+  await expect(toggle).toBeChecked({ timeout: 10_000 }); // default-on when signed in
+  await expect(page.getByTestId("cloud-account")).toContainText("never your prompts");
+
+  await toggle.uncheck();
+  await expect(toggle).not.toBeChecked(); // survives the status re-fetch (persisted)
+});

@@ -21,7 +21,12 @@ def client(tmp_path, monkeypatch):
 
 def test_cloud_status_signed_out(client):
     body = client.get("/v1/cloud/status").json()
-    assert body == {"signed_in": False, "account": "", "user_id": ""}
+    assert body == {
+        "signed_in": False,
+        "account": "",
+        "user_id": "",
+        "telemetry_enabled": True,  # local default; nothing is sent while signed out
+    }
 
 
 def test_connect_managed_requires_sign_in(client):
@@ -155,3 +160,25 @@ def test_cloud_gallery_endpoint_signed_out(client):
     body = client.get("/v1/cloud/gallery").json()
     assert not body["ok"]
     assert body["personas"] == []
+
+
+def test_delete_persona_after_gallery_install(client, monkeypatch):
+    _stub_gallery(monkeypatch)
+    assert client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()["ok"]
+    body = client.delete("/v1/personas/sales").json()
+    assert body["ok"]
+    assert "sales" not in {p["id"] for p in body["personas"]}
+
+
+def test_cloud_status_carries_telemetry_pref_and_toggle_flips_it(client):
+    assert client.get("/v1/cloud/status").json()["telemetry_enabled"] is True
+    body = client.post("/v1/cloud/telemetry", json={"enabled": False}).json()
+    assert body["ok"] and body["telemetry_enabled"] is False
+    assert client.get("/v1/cloud/status").json()["telemetry_enabled"] is False
+
+
+def test_delete_persona_refuses_builtin_and_unknown(client):
+    body = client.delete("/v1/personas/cowork").json()
+    assert not body["ok"] and "built-in" in body["error"]
+    body = client.delete("/v1/personas/ghost").json()
+    assert not body["ok"] and "unknown" in body["error"]
