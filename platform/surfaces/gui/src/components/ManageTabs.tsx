@@ -3,7 +3,6 @@ import {
   addMcpServer,
   allowUser,
   connectConnector,
-  getAudit,
   deleteMcpServer,
   disallowUser,
   disconnectConnector,
@@ -14,33 +13,32 @@ import {
   getSettings,
   patchMcpServer,
   reloadMcp,
-  setOnboarded,
   setProvider,
-  setScratchBase,
   updateConnectorTools,
   verifyProvider,
-  type AuditEvent,
   type Connector,
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
-import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
-import { useThemePref } from "../theme";
 import { ModelChecklist } from "./ModelChecklist";
-import { PersonasTab } from "./PersonasTab";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { Toggle } from "./Toggle";
 
-type Tab = "settings" | "models" | "personas" | "mcps" | "skills";
-
-// Shared utility strings for the mock-ported Connectors / MCP surfaces (used by IntegrationsView).
+// Shared tab bodies for the Settings and Integrations pages (the old top-tab ManageModal was retired
+// when Settings/Activity became full-page surfaces): ModelsTab → Settings ▸ Models; ConnectorsTab +
+// McpTab → Integrations ▸ Connectors / MCP servers.
 const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
 const CARD = "rounded-xl2 border border-line bg-panel";
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-accent text-white shrink-0 disabled:opacity-50";
 const BTN_DANGER = "text-[12.5px] text-danger/80 hover:text-danger shrink-0";
+const FIELD_LABEL = "block text-[12.5px] font-medium text-ink mb-1.5";
+const FIELD_HELP = "block text-[12px] text-muted mt-1.5 leading-relaxed";
+const INPUT_W =
+  "w-full px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
+const SELECT_W = "w-full px-2.5 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink";
 
 /** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
 function initials(name: string): string {
@@ -58,72 +56,8 @@ const EXAMPLE = `{
   }
 }`;
 
-const TABS: { key: Tab; label: string; disabled?: boolean }[] = [
-  { key: "settings", label: "Settings" },
-  { key: "models", label: "Configure Models" },
-  { key: "personas", label: "Personas" },
-  { key: "mcps", label: "MCPs" },
-  { key: "skills", label: "Skills" },
-];
-
-export function ManageModal({
-  onClose,
-  initialTab,
-}: {
-  onClose: () => void;
-  initialTab?: Tab;
-}) {
-  const tabs = TABS;
-  const initial =
-    initialTab && tabs.some((t) => t.key === initialTab && !t.disabled) ? initialTab : "settings";
-  const [tab, setTab] = useState<Tab>(initial);
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal manage" onClick={(e) => e.stopPropagation()}>
-        <div className="manage-head">
-          <div className="manage-tabs">
-            {tabs.map((t) => (
-              <div
-                key={t.key}
-                className={"mtab" + (tab === t.key ? " active" : "") + (t.disabled ? " disabled" : "")}
-                title={t.disabled ? "Coming soon" : undefined}
-                onClick={t.disabled ? undefined : () => setTab(t.key)}
-              >
-                {t.label}
-              </div>
-            ))}
-          </div>
-          <div className="modal-close" onClick={onClose}>
-            ✕
-          </div>
-        </div>
-        <div className="manage-body">
-          {tab === "settings" ? (
-            <SettingsTab />
-          ) : tab === "models" ? (
-            <ModelsTab />
-          ) : tab === "personas" ? (
-            <PersonasTab />
-          ) : tab === "mcps" ? (
-            <McpTab />
-          ) : (
-            <div className="manage-empty">Skill management — coming soon.</div>
-          )}
-        </div>
-        <div className="manage-foot">
-          <span className="manage-foot-note dim">● Changes save automatically</span>
-          <button className="btn-primary sm" onClick={onClose}>
-            Done — back to chat
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // -- Configure Models tab (providers, model list, keys) -----------------------
-function ModelsTab() {
+export function ModelsTab() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -213,19 +147,17 @@ function ModelsTab() {
     }
   };
 
-  if (!settings) return <div className="manage-empty">Loading…</div>;
+  if (!settings) return <div className="text-[13px] text-muted">Loading…</div>;
 
   // The checklist shown once the pane's provider is usable (always, for keyless Ollama).
   const checklist = (selProv?.configured || sub === "local") && (
-    <>
-      <div className="sa-sub" style={{ marginTop: 22 }}>Models</div>
-      <div className="conn-meta dim" style={{ marginBottom: 4 }}>
-        {sub === "local" ? (
-          <>Your pulled Ollama models. Ticked ones show in the composer's picker; the black badge marks the default for new sessions.</>
-        ) : (
-          <>Ticked models show in the composer's picker; the black badge marks the default for new sessions.</>
-        )}
-      </div>
+    <div className="mt-6">
+      <div className={SEC_H + " mb-1.5"}>Models</div>
+      <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
+        {sub === "local"
+          ? "Your pulled Ollama models. Ticked ones show in the composer's picker; the black badge marks the default for new sessions."
+          : "Ticked models show in the composer's picker; the black badge marks the default for new sessions."}
+      </p>
       <ModelChecklist
         provider={provName}
         knownProviders={knownNames}
@@ -234,33 +166,26 @@ function ModelsTab() {
         defaultModel={settings.model}
         onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
       />
-    </>
+    </div>
   );
 
   return (
-    <div className="conn-tab">
-      <div className="subtabs" style={{ marginTop: 4 }}>
-        <div className="manage-tabs">
-          <div
-            className={"mtab" + (sub === "api" ? " active" : "")}
-            onClick={() => setSub("api")}
-          >
-            API models
-          </div>
-          <div
-            className={"mtab" + (sub === "local" ? " active" : "")}
-            onClick={() => setSub("local")}
-          >
-            Local models
-          </div>
-        </div>
+    <div>
+      <div className="seg mb-4" role="tablist" aria-label="Model source">
+        <button className={sub === "api" ? "active" : ""} onClick={() => setSub("api")}>
+          API models
+        </button>
+        <button className={sub === "local" ? "active" : ""} onClick={() => setSub("local")}>
+          Local models
+        </button>
       </div>
 
       {sub === "api" ? (
-        <>
-          <label className="conn-field">
-            <span className="conn-field-label">Provider</span>
+        <div className={CARD + " p-4"}>
+          <label className="block mb-4">
+            <span className={FIELD_LABEL}>Provider</span>
             <select
+              className={SELECT_W}
               value={apiProv}
               onChange={(e) => {
                 setApiProv(e.target.value);
@@ -278,33 +203,29 @@ function ModelsTab() {
                 ))}
             </select>
           </label>
-          <div className="conn-meta" style={{ marginBottom: 12 }}>
+
+          <div className="text-[12px] mb-4">
             {selProv?.configured ? (
-              <span className="ok">● Connected — key set{provName === "openai" && settings.source === "env" ? " (from environment)" : ""}</span>
+              <span className="text-ok">
+                ● Connected — key set
+                {provName === "openai" && settings.source === "env" ? " (from environment)" : ""}
+              </span>
             ) : (
-              <span className="danger">● Not connected — add a key below to use this provider</span>
+              <span className="text-danger">● Not connected — add a key below to use this provider</span>
             )}
           </div>
-        </>
-      ) : (
-        <div className="conn-note dim" style={{ marginBottom: 12 }}>
-          Run models locally with <code>ollama serve</code>. OpenCoworker uses Ollama's
-          OpenAI-compatible API, so tools work. No API key needed.
-        </div>
-      )}
 
-      {sub === "api" ? (
-        <>
-          {provName === "openai" && settings.source === "env" ? (
-            <div className="conn-note dim">
+          {provName === "openai" && settings.source === "env" && (
+            <p className="text-[12px] text-muted mb-4 leading-relaxed">
               A key is set via <code>OPENAI_API_KEY</code> in this server's environment. You can override
               it below; the stored key is used only when the environment variable is absent.
-            </div>
-          ) : null}
+            </p>
+          )}
           {provName === "openai" && (
-            <label className="conn-field">
-              <span className="conn-field-label">Custom endpoint (optional)</span>
+            <label className="block mb-4">
+              <span className={FIELD_LABEL}>Custom endpoint (optional)</span>
               <input
+                className={INPUT_W}
                 type="text"
                 placeholder="https://…/openai/v1"
                 value={endpoint}
@@ -312,17 +233,18 @@ function ModelsTab() {
                 autoComplete="off"
                 onChange={(e) => setEndpoint(e.target.value)}
               />
-              <span className="conn-field-help">
+              <span className={FIELD_HELP}>
                 For Azure OpenAI, OpenRouter, vLLM, or any OpenAI-compliant server. Leave blank for
                 api.openai.com.
               </span>
             </label>
           )}
-          <label className="conn-field">
-            <span className="conn-field-label">
+          <label className="block mb-4">
+            <span className={FIELD_LABEL}>
               {selProv?.fields.find((f) => f.key === "api_key")?.label || "API key"}
             </span>
             <input
+              className={INPUT_W}
               type="password"
               placeholder={selProv?.fields.find((f) => f.key === "api_key")?.placeholder || "sk-…"}
               value={draft}
@@ -331,14 +253,14 @@ function ModelsTab() {
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && save()}
             />
-            <span className="conn-field-help">
+            <span className={FIELD_HELP}>
               Stored locally at <code>~/.config/coworker/secrets.json</code> (0600). Required for the
               desktop app, where the server can't read your shell environment.
             </span>
           </label>
-          <div className="conn-setup-actions">
+          <div className="flex items-center gap-2">
             <button
-              className="btn sm"
+              className={BTN_BORDERED}
               onClick={testKey}
               disabled={verify.state === "testing" || (!draft.trim() && !selProv?.configured)}
               title="Check the key works — without saving it"
@@ -346,23 +268,27 @@ function ModelsTab() {
               {verify.state === "testing" ? "Testing…" : "Test"}
             </button>
             <button
-              className="btn-primary sm"
+              className={BTN_ACCENT}
               onClick={save}
               disabled={busy || (!draft.trim() && !(apiProv === "openai" && endpoint.trim()))}
             >
               {busy ? "Saving…" : "Save"}
             </button>
           </div>
-          {verify.state === "ok" && <div className="conn-meta ok" style={{ marginTop: 10 }}>✓ Key verified.</div>}
-          {verify.state === "error" && <div className="conn-meta danger" style={{ marginTop: 10 }}>{verify.msg}</div>}
-          {msg && <div className="conn-meta" style={{ marginTop: 10 }}>{msg}</div>}
-          {checklist}
-        </>
+          {verify.state === "ok" && <div className="text-[12px] text-ok mt-2.5">✓ Key verified.</div>}
+          {verify.state === "error" && <div className="text-[12px] text-danger mt-2.5">{verify.msg}</div>}
+          {msg && <div className="text-[12px] text-muted mt-2.5">{msg}</div>}
+        </div>
       ) : (
-        <>
-          <label className="conn-field">
-            <span className="conn-field-label">Ollama server URL</span>
+        <div className={CARD + " p-4"}>
+          <p className="text-[12.5px] text-muted mb-4 leading-relaxed">
+            Run models locally with <code>ollama serve</code>. OpenCoworker uses Ollama's
+            OpenAI-compatible API, so tools work. No API key needed.
+          </p>
+          <label className="block mb-4">
+            <span className={FIELD_LABEL}>Ollama server URL</span>
             <input
+              className={INPUT_W}
               type="text"
               placeholder="http://localhost:11434"
               value={ollamaUrl}
@@ -371,153 +297,19 @@ function ModelsTab() {
               onChange={(e) => setOllamaUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && saveOllama()}
             />
-            <span className="conn-field-help">
+            <span className={FIELD_HELP}>
               The OpenAI-compatible <code>/v1</code> path is added automatically. Leave blank for the
               default. Your pulled models appear under <strong>Models</strong> below.
             </span>
           </label>
-          <div className="conn-setup-actions">
-            <button className="btn-primary sm" onClick={saveOllama}>
-              Save Ollama URL
-            </button>
-          </div>
-          {ollamaMsg && <div className="conn-meta" style={{ marginTop: 10 }}>{ollamaMsg}</div>}
-          {checklist}
-        </>
-      )}
-    </div>
-  );
-}
-
-// -- Settings tab (files, surfaces, app behavior) ------------------------------
-function SettingsTab() {
-  const [settings, setSettings] = useState<ModelSettings | null>(null);
-  const [theme, setTheme] = useThemePref();
-  const [autostart, setAuto] = useState(false);
-  const [keepAwake, setKeep] = useState(false);
-  const [scratchDraft, setScratchDraft] = useState("");
-  const [scratchMsg, setScratchMsg] = useState<string | null>(null);
-  const desktop = isTauri();
-
-  const refresh = () =>
-    getSettings()
-      .then((s) => {
-        setSettings(s);
-        setScratchDraft((d) => d || s.scratch_base || "");
-      })
-      .catch(() => setSettings(null));
-  useEffect(() => {
-    refresh();
-    if (isTauri()) {
-      getAutostart().then((v) => setAuto(!!v));
-      getKeepAwake().then((v) => setKeep(!!v));
-    }
-  }, []);
-
-
-  const saveScratch = async () => {
-    setScratchMsg(null);
-    const res = await setScratchBase(scratchDraft.trim());
-    if (res.ok) {
-      setScratchMsg("Saved. New conversations will use this location.");
-      refresh();
-    } else {
-      setScratchMsg(res.error || "Could not use that location.");
-    }
-  };
-  const browseScratch = async () => {
-    const picked = await pickFolder();
-    if (picked) setScratchDraft(picked);
-  };
-
-  const toggleAuto = async (v: boolean) => setAuto(!!(await setAutostart(v)));
-  const toggleKeep = async (v: boolean) => setKeep(!!(await setKeepAwake(v)));
-  const runSetupAgain = async () => {
-    await setOnboarded(false);
-    window.dispatchEvent(new CustomEvent("coworker:open-onboarding"));
-  };
-
-  if (!settings) return <div className="manage-empty">Loading…</div>;
-
-  return (
-    <div className="conn-tab">
-      <div className="sa-sub">Appearance</div>
-      <div className="seg" role="radiogroup" aria-label="Appearance" style={{ marginTop: 8 }}>
-        {(["light", "dark", "auto"] as const).map((p) => (
-          <button key={p} className={p === theme ? "active" : ""} onClick={() => setTheme(p)}>
-            {p === "light" ? "Light" : p === "dark" ? "Dark" : "Auto"}
+          <button className={BTN_ACCENT} onClick={saveOllama}>
+            Save Ollama URL
           </button>
-        ))}
-      </div>
-      <div className="conn-meta dim" style={{ marginTop: 8 }}>
-        Auto follows your Mac&rsquo;s appearance.
-      </div>
-
-      <div className="sa-sub" style={{ marginTop: 22 }}>OpenCoworker files</div>
-      <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        Each OpenCoworker conversation gets its own scratch folder under this location, where the agent
-        saves files by default. You can grant access to more folders inside any conversation.
-      </div>
-      <label className="conn-field">
-        <span className="conn-field-label">Scratch location</span>
-        <div className="dirreq-pathrow">
-          <input
-            className="dirreq-path"
-            type="text"
-            placeholder="~/OpenCoworker"
-            value={scratchDraft}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setScratchDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && saveScratch()}
-          />
-          {desktop && (
-            <button className="btn" onClick={browseScratch} title="Pick a folder">
-              Browse
-            </button>
-          )}
-          <button className="btn-primary sm" onClick={saveScratch} disabled={!scratchDraft.trim()}>
-            Save
-          </button>
+          {ollamaMsg && <div className="text-[12px] text-muted mt-2.5">{ollamaMsg}</div>}
         </div>
-        <span className="conn-field-help">
-          New conversations use this; existing ones keep their current folder.
-        </span>
-      </label>
-      {scratchMsg && <div className="conn-meta" style={{ marginTop: 8 }}>{scratchMsg}</div>}
-
-      <div className="sa-sub" style={{ marginTop: 22 }}>Surfaces</div>
-      <div className="conn-meta dim" style={{ marginBottom: 10 }}>
-        Which coworkers appear in the left panel is now managed per persona in the{" "}
-        <strong>Personas</strong> tab (Enabled + In picker).
-      </div>
-
-      {desktop && (
-        <>
-          <div className="sa-sub" style={{ marginTop: 22 }}>
-            Always-on
-          </div>
-          <label className="ob-toggle">
-            <input type="checkbox" checked={autostart} onChange={(e) => toggleAuto(e.target.checked)} />
-            <span>
-              <strong>Open at login</strong>
-              <small>Launch OpenCoworker automatically when you sign in.</small>
-            </span>
-          </label>
-          <label className="ob-toggle">
-            <input type="checkbox" checked={keepAwake} onChange={(e) => toggleKeep(e.target.checked)} />
-            <span>
-              <strong>Keep this system awake</strong>
-              <small>Prevent idle sleep so scheduled tasks fire on time.</small>
-            </span>
-          </label>
-          <div className="conn-setup-actions" style={{ marginTop: 14 }}>
-            <button className="btn sm" onClick={runSetupAgain}>
-              Run setup again
-            </button>
-          </div>
-        </>
       )}
+
+      {checklist}
     </div>
   );
 }
@@ -985,71 +777,4 @@ function ConnectSetup({ c, onConnected }: { c: Connector; onConnected: () => voi
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
     </div>
   );
-}
-
-// -- Audit tab ---------------------------------------------------------------
-export function AuditTab() {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [sessionFilter, setSessionFilter] = useState("");
-  const [connectorFilter, setConnectorFilter] = useState("");
-  const [toolFilter, setToolFilter] = useState("");
-
-  const refresh = () =>
-    getAudit({
-      limit: 150,
-      session_id: sessionFilter.trim() || undefined,
-      connector: connectorFilter.trim() || undefined,
-      tool: toolFilter.trim() || undefined,
-    })
-      .then(setEvents)
-      .catch(() => setEvents([]));
-
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  return (
-    <div className="conn-tab">
-      <div className="mcp-intro">Recent connector and browser tool activity. Arguments are sanitized before storage.</div>
-      <div className="audit-filters">
-        <input placeholder="session id" value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} />
-        <input placeholder="connector" value={connectorFilter} onChange={(e) => setConnectorFilter(e.target.value)} />
-        <input placeholder="tool" value={toolFilter} onChange={(e) => setToolFilter(e.target.value)} />
-        <button className="btn-primary sm" onClick={refresh}>Filter</button>
-      </div>
-      <div className="audit-list">
-        {events.length === 0 ? (
-          <div className="manage-empty">No audit events yet.</div>
-        ) : (
-          events.map((ev) => <AuditRow ev={ev} key={ev.id} />)
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AuditRow({ ev }: { ev: AuditEvent }) {
-  return (
-    <div className="audit-row">
-      <div className="audit-head">
-        <span className="audit-tool">{ev.tool}</span>
-        <span className="conn-meta">
-          {ev.connector || "tool"} · {ev.stage || ev.status || "event"} · {ev.timestamp}
-        </span>
-      </div>
-      <div className="conn-meta">
-        session {ev.session_id || "-"} {ev.approval ? `· ${ev.approval}` : ""} {ev.status ? `· ${ev.status}` : ""}
-      </div>
-      {ev.resource && <div className="conn-field-help">resource: {ev.resource}</div>}
-      <div className="audit-args">{formatAuditArgs(ev.args)}</div>
-      {(ev.reason || ev.result_preview) && <div className="conn-field-help">{ev.reason || ev.result_preview}</div>}
-    </div>
-  );
-}
-
-function formatAuditArgs(args: Record<string, any>) {
-  if (!args || Object.keys(args).length === 0) return "";
-  return Object.entries(args)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join("  ");
 }

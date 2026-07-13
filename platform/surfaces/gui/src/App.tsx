@@ -36,11 +36,11 @@ import { Markdown } from "./components/Markdown";
 import { RootsBar } from "./components/RootsBar";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
-import { ManageModal } from "./components/ManageModal";
 import { Onboarding } from "./components/Onboarding";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
+import { SettingsView } from "./components/SettingsView";
 import { PersonaView } from "./components/PersonaView";
 import { SourcesBar } from "./components/SourcesBar";
 import { AuditView } from "./components/AuditView";
@@ -152,14 +152,20 @@ export function App() {
   const [projects, setProjects] = useState<RecentWorkspace[]>([]);
   const [sessionId, setSessionId] = useState<string>(newId());
   const [gateCreate, setGateCreate] = useState(false);
-  const [showManage, setShowManage] = useState(false);
-  const [manageTab, setManageTab] = useState<"settings" | "models" | "personas" | undefined>(undefined);
+  // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
+  const [settingsTab, setSettingsTab] = useState<"appearance" | "files" | "models" | "personas">(
+    "appearance",
+  );
+  const openSettings = (tab: "appearance" | "files" | "models" | "personas" = "appearance") => {
+    setSettingsTab(tab);
+    setSurface("settings");
+  };
   // Whether the default model's provider is actually configured (any provider). Drives the
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
   const [surface, setSurface] = useState<
-    "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona"
+    "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona" | "settings"
   >("session");
   // The persona whose detail page is showing (surface === "persona"); empty falls back to the
   // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
@@ -214,10 +220,7 @@ export function App() {
 
   // The desktop tray's "Settings" item dispatches this on the window.
   useEffect(() => {
-    const open = () => {
-      setManageTab("settings");
-      setShowManage(true);
-    };
+    const open = () => openSettings("appearance");
     window.addEventListener("coworker:open-settings", open);
     return () => window.removeEventListener("coworker:open-settings", open);
   }, []);
@@ -225,7 +228,6 @@ export function App() {
   // "Run setup again" (from Settings) re-opens the wizard.
   useEffect(() => {
     const open = () => {
-      setShowManage(false);
       setOnboarding(true);
     };
     window.addEventListener("coworker:open-onboarding", open);
@@ -367,10 +369,13 @@ export function App() {
       .catch(() => {});
 
   // Open Settings → Configure Models (from the composer's "No model connected" chip).
-  const openModelSetup = () => {
-    setManageTab("models");
-    setShowManage(true);
-  };
+  const openModelSetup = () => openSettings("models");
+
+  // Leaving the Settings page: pick up any model/surface changes for the composer (the modal used to
+  // do this on close).
+  useEffect(() => {
+    if (surface !== "settings") loadSettings();
+  }, [surface]);
 
   useEffect(() => {
     refreshSessions();
@@ -835,15 +840,12 @@ export function App() {
         onRenameSession={renameConversation}
         onDeleteSession={deleteConversation}
         onTogglePin={togglePinned}
-        onManage={() => setShowManage(true)}
+        onManage={() => openSettings("appearance")}
         onOpenPersona={(id) => {
           setPersonaViewId(id);
           setSurface("persona");
         }}
-        onManagePersonas={() => {
-          setManageTab("personas");
-          setShowManage(true);
-        }}
+        onManagePersonas={() => openSettings("personas")}
         onOpenScheduled={() => setSurface("scheduled")}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
@@ -857,6 +859,8 @@ export function App() {
         <ScheduledView onOpenRun={openRunSession} onRunNow={runTaskNow} />
       ) : surface === "integrations" ? (
         <IntegrationsView />
+      ) : surface === "settings" ? (
+        <SettingsView key={settingsTab} initialTab={settingsTab} />
       ) : surface === "audit" ? (
         <AuditView />
       ) : surface === "inbox" ? (
@@ -1147,17 +1151,6 @@ export function App() {
                 }
               : undefined
           }
-        />
-      )}
-
-      {showManage && (
-        <ManageModal
-          initialTab={manageTab}
-          onClose={() => {
-            setShowManage(false);
-            setManageTab(undefined);
-            loadSettings(); // pick up any Ollama model/URL or surface visibility just changed
-          }}
         />
       )}
     </div>
