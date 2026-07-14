@@ -31,6 +31,7 @@ export default {
         warnInk: tok("--warn-ink"),
         warnSoft: tok("--warn-soft"),
         danger: tok("--danger"),
+        dangerSoft: tok("--danger-soft"),
         tealInk: tok("--teal-ink"),
         tealSoft: tok("--teal-soft"),
         tealLine: tok("--teal-line"),

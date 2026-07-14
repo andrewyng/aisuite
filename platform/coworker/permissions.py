@@ -43,6 +43,30 @@ class Decision:
     allowed: bool
     reason: str = ""
     needs_user: bool = False  # True → surface should prompt the user for approval
+    # Set when a task-scoped standing rule allowed the call ("tool → target") so the
+    # engine can audit the exact rule and the tool card can say so (§25).
+    rule: str = ""
+
+
+def standing_rule_candidate(
+    tool_name: str,
+    arguments: dict[str, Any],
+    metadata: Any = None,
+    overrides: Optional[RiskOverrides] = None,
+) -> Optional[str]:
+    """The target value iff this call is eligible for a task-scoped standing rule
+    (UX-DECISIONS §25): external-risk only (never exec/write-local — shell asks forever),
+    the tool must declare a target argument, and the call must actually name a target.
+    Returns None otherwise — ineligible calls keep parking approvals as today."""
+    from .connectors.tool_defs import target_arg_for
+
+    if classify(tool_name, metadata, overrides) is not RiskClass.EXTERNAL:
+        return None
+    arg = target_arg_for(tool_name)
+    if arg is None:
+        return None
+    value = str((arguments or {}).get(arg) or "").strip()
+    return value or None
 
 
 @dataclass
@@ -53,6 +77,10 @@ class PermissionEngine:
     auto_allow_tools: set[str] = field(default_factory=set)
     session_allow_tools: set[str] = field(default_factory=set)
     session_allow_commands: set[str] = field(default_factory=set)
+    # Task-scoped standing rules (§25): {tool: {allowed targets}}, seeded from the owning
+    # ScheduledTask's target-shaped entries. Kept by reference and re-read every check, so a
+    # rule minted mid-run ("Allow every time") applies to the run's next call too.
+    task_rules: dict[str, set[str]] = field(default_factory=dict)
     # User-local risk override resolver (Phase 2). None → use the base classification.
     risk_overrides: Optional[RiskOverrides] = None
     # Shared, possibly-mutable list of roots (RootDir-like / dicts). When omitted, the single
@@ -117,6 +145,19 @@ class PermissionEngine:
                 return Decision(True, "command allowed for session")
         if tool_name in self.session_allow_tools and not is_connector:
             return Decision(True, "tool allowed for session")
+
+        # Task-scoped standing rules (§25): tool + exact target, owned by the automation.
+        # Deliberately NOT subject to the connector exclusion above — the exact-target
+        # binding is what makes auto-allowing a connector tool safe. Never for exec risk
+        # (candidate extraction is external-risk-only), and additive on top of the mode:
+        # read-only modes already returned before this point.
+        if tool_name in self.task_rules:
+            target = standing_rule_candidate(
+                tool_name, arguments, metadata, self.risk_overrides
+            )
+            if target and target in self.task_rules[tool_name]:
+                rule = f"{tool_name} → {target}"
+                return Decision(True, f"allowed by standing rule: {rule}", rule=rule)
 
         # Custom mode auto-approves the configured tools.
         if self.mode is Mode.CUSTOM and tool_name in self.auto_allow_tools:

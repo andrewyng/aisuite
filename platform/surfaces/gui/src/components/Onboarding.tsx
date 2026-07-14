@@ -1,28 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   cloudLogin,
-  connectManaged,
-  createAutomation,
   getCloudStatus,
   getConnectors,
   getProviders,
-  getRecentChannels,
   setOnboarded,
   setProvider,
   verifyProvider,
   type CloudStatus,
   type Connector,
   type ProviderInfo,
-  type RecentChannel,
 } from "../api";
 import { openExternal } from "../tauri";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
-import { ChannelPicker } from "./SubscriptionsChip";
-import { Icon } from "./Icon";
 import { SelectMenu } from "./SelectMenu";
+import { Spinner } from "./AutomationQuickstart";
 
-// First-run onboarding (UX-DECISIONS §24): model → recipe → tips. Only step 1 gates;
-// steps 2–3 are skippable. Replayable anytime from Settings ▸ Appearance ▸ "Run setup again".
+// First-run onboarding (UX-DECISIONS §24, restructured by §29): model → your tools → go.
+// Only the model step gates; the recipe machinery moved to the Automations quickstart
+// (AutomationQuickstart.tsx). Replayable from Settings ▸ Appearance ▸ "Run setup again".
 
 // Where a non-developer gets an API key — deep link + one line of instructions.
 const KEY_HELP: Record<string, { url: string; label: string }> = {
@@ -33,61 +29,9 @@ const KEY_HELP: Record<string, { url: string; label: string }> = {
   together: { url: "https://api.together.xyz/settings/api-keys", label: "together.xyz" },
 };
 
-// The role tabs (§24 step 2): each names its recipe, the two connectors it needs, and how the
-// recipe card assembles. Cron strings are explicit — the user picks a phrase, we map it.
-// "When" = day choice × free time (owner call 2026-07-11: the fixed day+time pairs were
-// limiting). The cron assembles from the two.
-const DAYS: Record<string, { label: string; dow: string }> = {
-  mon: { label: "Mondays", dow: "1" },
-  tue: { label: "Tuesdays", dow: "2" },
-  wed: { label: "Wednesdays", dow: "3" },
-  thu: { label: "Thursdays", dow: "4" },
-  fri: { label: "Fridays", dow: "5" },
-  sat: { label: "Saturdays", dow: "6" },
-  sun: { label: "Sundays", dow: "0" },
-  weekdays: { label: "Weekdays", dow: "1-5" },
-  daily: { label: "Every day", dow: "*" },
-};
-const cronFor = (dayKey: string, hhmm: string) => {
-  const [h, m] = hhmm.split(":");
-  return `${Number(m) || 0} ${Number(h) || 9} * * ${DAYS[dayKey].dow}`;
-};
-
-type TabKey = "eng" | "sales" | "everyday";
-
-const TABS: Record<
-  TabKey,
-  { label: string; line: string; conns: { name: string; why: string }[] }
-> = {
-  eng: {
-    label: "Engineering",
-    line: "Every Monday: a digest of merged PRs and commits, posted to your team's Slack.",
-    conns: [
-      { name: "slack", why: "Where the digest posts" },
-      { name: "github", why: "What the digest summarizes" },
-    ],
-  },
-  sales: {
-    label: "Sales",
-    line: "Every Monday: deals that moved — and deals going quiet — posted to Slack.",
-    conns: [
-      { name: "slack", why: "Where the digest posts" },
-      { name: "hubspot", why: "Pipeline and deal activity" },
-    ],
-  },
-  everyday: {
-    label: "Everyday",
-    line: "Each morning: your calendar and unread email, summarized before your day starts.",
-    conns: [
-      { name: "google_calendar", why: "Today's meetings and gaps" },
-      { name: "gmail", why: "What arrived overnight" },
-    ],
-  },
-};
-
 type Verify = { state: "idle" | "testing" | "ok" | "error"; msg?: string };
 
-export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => void }) {
+export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "automations") => void }) {
   const [step, setStep] = useState(0);
 
   // -- step 1: model ------------------------------------------------------------
@@ -154,128 +98,34 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
     setStep(1);
   };
 
-  // -- step 2: recipe -------------------------------------------------------------
-  const [tab, setTab] = useState<TabKey>("eng");
+  // -- step 2: Connect your tools (§29 — value-framed cloud sign-in) ---------------
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
-  const [pendingConn, setPendingConn] = useState<string | null>(null);
-  const [recent, setRecent] = useState<RecentChannel[]>([]);
-  const [repo, setRepo] = useState("");
-  const [channel, setChannel] = useState("");
-  const [day, setDay] = useState("mon");
-  const [digestTime, setDigestTime] = useState("09:00");
-  const [briefTime, setBriefTime] = useState("08:00");
-  const [deliver, setDeliver] = useState<"app" | "slack">("app");
-  const [consent, setConsent] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [recap, setRecap] = useState<string | null>(null);
-
-  const refreshStep2 = () => {
-    getConnectors().then(setConnectors).catch(() => {});
-    getCloudStatus().then(setCloud).catch(() => {});
-  };
-  // Poll while on the recipe step: connects and the cloud sign-in land out-of-band.
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // §30: narrate the sign-in — "opening" while the POST is in flight, "waiting" once the
+  // browser is off (the 3 s poll below flips to the ✓ state when the flow lands).
+  const [signinPhase, setSigninPhase] = useState<"opening" | "waiting" | null>(null);
+  // Poll while on the tools page: the browser sign-in flow lands out-of-band.
   useEffect(() => {
     if (step !== 1) return;
-    refreshStep2();
-    getRecentChannels().then(setRecent).catch(() => {});
-    pollRef.current = setInterval(refreshStep2, 3000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    const load = () => {
+      getConnectors().then(setConnectors).catch(() => {});
+      getCloudStatus().then(setCloud).catch(() => {});
     };
+    load();
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
   }, [step]);
 
-  const connState = (name: string) => connectors.find((c) => c.name === name);
-  // Human copy shows the channel NAME when known; the raw address stays the stored target.
-  const channelName = recent.find((c) => c.channel === channel)?.name;
-  const channelLabel = channelName ? `#${channelName}` : channel;
-  const tabConns = TABS[tab].conns;
-  const allConnected = tabConns.every((c) => connState(c.name)?.connected);
+  // The logo row: the headline managed connectors, REAL brand icons (owner call 2026-07-12 —
+  // the mock's letter badges were stand-ins).
+  const TOOL_ROW = ["slack", "github", "hubspot", "gmail", "google_calendar"];
 
-  const startConnect = async (name: string, flow?: "authorize") => {
-    if (!cloud?.signed_in) {
-      setPendingConn(name); // the pane appears; sign-in completes it
-      return;
-    }
-    // flow="authorize" (GitHub only) links an EXISTING App installation — the install page
-    // dead-ends on "Configure" when the App is already installed and never fires a callback.
-    await connectManaged(name, flow ? { flow } : undefined).catch(() => {});
-    refreshStep2();
-  };
-
-  const signInThenConnect = async () => {
-    await cloudLogin().catch(() => {});
-    // Poll until the browser flow lands, then finish the pending connect (bounded).
-    let polls = 0;
-    const t = setInterval(async () => {
-      polls += 1;
-      const s = await getCloudStatus().catch(() => null);
-      if (s?.signed_in) {
-        clearInterval(t);
-        setCloud(s);
-        if (pendingConn) {
-          await connectManaged(pendingConn).catch(() => {});
-          setPendingConn(null);
-          refreshStep2();
-        }
-      } else if (polls > 90) clearInterval(t);
-    }, 2000);
-  };
-
-  const create = async () => {
-    setCreating(true);
-    let payload: Parameters<typeof createAutomation>[0] & { permissions?: unknown[] };
-    if (tab === "eng") {
-      payload = {
-        title: "GitHub digest",
-        instructions:
-          `Summarize activity since the last digest in the GitHub repository ${repo || "(the connected repository)"}: ` +
-          `merged pull requests, notable commits, and anything needing attention. ` +
-          `Post the digest to the Slack channel ${channel} using send_message.`,
-        cron: cronFor(day, digestTime),
-        permissions: consent && channel ? [{ tool: "send_message", target: channel, access: "write" }] : [],
-      };
-    } else if (tab === "sales") {
-      payload = {
-        title: "Pipeline digest",
-        instructions:
-          `Review HubSpot activity since the last digest: deals that changed stage, deals going ` +
-          `quiet, and deals past their close date. Post a short pipeline digest to the Slack ` +
-          `channel ${channel} using send_message.`,
-        cron: cronFor(day, digestTime),
-        permissions: consent && channel ? [{ tool: "send_message", target: channel, access: "write" }] : [],
-      };
-    } else {
-      const [h, m] = briefTime.split(":");
-      payload = {
-        title: "Morning brief",
-        instructions:
-          `Prepare a short morning brief: today's calendar events and gaps, plus email that ` +
-          `arrived since yesterday evening. ` +
-          (deliver === "app" ? "Save it as the session deliverable." : "Send it to me as a Slack DM."),
-        cron: `${Number(m) || 0} ${Number(h) || 8} * * *`,
-        permissions: [], // reads don't gate; the consent line here is disclosure
-      };
-    }
-    const res = await createAutomation(payload as any).catch(() => ({ ok: false }) as any);
-    setCreating(false);
-    if (res.ok) {
-      const when =
-        tab === "everyday" ? `every day ${briefTime}` : `${DAYS[day].label} at ${digestTime}`;
-      setRecap(`${payload.title} · ${when} · manage under Automations`);
-      setStep(2);
-    }
-  };
-
-  const finish = async (next?: "work" | "gallery") => {
+  const finish = async (next?: "work" | "gallery" | "automations") => {
     await setOnboarded(true).catch(() => {});
     onDone(next);
   };
 
   // -- shared bits ----------------------------------------------------------------
-  const seg = (on: boolean) =>
-    "px-4 py-1.5 rounded-full text-[12.5px] " + (on ? "bg-ink text-panel" : "text-muted hover:text-ink");
   const label = "block text-[12px] text-muted mt-3 mb-1";
   const input =
     "w-full px-3 py-2 rounded-lg border border-line bg-panel text-[13.5px] outline-none focus:border-accent";
@@ -428,179 +278,86 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
         )}
 
         {step === 1 && (
-          <section data-testid="ob-step-recipe" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-            <h1 className="text-[19px] font-semibold">Get your first automation running</h1>
-            <p className="text-[13px] text-muted mt-0.5 mb-4">Pick what sounds most like your week:</p>
+          <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            <h1 className="text-[19px] font-semibold">Connect your tools</h1>
+            <p className="text-[13px] text-muted mt-0.5 mb-5">
+              OpenCoworker works with the apps you already use.
+            </p>
 
-            <div className="inline-flex border border-line rounded-full p-0.5 mb-3">
-              {(Object.keys(TABS) as TabKey[]).map((k) => (
-                <button key={k} className={seg(tab === k)} onClick={() => setTab(k)} data-testid={`ob-tab-${k}`}>
-                  {TABS[k].label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2.5 mb-5">
+              {TOOL_ROW.map((name) => {
+                const c = connectors.find((x) => x.name === name);
+                return c ? <ConnectorBadge key={name} connector={c} size={38} title={c.title} /> : null;
+              })}
             </div>
-            <p className="text-[13px] bg-paper rounded-lg px-3.5 py-2.5 mb-1">{TABS[tab].line}</p>
 
-            {tabConns.map(({ name, why }) => {
-              const c = connState(name);
-              return (
-                <div key={name} className="border-b border-line last:border-b-0">
-                  <div className="flex items-center gap-3 py-2.5">
-                    {c && <ConnectorBadge connector={c} size={26} title={c.title} />}
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13.5px] font-medium">{c?.title || name}</span>
-                      <span className="block text-[11.5px] text-faint">{why}</span>
-                    </span>
-                    {c?.connected ? (
-                      <span className="text-[12.5px] text-ok">✓ Connected</span>
-                    ) : (
+            <div className="rounded-xl2 border border-line bg-paper px-4 py-3.5 text-[12.5px] text-muted">
+              <span className="block text-[13px] text-ink font-medium mb-0.5">
+                One sign-in unlocks every one-click connection
+              </span>
+              Connections are brokered by OpenCoworker Cloud — your tokens stay on this Mac.
+              Connect Slack, GitHub, HubSpot, Gmail and Calendar later with a single click each.
+            </div>
+            {/* Sign-in is the one-click path, never the ONLY path (owner call 2026-07-12). */}
+            <p className="text-[11.5px] text-faint mt-2.5">
+              Prefer manual setup? Every tool can also be connected with your own API keys from
+              the Connectors page — signing in just makes it one click.
+            </p>
+
+            <div className="mt-4">
+              {cloud?.signed_in ? (
+                <span
+                  className="inline-flex items-center gap-2 text-[13px] text-ok bg-okSoft/60 rounded-lg px-3 py-2"
+                  data-testid="ob-tools-signedin"
+                >
+                  ✓ Signed in{cloud.account ? ` as ${cloud.account}` : ""}
+                </span>
+              ) : signinPhase ? (
+                <span className="inline-flex items-center gap-2 text-[13px] text-muted">
+                  <Spinner />
+                  {signinPhase === "opening" ? "Opening browser…" : "Waiting for sign-in…"}
+                  {signinPhase === "waiting" && (
+                    <span className="text-[11.5px] text-faint">
+                      finish in your browser — this page updates by itself ·{" "}
                       <button
-                        className="px-3.5 py-1 rounded-full border border-line text-[12.5px] hover:bg-paper"
-                        onClick={() => startConnect(name)}
-                        data-testid={`ob-connect-${name}`}
+                        className="underline hover:text-muted"
+                        onClick={() => setSigninPhase(null)}
+                        data-testid="ob-signin-cancel"
                       >
-                        Connect
+                        Cancel
                       </button>
-                    )}
-                  </div>
-                  {/* Already-installed escape hatch: GitHub's install page shows "Configure"
-                      for an existing installation and never calls back. */}
-                  {name === "github" && !c?.connected && cloud?.signed_in && (
-                    <button
-                      className="block pb-2.5 -mt-1 text-[11.5px] text-accent hover:underline"
-                      onClick={() => startConnect("github", "authorize")}
-                      data-testid="ob-link-github-install"
-                    >
-                      Already installed on GitHub? Link it ›
-                    </button>
+                    </span>
                   )}
-                </div>
-              );
-            })}
-
-            {pendingConn && !cloud?.signed_in && (
-              <div className="bg-accentSoft/50 rounded-xl px-4 py-3 mt-3 text-[12.5px] text-muted" data-testid="ob-cloudpane">
-                <span className="block text-[13px] text-ink font-medium">
-                  One sign-in unlocks every one-click connection
                 </span>
-                Connections are brokered by OpenCoworker Cloud — your tokens stay on this Mac.
-                <div>
-                  <button
-                    className="mt-2 px-3.5 py-1 rounded-full border border-line text-[12.5px] text-accent hover:bg-panel"
-                    onClick={signInThenConnect}
-                    data-testid="ob-cloud-signin"
-                  >
-                    Sign in to OpenCoworker Cloud
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {allConnected && (
-              <div className="bg-paper rounded-xl px-4 py-3.5 mt-4" data-testid="ob-recipe">
-                {tab !== "everyday" ? (
-                  <>
-                    {tab === "eng" && (
-                      <>
-                        <label className={label}>Repository</label>
-                        <input
-                          className={input}
-                          placeholder="owner/repo"
-                          value={repo}
-                          onChange={(e) => setRepo(e.target.value)}
-                          data-testid="ob-repo"
-                        />
-                      </>
-                    )}
-                    <label className={label}>Post to channel</label>
-                    <div data-testid="ob-channel">
-                      <ChannelPicker value={channel} onChange={setChannel} recent={recent} />
-                    </div>
-                    <p className="text-[11px] text-warnInk mt-1">
-                      The bot must be a member of the channel — invite @ocw in Slack if it isn't.
-                    </p>
-                    <label className={label}>When</label>
-                    <div className="flex gap-2">
-                      <div className="flex-1 min-w-0">
-                        <SelectMenu
-                          ariaLabel="Day"
-                          value={day}
-                          options={Object.entries(DAYS).map(([k, v]) => ({ value: k, label: v.label }))}
-                          onChange={setDay}
-                        />
-                      </div>
-                      <input
-                        className="w-28 px-3 py-2 rounded-lg border border-line bg-panel text-[13.5px] outline-none focus:border-accent"
-                        type="time"
-                        aria-label="Time"
-                        value={digestTime}
-                        onChange={(e) => setDigestTime(e.target.value)}
-                      />
-                    </div>
-                    <label className="flex items-start gap-2.5 mt-3.5 text-[12.5px] text-muted select-none">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
-                        checked={consent}
-                        onChange={(e) => setConsent(e.target.checked)}
-                        data-testid="ob-consent"
-                      />
-                      <span>
-                        Allow this automation to post its digest to{" "}
-                        <b className="text-ink">{channelLabel || "the channel"}</b> without asking each
-                        time. Anything else still asks first.
-                      </span>
-                    </label>
-                  </>
-                ) : (
-                  <>
-                    <label className={label}>When</label>
-                    <input
-                      className={input}
-                      type="time"
-                      value={briefTime}
-                      onChange={(e) => setBriefTime(e.target.value)}
-                    />
-                    <label className={label}>Deliver to</label>
-                    <SelectMenu
-                      ariaLabel="Deliver to"
-                      value={deliver}
-                      options={[
-                        { value: "app", label: "In the app" },
-                        { value: "slack", label: "Slack DM (connect Slack later)" },
-                      ]}
-                      onChange={(v) => setDeliver(v as "app" | "slack")}
-                    />
-                    <p className="text-[12.5px] text-muted mt-3">
-                      This brief only <b className="text-ink">reads</b> Calendar and Gmail on
-                      schedule — reading never needs approval.
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 mt-auto pt-6">
-              <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setStep(2)}>
-                Skip for now
-              </button>
-              {/* A silently-disabled primary reads as a bug (tester catch 2026-07-12: both
-                  connectors green, button gray, no clue why) — always name the missing piece. */}
-              {allConnected && tab !== "everyday" && !channel && (
-                <span className="ml-auto text-[11.5px] text-faint" data-testid="ob-create-hint">
-                  Pick a channel to post to first
-                </span>
+              ) : (
+                <button
+                  className="px-4 py-2 rounded-full bg-accent text-white text-[13px]"
+                  onClick={async () => {
+                    setSigninPhase("opening");
+                    await cloudLogin().catch(() => {});
+                    setSigninPhase("waiting");
+                  }}
+                  data-testid="ob-cloud-signin"
+                >
+                  Sign in to OpenCoworker Cloud
+                </button>
               )}
+            </div>
+
+            <div className="flex items-center gap-3 mt-auto pt-5">
               <button
-                className={
-                  (allConnected && tab !== "everyday" && !channel ? "" : "ml-auto ") +
-                  "px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
-                }
-                disabled={!allConnected || creating || (tab !== "everyday" && !channel)}
-                onClick={create}
-                data-testid="ob-create"
+                className="text-[12.5px] text-faint hover:text-muted text-left"
+                onClick={() => setStep(2)}
+                data-testid="ob-tools-skip"
               >
-                {creating ? "Creating…" : "Create automation"}
+                Skip — you can sign in whenever you first connect something
+              </button>
+              <button
+                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
+                onClick={() => setStep(2)}
+                data-testid="ob-continue-tools"
+              >
+                Continue
               </button>
             </div>
           </section>
@@ -612,35 +369,49 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery") => 
               <div className="w-12 h-12 rounded-full bg-okSoft text-ok grid place-items-center mx-auto mb-3 text-[22px]">
                 ✓
               </div>
-              <h1 className="text-[19px] font-semibold mb-4">You're set up</h1>
+              <h1 className="text-[19px] font-semibold mb-1">You're set up</h1>
+              <p className="text-[13px] text-muted mb-5">Two good ways to start:</p>
             </div>
 
-            {recap && (
-              <div className="flex items-start gap-3 border border-ok/50 bg-okSoft/40 rounded-xl px-4 py-3 mb-3" data-testid="ob-recap">
-                <Icon name="clock" size={16} className="text-ok mt-0.5 shrink-0" />
-                <span className="text-[12.5px]">
-                  <b className="block text-[13px]">Your automation is scheduled</b>
-                  <span className="text-muted">{recap}</span>
+            <button
+              className="w-full flex items-start gap-3 rounded-xl2 border border-line hover:border-accent bg-panel px-4 py-3.5"
+              onClick={() => finish("automations")}
+              data-testid="ob-cta-automation"
+            >
+              <span className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center text-[15px] shrink-0">
+                ◷
+              </span>
+              <span className="flex-1 min-w-0 text-left">
+                <b className="block text-[13.5px]">Create your first automation</b>
+                <span className="text-[12px] text-muted">
+                  A weekly digest, a morning brief — pick a template, running in two minutes.
                 </span>
-              </div>
-            )}
+              </span>
+              <span className="text-faint self-center">›</span>
+            </button>
+            <button
+              className="w-full flex items-start gap-3 rounded-xl2 border border-line hover:border-accent bg-panel px-4 py-3.5 mt-2.5"
+              onClick={() => finish("work")}
+              data-testid="ob-start"
+            >
+              <span className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center text-[15px] shrink-0">
+                ✦
+              </span>
+              <span className="flex-1 min-w-0 text-left">
+                <b className="block text-[13.5px]">Start working with Coworker</b>
+                <span className="text-[12px] text-muted">
+                  Open a session and just ask — analyze files, draft, research, build.
+                </span>
+              </span>
+              <span className="text-faint self-center">›</span>
+            </button>
 
-            {/* The Specialist-coworkers gallery card and the per-session-scope line are HIDDEN
-                for now (owner call 2026-07-12, simplification pass) — the gallery gets its
-                entry point back later; `finish("gallery")` plumbing stays for that. */}
+            {/* The Specialist-coworkers gallery card and the per-session-scope line stay HIDDEN
+                (owner call 2026-07-12); the finish("gallery") plumbing remains for their return. */}
 
-            <div className="text-center mt-auto pt-5">
-              <button
-                className="px-5 py-2 rounded-full bg-ink text-panel text-[13px]"
-                onClick={() => finish("work")}
-                data-testid="ob-start"
-              >
-                Start working
-              </button>
-              <p className="text-[11px] text-faint mt-3">
-                Replay this setup anytime: Settings ▸ Appearance ▸ Run setup again.
-              </p>
-            </div>
+            <p className="text-[11px] text-faint text-center mt-auto pt-5">
+              Replay this setup anytime: Settings ▸ Appearance ▸ Run setup again.
+            </p>
           </section>
         )}
       </div>

@@ -176,36 +176,26 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
 function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }) {
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const go = async (flow?: "authorize") => {
+  const go = async () => {
     setError(null);
-    const res = await connectManaged(c.name, flow ? { flow } : undefined);
+    const res = await connectManaged(c.name);
     if (res.ok) setWaiting(true);
     else setError(res.error || "could not start the install");
   };
   return (
     <div className="px-5 py-4 space-y-3">
       <p className="text-[13px] text-muted">
-        Opens GitHub in your browser — install the @ocw-agent App on an account or org and
-        pick the repos there. No tokens typed; the agent acts as ocw-agent[bot].
+        Opens GitHub in your browser — approve OpenCoworker there. An existing @ocw-agent App
+        installation links right up; otherwise you'll pick an account and repos. No tokens
+        typed; the agent acts as ocw-agent[bot].
       </p>
       {cloud?.signed_in ? (
-        <>
-          <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={() => go()} disabled={waiting}>
-            {waiting ? "Check your browser…" : "Install the GitHub App"}
-          </button>
-          {/* Already-installed escape hatch: GitHub's install page shows "Configure" for an
-              existing installation and never fires our callback (owner hit this on a fresh
-              state dir, 2026-07-11). The authorize flow links the existing installation via
-              plain OAuth instead. */}
-          <button
-            className="w-full text-[12.5px] text-accent hover:underline"
-            data-testid="modal-link-github-install"
-            onClick={() => go("authorize")}
-            disabled={waiting}
-          >
-            Already installed on GitHub? Link your installation ›
-          </button>
-        </>
+        /* One button: the broker is authorize-first — it links an existing installation or
+           redirects the same tab on to the install page (the old "Already installed? Link
+           it" question and the Configure dead-end are gone). */
+        <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={() => go()} disabled={waiting}>
+          {waiting ? "Check your browser…" : "Connect GitHub"}
+        </button>
       ) : (
         <CloudSignInInline />
       )}

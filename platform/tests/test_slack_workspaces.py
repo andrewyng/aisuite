@@ -56,7 +56,7 @@ def test_managed_callback_installs_and_hot_reloads(client, monkeypatch):
 
     monkeypatch.setattr(client.manager, "refresh_gateway", _refresh)
     resp = client.post("/oauth/callback", data=_install_form("T1"))
-    assert resp.status_code == 200 and "slack connected" in resp.text
+    assert resp.status_code == 200 and "Slack connected" in resp.text
     assert client.manager.secrets.get("slack:team:T1")["bot_token"] == "xoxb-T1"
     # The broker-resolved workspace domain persists (names collide; domains don't)
     # and rides the workspaces list for the GUI's group headers.

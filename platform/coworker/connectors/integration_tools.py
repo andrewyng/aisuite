@@ -20,7 +20,7 @@ import aisuite as ai
 from ..secrets import SecretStore
 from .browser_automation import make_browser_automation_tools
 from .email_tools import make_email_tools
-from .tool_defs import connector_for_tool
+from .tool_defs import approval_for_tool, connector_for_tool
 
 
 def _meta(
@@ -59,10 +59,13 @@ def _attach(
     approval: bool = True,
     caps: Optional[list[str]] = None,
 ):
+    name = schema["function"]["name"]
+    # §36: the tool registry's read/write kind overrides the call-site flag for
+    # registered tools — connector READS never gate. The explicit arg only governs
+    # tools without a registry entry.
+    approval = approval_for_tool(name, default=approval)
     fn.__coworker_schema__ = schema
-    fn.__aisuite_tool_metadata__ = _meta(
-        schema["function"]["name"], approval=approval, capabilities=caps
-    )
+    fn.__aisuite_tool_metadata__ = _meta(name, approval=approval, capabilities=caps)
     fn.__doc__ = schema["function"]["description"]
     return fn
 

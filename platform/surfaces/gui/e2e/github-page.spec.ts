@@ -41,7 +41,7 @@ test("add installation opens the modal; signed in installs a second org", async 
   await openGithubPage(page);
   await page.getByTestId("add-installation-btn").click();
   const modal = page.getByTestId("add-connection-modal");
-  await expect(modal).toContainText("install the @ocw-agent App"); // one-click pane
+  await expect(modal).toContainText("@ocw-agent App"); // one-click pane
   await expect(modal).toContainText("Sign in to OpenCoworker Cloud"); // signed out
   // Manual PAT pane is right there too — both modes, one entry point
   await modal.getByTestId("modal-pane-manual").click();
@@ -64,12 +64,12 @@ test("add installation opens the modal; signed in installs a second org", async 
   await expect(page.getByTestId("github-install-101")).toBeVisible(); // existing stays
 });
 
-test("modal offers linking an existing installation — sends flow=authorize", async ({
+test("modal has ONE connect button and sends no flow — authorize-first lives in the broker", async ({
   page,
 }) => {
-  // GitHub's install page dead-ends on "Configure" when the App is already installed (no
-  // callback ever fires — owner hit this on a fresh state dir). The modal's secondary link
-  // must start the plain-OAuth authorize flow instead.
+  // The broker's default github flow user-authorizes first (links existing installations,
+  // redirects to the install page only when there are none) — so the modal's old
+  // "Already installed? Link it" secondary and its flow=authorize are gone.
   await openGithubPage(page);
   await page.getByTestId("connectors-breadcrumb").click();
   await page.getByTestId("account-row").click();
@@ -79,12 +79,13 @@ test("modal offers linking an existing installation — sends flow=authorize", a
 
   let flowSent: string | null = null;
   await page.route("**/v1/connectors/github/connect-managed", async (route) => {
-    flowSent = (route.request().postDataJSON() || {}).flow || "";
+    flowSent = (route.request().postDataJSON() || {}).flow ?? "";
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) });
   });
   await page.getByTestId("add-installation-btn").click();
-  await page.getByTestId("modal-link-github-install").click();
-  await expect.poll(() => flowSent).toBe("authorize");
+  await expect(page.getByTestId("modal-link-github-install")).toHaveCount(0);
+  await page.getByTestId("modal-install-github-app").click();
+  await expect.poll(() => flowSent).toBe("");
 });
 
 test("disconnect removes one installation and keeps the rest", async ({ page }) => {

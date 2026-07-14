@@ -53,6 +53,10 @@ class ConnectorDescriptor:
     fields: list[Field]
     instructions: list[str]
     available: bool = True  # False → shown as "soon"
+    # Chat-platform capability, narrower than two_way: sessions can SUBSCRIBE to this
+    # connector's channels (Sources ▸ Channels, listening-sessions block). GitHub is
+    # two_way via the relay (inbound mentions) but has no channel semantics.
+    channels: bool = False
     validate: Optional[Callable[[dict], ValidationResult]] = None
     # Registry metadata (UI-Refresh §1): the connector's brand color (hex; fallback gray) and a
     # stable logo id (e.g. "slack") the frontend maps to a bundled SVG. Empty logo → UI fallback.
@@ -338,6 +342,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Two-way messaging with a Telegram bot.",
         auth="bot_token",
         two_way=True,
+        channels=True,
         brand_color="#229ed9",
         logo="telegram",
         fields=[
@@ -365,6 +370,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Two-way messaging — one-click via OpenCoworker Cloud, or a manual Slack app (Socket Mode).",
         auth="socket_app",
         two_way=True,
+        channels=True,
         brand_color="#611f69",
         logo="slack",
         # One-click managed OAuth (the cloud relay): signed in, the GUI shows
@@ -393,7 +399,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Go to api.slack.com/apps → Create New App (from scratch).",
             "Settings → Socket Mode: enable it and generate an app-level token (xapp-) with connections:write.",
             "Features → Interactivity & Shortcuts: turn Interactivity ON (no Request URL needed in Socket Mode) — required for Approve/Deny buttons.",
-            "OAuth & Permissions: add bot scopes chat:write, app_mentions:read, im:history, channels:history, groups:history, users:read, channels:read, groups:read (the last three resolve sender/channel display names).",
+            "OAuth & Permissions: add bot scopes chat:write, files:write, app_mentions:read, im:history, channels:history, groups:history, users:read, channels:read, groups:read (files:write lets the agent send files; the last three resolve sender/channel display names).",
             "Install to workspace and copy the Bot User OAuth Token (xoxb-).",
             "Paste both tokens below and Connect, then invite the bot to a channel or DM it.",
         ],

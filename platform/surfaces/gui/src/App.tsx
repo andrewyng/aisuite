@@ -17,6 +17,7 @@ import {
   renameSession,
   runAutomation,
   setSessionFlags,
+  setUnattended,
   Session,
   type InboxItem,
   type MessageSource,
@@ -26,16 +27,17 @@ import {
 } from "./api";
 import type { ApprovalDecision, Attachment, Item, SessionInfo, TodoItem, WsEvent } from "./types";
 import { isProjectScoped, shortPersonaName } from "./personaScope";
+import { baseName } from "./paths";
 import { itemsFromMessages } from "./itemsFromMessages";
+import { streamMode } from "./streamGate";
 import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, startWindowDrag } from "./tauri";
 import { Icon } from "./components/Icon";
 import { Sidebar } from "./components/Sidebar";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
-import { InboxControl } from "./components/InboxControl";
 import { Markdown } from "./components/Markdown";
-import { RootsBar } from "./components/RootsBar";
+import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
@@ -44,7 +46,6 @@ import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { SettingsView } from "./components/SettingsView";
 import { PersonaView } from "./components/PersonaView";
-import { SourcesBar } from "./components/SourcesBar";
 import { AuditView } from "./components/AuditView";
 import { InboxView } from "./components/InboxView";
 import { ApprovalCard } from "./components/ApprovalCard";
@@ -142,7 +143,7 @@ export function App() {
   const [branch, setBranch] = useState<string | null>(null);
   const [showGate, setShowGate] = useState(false);
   const [agent, setAgent] = useState("cowork");
-  const [model, setModel] = useState("gpt-5.5");
+  const [model, setModel] = useState("gpt-5.6-sol");
   const [models, setModels] = useState<string[]>([]);
   const [modelLabels, setModelLabels] = useState<Record<string, string>>({});
   const [surfaces, setSurfaces] = useState<SurfaceVisibility>({ cowork: true, chat: false, code: false });
@@ -238,10 +239,20 @@ export function App() {
   // Count of files this Cowork conversation has produced — surfaces an "Artifacts (N)" button in
   // the topbar when the side panel is hidden, so produced files are never buried.
   const [artifactCount, setArtifactCount] = useState(0);
-  // The Session settings drawer (§23) — open state lives here because BOTH the sub-header row and
-  // the topbar's session-settings icon open it; the section is where a glance shortcut lands.
-  const [sessionSettings, setSessionSettings] = useState<DrawerSection | null>(null);
-  useEffect(() => setSessionSettings(null), [sessionId]); // never carry an open drawer across sessions
+  // §32 deep link into the rail's Access section (the former Session-settings drawer): bumping
+  // the key expands the section and scrolls it into view. Callers also un-hide the rail.
+  const [accessKey, setAccessKey] = useState(0);
+  const openAccess = () => {
+    setRailHidden(false);
+    setAccessKey((k) => k + 1);
+  };
+  // §34 (UX-016): clicking an artifact chip in the transcript must land somewhere visible —
+  // RightRail opens the viewer; this just makes sure the rail isn't hidden.
+  useEffect(() => {
+    const show = () => setRailHidden(false);
+    window.addEventListener("ocw-open-artifact", show);
+    return () => window.removeEventListener("ocw-open-artifact", show);
+  }, []);
   // The command-palette search, openable from the collapsed-sidebar topbar cluster (§22). The
   // expanded sidebar owns its own instance; this one exists so search never disappears with it.
   const [searchOpen, setSearchOpen] = useState(false);
@@ -269,7 +280,6 @@ export function App() {
     unattendedRef.current = on;
     setUnattendedState(on);
   }, []);
-
   // The Mode menu's "Send approvals to Inbox" toggle (§22 — the old InboxControl, folded in).
   const toggleUnattended = async (on: boolean) => {
     await setUnattended(sessionId, on);
@@ -543,7 +553,14 @@ export function App() {
           if (unattendedRef.current) break;
           setItems((p) => [
             ...p,
-            { kind: "approval", name: d.name, args: d.arguments, reason: d.reason, category: d.category },
+            {
+              kind: "approval",
+              name: d.name,
+              args: d.arguments,
+              reason: d.reason,
+              category: d.category,
+              standingTarget: d.standing_target || undefined,
+            },
           ]);
           break;
         case "directory_requested":
@@ -578,6 +595,7 @@ export function App() {
               d.status,
               d.result_preview || d.reason,
               d.display?.hidden_by_filters,
+              d.standing_rule,
             ),
           );
           // Refresh the right rail when something it shows may have changed: browser state, or a
@@ -968,8 +986,10 @@ export function App() {
           aria-hidden="true"
         />
       )}
-      {/* Explicit reveal affordance while collapsed (alongside hover-peek + ⌘B). */}
-      {navCollapsed && !navPeek && (
+      {/* Explicit reveal affordance while collapsed (alongside hover-peek + ⌘B) — on every
+          surface EXCEPT the session view, whose topbar carries the [sidebar][+][search] cluster
+          instead (§22; no duplicate reveal buttons). */}
+      {navCollapsed && !navPeek && surface !== "session" && (
         <button
           className="nav-reveal-btn"
           onClick={toggleNav}
@@ -989,11 +1009,14 @@ export function App() {
             if (next === "gallery") {
               // The specialists tip: land on Settings ▸ Personas, where the Gallery link lives.
               openSettings("personas");
+            } else if (next === "automations") {
+              // "Create your first automation" (§29) lands on the Automations quickstart.
+              setSurface("scheduled");
             } else if (next === "work") {
-              // "Start working" teaches by landing (§24): a fresh session with the session-
-              // settings panel open. The drawer state clears on session change, so open it after.
+              // "Start working" teaches by landing (§24, §32): a fresh session with the rail's
+              // Access section expanded. Bump after the session switch settles.
               startNewSession();
-              setTimeout(() => setSessionSettings("sources"), 80);
+              setTimeout(openAccess, 80);
             }
           }}
         />
@@ -1057,83 +1080,8 @@ export function App() {
           onOpenIntegrations={() => setSurface("integrations")}
         />
       ) : (
-      <div className={"main" + (surface === "session" && agent === "cowork" && !railHidden ? " rail-open" : "")}>
+      <div className={"main" + (surface === "session" && agent !== "chat" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
-<<<<<<< HEAD
-          <div className="main-title" onPointerDown={beginWindowDrag}>
-            {renamingTitle ? (
-              <input
-                className="title-rename"
-                value={renameDraft}
-                autoFocus
-                spellCheck={false}
-                onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => setRenameDraft(e.target.value)}
-                onBlur={commitTitleRename}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitTitleRename();
-                  else if (e.key === "Escape") setRenamingTitle(false);
-                }}
-              />
-            ) : (
-              <>
-                <span>{activeTitle}</span>
-                {personaName && (
-                  <>
-                    <span className="text-faint font-normal">·</span>
-                    <span className="text-muted font-normal truncate">{personaName}</span>
-                  </>
-                )}
-              </>
-            )}
-            <button
-              className="title-menu-btn"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => setTopbarMenuOpen((open) => !open)}
-              aria-label="Conversation options"
-              title="Conversation options"
-            >
-              <Icon name="moreHorizontal" size={16} />
-            </button>
-            {topbarMenuOpen && (
-              <div className="title-menu" onMouseDown={(e) => e.stopPropagation()}>
-                <button
-                  disabled={!activeInfo}
-                  title={activeInfo ? undefined : "Send a message first"}
-                  onClick={() => {
-                    setTopbarMenuOpen(false);
-                    togglePinned(sessionId, !activeInfo?.pinned);
-                  }}
-                >
-                  <Icon name="pin" size={15} />
-                  <span>{activeInfo?.pinned ? "Unpin chat" : "Pin chat"}</span>
-                </button>
-                <button
-                  disabled={!activeInfo}
-                  title={activeInfo ? undefined : "Send a message first"}
-                  onClick={() => {
-                    setTopbarMenuOpen(false);
-                    setRenameDraft(activeTitle);
-                    setRenamingTitle(true);
-                  }}
-                >
-                  <Icon name="pencil" size={15} />
-                  <span>Rename chat</span>
-                </button>
-                <button
-                  disabled={!activeInfo}
-                  title={activeInfo ? undefined : "Send a message first"}
-                  onClick={() => {
-                    setTopbarMenuOpen(false);
-                    toggleArchived(sessionId, !activeInfo?.archived);
-                  }}
-                >
-                  <Icon name="archive" size={15} />
-                  <span>{activeInfo?.archived ? "Unarchive chat" : "Archive chat"}</span>
-                </button>
-              </div>
-            )}
-=======
           {/* Left: the contextual cluster — [sidebar] [+ new session] [search] — rendered ONLY
               while the sidebar is collapsed (§22; the expanded sidebar already owns those
               actions). Clicks must not start a window drag. */}
@@ -1170,33 +1118,18 @@ export function App() {
                 </button>
               </div>
             )}
-            {/* Session-settings row (§23), DOCKED into the bar's left region (§22/§23 amendment
-                2026-07-11: the standalone strip under the bar is gone — one bar, not two). The
-                contract is unchanged: rest = icon · hover/focus = glance · click = the drawer. */}
-            {agent !== "chat" && (
-              <div className="flex-1 min-w-0" onPointerDown={(e) => e.stopPropagation()}>
-                <SessionSettingsRow
-                  sessionId={sessionId}
-                  personaId={agent}
-                  projectScoped={isProjectScoped(personaOf(agent))}
-                  workspace={workspace || undefined}
-                  branch={branch}
-                  scratchPrimary={agent === "cowork"}
-                  open={sessionSettings !== null}
-                  section={sessionSettings ?? "sources"}
-                  onOpen={setSessionSettings}
-                  onClose={() => setSessionSettings(null)}
-                  onOpenIntegrations={() => setSurface("integrations")}
-                  onOpenPersona={(id) => openPersona(id, "session")}
-                />
-              </div>
-            )}
+            {/* §32: no session-settings row up here anymore — the §23 rest/hover/click glance
+                machinery retired with the drawer. "What can this touch" lives permanently on
+                the rail's Access section header; the panel toggle is the one entry. */}
           </div>
           {/* Center: title + facts subtitle (§22, amended: the ⋯ menu removed — the nav row's
               hover cluster owns pin/rename/archive/delete). The title stays: with the sidebar
               collapsed it is the only session identifier, and it anchors the subtitle. */}
           <div className="main-title" onPointerDown={beginWindowDrag}>
-            <span className={"main-title-text" + (activeInfo ? "" : " title-ghost")}>
+            <span
+              className={"main-title-text" + (activeInfo ? "" : " title-ghost")}
+              title={activeTitle}
+            >
               {activeTitle}
             </span>
             {hasHistory && (
@@ -1210,24 +1143,10 @@ export function App() {
                 {subtitleParts.join(" · ")}
               </button>
             )}
->>>>>>> 97cd537 (Session topbar: drop the conversation menu, go edgeless; mode chip names its choice (§22 amendments))
           </div>
-          <div className="main-drag-fill" onPointerDown={beginWindowDrag} />
-          <div className="main-topbar-actions">
-            {/* Model + permission-mode are NOT shown here — they live in the composer (model
-                dropdown + "Ask for approval"), where you actually change them. Read-only chips
-                up top duplicated those controls with inconsistent wording (deliberate). */}
-            {agent !== "chat" && (
-              <button
-                className="topbar-icon-btn"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => openPersona(agent, "session")}
-                aria-label="About this persona"
-                title="About this persona"
-              >
-                <Icon name="sliders" size={16} />
-              </button>
-            )}
+          {/* Right: session-settings icon (§23) + panel toggle. Model/mode/persona chrome is
+              gone — the facts live in the subtitle, the controls in the composer (§22). */}
+          <div className="main-topbar-side main-topbar-actions" onPointerDown={beginWindowDrag}>
             {agent === "cowork" && railHidden && artifactCount > 0 && (
               <button
                 className="topbar-artifacts-btn"
@@ -1240,7 +1159,9 @@ export function App() {
                 <span className="topbar-artifacts-count">{artifactCount}</span>
               </button>
             )}
-            {agent === "cowork" && (
+            {/* §32: the panel toggle is the ONE session-panel entry, for every non-chat persona
+                (the rail now carries Access, so code-family gets it too). */}
+            {agent !== "chat" && (
               <button
                 className="topbar-icon-btn"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -1248,7 +1169,7 @@ export function App() {
                 aria-label={railHidden ? "Show side panel" : "Hide side panel"}
                 title={railHidden ? "Show side panel" : "Hide side panel"}
               >
-                <Icon name={railHidden ? "panelOpen" : "panelClose"} size={16} />
+                <Icon name="sidebarRight" size={16} />
               </button>
             )}
           </div>
@@ -1286,25 +1207,12 @@ export function App() {
                 </button>
               </div>
             )}
-<<<<<<< HEAD
-            {/* Sources bar lives INSIDE the chat column (which is padded to clear the absolute
-                glass topbar), as a fixed sub-header above the scrolling conversation — mock §6. */}
-            {agent !== "chat" && (
-              <SourcesBar
-                sessionId={sessionId}
-                personaId={agent}
-                onOpenIntegrations={() => setSurface("integrations")}
-                onOpenPersona={(id) => openPersona(id, "session")}
-              />
-            )}
-=======
->>>>>>> 48acdf2 (Session-settings row docks into the topbar (§22/§23 amendment))
             <div className="main-scroll" ref={scrollRef}>
               {idle ? (
                 agent === "cowork" ? (
                   <SessionIntro
                     sessionId={sessionId}
-                    onOpenSessionSettings={() => setSessionSettings("sources")}
+                    onOpenSessionSettings={openAccess}
                     onPrefill={prefillComposer}
                   />
                 ) : (
@@ -1328,9 +1236,19 @@ export function App() {
                 )
               ) : (
                 <>
-                  <Transcript items={items} onApprove={approve} />
-                  {running && !streaming && !lastItemIsAssistant(items) && <WaitingForAgent />}
-                  {streaming && (
+                  <Transcript
+                    items={items}
+                    onApprove={approve}
+                    running={running}
+                    // §33 ref #3: sub-threshold streamed text renders INSIDE the live turn
+                    // group (header when collapsed, quiet line when expanded) — never as a
+                    // floating paragraph.
+                    streamingText={streamMode(streaming, items, running) === "quiet" ? streaming : undefined}
+                  />
+                  {running &&
+                    (!streaming || streamMode(streaming, items, running) === "hold") &&
+                    !lastItemIsAssistant(items) && <WaitingForAgent />}
+                  {streaming && streamMode(streaming, items, running) === "answer" && (
                     <div className="transcript">
                       <div className="bubble-assistant">
                         <div className="who">assistant</div>
@@ -1358,22 +1276,8 @@ export function App() {
               onModeChange={changeMode}
               onModelChange={changeModel}
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
-              branch={branch}
-              onPickWorkspace={() => setShowGate(true)}
-              rootsSlot={
-                needsWorkspace(agent) ? (
-                  <RootsBar sessionId={sessionId} scratchPrimary={agent === "cowork"} />
-                ) : undefined
-              }
-              inboxSlot={
-                agent !== "chat" ? (
-                  <InboxControl
-                    sessionId={sessionId}
-                    onChange={markUnattended}
-                    onOpenSettings={() => setSurface("integrations")}
-                  />
-                ) : undefined
-              }
+              unattended={unattended}
+              onUnattendedChange={agent !== "chat" ? toggleUnattended : undefined}
               prefill={composerPrefill}
               resetKey={sessionId}
               placeholder={
@@ -1391,7 +1295,7 @@ export function App() {
                 ) : !unattended && pendingDirReq?.kind === "dirreq" ? (
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
                 ) : !unattended && pendingApproval?.kind === "approval" ? (
-                  <ApprovalCard item={pendingApproval} onApprove={approve} compact />
+                  <ApprovalCard item={pendingApproval} onApprove={approve} runTask={runContext} compact />
                 ) : !unattended && pendingQuestion?.kind === "question" ? (
                   // Live ask_user in an attended session — answer inline (reuses the Inbox card UI).
                   <InboxItemCard
@@ -1421,16 +1325,38 @@ export function App() {
             />
                   </div>
           <RightRail
-            active={surface === "session" && agent === "cowork" && !railHidden}
+            active={surface === "session" && agent !== "chat" && !railHidden}
             sessionId={sessionId}
             refreshKey={browserRefreshKey}
             toolNames={items.filter((i) => i.kind === "tool").map((i: any) => i.name)}
             todo={todo}
             running={running}
             onPreviewChange={onArtifactPreview}
+            showArtifacts={agent === "cowork"}
+            personaId={agent}
+            projectScoped={isProjectScoped(personaOf(agent))}
+            workspace={workspace || undefined}
+            branch={branch}
+            scratchPrimary={agent === "cowork"}
+            openAccessKey={accessKey}
+            onOpenIntegrations={() => setSurface("integrations")}
           />
         </div>
       </div>
+      )}
+
+      {/* Search from the collapsed-sidebar topbar cluster (the sidebar's own instance is
+          unreachable while it's collapsed). */}
+      {searchOpen && (
+        <SearchModal
+          sessions={sessions}
+          personas={personas ?? undefined}
+          onSelect={(id, ws, ag) => {
+            setSearchOpen(false);
+            selectSession(id, ws, ag);
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
       )}
 
       {showGate && surface === "session" && gatesWorkspace(agent) && (
@@ -1477,12 +1403,19 @@ function updateLastTool(
   status: string,
   preview?: string,
   hidden?: number,
+  standingRule?: string,
 ): Item[] {
   const copy = [...items];
   for (let i = copy.length - 1; i >= 0; i--) {
     const it = copy[i];
     if (it.kind === "tool" && it.name === name && it.status === "…") {
-      copy[i] = { ...it, status, preview, ...(hidden ? { hidden } : {}) };
+      copy[i] = {
+        ...it,
+        status,
+        preview,
+        ...(hidden ? { hidden } : {}),
+        ...(standingRule ? { standingRule } : {}),
+      };
       break;
     }
   }

@@ -1,11 +1,11 @@
 // Start-screen template tasks (§27): three concrete rows, no icon tiles, no "Set me up" list.
 // Sub-lines are outcome-voiced; connection state lives in the dots + the trailing action.
-// Gated row (source not live for this session) → "Configure ›" opens the §23 Session settings
-// drawer; ready row → click prefills the composer with the template stem.
+// Gated row (source not live for this session) → "Configure ›" expands the rail's Access
+// section (§32); ready row → click prefills the composer with the template stem.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
-test("three rows, no Set-me-up; gated rows show Configure › and open the Session settings drawer", async ({
+test("three rows, no Set-me-up; gated rows show Configure › and expand the rail's Access section", async ({
   page,
 }) => {
   await page.goto("/");
@@ -16,20 +16,21 @@ test("three rows, no Set-me-up; gated rows show Configure › and open the Sessi
   await expect(page.getByText("Set me up (optional)")).toHaveCount(0);
   await expect(page.getByText("Give me access to a folder")).toHaveCount(0);
 
-  // Fixture session state: slack live, hubspot + github not → both source rows are gated,
-  // with the Configure affordance visible AT REST (no hover needed — it IS the row's action).
+  // Fixture session state: slack + github live, hubspot not → the HubSpot row is gated,
+  // with the Configure affordance visible AT REST (no hover needed — it IS the row's action);
+  // the github+slack automation row has everything it needs.
   const hs = page.getByTestId("intro-task-hubspot");
   await expect(hs).toContainText("Configure ›");
   await expect(hs.locator(".task-card-act")).toHaveCSS("opacity", "1");
-  await expect(page.getByTestId("intro-task-github-slack")).toContainText("Configure ›");
+  await expect(page.getByTestId("intro-task-github-slack")).toContainText("Start →");
 
   // Sub-lines describe the task's outcome, never connection state.
   await expect(hs).toContainText("Sources, stages, and who needs follow-up");
   await expect(hs).not.toContainText(/connect/i);
 
-  // Configure → the §23 drawer, not a bespoke setup surface.
+  // Configure → the rail's Access section expands (§32), not a bespoke setup surface.
   await hs.click();
-  await expect(page.getByRole("dialog", { name: "Session settings" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Session access" })).toBeVisible();
   // No composer prefill happened on the gated click.
   await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue("");
 });

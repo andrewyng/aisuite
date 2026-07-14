@@ -75,7 +75,15 @@ def slack_event_to_event(
         chat_type=chat_type,
         thread_id=event.get("thread_ts"),
     )
-    return MessageEvent(text=text, source=source, message_id=event.get("ts"))
+    # Mention detection runs on the RAW text (the `<@U…>` token form, legacy `<@U…|name>`
+    # included) — callers rewrite mentions to @display-name only after mapping.
+    mentions_me = bool(
+        bot_user_id
+        and re.search(rf"<@{re.escape(bot_user_id)}(?:\|[^>]*)?>", text)
+    )
+    return MessageEvent(
+        text=text, source=source, message_id=event.get("ts"), mentions_me=mentions_me
+    )
 
 
 # -- adapters ------------------------------------------------------------------

@@ -344,6 +344,8 @@ export interface Connector {
   blurb: string;
   auth: string;
   two_way: boolean;
+  // Chat-platform capability, narrower than two_way: sessions can subscribe to channels.
+  channels: boolean;
   available: boolean;
   fields: ConnectorField[];
   instructions: string[];
@@ -409,7 +411,7 @@ export async function cloudLogout(): Promise<{ ok: boolean }> {
 
 export async function connectManaged(
   name: string,
-  options?: { access?: "read" | "write"; flow?: "authorize" },
+  options?: { access?: "read" | "write" },
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(
     `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
@@ -417,12 +419,10 @@ export async function connectManaged(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // `access` names a broker-defined consent tier (hubspot read | write).
-      // `flow` is GitHub-only: "authorize" links to an EXISTING App installation via plain
-      // OAuth — the install page dead-ends when the App is already installed (its
-      // "Configure" path never fires the callback).
+      // GitHub needs no flow choice: the broker is authorize-first — one connect
+      // links an existing App installation or redirects on to the install page.
       body: JSON.stringify({
         ...(options?.access ? { access: options.access } : {}),
-        ...(options?.flow ? { flow: options.flow } : {}),
       }),
     },
   );
@@ -1196,7 +1196,10 @@ export interface Automation {
   last_status: string | null;
   run_count: number;
   notify_on_completion: boolean;
-  always_allowed: string[];
+  // Standing scoped approvals (§25): target-bound rules this automation may exercise
+  // without asking. `entry` is the raw record entry — the revoke handle; `target` is
+  // null for legacy name-only entries.
+  always_allowed: { entry: string; tool: string; target: string | null }[];
 }
 
 export interface AutomationRun {
@@ -1590,6 +1593,12 @@ export class Session {
   }
 
   close() {
+    // Detach before closing: this socket's async `close` event may land AFTER the
+    // successor session's `open` (observed when switching into an automation-run
+    // session), and a torn-down socket must not clobber the new one's connected state.
+    this.ws.onopen = null;
+    this.ws.onmessage = null;
+    this.ws.onclose = null;
     this.ws.close();
   }
 }

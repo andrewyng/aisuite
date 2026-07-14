@@ -150,7 +150,9 @@ function GenericDetail({
         <div className={GRP + " mt-4"}>
           <AllowlistBlock c={c} onChanged={onChanged} />
           <UnauthorizedBlock c={c} onChanged={onChanged} />
-          <ListeningSessionsBlock c={c} />
+          {/* Channel subscriptions are a chat-platform concept — GitHub is two_way via the
+              relay (inbound mentions) but has no channels. */}
+          {c.channels && <ListeningSessionsBlock c={c} />}
         </div>
       )}
     </div>

@@ -82,7 +82,7 @@ class CoworkerApp(App):
         self,
         *,
         workspace: str | Path,
-        model: str = "gpt-5.5",
+        model: str = "gpt-5.6-sol",
         mode: Mode = Mode.INTERACTIVE,
         provider: Optional[ProviderClient] = None,
         memory_store: Optional[MemoryStore] = None,

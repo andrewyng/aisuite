@@ -18,6 +18,7 @@ from .connectors import (
     connector_list,
     load_settings,
     make_integration_tools,
+    make_send_file_tool,
     make_send_message_tool,
 )
 from .engine import Approver, TurnEngine
@@ -70,6 +71,15 @@ entries with `memory_forget`.
 - Memories reflect when they were written. If one names a file, flag, or URL, verify it \
 still exists before relying on it."""
 
+# UX-015 (§33): the GUI interleaves these status lines with humanized tool rows inside a
+# collapsed "turn" — they're what the user reads while the agent works. Universal (appended
+# for every persona); models that ignore it degrade gracefully to a turn with no narration.
+_NARRATION_GUIDANCE = """\
+Narration: before each batch of tool calls, write ONE short plain sentence saying what \
+you're doing and why (e.g. "Checking what merged since yesterday's digest."). It is shown \
+to the user as live progress. Don't narrate trivial single-call follow-ups, don't repeat \
+the previous line, and never let narration replace your final answer."""
+
 
 def _enabled_connector_tools(secrets: SecretStore) -> tuple[set[str], set[str]]:
     connectors = {c["name"]: c for c in connector_list(secrets)}
@@ -99,7 +109,7 @@ def build_engine(
     *,
     agent: Agent,
     workspace: Optional[str | Path] = None,
-    model: str = "gpt-5.5",
+    model: str = "gpt-5.6-sol",
     mode: Mode = Mode.INTERACTIVE,
     approver: Optional[Approver] = None,
     provider: Optional[ProviderClient] = None,
@@ -156,6 +166,11 @@ def build_engine(
     secrets = secrets or SecretStore()
     if agent.messaging and any(s.enabled for s in load_settings(secrets).values()):
         registry.register(make_send_message_tool(secrets))
+        # send_file (§34): hand deliverables into the chat — same targets, but its OWN
+        # approval surface (a thread's standing send_message grant never covers uploads).
+        registry.register(
+            make_send_file_tool(secrets, workspace=ws, roots=root_list or None)
+        )
         # Channel subscriptions (inbound): listen to a channel, catch up, (un)subscribe. The agent
         # obtains a channel via ask_user or from a channel message it's reacting to.
         if subscription_store is not None and channel_buffer is not None and session_id:
@@ -223,7 +238,7 @@ def build_engine(
     if wake_store is not None and session_id and agent.family == "knowledge":
         registry.register_all(selfwake_tools(wake_store, session_id))
 
-    instructions = agent.system_prompt
+    instructions = f"{agent.system_prompt}\n\n{_NARRATION_GUIDANCE}"
     if ws is not None:
         instructions = f"{instructions}\n\n{environment_context(ws)}"
         conventions = load_agents_md(ws)

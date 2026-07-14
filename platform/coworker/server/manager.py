@@ -30,6 +30,7 @@ from ..inbox_routing import InboxRouting
 from ..personas import PersonaRegistry
 from ..personas.registry import set_registry as set_persona_registry
 from ..selfwake import WakeStore
+from ..mentions import MentionSessionStore
 from ..subscriptions import ChannelBuffer, SubscriptionStore
 from ..unrouted import UnroutedStore
 from ..unattended import UnattendedRegistry
@@ -99,7 +100,7 @@ class SessionManager:
         *,
         workspace: Optional[str | Path] = None,  # default/seed workspace (e.g. --cwd)
         data_dir: Optional[str | Path] = None,
-        model: str = "gpt-5.5",
+        model: str = "gpt-5.6-sol",
         mode: Mode = Mode.INTERACTIVE,
         provider: Optional[ProviderClient] = None,
     ) -> None:
@@ -167,6 +168,10 @@ class SessionManager:
         # of recently-seen channel messages for get_channel_messages.
         self.subscriptions = SubscriptionStore(base / "subscriptions.json")
         self.channel_buffer = ChannelBuffer(state_path=base / "channels.json")
+        # Mention router (§31): thread target → the session that owns that Slack thread.
+        # Also the durable source of the thread's standing send_message grant (re-seeded
+        # onto the engine in get_engine).
+        self.mention_sessions = MentionSessionStore(base / "mention_threads.json")
         # Unauthorized inbound messages, parked instead of dropped (one-step allow-and-deliver).
         self.parked = ParkedStore(base / "parked.json")
         # People directory: "platform:user_id" → display name, noted from every inbound
@@ -352,6 +357,17 @@ class SessionManager:
             # Per-session connection hierarchy: expose only effective-enabled connectors' tools.
             connector_filter=self.effective_connectors(session_id, agent_name),
         )
+        # An automation run rebuilt here (manual "Run now" over WS, durable resume) still
+        # carries its task's standing allowances — the rules live on the task record.
+        owning_task = self.task_store.task_for_run_session(session_id)
+        if owning_task is not None:
+            self._seed_task_permissions(engine, owning_task)
+        # A mention-spawned session (§31) keeps its in-thread reply pre-approved across
+        # rebuilds/restarts — the grant is re-derived from the durable thread map.
+        for thread_target in self.mention_sessions.targets_for(session_id):
+            engine.permissions.task_rules.setdefault("send_message", set()).add(
+                thread_target
+            )
         self._engines[session_id] = engine
         if is_new_session:
             self._emit_session_created(session_id, agent_name)
@@ -649,20 +665,13 @@ class SessionManager:
                 body=_approval_body(request),
                 inbox=self.inbox_routing.route_for(session_id, agent),
                 tool_call_id=getattr(request, "tool_call_id", None),
+                data=self.approval_prompt_data(session_id, request),
             )
             if item.state == "pending":
                 self.persist_session(session_id)
                 await self.mirror_inbox_item(item)
             resolution = await self.inbox.wait(item.id)
-            try:
-                return ApprovalOutcome(resolution)
-            except ValueError:
-                pass
-            if resolution == "allow":
-                return ApprovalOutcome.ONCE
-            if resolution == "always":
-                return ApprovalOutcome.ALWAYS_TOOL
-            return ApprovalOutcome.DENY
+            return self.approval_outcome(resolution, request, session_id)
 
         return approve
 
@@ -1295,7 +1304,7 @@ class SessionManager:
             added = rec if name == "openai" else f"{name}:{rec}"
             self.add_model(added)
         # First working provider wins the default: if the current default model belongs to a
-        # provider with no usable config (the fresh-install gpt-5.5 case), switch the default to
+        # provider with no usable config (the fresh-install gpt-5.6-sol case), switch the default to
         # this provider's model. A default that already works is never stolen.
         if added and not self._provider_configured(self._model_provider(self.model)):
             self.set_default_model(added)
@@ -1934,20 +1943,129 @@ class SessionManager:
         self.audit_store.close()
 
     # -- automation (scheduled tasks) -------------------------------------------
-    def _scheduled_approver(self, task):
+    def approval_prompt_data(self, session_id: str, request) -> dict[str, Any]:
+        """Extra Inbox-item payload for a parked approval. Always carries the tool name +
+        arguments so the GUI can render the same humanized card (§35) it shows live —
+        without them a reopened session fell back to the raw 'Run `tool`?' treatment.
+        Automation runs additionally carry the owning task + (when the call is eligible)
+        the exact target a standing rule would pin: the GUI offers "Allow every time" only
+        when both are present — in-app only, never on Slack-mirrored buttons (§25)."""
+        from ..permissions import standing_rule_candidate
+
+        data: dict[str, Any] = {
+            "tool": request.tool_name,
+            "arguments": getattr(request, "arguments", None) or {},
+        }
+        task = self.task_store.task_for_run_session(session_id)
+        if task is None:
+            return data
+        data.update({"task_id": task.id, "task_title": task.title})
+        target = standing_rule_candidate(
+            request.tool_name,
+            getattr(request, "arguments", None) or {},
+            getattr(request, "metadata", None),
+        )
+        if target:
+            data["standing_target"] = target
+        return data
+
+    def mint_task_rule(
+        self, session_id: str, tool_name: str, arguments: Any, metadata: Any = None
+    ) -> bool:
+        """Persist a standing rule a human minted via "Allow every time" on a run's
+        approval card (§25's retrofit path). Server-side validation, not trust in the
+        card: the session must be an automation run and the call must be rule-eligible
+        (external risk, declared target argument, non-empty target). Also applies the
+        rule to the live engine so the run's next call auto-allows."""
+        from ..permissions import standing_rule_candidate
+
+        task = self.task_store.task_for_run_session(session_id)
+        if task is None:
+            return False
+        target = standing_rule_candidate(tool_name, arguments or {}, metadata)
+        if not target or not task.add_rule(tool_name, target):
+            return False
+        self.task_store.save(task)
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            engine.permissions.task_rules.setdefault(tool_name, set()).add(target)
+        try:
+            self.audit_store.append(
+                {
+                    "session_id": session_id,
+                    "tool": tool_name,
+                    "arguments": arguments or {},
+                    "stage": "standing_rule_minted",
+                    "status": "granted",
+                    "reason": f"allow every time: {tool_name} → {target} (task {task.id})",
+                }
+            )
+        except Exception:
+            pass
+        return True
+
+    def approval_outcome(self, resolution: str, request, session_id: str):
+        """Map an approval resolution (from any surface) to an ApprovalOutcome, handling
+        the task-persistent "always_task" vocabulary alongside the session-scoped ones."""
+        from ..engine import ApprovalOutcome
+
+        if resolution == "always_task":
+            self.mint_task_rule(
+                session_id,
+                request.tool_name,
+                getattr(request, "arguments", None),
+                getattr(request, "metadata", None),
+            )
+            return ApprovalOutcome.ONCE
+        try:
+            return ApprovalOutcome(resolution)
+        except ValueError:
+            pass
+        if resolution == "allow":
+            return ApprovalOutcome.ONCE
+        if resolution == "always":
+            return ApprovalOutcome.ALWAYS_TOOL
+        return ApprovalOutcome.DENY
+
+    def _scheduled_approver(self, task, session_id: str):
         from ..engine import ApprovalOutcome
         from ..permissions import WRITE_TOOLS
 
-        allowed = set(task.always_allowed_tools)
+        name_allowed = task.name_allowed_tools()
 
         async def approver(request):
-            # Unattended: auto-allow the deliverable writes (path-scoped to the task workspace)
-            # + anything in the per-task "Always allowed" set; deny new consequential actions.
-            if request.tool_name in WRITE_TOOLS or request.tool_name in allowed:
+            # Unattended: auto-allow the deliverable writes (path-scoped to the task
+            # workspace) + tools the task allows BY NAME (legacy entries). Target-bound
+            # rules never reach here — the permission engine matched them already.
+            if request.tool_name in WRITE_TOOLS or request.tool_name in name_allowed:
                 return ApprovalOutcome.ONCE
-            return ApprovalOutcome.DENY
+            # Anything else parks in the Inbox and suspends the run (§25 graceful
+            # degradation — an ungranted automation still works, it just asks). The item
+            # carries the task binding so the in-app card can offer "Allow every time";
+            # the Slack mirror renders only Approve/Deny buttons.
+            item = self.inbox.add_approval(
+                session_id,
+                f"Run `{request.tool_name}`?",
+                body=_approval_body(request),
+                inbox=self.inbox_routing.route_for(session_id, task.agent),
+                tool_call_id=getattr(request, "tool_call_id", None),
+                data=self.approval_prompt_data(session_id, request),
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resolution = await self.inbox.wait(item.id)
+            return self.approval_outcome(resolution, request, session_id)
 
         return approver
+
+    def _seed_task_permissions(self, engine: TurnEngine, task) -> None:
+        """Apply a task's standing allowances to an engine: target-bound rules feed the
+        permission engine's matcher (connector tools included — the target binding is the
+        safety); name-only legacy entries keep their session-allowlist behavior."""
+        engine.permissions.task_rules = task.standing_rules()
+        for tool in task.name_allowed_tools():
+            engine.permissions.allow_tool_for_session(tool)
 
     def _build_task_engine(self, task, *, session_id: str) -> TurnEngine:
         ag = get_agent(task.agent)
@@ -1957,7 +2075,7 @@ class SessionManager:
             workspace=task.workspace,
             model=task.model or self.model,
             mode=Mode.INTERACTIVE,
-            approver=self._scheduled_approver(task),
+            approver=self._scheduled_approver(task, session_id),
             provider=self.provider,
             memory_store=self.memory_store,
             secrets=self.secrets,
@@ -1971,8 +2089,7 @@ class SessionManager:
             # expose only the persona's effective-enabled connectors' tools (§4.3).
             connector_filter=self.effective_connectors(session_id, task.agent),
         )
-        for tool in task.always_allowed_tools:
-            engine.permissions.allow_tool_for_session(tool)
+        self._seed_task_permissions(engine, task)
         return engine
 
     # -- mirroring inbox items to a bound channel -------------------------------
@@ -2142,11 +2259,21 @@ class SessionManager:
                 channel, who, text, name=src.chat_name
             )  # buffer all, even unsubscribed
             subs = self.subscriptions.for_channel(channel)
+            # §31 mention router: a direct @-mention of the bot outranks the passive fan-out —
+            # subscribed sessions must answer it; an unsubscribed channel spawns (or steers)
+            # the per-thread coworker session.
+            if getattr(event, "mentions_me", False):
+                await self._route_mention(event, ms, subs)
+                return
             if subs:
+                # Chattiness tiers (§31): untagged channel traffic is judgement-only —
+                # silence is the default; the must-respond framing is the mention path's.
                 msg = (
-                    f"💬 New message on {channel} from {who}: {text}\n"
-                    f"(You're subscribed to this channel. If it's relevant to your job, act on it "
-                    f'and reply with the send_message tool to target "{channel}"; otherwise ignore it.)'
+                    f"💬 New message on {src.chat_name or channel} from {who}: {text}\n"
+                    f"(You're subscribed to this channel but were NOT mentioned. Use your "
+                    f"judgement: stay silent unless the message clearly concerns your job and "
+                    f"a reply adds real value — most channel chatter needs no response from "
+                    f'you. If you do reply, use the send_message tool with target "{channel}".)'
                 )
                 for sub in subs:
                     # Per-session connection hierarchy (§4.3): a session that has muted this
@@ -2177,6 +2304,99 @@ class SessionManager:
                 src.target, who, text, reason="no DM session designated"
             )
 
+    # -- mention router (§31) ----------------------------------------------------
+    async def _route_mention(self, event, ms: MessageSource, subs) -> None:
+        """@ocw tagged in a channel. A subscribed (user-connected) coworker owns the channel
+        and must answer; otherwise the per-thread coworker session handles it — spawned on the
+        first tag, steered by follow-ups (deduped on the thread target)."""
+        from ..connectors.base import format_target
+
+        src = event.source
+        # Slack semantics: replying to a top-level message threads on THAT message's ts, so a
+        # top-level tag (no thread_ts) keys — and is answered — on its own ts.
+        thread_key = src.thread_id or getattr(event, "message_id", None)
+        thread_target = format_target(src.platform, src.chat_id, thread_key)
+        who = src.user_name or src.user_id or "?"
+        chan = f"#{src.chat_name}" if src.chat_name else src.chat_id
+        if subs:
+            # The user connected a coworker to this channel — it answers tags; no spawn.
+            msg = (
+                f"🔔 You were tagged by {who} in {chan}: {event.text}\n"
+                f"(You are subscribed to this channel and were mentioned directly — you must "
+                f"respond. Reply in the thread with the send_message tool, target "
+                f'"{thread_target}".)'
+            )
+            for sub in subs:
+                if not self._inbound_connector_allowed(sub.session_id, src.platform):
+                    continue
+                try:
+                    await self.deliver_to_session(sub.session_id, msg, source=ms.to_dict())
+                except Exception:
+                    pass
+            return
+        sid = self.mention_sessions.get(thread_target)
+        if sid and self.session_store.load(sid) is not None:
+            # Follow-up tag in a thread we already own → steer the same session.
+            msg = (
+                f"💬 Follow-up in your Slack thread ({chan}) from {who}: {event.text}\n"
+                f'(Reply in the thread with the send_message tool, target "{thread_target}" '
+                f"— replies there are pre-approved.)"
+            )
+            await self.deliver_to_session(sid, msg, source=ms.to_dict())
+            return
+        await self._spawn_mention_session(event, ms, thread_target)
+
+    async def _spawn_mention_session(
+        self, event, ms: MessageSource, thread_target: str
+    ) -> None:
+        """First tag in a thread: a NEW visible coworker session that owns the thread. Its
+        in-thread replies carry a standing grant (§25 shape, exact-target match) so the
+        conversation never stalls on an approval nobody in Slack can see; everything else
+        asks as usual (approvals park to the Inbox)."""
+        import uuid
+
+        src = event.source
+        who = src.user_name or src.user_id or "?"
+        chan = f"#{src.chat_name}" if src.chat_name else src.chat_id
+        sid = uuid.uuid4().hex
+        engine = self.get_engine(sid, agent=self.personas.default_id())
+        if engine is None:
+            self.unrouted.record(
+                src.target, who, event.text, reason="could not spawn mention session"
+            )
+            return
+        # Durable mapping FIRST (a fast follow-up tag mid-turn dedupes into steering),
+        # then the live grant; get_engine re-derives it from the store on any rebuild.
+        self.mention_sessions.set(
+            thread_target, sid, channel=f"{src.platform}:{src.chat_id}"
+        )
+        engine.permissions.task_rules.setdefault("send_message", set()).add(thread_target)
+        self.save(sid, engine)  # the sessions row must exist before rename/set_origin
+        # Title = the ASK first, channel last (owner call 2026-07-14): the text is what
+        # varies between sessions, so it gets the truncation budget; the mention token is
+        # noise (origin is already told by the From Slack group + icon + origin_label).
+        ask = re.sub(r"<@[^>]+>", "", event.text or "")
+        ask = " ".join(ask.split())[:48]
+        self.session_store.rename(sid, f"{ask} — {chan}" if ask else chan)
+        label = chan + (f" · {src.team_id}" if src.team_id else "")
+        self.session_store.set_origin(sid, src.platform, label)
+        # Up to 6 lines of channel context, minus the tag itself (it's the opening line).
+        recent = self.channel_buffer.recent(f"{src.platform}:{src.chat_id}", 7)[:-1]
+        context = "\n".join(f"- {m['from']}: {m['text']}" for m in recent)
+        opening = (
+            f"🔔 You were mentioned on Slack in {chan} by {who}: {event.text}\n\n"
+            f"You own this Slack thread. Reply in the thread using the send_message tool "
+            f'with target "{thread_target}" — replies to this thread are pre-approved and '
+            f"never prompt the user. Anything else (other channels, files, external "
+            f"actions) asks for approval as usual. Keep replies concise and "
+            f"Slack-appropriate."
+            + (f"\n\nRecent channel context:\n{context}" if context else "")
+        )
+        try:
+            await self.deliver_to_session(sid, opening, source=ms.to_dict())
+        except Exception:
+            logger.exception("mention session %s opening turn failed", sid)
+
     @staticmethod
     def _wake_message(wake) -> str:
         note = f" (note: {wake.note})" if getattr(wake, "note", "") else ""
@@ -2203,6 +2423,9 @@ class SessionManager:
         # own session id, then saves the transcript. The user can reopen that session and ask a
         # follow-up — the scheduled agent is no longer fire-and-forget.
         engine = self._build_task_engine(task, session_id=run.session_id)
+        # Register the live engine up-front: a parked approval persists the session
+        # mid-run (durable suspend), and resolving from the Inbox must find this engine.
+        self._engines[run.session_id] = engine
         # The first turn is the task itself. The framing matters: instructions often restate the
         # schedule ("every day at 5:32pm…"), so make explicit that the schedule already fired and
         # the job now is to execute, not to (re)schedule.
@@ -2311,6 +2534,8 @@ class SessionManager:
             fire_at=fire_at,
             timezone=timezone,
         )
+        from ..automation.models import grant_entries
+
         task = ScheduledTask(
             title=title,
             instructions=instructions,
@@ -2318,6 +2543,10 @@ class SessionManager:
             workspace="",
             origin_surface="cowork",
             agent="cowork",
+            # Human-driven path (GUI form / onboarding recipes): the creating surface
+            # rendered the grants, the submit IS the consent. Same validation as the
+            # agent tool — only target-bound write grants survive.
+            always_allowed_tools=grant_entries(payload.get("permissions")),
         )
         task.workspace = self._provision_scratch(task.task_session_id)
         self.task_store.save(task)
@@ -2341,7 +2570,17 @@ class SessionManager:
             if not croniter.is_valid(changes["cron"]):
                 return {"ok": False, "error": "invalid cron"}
             task.schedule.cron, task.schedule.kind = changes["cron"], "cron"
+        if changes.get("revoke"):
+            # Revocation from the task detail page ("Allowed without asking … · Revoke").
+            # Human-only, like minting; the agent-facing update tool has no such field.
+            task.revoke_rule(str(changes["revoke"]))
         self.task_store.save(task)
+        if changes.get("revoke"):
+            # A live run engine may still hold the revoked rule — reseed from the record.
+            for sid, engine in self._engines.items():
+                owner = self.task_store.task_for_run_session(sid)
+                if owner is not None and owner.id == task.id:
+                    engine.permissions.task_rules = task.standing_rules()
         return {"ok": True, "task": task.public()}
 
     def delete_automation(self, task_id: str) -> dict[str, Any]:
@@ -2610,6 +2849,8 @@ class SessionManager:
         ok = self.session_store.delete(session_id)
         # Deleting a session is the one implicit unsubscribe (otherwise subscriptions are permanent).
         self.subscriptions.remove_session(session_id)
+        # ...and releases any Slack threads it owned (§31): the next tag there spawns fresh.
+        self.mention_sessions.remove_session(session_id)
         # ...and drops its per-session connector overrides (§4.2, like subscriptions).
         self.session_connections.remove_session(session_id)
         # ...and closes its pending Inbox items — an orphaned approval/question can never be
@@ -2658,6 +2899,10 @@ class SessionManager:
                 "messages": r.message_count,
                 "pinned": r.pinned,
                 "archived": r.archived,
+                # §31: non-user origin ("slack") + display label — drives the sidebar's
+                # "From Slack" group and the row's platform icon.
+                "origin": r.origin,
+                "origin_label": r.origin_label,
                 # Attention = Inbox items awaiting this session (the amber count that bubbles
                 # session → persona → footer Inbox). Liveness = working (in-flight turn) /
                 # sleeping (a self-wake is pending) / idle — a count-less dot that never bubbles.

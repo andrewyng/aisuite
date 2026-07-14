@@ -26,3 +26,7 @@ class SessionRecord:
     extra_roots: list[dict[str, Any]] = field(default_factory=list)
     pinned: bool = False
     archived: bool = False
+    # Where the session came from, when not user-started (§31): machine key + display label
+    # (e.g. origin="slack", origin_label="#general · T0ABCD"). Set once at spawn.
+    origin: Optional[str] = None
+    origin_label: Optional[str] = None

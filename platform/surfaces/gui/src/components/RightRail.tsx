@@ -2,21 +2,18 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 // Emits the asset URL only; the worker itself loads lazily with the pdfjs chunk.
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
-  closeBrowser,
   getArtifacts,
-  getBrowserState,
   readArtifact,
   revealArtifact,
-  takeBrowserScreenshot,
   type ArtifactContent,
   type ArtifactInfo,
-  type BrowserState,
 } from "../api";
 import type { TodoItem } from "../types";
+import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
-import { Markdown } from "./Markdown";
+import { Markdown, OPEN_ARTIFACT_EVENT } from "./Markdown";
 
-type Panel = "progress" | "browser" | "artifacts";
+type Panel = "progress" | "artifacts";
 
 // Quiet file-type icons for the artifact list (the colored kind pills read as noisy).
 function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
@@ -24,6 +21,19 @@ function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
   if (kind === "html" || kind === "code") return "fileCode";
   if (kind === "csv" || kind === "sheet") return "table";
   return "file"; // markdown, text, pdf, everything else
+}
+
+// Fallback kind for an artifact: link whose path isn't in the list (yet) — mirrors the
+// server's extension mapping closely enough for the viewer to pick a renderer.
+function kindFromPath(path: string): string {
+  const ext = (path.split(".").pop() || "").toLowerCase();
+  if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) return "image";
+  if (["html", "htm"].includes(ext)) return "html";
+  if (ext === "md") return "markdown";
+  if (ext === "csv") return "csv";
+  if (ext === "pdf") return "pdf";
+  if (["py", "js", "ts", "tsx", "jsx", "json", "sh", "css"].includes(ext)) return "code";
+  return "text";
 }
 
 interface Props {
@@ -36,27 +46,50 @@ interface Props {
   // Fires when a full artifact preview opens/closes, so the app can auto-collapse the left nav
   // to give the preview (PDF/webpage/sheet) more room (#3).
   onPreviewChange?: (open: boolean) => void;
+  // §32: the rail is the ONE session panel for every non-chat persona. Artifacts stays
+  // cowork-only (deliverables; code-family gets "Files" later — slot reserved); the Access
+  // section (the former Session-settings drawer) renders for all.
+  showArtifacts?: boolean;
+  personaId?: string;
+  projectScoped?: boolean;
+  workspace?: string;
+  branch?: string | null;
+  scratchPrimary?: boolean;
+  openAccessKey?: number;
+  onOpenIntegrations?: () => void;
 }
 
-export function RightRail({ active, sessionId, refreshKey, toolNames, todo, running, onPreviewChange }: Props) {
+export function RightRail({
+  active,
+  sessionId,
+  refreshKey,
+  toolNames,
+  todo,
+  running,
+  onPreviewChange,
+  showArtifacts = true,
+  personaId,
+  projectScoped,
+  workspace,
+  branch,
+  scratchPrimary,
+  openAccessKey = 0,
+  onOpenIntegrations,
+}: Props) {
   const [open, setOpen] = useState<Record<Panel, boolean>>({
     progress: true,
-    browser: false,
     artifacts: true,
   });
-  const [browser, setBrowser] = useState<BrowserState | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const [selected, setSelected] = useState<ArtifactInfo | null>(null);
   const [content, setContent] = useState<ArtifactContent | null>(null);
 
-  const refreshBrowser = () => getBrowserState().then(setBrowser).catch(() => setBrowser(null));
   const refreshArtifacts = () => getArtifacts(sessionId).then(setArtifacts).catch(() => setArtifacts([]));
 
   useEffect(() => {
     if (!active) return;
-    refreshBrowser();
-    refreshArtifacts();
-  }, [active, sessionId, refreshKey]);
+    if (showArtifacts) refreshArtifacts();
+  }, [active, sessionId, refreshKey, showArtifacts]);
 
   // Switching conversations closes any open artifact — it belongs to the previous session's
   // workspace, which the new session can't (and shouldn't) read.
@@ -82,7 +115,39 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
     return readArtifact(sessionId, selected.path).then(setContent).catch(() => setContent(null));
   };
 
-  const browserActive = !!(browser?.open || browser?.last_action || browser?.last_error || browser?.screenshot_data_url);
+  // §34 (UX-016): [Title](artifact:path) chips in the transcript open the viewer directly.
+  // Resolve against the loaded list first; on a miss, refresh once (the file may be
+  // seconds old), then fall back to a minimal record — readArtifact validates the path.
+  useEffect(() => {
+    if (!active) return;
+    const minimal = (path: string): ArtifactInfo => ({
+      path,
+      name: path.split("/").pop() || path,
+      kind: kindFromPath(path),
+      size: 0,
+      modified_at: 0,
+    });
+    const match = (list: ArtifactInfo[], path: string) =>
+      list.find((a) => a.path === path || a.path.endsWith("/" + path) || a.name === path);
+    const onOpen = (e: Event) => {
+      const path = String((e as CustomEvent).detail?.path || "");
+      if (!path) return;
+      const found = match(artifacts, path);
+      if (found) {
+        setSelected(found);
+        return;
+      }
+      getArtifacts(sessionId)
+        .then((list) => {
+          setArtifacts(list);
+          setSelected(match(list, path) ?? minimal(path));
+        })
+        .catch(() => setSelected(minimal(path)));
+    };
+    window.addEventListener(OPEN_ARTIFACT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_ARTIFACT_EVENT, onOpen);
+  }, [active, sessionId, artifacts]);
+
   if (!active) return null;
 
   return (
@@ -101,12 +166,7 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
             <ProgressSummary running={running} toolNames={toolNames} todo={todo} />
           </RailSection>
 
-          {(browserActive || open.browser) && (
-            <RailSection title="Browser" open={open.browser || browserActive} onToggle={() => setOpen({ ...open, browser: !open.browser })}>
-              <BrowserMini state={browser} onRefresh={refreshBrowser} />
-            </RailSection>
-          )}
-
+          {showArtifacts && (
           <RailSection
             title={`Artifacts${artifacts.length ? ` (${artifacts.length})` : ""}`}
             open={open.artifacts}
@@ -145,7 +205,21 @@ export function RightRail({ active, sessionId, refreshKey, toolNames, todo, runn
               </div>
             )}
           </RailSection>
+          )}
 
+          {/* §32: Access — the former Session-settings drawer, one section among peers.
+              key: its data ownership resets with the conversation, like the old row did. */}
+          <AccessSection
+            key={sessionId}
+            sessionId={sessionId}
+            personaId={personaId}
+            projectScoped={projectScoped}
+            workspace={workspace}
+            branch={branch}
+            scratchPrimary={scratchPrimary}
+            openKey={openAccessKey}
+            onOpenIntegrations={onOpenIntegrations}
+          />
         </>
       )}
     </aside>
@@ -208,31 +282,6 @@ function RailSection({
       </div>
       {open && <div className="rail-section-body">{children}</div>}
     </section>
-  );
-}
-
-function BrowserMini({ state, onRefresh }: { state: BrowserState | null; onRefresh: () => void }) {
-  const snap = async () => {
-    await takeBrowserScreenshot();
-    onRefresh();
-  };
-  const close = async () => {
-    await closeBrowser();
-    onRefresh();
-  };
-  if (!state) return <div className="rail-muted">Browser state unavailable.</div>;
-  return (
-    <div className="browser-mini">
-      <div className="rail-muted">{state.open ? state.url || "Open page" : "Closed"}</div>
-      <div className="rail-muted">{state.last_action || "No browser action yet"} {state.last_result ? `- ${state.last_result}` : ""}</div>
-      {state.last_error && <div className="rail-error">{state.last_error}</div>}
-      {state.screenshot_data_url ? <img className="browser-shot" src={state.screenshot_data_url} /> : null}
-      <div className="rail-actions">
-        <button className="btn" onClick={onRefresh}>Refresh</button>
-        <button className="btn" onClick={snap}>Shot</button>
-        <button className="btn danger" onClick={close}>Close</button>
-      </div>
-    </div>
   );
 }
 

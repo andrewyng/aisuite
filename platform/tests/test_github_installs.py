@@ -76,7 +76,7 @@ def test_managed_callback_installs_and_hot_reloads(client, monkeypatch):
 
     monkeypatch.setattr(client.manager, "refresh_gateway", _refresh)
     resp = client.post("/oauth/callback", data=_install_form("101"))
-    assert resp.status_code == 200 and "github connected" in resp.text
+    assert resp.status_code == 200 and "GitHub connected" in resp.text
 
     profile = client.manager.secrets.get("github:install:101")
     assert profile["account_login"] == "acme"

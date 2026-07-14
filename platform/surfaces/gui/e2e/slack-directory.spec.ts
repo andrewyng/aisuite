@@ -50,7 +50,7 @@ test("channel typeahead: a NAME resolves to the workspace's id-address", async (
 }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  await page.getByTitle("Manage this session's connections").click();
+  await page.getByTestId("access-toggle").click();
   await page.getByRole("button", { name: /Channels · 0/ }).click();
 
   const input = page.getByPlaceholder("slack:C0123 or channel link");
@@ -71,7 +71,7 @@ test("channel typeahead: a NAME resolves to the workspace's id-address", async (
 test("channel typeahead: private and not-a-member states are honest", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  await page.getByTitle("Manage this session's connections").click();
+  await page.getByTestId("access-toggle").click();
   await page.getByRole("button", { name: /Channels · 0/ }).click();
 
   await page.getByPlaceholder("slack:C0123 or channel link").fill("l");

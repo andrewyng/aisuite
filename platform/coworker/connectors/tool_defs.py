@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from ..secrets import SecretStore
 
@@ -16,6 +16,12 @@ class ConnectorToolDef:
     kind: str
     description: str
     default_enabled: bool = True
+    # Which argument names the external object this tool acts ON (channel, recipient, …).
+    # Declaring it makes the tool eligible for a task-scoped standing rule (UX-DECISIONS §25):
+    # "this automation may call this tool against this exact target without asking". Only
+    # single-argument targets are declarable in v1 (no wildcards, no composite targets), and
+    # only write tools should declare one — reads never gate, so a rule would be meaningless.
+    target_arg: Optional[str] = None
 
 
 TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
@@ -182,6 +188,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send email",
         "write",
         "Send or reply to an email via SMTP (requires approval).",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "gmail",
@@ -199,6 +206,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send email",
         "write",
         "Send an email through Gmail.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "google_calendar",
@@ -248,6 +256,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send mail",
         "write",
         "Send mail through Outlook.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "outlook",
@@ -370,6 +379,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send message",
         "write",
         "Send a Discord channel message.",
+        target_arg="channel_id",
     ),
     ConnectorToolDef(
         "stripe",
@@ -508,6 +518,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send message",
         "write",
         "Send a WhatsApp text message.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "whatsapp",
@@ -515,6 +526,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send template",
         "write",
         "Send an approved WhatsApp template message.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "notion",
@@ -658,10 +670,40 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
     ),
 )
 
+_KIND_BY_NAME = {d.name: d.kind for d in TOOL_DEFS}
+
+
+# §36: the registry's read/write kind is the SINGLE source of truth for whether a
+# connector tool gates. Reads on a service the user explicitly connected never ask
+# (the §25 design note — "reads never gate" — made law); writes always do. Tools
+# without a registry entry keep their call-site default (MCP/experimental stay
+# conservative).
+def approval_for_tool(name: str, default: bool = True) -> bool:
+    kind = _KIND_BY_NAME.get(name)
+    if kind is None:
+        return default
+    return kind != "read"
+
+
 TOOL_TO_CONNECTOR = {d.name: d.connector for d in TOOL_DEFS}
 TOOLS_BY_CONNECTOR: dict[str, list[ConnectorToolDef]] = {}
 for _def in TOOL_DEFS:
     TOOLS_BY_CONNECTOR.setdefault(_def.connector, []).append(_def)
+
+# Standing-rule target arguments (§25). Declared on connector tool defs above, plus the
+# always-available messaging tool `send_message` (its `target` is the reply handle
+# "platform:chat_id" — exactly the address a rule pins). This dict is the single source of
+# which tools can EVER carry a standing rule: exec/destructive tools must never appear here.
+TARGET_ARGS: dict[str, str] = {
+    d.name: d.target_arg for d in TOOL_DEFS if d.target_arg
+}
+TARGET_ARGS["send_message"] = "target"
+
+
+def target_arg_for(tool_name: str) -> Optional[str]:
+    """The argument that names this tool's standing-rule target, or None if the tool
+    isn't eligible for standing rules."""
+    return TARGET_ARGS.get(tool_name)
 
 
 def connector_for_tool(tool_name: str) -> str | None:

@@ -51,7 +51,9 @@ def test_oauth_callback_writes_profile_and_returns_page(client):
         },
     )
     assert resp.status_code == 200
-    assert "gmail connected" in resp.text
+    # §30: the loopback page is a branded card, Title-cased connector name.
+    assert "Gmail connected" in resp.text
+    assert "Served locally by OpenCoworker" in resp.text
 
     # Multi-account: the callback lands in gmail:account:<email>; gmail:default
     # is just the default pointer.

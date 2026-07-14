@@ -1,7 +1,8 @@
-// First-run onboarding (UX-DECISIONS §24): model → recipe → tips. Only step 1 gates;
-// the recipe's consent line mints a §25 standing grant; "Start working" lands in a fresh
-// session with the Session settings panel open. Entered here via the REPLAY path
-// (Settings ▸ Appearance ▸ "Run setup again") — which is itself under test.
+// First-run onboarding (UX-DECISIONS §24, restructured by §29): model → your tools → go.
+// Only the model step gates; the tools page is a value-framed cloud sign-in (skippable — the
+// lazy first-connect sign-in stays for skippers); the done page routes via two CTAs. The recipe
+// machinery moved to the Automations quickstart (automations-quickstart.spec.ts). Entered here
+// via the REPLAY path (Settings ▸ Appearance ▸ "Run setup again") — which is itself under test.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -48,52 +49,44 @@ test("model step: configured provider fast-path; Continue verifies automatically
   // A good key: one click verifies and advances — no manual Test required.
   await page.getByTestId("ob-field-api_key").fill("zk-good");
   await page.getByTestId("ob-continue").click();
-  await expect(page.getByTestId("ob-step-recipe")).toBeVisible();
+  await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 });
 
-test("recipe: lazy single sign-in completes the pending connect; consent mints the grant; Start working opens the session panel", async ({
+test("tools page: out-of-band sign-in flips to the signed-in state; the automation CTA lands on the quickstart", async ({
   page,
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
-  await expect(page.getByTestId("ob-step-recipe")).toBeVisible();
+  await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 
-  // Sales tab: Slack is already connected in fixtures; HubSpot isn't. No recipe yet.
-  await page.getByTestId("ob-tab-sales").click();
-  await expect(page.getByText("✓ Connected").first()).toBeVisible();
-  await expect(page.getByTestId("ob-recipe")).toHaveCount(0);
-
-  // Connect HubSpot while signed out → the ONE cloud pane appears; signing in finishes the
-  // pending connect without another click.
-  await page.getByTestId("ob-connect-hubspot").click();
-  await expect(page.getByTestId("ob-cloudpane")).toBeVisible();
+  // §29's tools page: value-framed sign-in (never an account gate) — the manual-keys path is
+  // spelled out, and the sign-in lands out-of-band (browser flow), flipping to the ✓ state.
+  await expect(page.getByText("Prefer manual setup?")).toBeVisible();
   await page.getByTestId("ob-cloud-signin").click();
-  await expect(page.getByTestId("ob-recipe")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("ob-tools-signedin")).toContainText("rohit@opencoworker.app");
+  await page.getByTestId("ob-continue-tools").click();
 
-  // The recipe assembles: channel picked BY NAME (the box shows #name; the raw address is
-  // only the stored target), day+time cadence, and the §25 consent (pre-checked).
-  const chan = page.locator('[data-testid="ob-channel"] input');
-  await chan.click();
-  await page.getByTestId("channel-suggestions").getByText("#ocw-test").click();
-  await expect(chan).toHaveValue("#ocw-test");
-  await expect(page.getByTestId("ob-consent")).toBeChecked();
-  await page.getByTestId("ob-create").click();
-
-  // Done step: recap card, then Start working lands in a session with the panel open.
-  await expect(page.getByTestId("ob-recap")).toContainText("Pipeline digest");
-  await expect(page.getByTestId("ob-recap")).toContainText("Mondays at 09:00");
-  await page.getByTestId("ob-start").click();
+  // Done step: the automation CTA lands on the Automations quickstart.
+  await expect(page.getByTestId("ob-step-done")).toBeVisible();
+  await page.getByTestId("ob-cta-automation").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
-  await expect(page.getByRole("dialog", { name: "Session settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Automations" })).toBeVisible();
+  // Fixtures seed a task, so the list isn't empty — the quickstart is one toggle away (a real
+  // first run lands on the empty state, which shows it directly).
+  await page.getByRole("button", { name: "+ New automation" }).click();
+  await expect(page.getByText("Start from a template")).toBeVisible();
 });
 
-test("everyday tab: read-only recipe carries disclosure, not a grant", async ({ page }) => {
+test("tools page skips cleanly; Start working lands in a session with the panel open", async ({
+  page,
+}) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
-  await page.getByTestId("ob-tab-everyday").click();
-
-  // Calendar + Gmail rows; no consent checkbox — reads never gate, the copy says so.
-  await expect(page.getByText("Today's meetings and gaps")).toBeVisible();
-  await expect(page.getByText("What arrived overnight")).toBeVisible();
-  await expect(page.getByTestId("ob-consent")).toHaveCount(0);
+  await page.getByTestId("ob-tools-skip").click();
+  await expect(page.getByTestId("ob-step-done")).toBeVisible();
+  await page.getByTestId("ob-start").click();
+  await expect(page.getByTestId("onboarding")).toHaveCount(0);
+  // §32: "Start working" lands with the rail's Access section expanded (the drawer is gone).
+  await expect(page.getByRole("region", { name: "Session access" })).toBeVisible();
 });

@@ -3,6 +3,7 @@ import type { Attachment } from "../types";
 import { readFile } from "../attach";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
+import { Toggle } from "./Toggle";
 
 const PERMISSION_OPTIONS: Option[] = [
   { value: "discuss", label: "Discuss", description: "Chat and explore — no edits or commands" },
@@ -14,7 +15,7 @@ const PERMISSION_OPTIONS: Option[] = [
 
 // Fallback list when the server hasn't supplied one yet; the live list (incl. detected Ollama
 // models) arrives via the `models` prop.
-const MODEL_VALUES = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini"];
+const MODEL_VALUES = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"];
 
 // Drop the provider prefix for display (anthropic:claude-opus-4-8 → claude-opus-4-8); full id on hover.
 const shortModel = (m: string) => (m.includes(":") ? m.split(":").slice(1).join(":") : m);
@@ -33,8 +34,9 @@ interface Props {
   model: string;
   models?: string[];
   modelLabels?: Record<string, string>; // curated display names (raw id when absent)
-  // The model is FIXED once the session has history (owner call, 2026-07-04): mixed-model
-  // transcripts invite provider-quirk breakage and unreasonable behavior. Locked → read-only pill.
+  // The model is FIXED once the session has history (§17): the picker renders ONLY on a fresh
+  // session; after the first turn the fact lives in the topbar subtitle (§22) — no
+  // interactive-then-disabled control.
   modelLocked?: boolean;
   running: boolean;
   connected: boolean;
@@ -46,16 +48,14 @@ interface Props {
   onInterrupt: () => void;
   onModeChange: (mode: string) => void;
   onModelChange: (model: string) => void;
-  // When set (Code/Cowork), a workspace control is shown in the row.
+  // When set (Code/Cowork), the Mode menu is shown. The folder/roots + branch controls left the
+  // composer for the Session settings drawer (§22) — folder access is standing session config.
   workspace?: string;
-  branch?: string | null;
-  onPickWorkspace?: () => void;
-  // When set (orphan Cowork), the directory manager (icon-only folder popover) replaces the single
-  // workspace folder button.
-  rootsSlot?: ReactNode;
+  // Unattended / send-approvals-to-Inbox — folded into the Mode menu (§22): "who approves, and
+  // when" is one mental model. Absent handler = no toggle (e.g. Chat).
+  unattended?: boolean;
+  onUnattendedChange?: (on: boolean) => void;
   approvalSlot?: ReactNode;
-  // The Inbox control (send-to-inbox toggle + settings popover).
-  inboxSlot?: ReactNode;
   // Push text + attachments into the composer (e.g. a start-panel task card). The `nonce` makes
   // repeated identical prefills re-apply; the user can still edit before sending.
   prefill?: { text: string; attachments?: Attachment[]; nonce: number };
@@ -205,7 +205,7 @@ export function Composer(props: Props) {
           rows={1}
         />
 
-        {/* Single control row: + attach · folder · mode · More …(right)… model · send */}
+        {/* Three-control row (§22): + attach · Mode ⌄ …(right)… model (fresh only) · send */}
         <div className="px-2.5 pb-2.5 pt-1 flex items-center gap-1.5">
           {/* + attach menu */}
           <div className="relative">
@@ -243,36 +243,21 @@ export function Composer(props: Props) {
             }}
           />
 
-          {/* folder: cowork = directory manager (rootsSlot); else a single-folder button (icon only,
-              path on hover). Chat has no workspace → nothing. */}
-          {props.rootsSlot ??
-            (props.workspace !== undefined ? (
-              <button
-                className="wschip wschip-icon"
-                onClick={props.onPickWorkspace}
-                title={props.workspace || "Choose a folder"}
-              >
-                <Icon name="folder" size={15} />
-                <Icon name="chevronDown" size={11} className="edit" />
-              </button>
-            ) : null)}
-          {props.branch && (
-            <span className="wsbranch">
-              <Icon name="branch" size={13} /> {props.branch}
-            </span>
-          )}
-
-          {/* permission mode — only for agents that touch files/commands */}
+          {/* Mode menu — the five permission options + the Unattended/send-to-Inbox toggle
+              folded in at the bottom (§22): "who approves, and when" is one mental model. */}
           {props.workspace !== undefined && (
-            <Dropdown value={props.mode} options={PERMISSION_OPTIONS} onChange={props.onModeChange} />
+            <ModeMenu
+              mode={props.mode}
+              onModeChange={props.onModeChange}
+              unattended={props.unattended}
+              onUnattendedChange={props.onUnattendedChange}
+            />
           )}
-
-          {/* Inbox control (send-to-inbox toggle + settings); the icon goes accent when on. */}
-          {props.inboxSlot}
 
           <span className="ml-auto" />
 
-          {/* model (right) */}
+          {/* model — a quiet chip on a FRESH session only; once the session has history the
+              fact moves up to the topbar subtitle (§17 expressed spatially). */}
           {needsModel ? (
             <button
               className="pill model-warn chip"
@@ -284,16 +269,7 @@ export function Composer(props: Props) {
               <span className="model-warn-ico" aria-hidden>⚠</span>
             </button>
           ) : (
-            props.modelLocked ? (
-              <span
-                className="pill"
-                title="The model is fixed for this session — start a new session to switch"
-              >
-                <span className="pill-label">
-                  {props.modelLabels?.[props.model] || shortModel(props.model)}
-                </span>
-              </span>
-            ) : (
+            !props.modelLocked && (
               <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
             )
           )}

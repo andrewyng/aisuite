@@ -138,7 +138,63 @@ def complete_login(
         profile["account"] = me.get("user", {}).get("email") or ""
         profile["user_id"] = me.get("user", {}).get("user_id") or ""
         secrets.put(CLOUD_AUTH_PROFILE, profile)
-    return {"ok": True, **status(secrets)}
+    # Best-effort restore of managed connections (a failure never fails the
+    # sign-in — the user can still connect by hand). The /auth/callback route
+    # hot-adds the gateway when anything came back.
+    try:
+        restored = sync_connections(secrets, config).get("restored", [])
+    except Exception:
+        restored = []
+    return {"ok": True, "restored_github_installs": restored, **status(secrets)}
+
+
+def sync_connections(secrets: SecretStore, config: Config) -> dict[str, Any]:
+    """Rebuild local managed-connection state from the broker's metadata rows
+    (GET /v1/connections) after a cloud sign-in.
+
+    Only GitHub restores fully on a fresh install: its rows are routing metadata
+    (installation ids + logins) and installation tokens mint on demand — nothing
+    secret ever needs to live here. Every other connector's tokens are local-only
+    by design, so those need a one-click re-consent instead."""
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return {"ok": False, "error": "not signed in"}
+    try:
+        resp = httpx.get(
+            config.cloud_base_url.rstrip("/") + "/v1/connections",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+    except httpx.HTTPError:
+        return {"ok": False, "error": "cloud unreachable"}
+    if resp.status_code != 200:
+        return {"ok": False, "error": f"connections fetch failed ({resp.status_code})"}
+
+    from .connectors.github_installs import managed_connect_install
+
+    restored: list[str] = []
+    for row in resp.json().get("connections", []):
+        if row.get("connector") != "github" or row.get("status") != "connected":
+            continue
+        meta = row.get("tenant_metadata") or {}
+        installs = meta.get("installations") or []
+        if not installs and meta.get("installation_id"):
+            installs = [meta]  # pre-restore-era rows carry only the primary install
+        for inst in installs:
+            out = managed_connect_install(
+                secrets,
+                {
+                    "installation_id": str(inst.get("installation_id") or ""),
+                    "account_login": inst.get("account_login", ""),
+                    "account_type": inst.get("account_type", ""),
+                    "repo_selection": inst.get("repo_selection", ""),
+                    "github_login": meta.get("github_login", ""),
+                    "connection_id": row.get("connection_id", ""),
+                },
+            )
+            if out.get("ok"):
+                restored.append(out["installation_id"])
+    return {"ok": True, "restored": restored}
 
 
 def _store_cloud_tokens(secrets: SecretStore, token: dict) -> None:

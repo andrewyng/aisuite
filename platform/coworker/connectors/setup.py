@@ -60,6 +60,7 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "blurb": d.blurb,
                 "auth": d.auth,
                 "two_way": d.two_way,
+                "channels": d.channels,
                 "available": d.available,
                 "brand_color": d.brand_color,
                 "logo": d.logo,

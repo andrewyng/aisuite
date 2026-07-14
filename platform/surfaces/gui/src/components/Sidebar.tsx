@@ -17,6 +17,7 @@ import {
 } from "../api";
 import type { SessionInfo } from "../types";
 import { isProjectScoped, shortPersonaName } from "../personaScope";
+import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 import { SearchModal } from "./SearchModal";
@@ -61,6 +62,19 @@ function LiveDot({ state }: { state?: "working" | "sleeping" | "idle" }) {
     <span
       className="w-1.5 h-1.5 rounded-full bg-faint/60 shrink-0"
       title="Sleeping (will wake itself)"
+    />
+  );
+}
+
+// §31: a session spawned by a platform mention wears its platform's logo, right-aligned beside
+// the title cluster (owner call 2026-07-13). Slack today; the origin key is the platform id.
+function OriginIcon({ s }: { s: SessionInfo }) {
+  if (s.origin !== "slack") return null;
+  return (
+    <ConnectorIcon
+      connector={{ logo: "slack", brand_color: "#611f69" }}
+      size={12}
+      title={s.origin_label || "From Slack"}
     />
   );
 }
@@ -240,6 +254,15 @@ export function Sidebar(props: Props) {
   const pinnedSessions = props.sessions.filter(
     (s) => s.pinned && !s.session_id.startsWith("__") && !s.archived,
   );
+  // §31: mention-spawned sessions gather in one cross-persona "From Slack" group, collapsed by
+  // default (owner call 2026-07-13; no auto-archive — a future global setting). Pinned wins.
+  const slackSessions = props.sessions
+    .filter(
+      (s) =>
+        s.origin === "slack" && !s.archived && !s.pinned && !s.session_id.startsWith("__"),
+    )
+    .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+  const [slackOpen, setSlackOpen] = useState(false);
   const personaLabel = (agentId: string) => {
     const p = personas?.find((x) => x.id === agentId);
     return shortPersonaName(p?.name, agentId);
@@ -309,7 +332,9 @@ export function Sidebar(props: Props) {
   // EXCLUDED here: they live in the cross-persona Pinned band only, so they don't repeat inside the
   // persona group / project list (matching the flat layout's Recent, which also drops pinned).
   const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
-  const mine = all.filter((s) => !s.archived && !s.pinned);
+  // Origin (mention-spawned) sessions live in the cross-persona "From Slack" band, not the
+  // persona lists — pinned still wins (Pinned band), and archived keeps the persona disclosure.
+  const mine = all.filter((s) => !s.archived && !s.pinned && !s.origin);
   const archived = all.filter((s) => s.archived);
   // Only PROJECT-SCOPED personas group sessions by project (git-bound Code, project-bound Ops).
   // Scratch/deliverable conversations are orphan (each has its own per-conversation scratch dir),
@@ -325,7 +350,7 @@ export function Sidebar(props: Props) {
   // Recent = every non-pinned, non-archived, real session across ALL personas, newest first
   // (by updated_at; missing timestamps keep store order), search-filtered. Drives the flat layout.
   const recentSessions = [...props.sessions]
-    .filter((s) => !s.archived && !s.session_id.startsWith("__") && !s.pinned)
+    .filter((s) => !s.archived && !s.session_id.startsWith("__") && !s.pinned && !s.origin)
     .filter((s) => personaVisible(s.agent))
     .filter(matches)
     .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
@@ -444,6 +469,7 @@ export function Sidebar(props: Props) {
               {opts.showTime && compactAge(s.updated_at) && (
                 <span className="text-[11px] text-faint tabular-nums">{compactAge(s.updated_at)}</span>
               )}
+              <OriginIcon s={s} />
               <LiveDot state={s.liveness} />
               <AttnBadge n={s.attention || 0} />
             </span>
@@ -509,6 +535,7 @@ export function Sidebar(props: Props) {
               <span className="block truncate text-[11px] text-faint">{subParts.join(" · ")}</span>
             </span>
             <span className="flex items-center gap-1.5 shrink-0 group-hover:hidden">
+              <OriginIcon s={s} />
               <ConnectorDot subs={s.subscriptions} />
               <LiveDot state={s.liveness} />
               <AttnBadge n={s.attention || 0} />
@@ -531,6 +558,27 @@ export function Sidebar(props: Props) {
         <div className="space-y-0.5">
           {pinnedSessions.map((s) => cardRow(s))}
         </div>
+      </div>
+    ) : null;
+
+  // §31: the collapsed cross-persona "From Slack" band — mention-spawned sessions, both layouts.
+  // Disclosure shape mirrors the persona body's Archived row.
+  const fromSlackBand = () =>
+    slackSessions.length > 0 ? (
+      <div>
+        <button
+          className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold hover:text-muted"
+          onClick={() => setSlackOpen((v) => !v)}
+          data-testid="from-slack-toggle"
+        >
+          <Icon name={slackOpen ? "chevronDown" : "chevronRight"} size={12} className="shrink-0" />
+          From Slack ({slackSessions.length})
+        </button>
+        {slackOpen && (
+          <div className="space-y-0.5 mt-0.5" data-testid="from-slack-list">
+            {slackSessions.map((s) => cardRow(s))}
+          </div>
+        )}
       </div>
     ) : null;
 
@@ -753,7 +801,7 @@ export function Sidebar(props: Props) {
                     {open &&
                       (list.length > 0 ? (
                         // pl-[19px] aligns each session's name under the folder NAME (folder icon
-                        // 15 + gap 6 + row px 6 − session px 8 = 19), per a clean-column layout.
+                        // 15 + gap 6 + row px 6 − session px 8 = 19), per Rohit's clean-column ask.
                         <div className="space-y-0.5 pl-[19px]">
                           {shown.map((s) => sessionRow(s, { showTime: true }))}
                           {!showAll && list.length > peek && (
@@ -866,6 +914,7 @@ export function Sidebar(props: Props) {
       <div className="flex-1 overflow-y-auto px-2.5 mt-3 pb-2">
         <div className="space-y-4">
           {pinnedBand()}
+          {fromSlackBand()}
           <div>
             {recentHeader()}
             {layout === "grouped" ? (
