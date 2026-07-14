@@ -118,6 +118,91 @@ def test_capabilities_via_provider():
     assert caps.tools is True
 
 
+# -- GPT-5.6 tools + reasoning_effort on chat/completions (owner repro 2026-07-14) ----
+# The API defaults these models to effort "medium" and then rejects function tools:
+# "Function tools with reasoning_effort are not supported for gpt-5.6-sol in
+# /v1/chat/completions. To use function tools, use /v1/responses or set
+# reasoning_effort to 'none'." Until we speak the Responses API, we pin effort none.
+
+_TOOLS = [{"type": "function", "function": {"name": "read_file"}}]
+_EFFORT_400 = (
+    "Error code: 400 - {'error': {'message': \"Function tools with reasoning_effort "
+    "are not supported for %s in /v1/chat/completions. To use function tools, use "
+    "/v1/responses or set reasoning_effort to 'none'.\", 'type': "
+    "'invalid_request_error', 'param': 'reasoning_effort', 'code': None}}"
+)
+
+
+def test_gpt56_tools_pin_reasoning_effort_none():
+    client = _FakeClient(_response(content="x"))
+    provider = OpenAIProvider(client=client)
+    calls = client.chat.completions.calls
+
+    for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        provider.complete(model=model, messages=[], tools=_TOOLS)
+    assert [c["reasoning_effort"] for c in calls] == ["none"] * 3
+
+    # an explicit caller choice is respected on the first attempt
+    provider.complete(model="gpt-5.6-sol", messages=[], tools=_TOOLS, reasoning_effort="low")
+    assert calls[3]["reasoning_effort"] == "low"
+
+    # no tools, or another model → the request is untouched
+    provider.complete(model="gpt-5.6-sol", messages=[])
+    provider.complete(model="gpt-5.5", messages=[], tools=_TOOLS)
+    assert "reasoning_effort" not in calls[4] and "reasoning_effort" not in calls[5]
+
+
+class _EffortRejectingCompletions:
+    """Behaves like the live API: tools + any effort other than 'none' → the 400."""
+
+    def __init__(self, response):
+        self._response = response
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs.get("tools") and kwargs.get("reasoning_effort") != "none":
+            raise RuntimeError(_EFFORT_400 % kwargs["model"])
+        if kwargs.get("stream"):
+            return iter([_chunk(content="ok"), _chunk(finish="stop")])
+        return self._response
+
+
+def test_effort_400_from_an_unpinned_model_retries_once_at_none():
+    # a hypothetical next generation we haven't listed yet — proactive pin misses it
+    client = _FakeClient(_response(content="x"))
+    client.chat.completions = _EffortRejectingCompletions(_response(content="x"))
+    provider = OpenAIProvider(client=client)
+
+    turn = provider.complete(model="gpt-5.7-sol", messages=[], tools=_TOOLS)
+    calls = client.chat.completions.calls
+    assert turn.text == "x" and len(calls) == 2
+    assert "reasoning_effort" not in calls[0] and calls[1]["reasoning_effort"] == "none"
+
+    # streaming path retries the same way
+    out = list(provider.stream(model="gpt-5.7-sol", messages=[], tools=_TOOLS))
+    assert out[-1].turn.text == "ok" and len(client.chat.completions.calls) == 4
+
+
+def test_unrelated_400s_are_not_retried():
+    class _AlwaysRejects:
+        calls: list = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            raise RuntimeError("Error code: 400 - context_length_exceeded")
+
+    client = _FakeClient(_response(content="x"))
+    client.chat.completions = _AlwaysRejects()
+    provider = OpenAIProvider(client=client)
+    try:
+        provider.complete(model="gpt-5.5", messages=[], tools=_TOOLS)
+        raise AssertionError("should have raised")
+    except RuntimeError:
+        pass
+    assert len(client.chat.completions.calls) == 1  # no blind second attempt
+
+
 # -- streaming ------------------------------------------------------------------
 
 

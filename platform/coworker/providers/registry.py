@@ -204,7 +204,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
             ),
         ],
         build=_build_openai,
-        recommended_model="gpt-5.5",
+        recommended_model="gpt-5.6-sol",
         env_key="OPENAI_API_KEY",
     ),
     ProviderDescriptor(
@@ -220,7 +220,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
             ),
         ],
         build=_build_anthropic,
-        recommended_model="claude-sonnet-4-6",
+        recommended_model="claude-fable-5",
         env_key="ANTHROPIC_API_KEY",
     ),
     ProviderDescriptor(

@@ -339,11 +339,14 @@ def _attach(
     approval: bool,
     caps: list[str],
 ):
-    fn.__name__ = schema["function"]["name"]
+    from .tool_defs import approval_for_tool
+
+    name = schema["function"]["name"]
+    # §36: the tool registry's read/write kind wins for registered tools — reads never gate.
+    approval = approval_for_tool(name, default=approval)
+    fn.__name__ = name
     fn.__coworker_schema__ = schema
-    fn.__aisuite_tool_metadata__ = _meta(
-        schema["function"]["name"], approval=approval, capabilities=caps
-    )
+    fn.__aisuite_tool_metadata__ = _meta(name, approval=approval, capabilities=caps)
     fn.__doc__ = schema["function"]["description"]
     return fn
 

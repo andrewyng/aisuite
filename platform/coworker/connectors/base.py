@@ -92,6 +92,9 @@ class MessageEvent:
     message_type: MessageType = MessageType.TEXT
     reply_to_message_id: Optional[str] = None
     raw: Any = None
+    # The bot itself was @-mentioned (UX-DECISIONS §31 mention router). Computed from the RAW
+    # platform text at mapping time — mention tokens are rewritten for display afterwards.
+    mentions_me: bool = False
 
     def tagged_text(self) -> str:
         """How the message enters the super-agent thread: source + reply handle + text.

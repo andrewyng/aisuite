@@ -90,8 +90,11 @@ def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
         return FakeResponse(200, {"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600})
 
     def fake_get(url, **kwargs):
-        assert url == "https://cloud.test/v1/me"
-        return FakeResponse(200, {"user": {"email": "a@b.c", "user_id": "usr_1"}})
+        if url == "https://cloud.test/v1/me":
+            return FakeResponse(200, {"user": {"email": "a@b.c", "user_id": "usr_1"}})
+        # complete_login also syncs connection state (restore-on-sign-in).
+        assert url == "https://cloud.test/v1/connections"
+        return FakeResponse(200, {"connections": []})
 
     monkeypatch.setattr(cloud.httpx, "post", fake_post)
     monkeypatch.setattr(cloud.httpx, "get", fake_get)
@@ -99,6 +102,7 @@ def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
     result = cloud.complete_login(secrets, config, "code1", state)
     assert result["ok"] and result["signed_in"]
     assert result["account"] == "a@b.c"
+    assert result["restored_github_installs"] == []
     profile = secrets.get(cloud.CLOUD_AUTH_PROFILE)
     assert profile["access_token"] == "at1"
     assert profile["refresh_token"] == "rt1"
@@ -106,6 +110,93 @@ def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
 
 def test_complete_login_rejects_unknown_state(secrets, config):
     assert not cloud.complete_login(secrets, config, "code", "forged-state")["ok"]
+
+
+# --- restore-on-sign-in: GET /v1/connections → local github install profiles -----
+
+
+def _signed_in(secrets):
+    secrets.put(
+        cloud.CLOUD_AUTH_PROFILE,
+        {"type": "oauth", "access_token": "at1", "expires": time.time() + 3600},
+    )
+
+
+def _github_connection_row(**meta_extra):
+    return {
+        "connection_id": "conn_7",
+        "connector": "github",
+        "provider": "github",
+        "status": "connected",
+        "tenant_metadata": {
+            "installation_id": "101",
+            "account_login": "acme",
+            "github_login": "octocat",
+            "installations": [
+                {
+                    "installation_id": "101",
+                    "account_login": "acme",
+                    "account_type": "Organization",
+                    "repo_selection": "selected",
+                },
+                {
+                    "installation_id": "202",
+                    "account_login": "hooli",
+                    "account_type": "User",
+                    "repo_selection": "all",
+                },
+            ],
+            **meta_extra,
+        },
+    }
+
+
+def test_sync_connections_restores_github_installs(secrets, config, monkeypatch):
+    """Gate: a fresh desktop rebuilds EVERY github install profile from the
+    broker's metadata after sign-in — routing fields only, tokens mint on demand.
+    Other connectors' rows (tokens local-only) and disconnected rows are ignored."""
+    _signed_in(secrets)
+    rows = [
+        _github_connection_row(),
+        {"connector": "slack", "status": "connected", "tenant_metadata": {"team_id": "T1"}},
+        {"connector": "github", "status": "disconnected",
+         "tenant_metadata": {"installation_id": "999", "github_login": "octocat"}},
+    ]
+    monkeypatch.setattr(
+        cloud.httpx, "get", lambda url, **k: FakeResponse(200, {"connections": rows})
+    )
+
+    out = cloud.sync_connections(secrets, config)
+    assert out["ok"] and out["restored"] == ["101", "202"]
+    p = secrets.get("github:install:101")
+    assert p["managed"] and p["account_login"] == "acme"
+    assert p["github_login"] == "octocat" and p["connection_id"] == "conn_7"
+    assert secrets.get("github:install:202")["repo_selection"] == "all"
+    assert secrets.get("github:install:999") is None
+    assert secrets.get("slack:default") is None
+    default = secrets.get("github:default")
+    assert default["mode"] == "relay" and default["default_install"] == "101"
+
+
+def test_sync_connections_pre_restore_rows_fall_back_to_primary(secrets, config, monkeypatch):
+    """Rows written before the broker stored the installations list carry only
+    the primary install in tenant_metadata — restore that one."""
+    _signed_in(secrets)
+    row = _github_connection_row()
+    del row["tenant_metadata"]["installations"]
+    monkeypatch.setattr(
+        cloud.httpx, "get", lambda url, **k: FakeResponse(200, {"connections": [row]})
+    )
+    out = cloud.sync_connections(secrets, config)
+    assert out["restored"] == ["101"]
+    assert secrets.get("github:install:101")["account_login"] == "acme"
+
+
+def test_sync_connections_requires_sign_in_and_survives_errors(secrets, config, monkeypatch):
+    assert not cloud.sync_connections(secrets, config)["ok"]  # signed out
+    _signed_in(secrets)
+    monkeypatch.setattr(cloud.httpx, "get", lambda url, **k: FakeResponse(503, {}))
+    assert not cloud.sync_connections(secrets, config)["ok"]  # broker down → no crash
 
 
 def test_logout_clears_session(secrets, config):

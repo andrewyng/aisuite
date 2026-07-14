@@ -38,7 +38,7 @@ DEFAULT_ALLOWED_COMMANDS = [
 
 @dataclass
 class Config:
-    model: str = "gpt-5.5"
+    model: str = "gpt-5.6-sol"
     mode: str = "interactive"
     max_iterations: int = 150
     allowed_commands: list[str] = field(

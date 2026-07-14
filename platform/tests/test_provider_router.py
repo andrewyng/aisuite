@@ -431,12 +431,12 @@ def test_anthropic_gemini_provider_config(tmp_path, monkeypatch):
     assert "gemini-2.5-flash" in provs["gemini"]["suggested_models"]
 
     res = mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})
-    assert res["ok"] is True and res["recommended_model"] == "claude-sonnet-4-6"
+    assert res["ok"] is True and res["recommended_model"] == "claude-fable-5"
     provs = {p["name"]: p for p in mgr.get_providers()}
     assert provs["anthropic"]["configured"] is True
     assert "api_key" not in provs["anthropic"].get("values", {})  # secrets never leak
     # the recommended model is auto-added to the curated list with its provider prefix
-    assert "anthropic:claude-sonnet-4-6" in mgr.get_settings()["models"]
+    assert "anthropic:claude-fable-5" in mgr.get_settings()["models"]
 
     # env var alone marks a provider configured
     monkeypatch.setenv("GEMINI_API_KEY", "AIza-env")
@@ -452,16 +452,16 @@ def test_first_configured_provider_wins_default(tmp_path, monkeypatch):
 
     mgr = SessionManager(data_dir=tmp_path)
     assert (
-        mgr.model == "gpt-5.5"
+        mgr.model == "gpt-5.6-sol"
     )  # fresh install: built-in default, openai unconfigured
 
     # the first provider that gets a key takes over the default
     mgr.set_provider("anthropic", {"api_key": "sk-ant-x"})
-    assert mgr.model == "anthropic:claude-sonnet-4-6"
+    assert mgr.model == "anthropic:claude-fable-5"
 
     # but a default that already works is never stolen by the next provider
     mgr.set_provider("gemini", {"api_key": "AIza-x"})
-    assert mgr.model == "anthropic:claude-sonnet-4-6"
+    assert mgr.model == "anthropic:claude-fable-5"
 
 
 def test_surface_visibility(tmp_path, monkeypatch):

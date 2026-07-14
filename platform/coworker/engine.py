@@ -21,6 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
+from .providers.errors import friendly_model_error
 from .tools import ToolRegistry
 
 
@@ -106,6 +107,9 @@ class TurnEngine:
         self._cancel = asyncio.Event()
         # Each pending steering message: (text, optional MessageSource sidecar dict).
         self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
+        # tool_call.id → the standing rule that auto-allowed it ("tool → target"), so the
+        # TOOL_FINISHED event can carry the note to the tool card (§25).
+        self._standing_notes: dict[str, str] = {}
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
@@ -201,10 +205,11 @@ class TurnEngine:
                     if chunk.turn is not None:
                         turn = chunk.turn
             except Exception as exc:  # provider failure
-                yield Event(
-                    EventType.ERROR,
-                    {"error": str(exc), "error_type": type(exc).__name__},
-                )
+                friendly = friendly_model_error(self.model, exc)
+                payload = {"error": friendly or str(exc), "error_type": type(exc).__name__}
+                if friendly:
+                    payload["raw"] = str(exc)
+                yield Event(EventType.ERROR, payload)
                 return
             if turn is None:
                 turn = AssistantTurn()
@@ -344,6 +349,8 @@ class TurnEngine:
         """Permission flow for one call (TOOL_PROPOSED is emitted by the caller). Yields
         its events, then True/False (allowed) last. Denied/unknown calls get their
         tool-error message appended here."""
+        from .permissions import standing_rule_candidate
+
         spec = self.registry.get(tool_call.name)
         metadata = spec.metadata if spec else None
 
@@ -353,6 +360,15 @@ class TurnEngine:
         allowed = decision.allowed
         reason = decision.reason
 
+        if allowed and decision.rule:
+            # A task-scoped standing rule auto-allowed this call: audit the exact rule
+            # (§25 invariant — every auto-allowed call cites its rule) and remember it so
+            # the tool card can say "allowed by standing rule".
+            self._standing_notes[tool_call.id] = decision.rule
+            self._audit(
+                tool_call, stage="auto_allowed", status="allowed", reason=reason
+            )
+
         if not allowed and decision.needs_user:
             yield Event(
                 EventType.PERMISSION_REQUIRED,
@@ -361,6 +377,15 @@ class TurnEngine:
                     "arguments": tool_call.arguments,
                     "reason": decision.reason,
                     "category": getattr(metadata, "category", ""),
+                    # The exact target a standing rule could pin, or None when the call
+                    # isn't eligible (no declared target arg / exec risk). Surfaces use it
+                    # to offer "Allow every time" on automation-run approval cards only.
+                    "standing_target": standing_rule_candidate(
+                        tool_call.name,
+                        tool_call.arguments,
+                        metadata,
+                        self.permissions.risk_overrides,
+                    ),
                 },
             )
             self._audit(tool_call, stage="approval_requested", reason=decision.reason)
@@ -466,6 +491,7 @@ class TurnEngine:
             result=result,
             result_preview=_preview(result),
         )
+        rule = self._standing_notes.pop(tool_call.id, "")
         return Event(
             EventType.TOOL_FINISHED,
             {
@@ -473,6 +499,7 @@ class TurnEngine:
                 "status": status,
                 "result_preview": _preview(result),
                 **({"display": display} if display else {}),
+                **({"standing_rule": rule} if rule else {}),
             },
         )
 

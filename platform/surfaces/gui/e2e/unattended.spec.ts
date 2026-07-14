@@ -1,13 +1,16 @@
-// Unattended mode (item 8) — the composer's "Send to Inbox" toggle and its effect on approvals.
-// When a session is unattended, an approval PARKS to the Inbox instead of surfacing an inline card
-// (the app suppresses the live card; the Inbox list itself is covered by inbox.spec.ts). The
-// mocked /v1/sessions/:id/unattended is stateful so the toggle persists across a reload.
+// Unattended mode (item 8) — the "Send approvals to Inbox" toggle and its effect on approvals.
+// Since §22 the toggle lives at the BOTTOM of the composer's Mode menu (who approves, and when —
+// one mental model; the standalone InboxControl left the row). When a session is unattended, an
+// approval PARKS to the Inbox instead of surfacing an inline card (the app suppresses the live
+// card; the Inbox list itself is covered by inbox.spec.ts). The mocked /v1/sessions/:id/unattended
+// is stateful so the toggle persists across a reload.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
-// Open the composer's inbox-routing control (icon button, no text label — target its title).
-async function openInboxControl(page) {
-  await page.getByTitle(/Inbox routing|Sending approvals to the Inbox/).click();
+// The toggle sits inside the composer's Mode menu (§22).
+async function openModeMenu(page) {
+  await page.getByRole("button", { name: "Mode", exact: true }).click();
+  await expect(page.getByTestId("mode-menu")).toBeVisible();
 }
 
 test("attended (default): a tool request surfaces the inline approval card", async ({ page }) => {
@@ -18,9 +21,11 @@ test("attended (default): a tool request surfaces the inline approval card", asy
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
 });
 
-test("Send-to-Inbox toggle flips and persists across a reload", async ({ page }) => {
+test("Send-to-Inbox toggle (in the Mode menu) flips and persists across a reload", async ({
+  page,
+}) => {
   await page.goto("/");
-  await openInboxControl(page);
+  await openModeMenu(page);
   const sw = page.getByRole("switch", { name: "Send approvals to the Inbox" });
   await expect(sw).toHaveAttribute("aria-checked", "false");
   await sw.click();
@@ -28,7 +33,7 @@ test("Send-to-Inbox toggle flips and persists across a reload", async ({ page })
 
   // Reload: the stateful endpoint returns the saved flag, so the toggle reads back on.
   await page.reload();
-  await openInboxControl(page);
+  await openModeMenu(page);
   await expect(page.getByRole("switch", { name: "Send approvals to the Inbox" })).toHaveAttribute(
     "aria-checked",
     "true",
@@ -37,9 +42,9 @@ test("Send-to-Inbox toggle flips and persists across a reload", async ({ page })
 
 test("unattended: a tool request parks (no inline approval card)", async ({ page }) => {
   await page.goto("/");
-  await openInboxControl(page);
+  await openModeMenu(page);
   await page.getByRole("switch", { name: "Send approvals to the Inbox" }).click();
-  // The popover's full-screen overlay closes it on any outside click.
+  // The menu's full-screen overlay closes it on any outside click.
   await page.mouse.click(5, 5);
 
   const box = page.getByPlaceholder(/Ask the coworker/);

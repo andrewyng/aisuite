@@ -9,12 +9,15 @@ export function RootRow({
   root,
   busy,
   scratchPrimary,
+  branch,
   onToggle,
   onRemove,
 }: {
   root: RootInfo;
   busy?: boolean;
   scratchPrimary?: boolean;
+  // The workspace's git branch — shown on the primary row (drawer's Working directories, §23).
+  branch?: string | null;
   onToggle: (r: RootInfo) => void;
   onRemove: (path: string) => void;
 }) {
@@ -30,6 +33,12 @@ export function RootRow({
         <span className="root-label">
           {label}
           {root.primary && !scratchPrimary && <span className="root-tag"> main</span>}
+          {branch && (
+            <span className="root-tag root-branch">
+              {" "}
+              <Icon name="branch" size={11} /> {branch}
+            </span>
+          )}
         </span>
         <span className="root-path">{root.path}</span>
       </span>

@@ -1,16 +1,17 @@
 import { test, expect } from "./fixtures";
 
-// Guards the per-session Slack channels drill-down (§14): the "Channels" affordance is gated to
-// two-way connectors, opens a child panel, and add/remove round-trip through the subscribe APIs.
+// Guards the per-session Slack channels drill-down (§14, hosted in the rail's Access section
+// since §32): the "Channels" affordance is gated to two-way connectors, opens an inline child
+// view, and add/remove round-trip through the subscribe APIs.
 test("Slack channels drill-down: gating, add (auto-prefixed), remove", async ({ page }) => {
   await page.goto("/");
 
-  // Open the pinned cowork session, then its Sources drawer.
+  // Open the pinned cowork session, then expand the rail's Access section.
   await page.getByText("Draft the launch note").first().click();
-  await page.getByTitle("Manage this session's connections").click();
+  await page.getByTestId("access-toggle").click();
 
-  const drawer = page.getByRole("dialog", { name: "Session connections" });
-  await expect(drawer.getByText(/Connected · 2/)).toBeVisible();
+  const body = page.getByRole("region", { name: "Session access" });
+  await expect(body.getByText("Slack", { exact: true })).toBeVisible();
 
   // Gating: only the two-way connector (Slack) gets a Channels affordance — not Browser.
   await expect(page.getByRole("button", { name: /Channels ·/ })).toHaveCount(1);
@@ -33,7 +34,7 @@ test("Slack channels drill-down: gating, add (auto-prefixed), remove", async ({ 
 
   // Back returns to the Sources list.
   await page.getByRole("button", { name: "Back to sources" }).click();
-  await expect(drawer.getByText(/Connected · 2/)).toBeVisible();
+  await expect(body.getByText("Slack", { exact: true })).toBeVisible();
 });
 
 // The recent-channels dropdown is a hand-rolled popover (NOT a <datalist> — WKWebView renders
@@ -41,7 +42,7 @@ test("Slack channels drill-down: gating, add (auto-prefixed), remove", async ({ 
 test("recent channels popover: opens on focus, filters, picks", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  await page.getByTitle("Manage this session's connections").click();
+  await page.getByTestId("access-toggle").click();
   await page.getByRole("button", { name: /Channels · 0/ }).click();
 
   const input = page.getByPlaceholder("slack:C0123 or channel link");
@@ -79,7 +80,7 @@ test("channel add: link URLs resolve, bare #names are rejected with a hint", asy
 }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  await page.getByTitle("Manage this session's connections").click();
+  await page.getByTestId("access-toggle").click();
   await page.getByRole("button", { name: /Channels · 0/ }).click();
 
   const input = page.getByPlaceholder("slack:C0123 or channel link");

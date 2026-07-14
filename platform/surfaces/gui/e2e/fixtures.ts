@@ -96,17 +96,37 @@ const OPS_SESSION = {
   subscriptions: [],
 };
 
+// §31: a mention-spawned session — lives in the sidebar's collapsed "From Slack" group, never
+// in Recent. Older than everything else so boot-resume stays deterministic.
+const SLACK_SESSION = {
+  session_id: "slack-thread-1",
+  title: "#general — check the deploy?",
+  workspace: "",
+  agent: "cowork",
+  model: "anthropic:claude-opus-4-8",
+  mode: "interactive",
+  updated_at: "2026-06-10 10:00:00",
+  messages: 2,
+  pinned: false,
+  archived: false,
+  attention: 0,
+  liveness: "idle",
+  subscriptions: [],
+  origin: "slack",
+  origin_label: "#general · T0AB",
+};
+
 const CONNECTORS = {
   connectors: [
-    { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
-    { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
+    { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, channels: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
+    { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, channels: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
     // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
-    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", auth: "oauth", two_way: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
-    { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
-    { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, channels: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Generic multi-account connector (accounts.py layer): one-click OR integration token.
-    { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
 };
 
@@ -212,9 +232,12 @@ const CONNECTIONS = {
   connected: [
     { connector: "browser", enabled: true, detail: "Browser" },
     { connector: "slack", enabled: true, detail: "Slack" },
+    // two_way WITHOUT channels (relay mentions, no subscriptions) — pins the
+    // "GitHub shows Channels" regression (owner report 2026-07-13).
+    { connector: "github", enabled: true, detail: "GitHub" },
   ],
   recommended: [
-    { connector: "github", reason: "confirm deploys and inspect PRs", tier: "core", connected: false },
+    { connector: "gmail", reason: "email context for morning summaries", tier: "core", connected: false },
   ],
   attention: 1,
 };
@@ -235,7 +258,10 @@ const AUTOMATION = {
   last_status: "running",
   run_count: 1,
   notify_on_completion: false,
-  always_allowed: [],
+  // One standing scoped approval (§25) so the detail page's revoke list has content.
+  always_allowed: [
+    { entry: "send_message slack:T1/C1", tool: "send_message", target: "slack:T1/C1" },
+  ],
 };
 const AUTOMATION_RUNS = [
   {
@@ -292,7 +318,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   };
   const slackConnector = () => ({
     name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.",
-    auth: "bot_token", two_way: true, available: true, brand_color: "#611f69", logo: "slack",
+    auth: "bot_token", two_way: true, channels: true, available: true, brand_color: "#611f69", logo: "slack",
     fields: [], instructions: [], connected: slackState.connected,
     account: slackState.account, enabled: slackState.connected,
     allowed_users: [...slackState.allowed_users], tools: [], managed: true,
@@ -314,7 +340,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   };
   const githubConnector = () => ({
     name: "github", title: "GitHub", icon: "⌘", blurb: "Work with issues, pull requests, repository files, and CI status.",
-    auth: "token", two_way: true, available: true, brand_color: "#1f2328", logo: "github",
+    auth: "token", two_way: true, channels: false, available: true, brand_color: "#1f2328", logo: "github",
     fields: [{ key: "token", label: "Personal access token", secret: true, required: true, help: "", placeholder: "" }],
     instructions: [], connected: githubState.connected,
     account: githubState.installations[0]?.account_login ?? null,
@@ -410,6 +436,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
     { ...PINNED_SESSION },
     ...EXTRA_SESSIONS.map((s) => ({ ...s })),
     { ...OPS_SESSION },
+    { ...SLACK_SESSION },
   ];
   // Inbox items + the outbound routing binding — mutable for resolve + the inline Slack config.
   const inbox: any[] = INBOX_ITEMS.map((i) => ({ ...i }));
@@ -421,6 +448,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Session roots — the primary (writable, non-removable) scratch plus any added folders. Mutable so
   // the RO/RW add/toggle round-trips through the real UI. POST upserts by path (a toggle re-adds).
   const roots: any[] = [{ ...PRIMARY_ROOT }];
+  // Session connections — PER-TEST copy so the Access section's mute toggle (POST) can flip
+  // `enabled` without leaking into sibling tests.
+  const connections = {
+    connected: CONNECTIONS.connected.map((c) => ({ ...c })),
+    recommended: CONNECTIONS.recommended.map((r) => ({ ...r })),
+    attention: CONNECTIONS.attention,
+  };
   // Providers — mutable so save (POST) flips `configured` and stamps key_set_at, matching the
   // backend's set_provider. verify (POST) never mutates: it's a live read-only credential check.
   const providers: any[] = PROVIDERS.map((p) => ({ ...p }));
@@ -451,11 +485,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
     const send = (type: string, data: Record<string, unknown> = {}) =>
       ws.send(JSON.stringify({ type, data }));
     send("ready");
+    let pendingTool = "run_shell"; // which proposal the next approval decision resolves
     ws.onMessage((raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.type === "user_message") {
         send("turn_start", { input: msg.text });
         if (/run a tool/i.test(msg.text)) {
+          pendingTool = "run_shell";
           send("tool_proposed", { name: "run_shell", arguments: { command: "ls" } });
           send("permission_required", {
             name: "run_shell",
@@ -464,6 +500,55 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return; // suspended on the approval
         }
+        // §35 compact row: a routine workspace write (content rides in the args).
+        if (/write a file/i.test(msg.text)) {
+          pendingTool = "write_file";
+          const args = {
+            path: "src/fetch_data.py",
+            content: "import json\nimport urllib.request\n\ncompanies = [\"NVDA\", \"AMD\"]\nprint(len(companies))\ndone = True",
+          };
+          send("tool_proposed", { name: "write_file", arguments: args });
+          send("permission_required", { name: "write_file", arguments: args, reason: "" });
+          return; // suspended on the approval
+        }
+        // Standing scoped approvals (§25): an eligible connector-ish write — the event
+        // carries the pinnable target, exactly like the real engine computes it.
+        if (/post the digest/i.test(msg.text)) {
+          pendingTool = "send_message";
+          send("tool_proposed", {
+            name: "send_message",
+            arguments: { target: "slack:T1/C1", text: "Weekly digest ready" },
+          });
+          send("permission_required", {
+            name: "send_message",
+            arguments: { target: "slack:T1/C1", text: "Weekly digest ready" },
+            reason: "",
+            category: "messaging",
+            standing_target: "slack:T1/C1",
+          });
+          return;
+        }
+        // §25 consent card: the agent proposes the automation's permission set on the
+        // gated create call; the existing approval card renders disclosure/grant lines.
+        if (/create an automation/i.test(msg.text)) {
+          pendingTool = "create_scheduled_task";
+          send("tool_proposed", { name: "create_scheduled_task", arguments: {} });
+          send("permission_required", {
+            name: "create_scheduled_task",
+            arguments: {
+              title: "Weekly digest",
+              instructions: "Summarize the week and post it.",
+              cron: "0 9 * * 1",
+              permissions: [
+                { tool: "send_message", target: "slack:T1/C1", access: "write" },
+                { tool: "github_list_commits", target: "rohit/agent-platform", access: "read" },
+              ],
+            },
+            reason: "",
+            category: "automation",
+          });
+          return;
+        }
         send("assistant_delta", { text: "Echo: " });
         send("assistant_delta", { text: msg.text });
         // Echo the model the message carried — pins the model-per-message contract (the
@@ -471,12 +556,21 @@ export async function mockApi(page: import("@playwright/test").Page) {
         send("assistant_message", { text: `Echo: ${msg.text} [model=${msg.model || "none"}]` });
         send("turn_done");
       } else if (msg.type === "approval") {
-        if (msg.decision === "deny") {
-          send("tool_finished", { name: "run_shell", status: "denied" });
-          send("assistant_message", { text: "Understood — skipped the command." });
+        if (pendingTool === "run_shell") {
+          if (msg.decision === "deny") {
+            send("tool_finished", { name: "run_shell", status: "denied" });
+            send("assistant_message", { text: "Understood — skipped the command." });
+          } else {
+            send("tool_finished", { name: "run_shell", status: "done", result_preview: "README.md" });
+            send("assistant_message", { text: "The command ran; 1 file found." });
+          }
+        } else if (msg.decision === "deny") {
+          send("tool_finished", { name: pendingTool, status: "denied" });
+          send("assistant_message", { text: "Understood — skipped it." });
         } else {
-          send("tool_finished", { name: "run_shell", status: "done", result_preview: "README.md" });
-          send("assistant_message", { text: "The command ran; 1 file found." });
+          send("tool_finished", { name: pendingTool, status: "done", result_preview: "ok" });
+          // The decision echoes back so specs can pin what rode the wire (e.g. always_task).
+          send("assistant_message", { text: `Done via ${pendingTool} [decision=${msg.decision}]` });
         }
         send("turn_done");
       }
@@ -490,8 +584,18 @@ export async function mockApi(page: import("@playwright/test").Page) {
     const json = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-    // session-scoped (id-agnostic — any session resolves to the same fixture)
-    if (/\/v1\/sessions\/[^/]+\/connections$/.test(p)) return json(CONNECTIONS);
+    // session-scoped (id-agnostic — any session resolves to the same fixture).
+    // POST = the per-session mute override (§32 Access toggles) — flip the shared state so
+    // the section's reload sees the change.
+    if (/\/v1\/sessions\/[^/]+\/connections$/.test(p)) {
+      if (m === "POST") {
+        const b = req.postDataJSON() || {};
+        const row = connections.connected.find((c) => c.connector === b.connector);
+        if (row) row.enabled = !!b.enabled;
+        return json({ ok: true });
+      }
+      return json(connections);
+    }
     if (/\/v1\/sessions\/[^/]+\/roots$/.test(p)) {
       if (m === "POST") {
         const b = req.postDataJSON();
@@ -1003,7 +1107,16 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (/\/v1\/automations\/[^/]+$/.test(p) && m === "PATCH") {
       const id = p.split("/").pop();
       const task = automations.find((t) => t.id === id);
-      if (task) Object.assign(task, req.postDataJSON());
+      const body = req.postDataJSON() ?? {};
+      if (task && body.revoke) {
+        // Standing-rule revocation (§25): remove the entry; `revoke` is a command,
+        // not a field to Object.assign onto the task.
+        task.always_allowed = (task.always_allowed || []).filter(
+          (r: any) => r.entry !== body.revoke,
+        );
+        return json({ ok: true, task });
+      }
+      if (task) Object.assign(task, body);
       return json({ ok: true, task });
     }
     if (/\/v1\/automations\/[^/]+$/.test(p) && m === "DELETE") {

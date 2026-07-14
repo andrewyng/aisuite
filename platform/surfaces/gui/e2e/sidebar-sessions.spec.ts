@@ -37,6 +37,28 @@ test("archive is one click and reversible via the Archived disclosure", async ({
   await expect(page.getByTitle("Weekly plan 2")).toBeVisible();
 });
 
+test("mention-spawned sessions collapse under From Slack with the platform icon (§31)", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByTitle("Weekly plan 1")).toBeVisible();
+
+  // Collapsed by default with a count; the session row hidden until expanded…
+  const toggle = page.getByTestId("from-slack-toggle");
+  await expect(toggle).toContainText("From Slack (1)");
+  await expect(page.getByTitle("#general — check the deploy?")).toHaveCount(0);
+
+  await toggle.click();
+  const row = page.getByTitle("#general — check the deploy?");
+  await expect(row).toBeVisible();
+  // …wearing the Slack logo (hover-hidden cluster, so assert attachment not visibility)…
+  await expect(
+    page.getByTestId("from-slack-list").locator('[data-logo="slack"]'),
+  ).toHaveCount(1);
+  // …and never duplicated into any other list.
+  await expect(page.getByTitle("#general — check the deploy?")).toHaveCount(1);
+});
+
 test("delete is two-step: × arms the row, Delete? confirms", async ({ page }) => {
   await page.goto("/");
   const row = page.getByTitle("Weekly plan 3");

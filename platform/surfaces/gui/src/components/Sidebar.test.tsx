@@ -133,6 +133,45 @@ describe("Chronological list row actions", () => {
   });
 });
 
+describe("From Slack group (§31)", () => {
+  const SLACK_SESSION: SessionInfo = {
+    session_id: "s-slack-1",
+    title: "#general — check the deploy?",
+    workspace: "",
+    agent: "cowork",
+    model: "m",
+    mode: "interactive",
+    updated_at: "2026-07-13",
+    messages: 2,
+    origin: "slack",
+    origin_label: "#general · T0AB",
+  };
+
+  it("mention-spawned sessions collapse under From Slack with the platform icon, out of Recent", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} sessions={[...SESSIONS, SLACK_SESSION]} />);
+    await screen.findByText("incident watch"); // flat Recent rendered
+
+    // Collapsed by default: the header shows a count, the row itself is hidden…
+    const toggle = screen.getByTestId("from-slack-toggle");
+    expect(toggle.textContent).toContain("From Slack (1)");
+    expect(screen.queryByText("#general — check the deploy?")).toBeNull();
+
+    // …and the session does NOT duplicate into the chronological Recent list.
+    fireEvent.click(toggle);
+    const row = await screen.findByText("#general — check the deploy?");
+    expect(screen.getAllByText("#general — check the deploy?")).toHaveLength(1);
+
+    // The row wears the Slack logo, right-aligned in the indicator cluster.
+    const list = screen.getByTestId("from-slack-list");
+    expect(list.querySelector('[data-logo="slack"]')).toBeTruthy();
+    expect(row).toBeTruthy();
+  });
+});
+
 describe("New-session split button", () => {
   it("collapses to a plain button when only one persona is enabled", async () => {
     stubFetch([

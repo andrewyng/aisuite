@@ -137,8 +137,10 @@ class InboxStore:
                 return i
         return None
 
-    def add_approval(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, tool_call_id=None) -> InboxItem:
-        return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox, visibility=visibility, tool_call_id=tool_call_id)
+    def add_approval(self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX, data=None, tool_call_id=None) -> InboxItem:
+        # `data` carries the automation-run context for standing scoped approvals (§25):
+        # {task_id, task_title, standing_target?} — the in-app card's "Allow every time" gate.
+        return self.add(session_id, KIND_APPROVAL, title, body=body, inbox=inbox, visibility=visibility, data=data, tool_call_id=tool_call_id)
 
     def add_question(
         self, session_id, title, *, body="", inbox="default", visibility=VIS_INBOX,

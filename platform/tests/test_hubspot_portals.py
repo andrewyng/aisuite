@@ -205,7 +205,7 @@ def test_managed_callback_lands_in_portal_profile(client):
             "app_state": "s",
         },
     )
-    assert resp.status_code == 200 and "hubspot connected" in resp.text
+    assert resp.status_code == 200 and "HubSpot connected" in resp.text
     profile = client.manager.secrets.get("hubspot:portal:424242")
     assert profile["access_token"] == "hs-at" and profile["sandbox"] is True
     listed = {c["name"]: c for c in client.manager.list_connectors()}

@@ -1,8 +1,8 @@
 import { test, expect } from "./fixtures";
 
-// Guards the composer control row: send-gating (accent only with content), the "+" attach menu, and
-// the permission-mode dropdown.
-test("composer: send-gating, + attach menu, mode dropdown", async ({ page }) => {
+// Guards the three-control composer row (§22): send-gating (accent only with content), the "+"
+// attach menu, and the Mode menu (permission options + the folded-in Send-to-Inbox toggle).
+test("composer: send-gating, + attach menu, Mode menu", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
 
@@ -25,7 +25,16 @@ test("composer: send-gating, + attach menu, mode dropdown", async ({ page }) => 
   await page.locator(".fixed.inset-0.z-30").click();
   await expect(page.getByRole("button", { name: "Photo or image" })).toHaveCount(0);
 
-  // Permission-mode dropdown (workspace personas only) opens its options.
-  await page.getByText("Ask for approval").click();
-  await expect(page.getByText("Explore read-only, propose a plan")).toBeVisible();
+  // Mode menu (workspace personas only): the five permission options with the current one
+  // marked, plus the Unattended/send-to-Inbox toggle at the bottom (§22).
+  await page.getByRole("button", { name: "Mode", exact: true }).click();
+  const menu = page.getByTestId("mode-menu");
+  await expect(menu.getByText("Discuss")).toBeVisible();
+  await expect(menu.getByText("Explore read-only, propose a plan")).toBeVisible();
+  // The current mode is marked with a ✓.
+  await expect(menu.locator("button").filter({ hasText: "Ask for approval" })).toContainText("✓");
+  await expect(menu.getByRole("switch", { name: "Send approvals to the Inbox" })).toBeVisible();
+  // Picking an option closes the menu (and would flip the live engine's mode).
+  await menu.getByText("Full access").click();
+  await expect(page.getByTestId("mode-menu")).toHaveCount(0);
 });

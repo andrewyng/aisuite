@@ -257,8 +257,9 @@ def test_engine_connector_tools_are_cowork_scoped(tmp_path):
     assert "browser_read_url" not in helper.registry.names()
     assert "browser_open_url" not in helper.registry.names()
 
-    assert cowork.registry.get("browser_open_url").metadata.requires_approval is True
-    assert cowork.registry.get("browser_snapshot").metadata.requires_approval is True
+    # §36: browser READS (registry kind) are free; interactions still gate.
+    assert cowork.registry.get("browser_open_url").metadata.requires_approval is False
+    assert cowork.registry.get("browser_snapshot").metadata.requires_approval is False
     assert cowork.registry.get("browser_click").metadata.requires_approval is True
     assert cowork.registry.get("browser_type").metadata.requires_approval is True
     cowork.permissions.allow_tool_for_session("browser_click")
@@ -277,8 +278,13 @@ def test_engine_connector_tools_are_cowork_scoped(tmp_path):
         secrets=secrets,
     )
     assert "github_search" in cowork_with_github.registry.names()
+    # §36: github_search is a registry READ — free; the write sibling still gates.
     assert (
         cowork_with_github.registry.get("github_search").metadata.requires_approval
+        is False
+    )
+    assert (
+        cowork_with_github.registry.get("github_create_issue").metadata.requires_approval
         is True
     )
 
@@ -294,6 +300,11 @@ def test_connector_list_descriptors(tmp_path):
         by_name["telegram"]["two_way"] is True
         and by_name["telegram"]["connected"] is False
     )
+    # channels (chat capability) is narrower than two_way: GitHub is two-way via the
+    # relay (inbound mentions) but sessions can't subscribe to "GitHub channels".
+    assert by_name["telegram"]["channels"] is True
+    assert by_name["slack"]["channels"] is True
+    assert by_name["github"]["two_way"] is True and by_name["github"]["channels"] is False
     assert (
         by_name["gmail"]["available"] is True and by_name["gmail"]["connected"] is False
     )
@@ -1063,8 +1074,8 @@ def test_hubspot_search_properties_and_filters(tmp_path, monkeypatch):
 
 
 def test_new_write_tools_require_approval(tmp_path, monkeypatch):
-    # every connector tool is approval-gated in this codebase (see _attach default);
-    # the write tools matter most, so pin them explicitly
+    # §36: the tool registry's kind is law — connector WRITES gate, READS never do
+    # (reads on a service the user explicitly connected are the point of connecting it).
     tools = _connected_tools(tmp_path, monkeypatch, [])
     for name in (
         "linear_create_issue",
@@ -1072,15 +1083,14 @@ def test_new_write_tools_require_approval(tmp_path, monkeypatch):
         "discord_send_message",
         "asana_create_task",
         "hubspot_create_contact",
-        "stripe_search_customers",
-        "dropbox_read_file",
-        "box_search",
         "whatsapp_send_message",
         "whatsapp_send_template",
         "notion_create_page",
         "attio_create_note",
     ):
         assert tools[name].__aisuite_tool_metadata__.requires_approval is True, name
+    for name in ("stripe_search_customers", "dropbox_read_file", "box_search"):
+        assert tools[name].__aisuite_tool_metadata__.requires_approval is False, name
 
 
 def test_gitlab_self_hosted_base_url(tmp_path, monkeypatch):

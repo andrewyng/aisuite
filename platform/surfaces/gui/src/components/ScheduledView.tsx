@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
+import { AutomationQuickstart } from "./AutomationQuickstart";
 
 // Shared utility strings (the §28 page shell — mirrors IntegrationsView's constants).
 const CARD = "rounded-xl2 border border-line bg-panel";
@@ -28,44 +29,6 @@ function fromCron(cron?: string | null): { time: string; freq: string } {
 
 const fmt = (t: number | null) =>
   t ? new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
-
-// One-click prebuilt templates. Each maps directly to a createAutomation payload.
-interface Template {
-  key: string;
-  title: string;
-  blurb: string;
-  instructions: string;
-  cron: string;
-  when: string;
-}
-
-const TEMPLATES: Template[] = [
-  {
-    key: "news",
-    title: "Morning news briefing",
-    blurb: "A 5-bullet tech & world news digest, saved as markdown.",
-    instructions:
-      "Search the web for the most important technology and world news from the last 24 hours and write a concise 5-bullet briefing, saved as a markdown file.",
-    cron: "0 8 * * *",
-    when: "Every day · 8:00 AM",
-  },
-  {
-    key: "inbox",
-    title: "Inbox digest",
-    blurb: "One short digest of your unread email.",
-    instructions: "Summarize my unread email into one short digest note.",
-    cron: "0 9 * * 1-5",
-    when: "Weekdays · 9:00 AM",
-  },
-  {
-    key: "cleanup",
-    title: "Folder cleanup",
-    blurb: "Sort recent Downloads into tidy folders by type.",
-    instructions: "Sort my recent Downloads into tidy folders by file type.",
-    cron: "30 17 * * 5",
-    when: "Fridays · 5:30 PM",
-  },
-];
 
 // Map a simple time-of-day + frequency selection to a 5-field cron string.
 function toCron(time: string, freq: string): string {
@@ -111,11 +74,13 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
     return () => clearInterval(h);
   }, []);
 
-  // Create from a payload, refresh the list, and open the new task's detail.
+  // Create from a payload, refresh the list, and open the new task's detail. `permissions`
+  // rides through for quickstart recipes (§25 write grants).
   const create = async (payload: {
     title: string;
     instructions: string;
     cron?: string;
+    permissions?: { tool: string; target: string; access: "read" | "write" }[];
   }) => {
     setBusy(payload.title);
     try {
@@ -175,33 +140,9 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
         />
       )}
 
-      {(empty || showForm) && (
-        <div className="mb-4">
-          <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
-            Start from a template
-          </div>
-          <div className="grid grid-cols-3 gap-3.5">
-            {TEMPLATES.map((t) => (
-              <div className={CARD + " p-4 flex flex-col gap-1.5"} key={t.key}>
-                <div className="text-[13.5px] font-semibold">{t.title}</div>
-                <div className="text-[12.5px] text-muted flex-1">{t.blurb}</div>
-                <div className="text-[11.5px] text-faint flex items-center gap-1.5">
-                  <Icon name="clock" size={12} /> {t.when}
-                </div>
-                <button
-                  className="self-start mt-1 text-[12px] px-2.5 py-1 rounded-md border border-line hover:border-accent hover:text-accent disabled:opacity-50"
-                  disabled={busy !== null}
-                  onClick={() =>
-                    create({ title: t.title, instructions: t.instructions, cron: t.cron })
-                  }
-                >
-                  {busy === t.title ? "Creating…" : "Use this"}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* The quickstart (§29): ONE template system — role recipes + generic templates, each
+          card with §27 connector dots; picking one expands the configure card. */}
+      {(empty || showForm) && <AutomationQuickstart busy={busy !== null} onCreate={create} />}
 
       {empty ? (
         !showForm && (

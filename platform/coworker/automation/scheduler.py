@@ -36,6 +36,7 @@ class Scheduler:
         self.extra_tick = extra_tick
         self._task: Optional[asyncio.Task] = None
         self._running_ids: set[str] = set()  # overlap guard
+        self._spawned: set[asyncio.Task] = set()  # keep spawned runs referenced
 
     def start(self) -> None:
         if self._task is None:
@@ -49,6 +50,15 @@ class Scheduler:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        # In-flight runs died with the loop before they were spawned; keep that shutdown
+        # contract now that they're independent tasks (a suspended run must not outlive us).
+        for spawned in list(self._spawned):
+            spawned.cancel()
+            try:
+                await spawned
+            except asyncio.CancelledError:
+                pass
+        self._spawned.clear()
 
     async def _loop(self) -> None:
         # First pass = run-once-catch-up for anything missed while the server was down.
@@ -65,7 +75,13 @@ class Scheduler:
 
     async def _tick(self, *, trigger: str) -> None:
         for task in self.store.due():
-            await self.run_task(task, trigger=trigger)
+            # Spawn, don't await: a run can suspend on a parked approval (standing
+            # scoped approvals, §25) and one blocked automation must never stall the
+            # scheduler loop, other due tasks, or self-wake resumption. Overlap is
+            # still guarded inside run_task via _running_ids.
+            spawned = asyncio.create_task(self.run_task(task, trigger=trigger))
+            self._spawned.add(spawned)
+            spawned.add_done_callback(self._spawned.discard)
         if self.extra_tick is not None:
             try:
                 await self.extra_tick()

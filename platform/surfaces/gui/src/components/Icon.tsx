@@ -86,8 +86,6 @@ export function Icon({
           <path d="M9 4.5v15" />
         </svg>
       );
-<<<<<<< HEAD
-=======
     case "sidebarRight":
       // Right-panel counterpart of "sidebar" — same rounded rect + divider, mirrored.
       return (
@@ -103,7 +101,6 @@ export function Icon({
           <path d="M15 8l4 4-4 4M19 12H9" />
         </svg>
       );
->>>>>>> d465c89 (Sidebar bottom becomes one account row (UX-DECISIONS §26))
     case "folder":
       // Clean single-tab folder (Lucide-style) — no internal divider line.
       return (

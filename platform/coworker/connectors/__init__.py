@@ -35,7 +35,7 @@ from .setup import (
     update_connector_tools,
 )
 from .integration_tools import make_integration_tools
-from .tools import make_send_message_tool
+from .tools import make_send_file_tool, make_send_message_tool
 from .tool_defs import connector_for_tool
 
 __all__ = [
@@ -64,6 +64,7 @@ __all__ = [
     "set_experimental_enabled",
     "update_connector_tools",
     "make_integration_tools",
+    "make_send_file_tool",
     "make_send_message_tool",
     "connector_for_tool",
     "SlackAdapter",

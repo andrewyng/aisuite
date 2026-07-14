@@ -28,11 +28,15 @@ export function ChannelPicker({
   onChange,
   recent,
   onSubmit,
+  onPickName,
 }: {
   value: string;
   onChange: (v: string) => void;
   recent: RecentChannel[];
   onSubmit?: () => void;
+  // Fires when a pick RESOLVES a display name for the raw address — callers can echo the
+  // human name (+ workspace) wherever they show the target (§25 consent line, summaries).
+  onPickName?: (address: string, name: string, workspace?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
@@ -174,7 +178,10 @@ export function ChannelPicker({
                 // mousedown (not click) so the pick lands before the input's blur
                 e.preventDefault();
                 onChange(c.channel);
-                if (c.name) setPickedName((m) => ({ ...m, [c.channel]: c.name! }));
+                if (c.name) {
+                  setPickedName((m) => ({ ...m, [c.channel]: c.name! }));
+                  onPickName?.(c.channel, c.name);
+                }
                 setOpen(false);
                 inputRef.current?.blur();
               }}
@@ -211,7 +218,10 @@ export function ChannelPicker({
               onMouseDown={(e) => {
                 e.preventDefault();
                 onChange(r.address);
-                if (r.name) setPickedName((m) => ({ ...m, [r.address]: r.name }));
+                if (r.name) {
+                  setPickedName((m) => ({ ...m, [r.address]: r.name }));
+                  onPickName?.(r.address, r.name, r.workspace || undefined);
+                }
                 setOpen(false);
                 inputRef.current?.blur();
               }}

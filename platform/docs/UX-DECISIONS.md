@@ -160,10 +160,10 @@ the HTML mock), **Built** (in the real React/Python app).
 - **Decision:** The sidebar bottom was a stack of 5 rows (Integrations · Automations · Inbox ·
   Activity + a path/gear footer) — "very busy." Collapse it to **two rows**: **Inbox** stays visible
   (its attention badge must be glanceable), and **Settings · Integrations · Automations · Activity**
-  move into one **⚙ "Settings & more"** click-to-open menu that opens upward. The
+  move into one **⚙ "Settings & more"** click-to-open menu that opens upward (Codex/Claude-style). The
   current workspace path becomes the menu's header (was the standalone footer).
 - **Rationale:** Inbox is the only high-frequency destination; the rest are occasional (Integrations
-  is set-up-once, Activity/Settings are rare). Similar products use a bottom menu for *account* items —
+  is set-up-once, Activity/Settings are rare). Claude/Codex use a bottom menu for *account* items —
   we have no account (local, BYO-key), so ours holds *app* destinations instead. Net: 5 rows → 2,
   primary nav (New session, Search) stays clean at top.
 - **Not chosen:** moving Inbox to the top cluster (kept it bottom-adjacent to its badge); keeping
@@ -334,7 +334,7 @@ the HTML mock), **Built** (in the real React/Python app).
      sheet) collapses the nav for max width and restores it on close — unless you manually toggled
      the nav meanwhile (the manual action takes control; the auto-collapse never overwrites the
      saved pref).
-- **Inspiration (not copied):** Similar products collapsible sidebars + their group/filter menus.
+- **Inspiration (not copied):** Claude/Codex collapsible sidebars + their group/filter menus.
 - **Tests:** `e2e/nav-collapse.spec.ts` (collapse/dock, ⌘B, popover grouping); `Sidebar.test.tsx`
   updated to the new group/filter control.
 
@@ -425,6 +425,11 @@ fresh-session and in-progress screens shed chrome:
 - **Open at build time:** fresh-session greeting copy; whether suggestion chips survive.
 
 ## 23. Session settings row: hover to glance, click to manage  *(Decided 2026-07-11 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-003-session-row.html`)*
+
+> **↪ RETIRED 2026-07-13 (§32, ledger UX-014):** the row, the glance, and the drawer merged into
+> the right rail's **Access** section — the glance summary now lives permanently on that
+> section's header, and the drawer's content edits inline in the rail. The trust semantics below
+> (brand = live, gray = unavailable, nudge text never at rest) carry over in summary form.
 
 Replaces §3's always-visible SourcesBar (ledger UX-003). One sub-header row above the conversation
 whose contract is **rest = icon · hover/focus = glance · click = manage**:
@@ -612,8 +617,306 @@ channel was editable in TWO places (that page's card + Inbox's inline configurat
 - **Connectors sub-nav shrinks to Connectors · MCP servers** (amends §26, which had already
   predicted the dissolution).
 
+## 29. Onboarding: model → your tools → go; the recipe becomes the Automations quickstart  *(Decided 2026-07-12 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-010-onboarding-quickstart.html`; ledger UX-010)*
+
+Restructures §24's step 2–3. The recipe step was the heaviest screen in the app — six decisions
+and two third-party OAuth flows at minute one; nearly every friend-install failure lived on it —
+and it duplicated the Automations page's template system.
+
+- **Onboarding = three fixed-height pages, one decision each:**
+  1. **Model** — unchanged (§24 + its revisions).
+  2. **Connect your tools** — value-framed cloud sign-in: real connector logos (ConnectorIcon
+     set, never letter stand-ins), "one sign-in unlocks every one-click connection — your
+     tokens stay on this Mac", the manual path spelled out ("every tool can also be connected
+     with your own API keys — signing in just makes it one click"), plain-link skip (no
+     confirm; sign-in is genuinely optional — the lazy first-connect sign-in stays for
+     skippers). Signed-in replay shows the ✓ state instead of the button.
+     `↪ Open:` the owner finds this page's copy still confusing — copy iteration pending.
+  3. **You're set up** — two CTAs: "Create your first automation" → the Automations
+     quickstart; "Start working with Coworker" → fresh session with the session-settings
+     panel open (§24's teach-by-landing kept). The gallery card + scope line stay hidden.
+- **The Automations quickstart = ONE template system** (`AutomationQuickstart.tsx`): the role
+  recipes (GitHub digest / Pipeline digest / Morning brief) merge into "Start from a template"
+  beside the generic cards (news / inbox digest / folder cleanup — Inbox digest now names its
+  Gmail dependency). Cards are equal-height and carry §27's connector-dot vocabulary (brand =
+  connected, grayscale = not; "No connections needed" cards say so). Picking a card expands
+  the configure card: connect rows (lazy cloud sign-in pane, GitHub link-existing escape
+  hatch), channel-by-name, day × time, §25 consent for write recipes / read disclosure
+  otherwise, and a named-gate Create button ("Connect X to continue" / "Pick a channel…").
+  Shown on the empty state and alongside "+ New automation".
+- **Decided along the way:** the §27 start-screen GitHub→Slack row keeps its prefill contract
+  (the agent path stays first-class); the quickstart is the click-path twin.
+
+## 30. Quickstart connect polish: configure header, honest connect states, branded loopback pages  *(Decided 2026-07-13 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-011-quickstart-connect-polish.html`; ledger UX-011)*
+
+Three fixes from the owner's DMG #10 walkthrough of the §29 quickstart.
+
+- **The configure card opens with a header** — kicker `SET UP` + the template's title + a
+  cadence echo ("Connections, delivery & schedule · Weekly") as one bordered row inside the
+  card — so it visibly belongs to the picked template instead of starting abruptly after the
+  grid. Picking a template also scrolls the card into view.
+- **Connect gets honest states, inline (owner offered a modal; inline won** — the connect
+  completes out-of-band and the page isn't actually blocked, so the row narrates itself):
+  `Connect` → `⟳ Opening browser…` (the broker POST is in flight; this covers the 4–5 s of
+  dead air) → `⟳ Waiting for <Tool>…` plus a handoff strip under the row ("Finish connecting
+  <Tool> in your browser. Approve it there, then come back — this page updates by itself."
+  with **Cancel**). Cancel clears only the local waiting state — the browser tab is the
+  user's to close; the existing poll flips the row to ✓. The same states apply to
+  "Sign in to OpenCoworker Cloud" in the quickstart's lazy pane and on onboarding page 2.
+- **The loopback pages become one branded card** (`_browser_page` in the sidecar): OCW mark,
+  ok/fail icon (the connector's badge rides the ✓), Title-cased connector names ("Slack
+  connected", never "slack connected"), "You can close this tab and return to OpenCoworker",
+  the error detail preserved on failures (it's the debugging breadcrumb), and a "Served
+  locally by OpenCoworker on your Mac" footer. Inline CSS, light/dark via
+  `prefers-color-scheme`, zero external assets — the page must render offline.
+- **Out of scope (broker slice, tracked separately):** the "Already installed on GitHub?
+  Link it ›" escape hatch and the GitHub install-page dead-end — properly fixed by
+  authorize-first connect + a `GET /me/connections` restore in ocw-connect.
+
+## 31. Slack mention router: @ocw spawns a thread-scoped coworker  *(Decided 2026-07-13 by owner; ledger UX-013)*
+
+Mentions are the PRIMARY Slack entry point ("very few people will do a subscribe inside an
+agent" — owner). Before this, an @ocw tag in a channel with no subscribed session was silently
+dropped.
+
+- **Tag in an unsubscribed channel → a NEW coworker session per THREAD**, replying into the
+  thread (a top-level tag threads on its own message, Slack-style). Follow-up tags in the same
+  thread STEER the same session — dedupe keys on the thread target
+  (`slack:T…/C…:thread_ts`), persisted in `mention_threads.json`. A deleted session releases
+  its threads; the next tag spawns fresh.
+- **The thread is pre-approved, nothing else is:** the spawned session carries a standing
+  `send_message` grant (§25 shape, exact-target match) for its origin thread only — the
+  conversation never stalls on an approval nobody in Slack can see. Any other action asks as
+  usual (approvals park to the Inbox, §28). The grant is re-derived from the durable map on
+  every engine rebuild, so it survives restarts.
+- **A user-connected coworker overrides the router:** a subscribed session gets the tag with
+  must-respond-in-thread framing; the router spawns nothing there.
+- **Chattiness tiers:** tagged → must respond, in the thread · untagged channel traffic →
+  judgement-only, "stay silent unless a reply adds real value" · the allow-list still gates
+  everything upstream (unauthorized senders park, never spawn).
+- **Sidebar:** mention-spawned sessions carry `origin`/`origin_label` and gather in ONE
+  cross-persona **"From Slack (N)"** band — collapsed by default, both layouts, placed after
+  Pinned; rows wear the Slack logo right-aligned in the indicator cluster. They never
+  duplicate into Recent or the persona lists (pinned wins; archived keeps the persona
+  disclosure). **No auto-archive** — deferred to a future global settings page (default vs
+  Slack session policies, owner call 2026-07-13).
+- `↪ Refinement (owner, 2026-07-14):` **titles put the ASK first** — "{ask, 48 chars} —
+  #channel", mention token stripped. The old "#general — <@UBOT> …" prefix made every
+  mention session truncate identically in the sidebar; the ask is what varies, so it gets
+  the budget, and origin is already told three ways (group, icon, origin_label).
+
+## 32. One session panel: the rail absorbs the Sources drawer  *(Decided 2026-07-13 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-014-session-panel.html`; ledger UX-014)*
+
+Progress (doing) · Artifacts (made) · Access (may touch) are three views of ONE session, so they
+share one panel and one entry — the existing panel toggle. Retires §23's rest/hover/click row,
+its glance machinery, and the overlay drawer.
+
+- **The Access section** is the former Session-settings drawer recut for rail width: Sources
+  with per-session mute toggles (and the two-way connectors' channels drill-down as an inline
+  child view), Recommended with connect-in-context, Folders (roots + RO/RW gate + branch), and
+  the global-connectors link. No second overlay, ever.
+- **The header carries the trust glance permanently** — "Access · Slack, GitHub · 2 folders"
+  (first two live source names +N, then the folder fact; project-scoped sessions name the
+  folder). Ships collapsed; nudge TEXT still never renders at rest (§23's rule, carried over).
+- **The rail renders for every non-chat persona** (code/ops had the drawer but no rail).
+  Sections per family — cowork: Progress · Artifacts · Access; code-family: Progress · Access.
+  `↪ Agreed follow-up (owner, 2026-07-13, NOT built):` code-family later gets **Files** in the
+  middle slot instead of Artifacts — a changed-files view (PR-style ±), repo-native where
+  Artifacts is deliverable-native.
+- **Deep links:** the intro's "Configure ›" and onboarding's "Start working" open the rail with
+  Access expanded (scrolled into view). The topbar nets minus one icon.
+- `↪ Addendum (owner ask, same day):` **"+ Add a source…"** — the catalog's long tail,
+  in-session. A quiet row under Sources becomes a typeahead over the full connector catalog
+  (available + not already connected, capped at 6); picking one enters the SAME
+  connect-in-context child view, and a source added from a session is also enabled for that
+  session on connect. Search-only, never a browsable list — browsing stays on the global
+  Connectors page. The child view states the scope rule once: connecting is account-level,
+  the toggle is per-session.
+- `↪ Refinement (owner ask, same day):` **Folders mirrors Sources** — the old drawer's card
+  wrapper and dashed add-button read too heavy in the rail. Folder rows sit flat under the
+  FOLDERS header (same left edge and rhythm as source rows) and the add affordance is a quiet
+  "+ Give access to a folder…" link, twin to "+ Add a source…", expanding the same inline
+  RO/RW-gated form in place. The whole section scans as one repeated pattern: uppercase
+  header → flat rows → quiet "+" line. Collapsed rail sections also equalized (headers share
+  a 24px min-height so Artifacts' action buttons no longer make it the tall one).
+
+## 33. Tool calls read as English; the TURN is the group  *(Decided 2026-07-13 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-015-tool-call-lines.html`; ledger UX-015)*
+
+The old step group was raw plumbing: mono tool names + args + JSON result boxes, a separate
+teal box per resolved approval, and an approval count advertised on the collapsed line.
+Replaced wholesale — three layers, all shipped together:
+
+- **One English line per tool call, synthesized client-side** (`humanize.ts`): the model does
+  NOT emit a purpose per call, so per-tool templates turn name+args into a sentence — "Sent a
+  Slack message to …", "Updated the plan — '…' → done", "Read runbook.md". `run_shell` is the
+  exception and the model DOES speak there: its `description` argument (model-written intent,
+  §25 lineage) is preferred — "Ran `git log …` — list yesterday's merges". Unknown/long-tail
+  tools fall back to "Used *tool* — *short args*".
+- **Approvals fold into their tool's row as a chip** — ✓ approved / auto-allowed (standing
+  rule; tooltip names the automation) / ✕ declined. A declined ask has no executed call, so it
+  keeps its own row, phrased as intent: "Wanted to run `rm -rf build/` — ✕ declined". No
+  separate approval boxes, and no approval count on the collapsed line: only a DECLINE and the
+  privacy note ("N hidden by your filters") may surface at rest.
+- **Narration + turn-level grouping:** the engine prompt (all personas) asks for ONE short
+  status line before each batch of tool calls. Grouping therefore moves up a level — the whole
+  user-message → final-answer span collapses as one turn ("N steps"), with quiet narration
+  lines (assistant text followed by more activity in the same turn — pure client-side
+  classification) interleaved between humanized step rows. The final answer stays a normal
+  bubble OUTSIDE the disclosure. A running turn is open and live (spinner on the current
+  step, "Running N steps…"), and collapses when the answer lands unless the user pinned it
+  open. Non-narrating models degrade to a turn with no quiet lines.
+- **Raw is demoted, not deleted:** hover a row → "raw" → verbatim `name + args → result`
+  block, for debugging.
+- `↪ Refinement (owner report, same day — the intermediate-bubble flicker):` while the session
+  is LIVE, the final run's trailing assistant text is still narration, never promoted to an
+  answer bubble — each status line was flashing as a full ASSISTANT bubble and then vanishing
+  into the group when the next tool call arrived. The answer bubble now appears exactly once,
+  when the turn ends (Transcript takes the session's `running` flag). Streamed text mid-turn
+  renders as the same quiet line (no ASSISTANT chrome); a stream straight after the user's
+  message keeps the bubble (plain reply). PENDING approvals/questions no longer split the run
+  (they render in the composer, not the transcript), so waiting on a decision doesn't
+  reshuffle the story. A collapsed live turn carries its latest narration on the header —
+  "Running 10 steps… · *I'm creating a generator that embeds…*" — so the pulse never hides.
+- `↪ Refinement #2 (owner, 2026-07-14 — the stream gate):` turn-START streams are HELD
+  (spinner shows) until they either get a tool call — narration; renders complete as the
+  quiet line, a bubble never appears — or cross **40 words** with no tool call — the answer;
+  the bubble starts streaming from that point. A message that ends under the threshold with
+  no tools shows its bubble at completion (~a second late, owner-accepted: "people can wait
+  1-2 seconds longer").
+- `↪ Refinement #3 (owner, same day — #2 only covered turn start):` mid-turn narration still
+  painted as a floating full-size paragraph (a `.md` CSS override compounded it). ONE rule
+  now for all streamed text: under 40 words it belongs to the LIVE turn group — on the
+  collapsed header ("Running 12 steps… · checking the historical pages…") or as the small
+  quiet line when expanded — and 40+ promotes to the streaming answer bubble, start and
+  mid-turn alike. **Turns also start COLLAPSED while running** (owner call): the header's
+  live line is the pulse; expanding is opt-in. Residual unchanged: 40+ words of narration
+  degrades to a bubble.
+- `↪ Later (not built):` turn duration in the header ("Worked for 1m 04s") once transcript
+  messages carry timestamps; an optional model-written `purpose` on more tools if the
+  fallback lines feel dry.
+
+## 34. Artifacts come to the user  *(Decided 2026-07-14 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-016-artifact-delivery.html`; ledger UX-016)*
+
+Finishing a task must not strand the deliverable behind the Artifacts panel — the agent hands
+it over, in the GUI and in Slack.
+
+- **`artifact:` links (GUI):** the agent ends a deliverable turn with plain markdown —
+  `[Title](artifact:relative/path)` — and the renderer shows an artifact CHIP (icon, title,
+  filename, "Open ›") that opens the existing rail viewer in place (un-hiding the rail if
+  needed; path resolved against the session's artifact list, one refresh on a miss).
+  Rejected: a custom `<ocw:artifact/>` tag (models mangle XML; other surfaces show it raw)
+  and a `show_artifact()` tool (extra round-trip, forgotten, imperative-UI-on-replay).
+  Prompted in the Cowork instructions; the scheme survives the markdown sanitizer via an
+  explicit urlTransform carve-out.
+- **`send_file` tool (Slack):** uploads a workspace file into the thread/channel
+  (`files_upload_v2`). Slack renders its own previews for pdf/csv/images — send the FILE,
+  not a thumbnail. Same target grammar and token resolution as send_message (desktop-direct
+  even on the managed relay — the per-team bot token is local), but a DIFFERENT tool name:
+  a mention-thread's standing `send_message` grant never covers uploads (task_rules key on
+  the tool name; pinned by test). Paths must resolve inside the session's workspace/roots;
+  50 MB cap.
+- **HTML → screenshot:** the one format Slack can't preview. `send_file(as_screenshot=true)`
+  renders the local page headless (the Playwright we already ship, 1280×800 viewport) and
+  uploads `<stem>.png` instead. HTML-only by design.
+- **Scopes:** managed bot scopes gain `files:write` (broker providers.py — new connects
+  request it, existing workspaces re-consent on their next Connect); the manual Socket-Mode
+  instructions list it; the hosted app's Bot Token Scopes must match (dashboard).
+- `↪ Queued (owner):` artifact SHARING — public / select emails, behind OpenCoworker Cloud
+  sign-in. Separate decision; discussion next.
+
+## 35. Approval cards speak the transcript's language  *(Decided 2026-07-14 by owner; mock: `ocw-context/docs/ux-improvements/mocks/UX-018-approval-card.html` (v3); ledger UX-018)*
+
+The card shouted "PERMISSION REQUIRED" over a mono tool chip and a raw args dump while
+§33/§34 made everything around it read as English. Replaced:
+
+- **Humanized headline** (`humanizeApprovalTitle`): "Write `fetch_data.py`", "Send a file to
+  **#general**", "Run a command — fetch semiconductor stock data" (run_shell leads with the
+  model's own description). The tool name demotes to the shield icon's hover.
+- **Risk-tiered density:** routine workspace writes (write/edit/patch) render as a compact
+  ROW — title, inline `preview ▾`, Allow / Always allow / quiet Deny. Everything else is a
+  full card; actions that LEAVE the Mac (send_message/send_file/connector tools) wear a warm
+  border and an explicit scope note ("leaves this Mac → Slack") where the "local action"
+  badge used to sit. Locals say "stays on this Mac" (+ "overwrites the existing file" when
+  true). §25 consent cards (create_scheduled_task grants) always keep the full card.
+- **Previews are the PROPOSAL, from the tool call's args** — the file/action doesn't exist
+  yet, so no viewer could show it (the code-family "Files" view is post-hoc; §32 follow-up).
+  File writes: first 5 lines + "show all N lines". Shell: the command block. Sends: the
+  rendered message / file chip. Long-tail tools keep the compact args line.
+- **Buttons:** no solid fills — the primary action is a blue border. Workspace-local
+  "Always allow" stays short (the honest rule — "always allow X for this session" — on
+  hover). run_shell offers ONLY the command-scoped "Always allow this command" (two adjacent
+  always-buttons blur scope — §25's own argument). "Allow every time" (run contexts, §25)
+  unchanged. Deny is quiet text; red only on hover.
+- `↪ Deviation from mock v2 (honesty over label):` the external card's "Always allow sending
+  files to #general" is NOT built — outside run contexts the only mintable grant is
+  session+tool-wide, and a target-named label would overpromise. External cards show the
+  short "Always allow" with the honest hover. Target-scoped standing rules for plain
+  sessions = future permissions work if wanted.
+- `↪ Addendum (owner catch, same day):` **parked approvals wear the same dress.** A reopened
+  session renders its pending approval from the Inbox (InboxItemCard), which still spoke the
+  old dialect — "APPROVAL / Run `browser_read_url`? / solid-blue Approve". Parked items now
+  always carry `tool` + `arguments` in their data, and the card reuses the §35 pieces
+  (humanized title, scope note, content/command preview, blue-border "Allow once", quiet
+  Deny). Resolution vocabulary unchanged (works on every approver path); pre-§35 rows
+  without tool data keep the legacy treatment.
+
+## 36. Connector reads never gate; channel names just work  *(Decided 2026-07-14 by owner; no mock — behavior, not layout)*
+
+Two trust-model fixes from live use, one principle: connecting a service IS the consent for
+reading it; writes are where blast radius lives.
+
+- **Reads never gate.** The tool registry's read/write kind (`tool_defs.py`) is now LAW for
+  every registered connector tool: reads (`github_search`, `gmail_search_messages`,
+  `browser_read_url`, `browser_open_url`, …) carry `requires_approval=False`; writes
+  (`gmail_send_email`, `github_create_issue`, `discord_send_message`, …) always gate. The
+  §25 design note ("reads never gate, a rule would be meaningless") had never actually been
+  wired — connector tools inherited the conservative-MCP default, so a weekly GitHub digest
+  paused THREE times for a human to approve *searching GitHub*, while the quickstart copy
+  promised "reading never needs approval". Call-site flags now govern only tools without a
+  registry entry (MCP/experimental stay conservative). Debatable-and-decided: registry
+  classifies `browser_open_url` and `github_clone/pull` as reads — they ride the rule.
+- **"Post Hi to #general" works.** `send_message`/`send_file` accept a Slack channel NAME
+  (lowercase or `#`-prefixed — Slack names are strictly lowercase, ids are uppercase
+  `C…/T…/…`, so the shapes never collide) and resolve it through the same cached
+  `conversations.list` roster the GUI's channel picker uses: exactly one match across
+  connected workspaces → team-qualified address → the right per-team token. None/many/
+  not-a-member return actionable errors ("invite @ocw to #private-ops in Slack, then
+  retry") instead of the misleading "no bot token for slack" the owner hit — that error
+  came from the token resolver falling back to the relay's marker profile when a bare name
+  carried no team prefix. `not_in_channel` from Slack maps to the invite hint too.
+- `↪ Open question (owner, parked):` platform-specific tools (`send_slack_message`) instead
+  of the generic `send_message`? Revisit.
+
 ## Change log (requests, newest first)
 
+- **2026-07-14 (20)** — Owner ("make connector reads free" + the failed "post Hi to
+  #all-opencoworker" repro): registry-kind-driven approvals + Slack channel-name resolution
+  → §36.
+- **2026-07-14 (19)** — Owner: approval box "needs to be more modern" (+ stream-gate ask,
+  §33 ref #2) → §35 (drafted UX-018, mock v1→v3 with owner review — no row icon, short
+  Always allow, blue-border buttons, inline preview state — graduated same day).
+- **2026-07-14 (18)** — Owner: "should we give it a way to bring up the artifact?" + Slack
+  thumbnails → §34 (drafted UX-016, built P1/P2/P3 same day; markdown-link scheme over
+  tag/tool; post-the-file over thumbnails; HTML screenshot via the shipped Playwright).
+- **2026-07-13 (17)** — Owner (DMG screenshots + the Codex-transcript discussion): tool calls
+  as English one-liners, approvals folded into the row, no approval count at rest; narration
+  folded in after the "do you inject a purpose?" exchange → §33 (drafted UX-015, mock v2,
+  graduated same day).
+- **2026-07-13 (16)** — Owner: merge the Sources drawer into the Progress+Artifacts rail and
+  drop the topbar settings icon → §32 (drafted UX-014, graduated same day; §23 retired with an
+  amendment note; code-family rail = Progress · Access, "Files" replacing Artifacts recorded as
+  the agreed follow-up).
+- **2026-07-13 (15)** — Owner (Slack notes, discussed then planned): @ocw tags spawn
+  thread-scoped coworkers replying in-thread; connected coworkers override; silence-default
+  chattiness; collapsed "From Slack" sidebar group with a right-aligned platform icon → §31.
+- **2026-07-13 (14)** — Owner (DMG #10 walkthrough, five findings on the Automations page):
+  configure-card demarcation, connect-wait feedback, and beautiful loopback pages → §30
+  (drafted UX-011, inline states over a modal, graduated same day). The two
+  already-connected-detection findings became the broker slice (authorize-first +
+  `GET /me/connections`), not a GUI spec item.
+- **2026-07-12 (13)** — Owner: sign-in as onboarding page 2, CTA-only page 3, recipe out of
+  onboarding ("Automations quickstart or onboarding?") → §29 (drafted UX-010, mock v2 with
+  owner's manual-keys line + equal-height cards + real-logos rule; graduated same day).
 - **2026-07-12 (12)** — Friend-install bug-report doc (9 items, via owner): §24 revisions —
   Continue on the model step verifies AUTOMATICALLY (fills-gated, "Checking…", error stays;
   Test becomes an optional explicit check) and the recipe's gated Create-automation button
@@ -689,8 +992,8 @@ channel was editable in TWO places (that page's card + Inbox's inline configurat
   feasible for Gmail (accounts), HubSpot (portals), Teams (orgs). Teams consent corrected: self-
   serve via user install/team-owner RSC, admin only if org policy blocks apps → §21. Build order:
   Connectors list + subpage nav → Slack page → Gmail multi-account → HubSpot → Teams.
-- **2026-07-05 (2)** — Owner aesthetic asks on the left nav: floating/collapsible on demand,
-  a RECENT header with a group+filter control moved off the top bar, and
+- **2026-07-05 (2)** — Owner aesthetic asks on the left nav: floating/collapsible on demand
+  (Claude/Codex-style), a RECENT header with a group+filter control moved off the top bar, and
   auto-collapse when an artifact opens → §20. Chose hover-peek + pin, and auto-collapse with
   auto-restore.
 - **2026-07-05** — Owner (Slack-on-PM setup): double-send first-contact flow called clumsy →
@@ -723,7 +1026,7 @@ channel was editable in TWO places (that page's card + Inbox's inline configurat
   **Activity** too. Decided **Option 2** (§13): Settings = Appearance/Files/Models/Personas;
   Integrations keeps Connectors/Messaging/MCP/Activity. Models + Personas re-skinned; modal + dead
   tabs removed; shared bodies → `ManageTabs.tsx`.
-- **2026-06-30** — Owner: sidebar "very busy" vs other products. Decided: **bottom → Inbox + one ⚙
+- **2026-06-30** — Owner: sidebar "very busy" vs Claude/Codex. Decided: **bottom → Inbox + one ⚙
   "Settings & more" menu** (§12), folding Settings/Integrations/Automations/Activity into a
   click-to-open popup. 5 rows → 2.
 - **2026-06-29 (3)** — Owner Q on the session top bar ("why the model name? what is 'Interactive'?").
