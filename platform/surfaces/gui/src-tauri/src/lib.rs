@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 #[cfg(target_os = "windows")]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -29,6 +29,7 @@ use tauri::{
     Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
+use ocw_stt::{Dictation, DictationStatus};
 
 /// The sidecar server child — killed on exit (orphaned servers have bitten us before).
 struct ServerProcess(Mutex<Option<Child>>);
@@ -259,6 +260,47 @@ fn start_window_drag(window: tauri::WebviewWindow) -> bool {
     window.start_dragging().is_ok()
 }
 
+// -- local dictation ---------------------------------------------------------------------------
+// The actual microphone/model code lives in the Tauri-free `ocw-stt` crate. This shell owns the
+// macOS permission prompt and translates the reusable API into React-friendly Tauri commands.
+
+#[tauri::command]
+fn get_dictation_status(state: tauri::State<Arc<Dictation>>) -> DictationStatus {
+    state.status()
+}
+
+#[tauri::command]
+fn start_dictation(state: tauri::State<Arc<Dictation>>) -> Result<DictationStatus, String> {
+    state.start()?;
+    Ok(state.status())
+}
+
+#[tauri::command]
+async fn stop_dictation(state: tauri::State<'_, Arc<Dictation>>) -> Result<String, String> {
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || dictation.stop_and_transcribe())
+        .await
+        .map_err(|e| format!("Dictation stopped unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+fn cancel_dictation(state: tauri::State<Arc<Dictation>>) {
+    state.cancel();
+}
+
+#[tauri::command]
+async fn download_dictation_model(
+    state: tauri::State<'_, Arc<Dictation>>,
+) -> Result<DictationStatus, String> {
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        dictation.install_default_model()?;
+        Ok::<DictationStatus, String>(dictation.status())
+    })
+    .await
+    .map_err(|e| format!("Voice model download stopped unexpectedly: {e}"))?
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -293,7 +335,12 @@ pub fn run() {
             set_autostart,
             get_keep_awake,
             set_keep_awake,
-            start_window_drag
+            start_window_drag,
+            get_dictation_status,
+            start_dictation,
+            stop_dictation,
+            cancel_dictation,
+            download_dictation_model
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).
@@ -349,6 +396,9 @@ pub fn run() {
                 None
             };
             app.manage(KeepAwake(Mutex::new(ka)));
+            // Voice recordings are transient; only the explicitly installed local Whisper model
+            // lives in the existing application state directory.
+            app.manage(Arc::new(Dictation::new(state_dir().join("models"))));
 
             // 2. Build the window, injecting the sidecar endpoints before the SPA loads.
             //    Overlay title bar (macOS): traffic lights float over the edge-to-edge UI.

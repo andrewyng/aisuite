@@ -4,6 +4,14 @@ import { readFile } from "../attach";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
+import {
+  downloadDictationModel,
+  getDictationStatus,
+  isTauri,
+  startDictation,
+  stopDictation,
+  type DictationStatus,
+} from "../tauri";
 
 const PERMISSION_OPTIONS: Option[] = [
   { value: "discuss", label: "Discuss", description: "Chat and explore — no edits or commands" },
@@ -70,6 +78,9 @@ export function Composer(props: Props) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [dictation, setDictation] = useState<DictationStatus | null>(null);
+  const [dictationBusy, setDictationBusy] = useState<string | null>(null);
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -104,6 +115,15 @@ export function Composer(props: Props) {
     setAttachments([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.resetKey]);
+
+  // Dictation is intentionally native-only: the browser/dev build remains a local server client
+  // and never turns on the browser microphone or ships audio anywhere.
+  useEffect(() => {
+    if (!isTauri()) return;
+    void getDictationStatus().then((status) => {
+      if (status) setDictation(status);
+    });
+  }, []);
 
   const addFiles = async (files: FileList | File[]) => {
     const next = (await Promise.all(Array.from(files).map(readFile))).filter(Boolean) as Attachment[];
@@ -152,6 +172,42 @@ export function Composer(props: Props) {
     }
   };
 
+  const toggleDictation = async () => {
+    if (!isTauri() || dictationBusy) return;
+    setDictationError(null);
+    try {
+      if (dictation?.recording) {
+        setDictationBusy("Transcribing…");
+        const transcript = await stopDictation();
+        if (transcript === null) throw new Error("Could not transcribe your recording.");
+        if (transcript.trim()) {
+          setText((draft) => (draft.trim() ? `${draft.trimEnd()} ${transcript.trim()}` : transcript.trim()));
+        }
+        setDictation(await getDictationStatus());
+        textareaRef.current?.focus();
+        return;
+      }
+
+      let status = dictation || (await getDictationStatus());
+      if (!status) throw new Error("Voice dictation is unavailable.");
+      if (!status.model_installed) {
+        setDictationBusy("Downloading local voice model…");
+        status = await downloadDictationModel();
+        if (!status?.model_installed) throw new Error("Could not download the local voice model.");
+      }
+      setDictationBusy("Starting microphone…");
+      const recording = await startDictation();
+      if (!recording?.recording) throw new Error("Could not start the microphone.");
+      setDictation(recording);
+    } catch (error) {
+      setDictationError(error instanceof Error ? error.message : "Voice dictation is unavailable.");
+      const status = await getDictationStatus();
+      if (status) setDictation(status);
+    } finally {
+      setDictationBusy(null);
+    }
+  };
+
   const available = props.models && props.models.length ? props.models : MODEL_VALUES;
   const modelOptions: Option[] = Array.from(new Set([props.model, ...available])).map((m) => ({
     value: m,
@@ -168,6 +224,12 @@ export function Composer(props: Props) {
   return (
     <div className="composer-wrap px-6 pb-5 pt-4">
       {props.approvalSlot}
+
+      {dictationError && (
+        <div className="max-w-3xl mx-auto mb-2 px-1 text-[12px] text-red-600" role="alert">
+          {dictationError}
+        </div>
+      )}
 
       {/* Attachments preview — a strip ABOVE the input box (mock/Claude-style). */}
       {attachments.length > 0 && (
@@ -252,6 +314,29 @@ export function Composer(props: Props) {
               unattended={props.unattended}
               onUnattendedChange={props.onUnattendedChange}
             />
+          )}
+
+          {isTauri() && (
+            <button
+              className={
+                iconBtn +
+                (dictation?.recording ? " bg-red-50 text-red-600 hover:bg-red-100" : "") +
+                (dictationBusy ? " opacity-60" : "")
+              }
+              onClick={() => void toggleDictation()}
+              disabled={!!dictationBusy}
+              title={
+                dictationBusy ||
+                (dictation?.recording
+                  ? "Stop recording and transcribe"
+                  : dictation?.model_installed
+                    ? "Start local voice dictation"
+                    : "Download local voice model and start dictation")
+              }
+              aria-label={dictation?.recording ? "Stop dictation" : "Start dictation"}
+            >
+              <Icon name={dictation?.recording ? "stop" : "mic"} size={16} />
+            </button>
           )}
 
           <span className="ml-auto" />

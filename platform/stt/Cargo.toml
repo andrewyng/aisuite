@@ -1,0 +1,13 @@
+[package]
+name = "ocw-stt"
+version = "0.1.0"
+description = "Local, offline speech-to-text engine for OpenCoworker hosts"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+
+[dependencies]
+cpal = "0.15.3"
+serde = { version = "1", features = ["derive"] }
+ureq = "2.12"
+whisper-rs = { version = "0.16", features = ["metal"] }

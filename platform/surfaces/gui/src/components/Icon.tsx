@@ -39,6 +39,8 @@ export type IconName =
   | "fileCode"
   | "image"
   | "table"
+  | "mic"
+  | "stop"
   | "x";
 
 export function Icon({
@@ -146,6 +148,19 @@ export function Icon({
         <svg {...s}>
           <rect x="4" y="5" width="16" height="14" rx="2" />
           <path d="M4 10h16M10 10v9M4 14.5h16" />
+        </svg>
+      );
+    case "mic":
+      return (
+        <svg {...s}>
+          <rect x="8.5" y="3.5" width="7" height="11" rx="3.5" />
+          <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
+        </svg>
+      );
+    case "stop":
+      return (
+        <svg {...s} fill="currentColor" stroke="none">
+          <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
         </svg>
       );
     case "x":

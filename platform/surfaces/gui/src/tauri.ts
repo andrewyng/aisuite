@@ -6,6 +6,12 @@
 export const isTauri = (): boolean =>
   typeof (globalThis as any).__TAURI__ !== "undefined";
 
+export type DictationStatus = {
+  recording: boolean;
+  model_installed: boolean;
+  model_name: string;
+};
+
 const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> => {
   const tauri = (globalThis as any).__TAURI__;
   if (!tauri?.core?.invoke) return null;
@@ -42,6 +48,14 @@ export const setKeepAwake = (enabled: boolean) => invoke<boolean>("set_keep_awak
 
 /** Begin native window dragging from a custom title/header region. */
 export const startWindowDrag = () => invoke<boolean>("start_window_drag");
+
+// Local dictation is native-only. The browser build deliberately keeps this unavailable rather
+// than silently sending microphone audio to a server.
+export const getDictationStatus = () => invoke<DictationStatus>("get_dictation_status");
+export const startDictation = () => invoke<DictationStatus>("start_dictation");
+export const stopDictation = () => invoke<string>("stop_dictation");
+export const cancelDictation = () => invoke<void>("cancel_dictation");
+export const downloadDictationModel = () => invoke<DictationStatus>("download_dictation_model");
 
 /** Best-effort open a URL in the user's browser. Uses the Tauri opener plugin if present, else
  * `window.open`. The caller should also render the raw URL so it stays copyable if both no-op
