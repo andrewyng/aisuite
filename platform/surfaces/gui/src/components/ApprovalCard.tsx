@@ -77,20 +77,47 @@ export function scopeNote(
 
 // The proposed content/command, straight from the tool call's ARGS — the file/action
 // doesn't exist yet, so no viewer could show it (§35; see UX-018 mock note).
+// Clamps by CHARACTERS as well as lines: a one-paragraph Slack digest has no
+// newlines at all and once ballooned the card to full-transcript height.
+const PREVIEW_LINES = 5;
+const PREVIEW_CHARS = 420;
+
 export function PreviewBlock({ text, mono = true }: { text: string; mono?: boolean }) {
   const [all, setAll] = useState(false);
   const lines = text.split("\n");
-  const shown = all ? text : lines.slice(0, 5).join("\n");
+  const clipped = lines.length > PREVIEW_LINES || text.length > PREVIEW_CHARS;
+  let shown = text;
+  if (!all && clipped) {
+    shown = lines.slice(0, PREVIEW_LINES).join("\n");
+    if (shown.length > PREVIEW_CHARS) shown = shown.slice(0, PREVIEW_CHARS).trimEnd() + "…";
+  }
   return (
     <div className={"approval-prev" + (mono ? "" : " prose")}>
       {shown}
-      {lines.length > 5 && (
+      {clipped && (
         <button className="approval-prev-more" onClick={() => setAll((v) => !v)}>
-          {all ? "show less" : `show all ${lines.length} lines`}
+          {all
+            ? "show less"
+            : lines.length > PREVIEW_LINES
+              ? `show all ${lines.length} lines`
+              : "show the full message"}
         </button>
       )}
     </div>
   );
+}
+
+// Outbound message text: short one-liners keep the cozy inline quote; anything
+// long (or multi-line) gets the clamped preview so the card stays card-sized.
+function MessagePreview({ text, label }: { text: string; label?: string }) {
+  if (text.length <= 220 && !text.includes("\n")) {
+    return (
+      <div className="approval-with">
+        {label ? `${label}: ` : ""}“{text}”
+      </div>
+    );
+  }
+  return <PreviewBlock text={text} mono={false} />;
 }
 
 function Buttons({
@@ -218,12 +245,12 @@ export function ApprovalCard({
             {item.args?.as_screenshot ? " · as a PNG screenshot" : ""}
           </span>
           {item.args?.comment && (
-            <div className="approval-with">With the message: “{String(item.args.comment)}”</div>
+            <MessagePreview text={String(item.args.comment)} label="With the message" />
           )}
         </>
       )}
       {item.name === "send_message" && item.args?.text && (
-        <div className="approval-with">“{String(item.args.text)}”</div>
+        <MessagePreview text={String(item.args.text)} />
       )}
 
       {grants.length > 0 && (

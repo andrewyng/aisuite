@@ -397,6 +397,8 @@ body {
   font-size: 11.5px; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer;
 }
 .approval-with { margin-top: 9px; font-size: 12.5px; color: var(--muted); }
+/* long outbound messages: same box as code previews but reads as text, not code */
+.approval-prev.prose { font-family: inherit; font-size: 12.5px; }
 .approval-filechip {
   display: inline-flex; align-items: center; gap: 7px; margin-top: 11px; align-self: flex-start;
   border: 1px solid var(--line); border-radius: 9px; background: var(--paper);
