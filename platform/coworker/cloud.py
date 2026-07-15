@@ -90,17 +90,20 @@ def begin_login(config: Config) -> dict[str, Any]:
     _pending_logins[state] = {"verifier": verifier, "created": _now()}
 
     redirect_uri = config.cloud_base_url.rstrip("/") + "/v1/auth/callback"
-    authorize_url = f"https://{config.cloud_auth_domain}/authorize?" + urllib.parse.urlencode(
-        {
-            "response_type": "code",
-            "client_id": config.cloud_client_id,
-            "redirect_uri": redirect_uri,
-            "scope": LOGIN_SCOPES,
-            "audience": config.cloud_audience,
-            "state": state,
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-        }
+    authorize_url = (
+        f"https://{config.cloud_auth_domain}/authorize?"
+        + urllib.parse.urlencode(
+            {
+                "response_type": "code",
+                "client_id": config.cloud_client_id,
+                "redirect_uri": redirect_uri,
+                "scope": LOGIN_SCOPES,
+                "audience": config.cloud_audience,
+                "state": state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            }
+        )
     )
     return {"authorize_url": authorize_url, "state": state}
 
@@ -316,7 +319,8 @@ def emit_session_created(
             sys.platform, _platform.system().lower() or "unknown"
         ),
         "session": {
-            "session_id_hash": "sha256:" + hashlib.sha256(session_id.encode()).hexdigest(),
+            "session_id_hash": "sha256:"
+            + hashlib.sha256(session_id.encode()).hexdigest(),
             "persona_id": persona_id,
             "persona_family": persona_family,
             "workspace_kind": workspace_kind,
@@ -379,7 +383,11 @@ def begin_managed_connect(
         return {"ok": False, "error": f"cloud unreachable: {type(exc).__name__}"}
     if resp.status_code != 200:
         return {"ok": False, "error": f"start failed ({resp.status_code})"}
-    return {"ok": True, "authorize_url": resp.json()["authorize_url"], "app_state": app_state}
+    return {
+        "ok": True,
+        "authorize_url": resp.json()["authorize_url"],
+        "app_state": app_state,
+    }
 
 
 def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
@@ -490,7 +498,8 @@ def cloud_disconnect(
         return
     try:
         httpx.post(
-            config.cloud_base_url.rstrip("/") + f"/v1/connections/{connection_id}/disconnect",
+            config.cloud_base_url.rstrip("/")
+            + f"/v1/connections/{connection_id}/disconnect",
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )
@@ -631,7 +640,8 @@ def gallery_install_event(secrets: SecretStore, config: Config, slug: str) -> No
         return
     try:
         httpx.post(
-            config.cloud_base_url.rstrip("/") + f"/v1/personas/gallery/{slug}/install-events",
+            config.cloud_base_url.rstrip("/")
+            + f"/v1/personas/gallery/{slug}/install-events",
             json={"platform": __import__("sys").platform},
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
@@ -661,4 +671,9 @@ def gallery_detail(secrets: SecretStore, config: Config, slug: str) -> Optional[
         ]
     except Exception as exc:  # malformed manifest: surface, don't crash
         return {"ok": False, "error": f"manifest failed local validation: {exc}"}
-    return {"ok": True, "card": card, "capabilities": capabilities, "recommends": recommends}
+    return {
+        "ok": True,
+        "card": card,
+        "capabilities": capabilities,
+        "recommends": recommends,
+    }

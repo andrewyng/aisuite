@@ -171,7 +171,9 @@ def test_cloud_gallery_endpoint_signed_out(client):
 
 def test_delete_persona_after_gallery_install(client, monkeypatch):
     _stub_gallery(monkeypatch)
-    assert client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()["ok"]
+    assert client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()[
+        "ok"
+    ]
     body = client.delete("/v1/personas/sales").json()
     assert body["ok"]
     assert "sales" not in {p["id"] for p in body["personas"]}

@@ -78,8 +78,7 @@ def slack_event_to_event(
     # Mention detection runs on the RAW text (the `<@U…>` token form, legacy `<@U…|name>`
     # included) — callers rewrite mentions to @display-name only after mapping.
     mentions_me = bool(
-        bot_user_id
-        and re.search(rf"<@{re.escape(bot_user_id)}(?:\|[^>]*)?>", text)
+        bot_user_id and re.search(rf"<@{re.escape(bot_user_id)}(?:\|[^>]*)?>", text)
     )
     return MessageEvent(
         text=text, source=source, message_id=event.get("ts"), mentions_me=mentions_me
@@ -160,9 +159,13 @@ class SlackAdapter(BasePlatformAdapter):
         self._task: Optional[asyncio.Task] = None
         self._watchdog_task: Optional[asyncio.Task] = None
         self._closing = False
-        self._reconnects = 0  # observable: how many times the watchdog revived the connection
+        self._reconnects = (
+            0  # observable: how many times the watchdog revived the connection
+        )
         self._watchdog_interval = (
-            watchdog_interval if watchdog_interval is not None else self._WATCHDOG_INTERVAL
+            watchdog_interval
+            if watchdog_interval is not None
+            else self._WATCHDOG_INTERVAL
         )
         # slack_sdk's own reconnect stays on in production (seamless on Slack's graceful cycling);
         # tests turn it off so the watchdog is the sole, deterministic recovery path.
@@ -274,11 +277,15 @@ class SlackAdapter(BasePlatformAdapter):
                 alive = False
             if alive:
                 continue
-            logger.warning("slack socket mode connection down — reconnecting (watchdog)")
+            logger.warning(
+                "slack socket mode connection down — reconnecting (watchdog)"
+            )
             try:
                 await client.connect_to_new_endpoint(force=True)
                 self._reconnects += 1
-                logger.info("slack socket mode reconnected (watchdog, #%d)", self._reconnects)
+                logger.info(
+                    "slack socket mode reconnected (watchdog, #%d)", self._reconnects
+                )
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -388,7 +395,8 @@ class SlackAdapter(BasePlatformAdapter):
 
 def _load_slack_teams(secrets) -> dict[str, dict]:
     """Per-team bot tokens for managed relay, from `slack:team:<team_id>` profiles
-    (written by the managed OAuth install). Returns {team_id: {bot_token, bot_user_id}}."""
+    (written by the managed OAuth install). Returns {team_id: {bot_token, bot_user_id}}.
+    """
     teams: dict[str, dict] = {}
     if secrets is None:
         return teams
@@ -461,7 +469,9 @@ def make_adapter(
         from .relay_client import RelayHub
 
         hub = relay_hub or RelayHub(relay_url, token_provider)
-        installs = {iid: prof for iid, prof in list_installs(secrets)} if secrets else {}
+        installs = (
+            {iid: prof for iid, prof in list_installs(secrets)} if secrets else {}
+        )
         return GitHubRelayAdapter(
             hub, installs=installs, token_client=github_token_client
         )

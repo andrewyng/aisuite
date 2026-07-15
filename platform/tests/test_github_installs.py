@@ -113,9 +113,7 @@ def test_disconnect_one_installation_keeps_the_other(client, monkeypatch):
     assert cloud_calls == ["101"]
     assert client.manager.secrets.get("github:install:101") is None
     assert client.manager.secrets.get("github:install:202") is not None
-    gh = next(
-        c for c in client.manager.list_connectors() if c["name"] == "github"
-    )
+    gh = next(c for c in client.manager.list_connectors() if c["name"] == "github")
     assert gh["connected"] is True
     assert [i["installation_id"] for i in gh["installations"]] == ["202"]
 
@@ -263,7 +261,12 @@ async def test_adapter_missed_and_revoked_frames():
         lambda: "jwt",
         transport_factory=lambda: FakeTransport(
             [
-                {"provider": "github", "kind": "missed", "channel": "acme/site", "count": 3},
+                {
+                    "provider": "github",
+                    "kind": "missed",
+                    "channel": "acme/site",
+                    "count": 3,
+                },
                 {"provider": "github", "kind": "revoked", "installation_id": "101"},
             ]
         ),
@@ -285,7 +288,9 @@ def test_addressing_roundtrip():
 
 async def test_send_posts_comment_with_minted_token(monkeypatch):
     """Replies mint the right installation's token and post as the bot."""
-    hub = RelayHub("wss://x", lambda: "jwt", transport_factory=lambda: FakeTransport([]))
+    hub = RelayHub(
+        "wss://x", lambda: "jwt", transport_factory=lambda: FakeTransport([])
+    )
     minted: list[str] = []
 
     async def token_client(installation_id: str) -> str:
@@ -445,9 +450,7 @@ def test_managed_401_reminted_once(tmp_path, monkeypatch):
         lambda s, c, iid, *, force=False: minted.append(force) or "ghs_x",
     )
     responses = iter([{"error": "HTTP 401"}, {"ok": True, "data": {}}])
-    monkeypatch.setattr(
-        integration_tools, "_request", lambda *a, **k: next(responses)
-    )
+    monkeypatch.setattr(integration_tools, "_request", lambda *a, **k: next(responses))
 
     out = _tool(secrets, "github_review")("acme", "site", 5, "APPROVE")
     assert out["ok"] is True
@@ -490,7 +493,11 @@ def test_list_commits_filters_and_trims(tmp_path, monkeypatch):
 
     monkeypatch.setattr(integration_tools, "_request", fake_request)
     out = _tool(secrets, "github_list_commits")(
-        "acme", "site", since="2026-07-06T00:00:00Z", author="rohit-dev", max_results=200
+        "acme",
+        "site",
+        since="2026-07-06T00:00:00Z",
+        author="rohit-dev",
+        max_results=200,
     )
     assert seen["url"].endswith("/repos/acme/site/commits")
     assert seen["params"]["since"] == "2026-07-06T00:00:00Z"
@@ -506,7 +513,10 @@ def _git(args, cwd):
 
     return subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
-        cwd=cwd, check=True, capture_output=True, text=True,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
     )
 
 

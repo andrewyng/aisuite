@@ -84,15 +84,20 @@ def test_disable_persona_archives_its_sessions(tmp_path):
     def mk(sid, agent):
         store.save(
             SessionRecord(
-                session_id=sid, workspace=str(tmp_path), model="m",
-                mode="interactive", agent=agent,
+                session_id=sid,
+                workspace=str(tmp_path),
+                model="m",
+                mode="interactive",
+                agent=agent,
             )
         )
 
     mk("chat-a", "chat")
     mk("chat-b", "chat")
     mk("chat-old", "chat")
-    store.set_flags("chat-old", archived=True)  # already archived — must not be re-counted
+    store.set_flags(
+        "chat-old", archived=True
+    )  # already archived — must not be re-counted
     mk("cowork-a", "cowork")
     mk("__run__r1", "chat")  # internal automation thread — never touched
 
@@ -456,7 +461,12 @@ def test_delete_session_removes_its_scratch_dir_only(tmp_path):
 
     scratch = Path(mgr._provision_scratch("sess-scratch"))
     mgr.session_store.save(
-        SessionRecord(session_id="sess-scratch", workspace=str(scratch), model="m", mode="interactive")
+        SessionRecord(
+            session_id="sess-scratch",
+            workspace=str(scratch),
+            model="m",
+            mode="interactive",
+        )
     )
     assert mgr.delete_session("sess-scratch")["ok"]
     assert not scratch.exists()
@@ -464,7 +474,9 @@ def test_delete_session_removes_its_scratch_dir_only(tmp_path):
     proj = tmp_path / "real-project"
     proj.mkdir()
     mgr.session_store.save(
-        SessionRecord(session_id="sess-proj", workspace=str(proj), model="m", mode="interactive")
+        SessionRecord(
+            session_id="sess-proj", workspace=str(proj), model="m", mode="interactive"
+        )
     )
     assert mgr.delete_session("sess-proj")["ok"]
     assert proj.is_dir()  # user folders are sacred
@@ -575,15 +587,14 @@ def test_ws_first_message_binds_the_session_model_then_locks(tmp_path):
     2026-07-04: a new cowork session reconnects to adopt its scratch dir, which could drop a
     queued set_model and leave the engine on a stale/resumed model). After the first turn the
     model is FIXED for the session's life: later message models and set_model are ignored
-    (owner call, 2026-07-04 — mixed-model transcripts invite provider-quirk breakage)."""
+    (owner call, 2026-07-04 — mixed-model transcripts invite provider-quirk breakage).
+    """
     client = _client(tmp_path, [_text("ok"), _text("ok again"), _text("still ok")])
     with client.websocket_connect("/ws/session/model-per-msg") as ws:
         ready = ws.receive_json()
         assert ready["type"] == "ready"
         default_model = ready["data"]["model"]
-        ws.send_json(
-            {"type": "user_message", "text": "hi", "model": "zai:glm-5.2"}
-        )
+        ws.send_json({"type": "user_message", "text": "hi", "model": "zai:glm-5.2"})
         _drain(ws)
         # message WITHOUT a model keeps the bound one (no silent reset to default)
         ws.send_json({"type": "user_message", "text": "again"})
@@ -625,14 +636,21 @@ def test_pick_native_folder_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(
         subprocess,
         "run",
-        lambda *a, **k: SimpleNamespace(returncode=0, stdout="/tmp/picked\n", stderr=""),
+        lambda *a, **k: SimpleNamespace(
+            returncode=0, stdout="/tmp/picked\n", stderr=""
+        ),
     )
-    assert client.post("/v1/workspaces/pick").json() == {"ok": True, "path": "/tmp/picked"}
+    assert client.post("/v1/workspaces/pick").json() == {
+        "ok": True,
+        "path": "/tmp/picked",
+    }
 
     monkeypatch.setattr(
         subprocess,
         "run",
-        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="User canceled."),
+        lambda *a, **k: SimpleNamespace(
+            returncode=1, stdout="", stderr="User canceled."
+        ),
     )
     assert client.post("/v1/workspaces/pick").json()["ok"] is False
 

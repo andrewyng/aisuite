@@ -56,7 +56,12 @@ class RiskOverrideStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(
-                {"rules": [{"pattern": r.pattern, "risk": r.risk.value} for r in self._rules]},
+                {
+                    "rules": [
+                        {"pattern": r.pattern, "risk": r.risk.value}
+                        for r in self._rules
+                    ]
+                },
                 indent=2,
             ),
             encoding="utf-8",

@@ -25,7 +25,11 @@ class CapturingProvider(ProviderClient):
 
     def complete(self, *, model, messages, tools=None, **settings):
         self.calls.append([dict(m) for m in messages])
-        return self._turns.pop(0) if self._turns else AssistantTurn(text="ok", finish_reason="stop")
+        return (
+            self._turns.pop(0)
+            if self._turns
+            else AssistantTurn(text="ok", finish_reason="stop")
+        )
 
     def capabilities(self, model):
         return ModelCapabilities()
@@ -33,12 +37,19 @@ class CapturingProvider(ProviderClient):
 
 def _connect_slack(mgr):
     mgr.secrets.put(
-        "slack:default", {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True}
+        "slack:default",
+        {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True},
     )
 
 
-def _mention_event(text="<@UBOT> check the deploy?", *, chat_id="C1", ts="1700000010.000100",
-                   thread_ts=None, team_id=None):
+def _mention_event(
+    text="<@UBOT> check the deploy?",
+    *,
+    chat_id="C1",
+    ts="1700000010.000100",
+    thread_ts=None,
+    team_id=None
+):
     return MessageEvent(
         text=text,
         source=SessionSource(
@@ -84,8 +95,12 @@ def _capture_deliveries(mgr, monkeypatch):
 def test_slack_mapper_computes_mentions_me():
     base = {"channel": "C1", "user": "U1", "ts": "1.2", "channel_type": "channel"}
     assert slack_event_to_event({**base, "text": "<@UBOT> hi"}, "UBOT").mentions_me
-    assert slack_event_to_event({**base, "text": "hey <@UBOT|ocw> hi"}, "UBOT").mentions_me
-    assert not slack_event_to_event({**base, "text": "<@UOTHER> hi"}, "UBOT").mentions_me
+    assert slack_event_to_event(
+        {**base, "text": "hey <@UBOT|ocw> hi"}, "UBOT"
+    ).mentions_me
+    assert not slack_event_to_event(
+        {**base, "text": "<@UOTHER> hi"}, "UBOT"
+    ).mentions_me
     # No bot id known (misconfigured) → never flags.
     assert not slack_event_to_event({**base, "text": "<@UBOT> hi"}, None).mentions_me
 
@@ -114,7 +129,7 @@ def test_mention_spawns_visible_session_with_thread_grant(tmp_path, monkeypatch)
     assert target in mgr._engines[sid].permissions.task_rules["send_message"]
 
     # The opening turn carries the reply contract and went to the new session.
-    (got_sid, opening, source) = captured[-1]
+    got_sid, opening, source = captured[-1]
     assert got_sid == sid
     assert target in opening and "pre-approved" in opening
     assert source["connector"] == "slack" and source["kind"] == "channel"
@@ -129,8 +144,11 @@ def test_followup_tag_steers_same_session(tmp_path, monkeypatch):
     # The follow-up arrives IN the thread (thread_ts = the first message's ts).
     asyncio.run(
         mgr._dispatch_inbound(
-            _mention_event("<@UBOT> and staging too", ts="1700000012.000300",
-                           thread_ts="1700000010.000100")
+            _mention_event(
+                "<@UBOT> and staging too",
+                ts="1700000012.000300",
+                thread_ts="1700000010.000100",
+            )
         )
     )
 
@@ -145,7 +163,11 @@ def test_distinct_thread_spawns_distinct_session(tmp_path, monkeypatch):
     _capture_deliveries(mgr, monkeypatch)
 
     asyncio.run(mgr._dispatch_inbound(_mention_event()))
-    asyncio.run(mgr._dispatch_inbound(_mention_event("<@UBOT> other thing", ts="1700000099.000900")))
+    asyncio.run(
+        mgr._dispatch_inbound(
+            _mention_event("<@UBOT> other thing", ts="1700000099.000900")
+        )
+    )
 
     sids = {t.session_id for t in mgr.mention_sessions.all()}
     assert len(sids) == 2
@@ -218,7 +240,7 @@ def test_untagged_channel_traffic_stays_judgement_only(tmp_path, monkeypatch):
 
     asyncio.run(mgr._dispatch_inbound(_plain_event()))
 
-    (_, message, _) = captured[0]
+    _, message, _ = captured[0]
     assert "subscribed" in message and "stay silent" in message
     # …and with NO subscriber, an untagged message never spawns anything (buffered only).
     captured.clear()
@@ -232,7 +254,9 @@ def test_untagged_channel_traffic_stays_judgement_only(tmp_path, monkeypatch):
 
 def test_set_origin_round_trips_and_survives_saves(tmp_path):
     store = ConversationStore(tmp_path)
-    rec = SessionRecord(session_id="s1", workspace=str(tmp_path), model="m", mode="interactive")
+    rec = SessionRecord(
+        session_id="s1", workspace=str(tmp_path), model="m", mode="interactive"
+    )
     store.save(rec)
     assert store.set_origin("s1", "slack", "#general · T1")
     loaded = store.load("s1")

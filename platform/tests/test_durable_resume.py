@@ -1,8 +1,14 @@
 """Durable resume: a prompt pending when the process 'restarts' is answered later and the turn
 continues — rebuilt from the persisted thread, with no live await."""
+
 import asyncio
 
-from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient, ToolCall
+from coworker.providers import (
+    AssistantTurn,
+    ModelCapabilities,
+    ProviderClient,
+    ToolCall,
+)
 from coworker.server.manager import SessionManager
 
 
@@ -51,14 +57,30 @@ async def _run_until_pending(mgr, sid, engine):
 
 def _final_assistant_texts(mgr, sid):
     rec = mgr.session_store.load(sid)
-    return [m.get("content") for m in rec.messages if m.get("role") == "assistant" and m.get("content")]
+    return [
+        m.get("content")
+        for m in rec.messages
+        if m.get("role") == "assistant" and m.get("content")
+    ]
 
 
 def test_durable_resume_question(tmp_path):
-    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([
-        _tool("ask_user", {"question": "Which region?", "options": ["us-east-1", "us-west-2"]}, "call_q"),
-        _text("You chose us-west-2."),
-    ]))
+    mgr = SessionManager(
+        workspace=tmp_path,
+        provider=ScriptedProvider(
+            [
+                _tool(
+                    "ask_user",
+                    {
+                        "question": "Which region?",
+                        "options": ["us-east-1", "us-west-2"],
+                    },
+                    "call_q",
+                ),
+                _text("You chose us-west-2."),
+            ]
+        ),
+    )
     sid = "dur-q"
 
     async def scenario():
@@ -75,10 +97,15 @@ def test_durable_resume_question(tmp_path):
 def test_durable_resume_approval_executes_tool(tmp_path):
     # The model wants a write (needs approval); on durable resume "allow" must RE-EXECUTE the tool.
     target = tmp_path / "scratch_marker.txt"
-    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([
-        _tool("write_file", {"path": str(target), "content": "ok"}, "call_w"),
-        _text("Done — file written."),
-    ]))
+    mgr = SessionManager(
+        workspace=tmp_path,
+        provider=ScriptedProvider(
+            [
+                _tool("write_file", {"path": str(target), "content": "ok"}, "call_w"),
+                _text("Done — file written."),
+            ]
+        ),
+    )
     sid = "dur-a"
 
     async def scenario():
@@ -86,8 +113,12 @@ def test_durable_resume_approval_executes_tool(tmp_path):
         item = await _run_until_pending(mgr, sid, engine)
         assert item.kind == "approval" and item.tool_call_id == "call_w"
         assert not target.exists()  # not executed before approval
-        await mgr.resolve_inbox(item.id, "allow")  # restart-style resume → re-execute the tool
+        await mgr.resolve_inbox(
+            item.id, "allow"
+        )  # restart-style resume → re-execute the tool
 
     asyncio.run(scenario())
-    assert target.exists() and target.read_text() == "ok"  # the approved write actually ran
+    assert (
+        target.exists() and target.read_text() == "ok"
+    )  # the approved write actually ran
     assert any("Done" in (t or "") for t in _final_assistant_texts(mgr, sid))

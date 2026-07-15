@@ -54,7 +54,10 @@ def test_in_app_only_binding_delivers_nothing(tmp_path):
     routing = InboxRouting(tmp_path / "routing.json")
     item = store.add_approval("s1", "x", inbox=DEFAULT_INBOX)
     calls = []
-    assert deliver(item, routing.binding_for(DEFAULT_INBOX), lambda *a: calls.append(a)) is False
+    assert (
+        deliver(item, routing.binding_for(DEFAULT_INBOX), lambda *a: calls.append(a))
+        is False
+    )
     assert calls == []
 
 

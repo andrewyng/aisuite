@@ -53,7 +53,8 @@ async def test_freetext_answer_to_question_is_consumed(tmp_path):
     gw = Gateway(
         settings=settings,
         handler=handler,
-        reply_resolver=lambda ev: resolve_from_reply(ev.text, inbox.resolve) is not None,
+        reply_resolver=lambda ev: resolve_from_reply(ev.text, inbox.resolve)
+        is not None,
     )
     fake = FakeAdapter()
     gw.register(fake)

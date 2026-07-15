@@ -9,7 +9,11 @@ import pytest
 
 from coworker.connectors import accounts, descriptors
 from coworker.connectors.descriptors import ConnectorDescriptor, Field, ValidationResult
-from coworker.connectors.setup import connect_connector, connector_list, disconnect_connector
+from coworker.connectors.setup import (
+    connect_connector,
+    connector_list,
+    disconnect_connector,
+)
 from coworker.secrets import SecretStore
 
 

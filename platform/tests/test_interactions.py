@@ -1,4 +1,5 @@
 """Interactive prompts over messaging: button encoding, block rendering, and the click→resolve path."""
+
 import asyncio
 import json
 
@@ -73,8 +74,13 @@ def test_interaction_click_resolves_item(tmp_path):
         waiter = asyncio.create_task(fake_wait(item.id))
         await asyncio.sleep(0)  # let the waiter register
         await mgr._on_interaction(
-            InteractionEvent(platform="slack", chat_id="C1", message_id="111.2",
-                             value=encode(item.id, "allow"), user_name="bob")
+            InteractionEvent(
+                platform="slack",
+                chat_id="C1",
+                message_id="111.2",
+                value=encode(item.id, "allow"),
+                user_name="bob",
+            )
         )
         await asyncio.wait_for(waiter, timeout=2)
 

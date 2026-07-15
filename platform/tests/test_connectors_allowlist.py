@@ -1,5 +1,7 @@
 """Allow-list surfacing on the Connectors tab: GET /v1/connectors carries the allow-list as a list
-plus the gateway's recently-seen senders (each flagged authorized), and allow/disallow mutate it."""
+plus the gateway's recently-seen senders (each flagged authorized), and allow/disallow mutate it.
+"""
+
 from fastapi.testclient import TestClient
 
 from coworker.providers import ModelCapabilities, ProviderClient
@@ -29,7 +31,12 @@ class _Gateway:
 def _connected_slack(mgr, allowed=()):
     mgr.secrets.put(
         "slack:default",
-        {"type": "token", "bot_token": "xoxb-1", "app_token": "xapp-1", "allowed_users": list(allowed)},
+        {
+            "type": "token",
+            "bot_token": "xoxb-1",
+            "app_token": "xapp-1",
+            "allowed_users": list(allowed),
+        },
     )
 
 
@@ -42,8 +49,20 @@ def test_connectors_carry_allowlist_and_recent(tmp_path):
     _connected_slack(mgr, allowed=["U_OK"])
     mgr.gateway = _Gateway(
         recent=[
-            {"user_id": "U_OK", "user_name": "Ann", "chat_id": "D1", "chat_type": "dm", "target": "slack:D1"},
-            {"user_id": "U_NEW", "user_name": "Bob", "chat_id": "D2", "chat_type": "dm", "target": "slack:D2"},
+            {
+                "user_id": "U_OK",
+                "user_name": "Ann",
+                "chat_id": "D1",
+                "chat_type": "dm",
+                "target": "slack:D1",
+            },
+            {
+                "user_id": "U_NEW",
+                "user_name": "Bob",
+                "chat_id": "D2",
+                "chat_type": "dm",
+                "target": "slack:D2",
+            },
         ]
     )
     client = TestClient(create_app(mgr))
@@ -63,10 +82,14 @@ def test_allow_then_disallow_mutates_list(tmp_path):
     client = TestClient(create_app(mgr))
 
     client.post("/v1/connectors/slack/allow", json={"user_id": "U_NEW"})
-    assert _slack(client.get("/v1/connectors").json()["connectors"])["allowed_users"] == ["U_NEW"]
+    assert _slack(client.get("/v1/connectors").json()["connectors"])[
+        "allowed_users"
+    ] == ["U_NEW"]
 
     client.post("/v1/connectors/slack/disallow", json={"user_id": "U_NEW"})
-    assert _slack(client.get("/v1/connectors").json()["connectors"])["allowed_users"] == []
+    assert (
+        _slack(client.get("/v1/connectors").json()["connectors"])["allowed_users"] == []
+    )
 
 
 def test_recent_absent_when_no_gateway(tmp_path):

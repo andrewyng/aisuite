@@ -162,7 +162,8 @@ def _send_slack_file(
 ) -> SendResult:
     """files_upload_v2 (the only non-deprecated path): reserve an upload URL, PUT the
     bytes, then complete into the channel/thread. Slack renders its own previews for
-    pdf/csv/images — that's the whole point of sending the file instead of a thumbnail."""
+    pdf/csv/images — that's the whole point of sending the file instead of a thumbnail.
+    """
     import httpx
 
     from .slack_addr import split
@@ -178,9 +179,13 @@ def _send_slack_file(
         )
         got = resp.json()
         if not got.get("ok"):
-            return SendResult(False, error=got.get("error") or "slack upload-url failed")
+            return SendResult(
+                False, error=got.get("error") or "slack upload-url failed"
+            )
         up = httpx.post(
-            got["upload_url"], files={"file": (filename, data)}, timeout=max(_TIMEOUT, 120.0)
+            got["upload_url"],
+            files={"file": (filename, data)},
+            timeout=max(_TIMEOUT, 120.0),
         )
         if up.status_code != 200:
             return SendResult(False, error=f"slack upload failed ({up.status_code})")

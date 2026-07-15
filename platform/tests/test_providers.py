@@ -143,7 +143,9 @@ def test_gpt56_tools_pin_reasoning_effort_none():
     assert [c["reasoning_effort"] for c in calls] == ["none"] * 3
 
     # an explicit caller choice is respected on the first attempt
-    provider.complete(model="gpt-5.6-sol", messages=[], tools=_TOOLS, reasoning_effort="low")
+    provider.complete(
+        model="gpt-5.6-sol", messages=[], tools=_TOOLS, reasoning_effort="low"
+    )
     assert calls[3]["reasoning_effort"] == "low"
 
     # no tools, or another model → the request is untouched
@@ -309,7 +311,9 @@ def test_compat_builder_never_leaks_the_openai_key(monkeypatch):
 def test_compat_models_route_and_get_tool_capabilities():
     from coworker.providers.router import ProviderRouter
 
-    router = ProviderRouter.__new__(ProviderRouter)  # only using _provider_name (stateless)
+    router = ProviderRouter.__new__(
+        ProviderRouter
+    )  # only using _provider_name (stateless)
     for model in (
         "zai:glm-5.2",
         "deepseek:deepseek-v4-flash",

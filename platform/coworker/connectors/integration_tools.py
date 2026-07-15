@@ -112,9 +112,11 @@ def _account_profile(
         profile = secrets.get(key) or profile
     missing = [k for k in keys if not profile.get(k)]
     if missing:
-        return account_id, None, {
-            "error": f"{connector} is not connected; missing {', '.join(missing)}"
-        }
+        return (
+            account_id,
+            None,
+            {"error": f"{connector} is not connected; missing {', '.join(missing)}"},
+        )
     return account_id, profile, None
 
 
@@ -183,7 +185,11 @@ def _gcal_profile(
         )
         profile = secrets.get(key) or profile
     if not profile.get("access_token"):
-        return "", None, {"error": f"google calendar account {email} has no usable token"}
+        return (
+            "",
+            None,
+            {"error": f"google calendar account {email} has no usable token"},
+        )
     return email, profile, None
 
 
@@ -289,7 +295,10 @@ def _gmail_is_hidden(
     if filters["labels"]:
         wanted = {name.lower() for name in filters["labels"]}
         for lid in message.get("labelIds") or []:
-            if label_map.get(str(lid), "").lower() in wanted or str(lid).lower() in wanted:
+            if (
+                label_map.get(str(lid), "").lower() in wanted
+                or str(lid).lower() in wanted
+            ):
                 return True
     return False
 
@@ -405,12 +414,16 @@ def _github_git_auth_args(secrets: SecretStore, owner: str) -> list[str]:
     token = headers["Authorization"].split(" ", 1)[1]
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
     return [
-        "-c", f"http.extraHeader=AUTHORIZATION: basic {basic}",
-        "-c", "credential.helper=",
+        "-c",
+        f"http.extraHeader=AUTHORIZATION: basic {basic}",
+        "-c",
+        "credential.helper=",
     ]
 
 
-def _run_git(args: list[str], *, cwd: Any = None, timeout: int = 600) -> tuple[str, str]:
+def _run_git(
+    args: list[str], *, cwd: Any = None, timeout: int = 600
+) -> tuple[str, str]:
     """(stdout, error). Never raises; the error string is capped and carries no
     auth material (git never echoes header values)."""
     import subprocess
@@ -716,7 +729,11 @@ def make_integration_tools(
         if author:
             params["author"] = author
         out = _github_call(
-            secrets, "GET", f"/repos/{owner}/{repo}/commits", install=owner, params=params
+            secrets,
+            "GET",
+            f"/repos/{owner}/{repo}/commits",
+            install=owner,
+            params=params,
         )
         if "error" in out:
             return out
@@ -744,7 +761,10 @@ def make_integration_tools(
                 {
                     "owner": {"type": "string"},
                     "repo": {"type": "string"},
-                    "since": {"type": "string", "description": "ISO-8601, e.g. 2026-07-06T00:00:00Z"},
+                    "since": {
+                        "type": "string",
+                        "description": "ISO-8601, e.g. 2026-07-06T00:00:00Z",
+                    },
                     "until": {"type": "string"},
                     "author": {"type": "string", "description": "GitHub login"},
                     "max_results": {"type": "integer"},
@@ -756,7 +776,9 @@ def make_integration_tools(
         )
     )
 
-    def _writable_target(raw: str, *, default_name: str = "") -> tuple[Any, dict[str, Any] | None]:
+    def _writable_target(
+        raw: str, *, default_name: str = ""
+    ) -> tuple[Any, dict[str, Any] | None]:
         """Resolve a directory inside a WRITABLE granted root — clones and pulls
         never touch anything the user hasn't shared with the session."""
         from pathlib import Path as _Path
@@ -770,7 +792,9 @@ def make_integration_tools(
             else (writable[0] / default_name).resolve()
         )
         if not any(path.is_relative_to(root) for root in writable):
-            return None, {"error": f"{path} is outside the session's writable directories"}
+            return None, {
+                "error": f"{path} is outside the session's writable directories"
+            }
         return path, None
 
     def github_clone(owner: str, repo: str, directory: str = "") -> dict[str, Any]:
@@ -778,7 +802,9 @@ def make_integration_tools(
         if err:
             return err
         if target.exists() and any(target.iterdir()):
-            return {"error": f"{target} already exists and is not empty (use github_pull?)"}
+            return {
+                "error": f"{target} already exists and is not empty (use github_pull?)"
+            }
         url = f"{_github_git_base()}/{owner}/{repo}.git"
         _out, git_err = _run_git(
             [*_github_git_auth_args(secrets, owner), "clone", url, str(target)]
@@ -808,7 +834,10 @@ def make_integration_tools(
                 {
                     "owner": {"type": "string"},
                     "repo": {"type": "string"},
-                    "directory": {"type": "string", "description": "target path inside a granted folder (default: <primary>/<repo>)"},
+                    "directory": {
+                        "type": "string",
+                        "description": "target path inside a granted folder (default: <primary>/<repo>)",
+                    },
                 },
                 ["owner", "repo"],
             ),
@@ -829,7 +858,13 @@ def make_integration_tools(
         m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", remote)
         owner = m.group(1) if m else ""
         _out, git_err = _run_git(
-            [*_github_git_auth_args(secrets, owner), "-C", str(target), "pull", "--ff-only"]
+            [
+                *_github_git_auth_args(secrets, owner),
+                "-C",
+                str(target),
+                "pull",
+                "--ff-only",
+            ]
         )
         if git_err:
             return {"error": f"pull failed: {git_err}"}
@@ -888,14 +923,18 @@ def make_integration_tools(
                 detail = meta.get("data") if meta.get("ok") else None
                 # Fail-open on a metadata miss: ids alone reveal nothing, and
                 # gmail_get_message re-enforces before any content flows.
-                if isinstance(detail, dict) and _gmail_is_hidden(detail, filters, label_map):
+                if isinstance(detail, dict) and _gmail_is_hidden(
+                    detail, filters, label_map
+                ):
                     hidden += 1
                 else:
                     kept.append(m)
             if hidden:
                 data["messages"] = kept
                 if isinstance(data.get("resultSizeEstimate"), int):
-                    data["resultSizeEstimate"] = max(0, data["resultSizeEstimate"] - hidden)
+                    data["resultSizeEstimate"] = max(
+                        0, data["resultSizeEstimate"] - hidden
+                    )
                 result = {
                     "ok": True,
                     "data": data,
@@ -1080,7 +1119,9 @@ def make_integration_tools(
         if err:
             return err
         items = [
-            {"id": c.strip()} for c in str(calendars or "primary").split(",") if c.strip()
+            {"id": c.strip()}
+            for c in str(calendars or "primary").split(",")
+            if c.strip()
         ]
         return _gcal_result(
             email,
@@ -1193,7 +1234,9 @@ def make_integration_tools(
         if end:
             payload["end"] = {"dateTime": end, "timeZone": timezone}
         if not payload:
-            return {"error": "nothing to update — pass summary, description, start, or end"}
+            return {
+                "error": "nothing to update — pass summary, description, start, or end"
+            }
         return _gcal_result(
             email,
             _request(
@@ -2848,7 +2891,9 @@ def make_integration_tools(
         for b in blocks:
             content = b.get(b.get("type", ""), {})
             texts = content.get("rich_text") or content.get("title") or []
-            line = "".join(t.get("plain_text", "") for t in texts if isinstance(t, dict))
+            line = "".join(
+                t.get("plain_text", "") for t in texts if isinstance(t, dict)
+            )
             if line:
                 lines.append(line)
         return "\n".join(lines)
@@ -2932,7 +2977,10 @@ def make_integration_tools(
     )
 
     def notion_query_database(
-        database_id: str, filter_json: str = "", max_results: int = 10, account: str = ""
+        database_id: str,
+        filter_json: str = "",
+        max_results: int = 10,
+        account: str = "",
     ) -> dict[str, Any]:
         aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
         if err:
@@ -3045,7 +3093,10 @@ def make_integration_tools(
     )
 
     def attio_query_records(
-        object_type: str, filter_json: str = "", max_results: int = 10, account: str = ""
+        object_type: str,
+        filter_json: str = "",
+        max_results: int = 10,
+        account: str = "",
     ) -> dict[str, Any]:
         aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
         if err:
@@ -3252,7 +3303,9 @@ def make_integration_tools(
             "event": event,
             "from_date": from_date,
             "to_date": to_date,
-            "unit": unit if unit in ("minute", "hour", "day", "week", "month") else "day",
+            "unit": (
+                unit if unit in ("minute", "hour", "day", "week", "month") else "day"
+            ),
         }
         if where:
             params["where"] = where
@@ -3582,7 +3635,9 @@ def make_integration_tools(
         aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
         if err:
             return err
-        return _acct_result(aid, _hunter_get(profile, "email-verifier", {"email": email}))
+        return _acct_result(
+            aid, _hunter_get(profile, "email-verifier", {"email": email})
+        )
 
     hunter_verify_email.__name__ = "hunter_verify_email"
     tools.append(

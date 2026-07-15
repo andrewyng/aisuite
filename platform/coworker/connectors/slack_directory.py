@@ -48,7 +48,11 @@ def _bot_token(secrets: SecretStore, team_id: str) -> str:
 
 
 def _get_pages(
-    token: str, method: str, params: dict[str, Any], key: str, page_limit: int = _PAGE_LIMIT
+    token: str,
+    method: str,
+    params: dict[str, Any],
+    key: str,
+    page_limit: int = _PAGE_LIMIT,
 ) -> list[dict]:
     """Cursor-paginated GET; raises RuntimeError with Slack's error string."""
     import httpx
@@ -89,8 +93,12 @@ def _rank(rows: list[dict], query: str, key: str, limit: int) -> list[dict]:
     """Case-insensitive substring filter; prefix matches first, then alpha."""
     q = query.strip().lower()
     if q:
-        rows = [r for r in rows if q in r[key].lower() or q in r.get("handle", "").lower()]
-    rows = sorted(rows, key=lambda r: (not r[key].lower().startswith(q), r[key].lower()))
+        rows = [
+            r for r in rows if q in r[key].lower() or q in r.get("handle", "").lower()
+        ]
+    rows = sorted(
+        rows, key=lambda r: (not r[key].lower().startswith(q), r[key].lower())
+    )
     return rows[: max(1, min(int(limit or 25), 100))]
 
 
@@ -115,13 +123,20 @@ def list_members(
             if m.get("deleted") or m.get("is_bot") or m.get("id") == "USLACKBOT":
                 continue
             profile = m.get("profile") or {}
-            name = profile.get("display_name") or profile.get("real_name") or m.get("name") or ""
+            name = (
+                profile.get("display_name")
+                or profile.get("real_name")
+                or m.get("name")
+                or ""
+            )
             out.append(
                 {
                     "id": m.get("id", ""),
                     "name": name,
                     "handle": m.get("name") or "",
-                    "guest": bool(m.get("is_restricted") or m.get("is_ultra_restricted")),
+                    "guest": bool(
+                        m.get("is_restricted") or m.get("is_ultra_restricted")
+                    ),
                 }
             )
         return out

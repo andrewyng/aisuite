@@ -53,7 +53,10 @@ def _pin_reasoning_effort(kwargs: dict[str, Any]) -> None:
 
 def _effort_none_retry(kwargs: dict[str, Any], exc: Exception) -> dict[str, Any]:
     """Kwargs for the one retry this error earns, or re-raise anything else."""
-    if kwargs.get("reasoning_effort") == "none" or _EFFORT_ERROR not in str(exc).lower():
+    if (
+        kwargs.get("reasoning_effort") == "none"
+        or _EFFORT_ERROR not in str(exc).lower()
+    ):
         raise exc
     return {**kwargs, "reasoning_effort": "none"}
 

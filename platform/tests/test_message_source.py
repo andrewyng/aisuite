@@ -72,7 +72,10 @@ def _connect_slack(mgr):
     """Inbound delivery is gated on the connector being CONNECTED (§4.3). Tests used to pass
     by riding the developer's real Slack profile; with the isolated state dir (conftest) each
     test must connect its own."""
-    mgr.secrets.put("slack:default", {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True})
+    mgr.secrets.put(
+        "slack:default",
+        {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True},
+    )
 
 
 def test_inbound_builds_message_source(tmp_path, monkeypatch):
@@ -191,8 +194,11 @@ def test_tool_display_sidecar_is_agent_invisible(tmp_path):
     tc = ToolCall(id="t1", name="gmail_search_messages", arguments={"query": "q"})
     engine._record_result(
         tc,
-        {"ok": True, "data": {"messages": [{"id": "m2"}]},
-         "_display": {"hidden_by_filters": 2, "connector": "gmail"}},
+        {
+            "ok": True,
+            "data": {"messages": [{"id": "m2"}]},
+            "_display": {"hidden_by_filters": 2, "connector": "gmail"},
+        },
         "ok",
     )
 

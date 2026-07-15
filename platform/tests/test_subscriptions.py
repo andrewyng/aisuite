@@ -32,7 +32,9 @@ def test_resolve_channel():
     assert resolve_channel("C0777") == "slack:C0777"  # bare id → default platform
     assert resolve_channel("") == ""
     # Slack "Copy link" URL → the id in the path (case-normalized), query/anchor tolerated.
-    assert resolve_channel("https://acme.slack.com/archives/C0123ABC") == "slack:C0123ABC"
+    assert (
+        resolve_channel("https://acme.slack.com/archives/C0123ABC") == "slack:C0123ABC"
+    )
     assert (
         resolve_channel("https://acme.slack.com/archives/c0123abc?foo=1")
         == "slack:C0123ABC"
@@ -139,7 +141,10 @@ def _connect_slack(mgr):
     """Inbound delivery is gated on the connector being CONNECTED (§4.3). Tests used to pass
     by riding the developer's real Slack profile; with the isolated state dir (conftest) each
     test must connect its own."""
-    mgr.secrets.put("slack:default", {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True})
+    mgr.secrets.put(
+        "slack:default",
+        {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True},
+    )
 
 
 def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
@@ -227,7 +232,8 @@ def test_subscribe_unsubscribe_and_recent_endpoints(tmp_path):
 
 def test_unauthorized_messages_park_and_resolve(tmp_path, monkeypatch):
     """§19: an allow-list drop PARKS the message; resolving it can dismiss, allow the sender,
-    or allow AND deliver the original message through the normal inbound path (no re-send)."""
+    or allow AND deliver the original message through the normal inbound path (no re-send).
+    """
     from coworker.connectors import Gateway
 
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
@@ -252,7 +258,10 @@ def test_unauthorized_messages_park_and_resolve(tmp_path, monkeypatch):
     ev = MessageEvent(
         text="deploy failed",
         source=SessionSource(
-            platform="slack", chat_id="C1", user_id="U9", user_name="bob",
+            platform="slack",
+            chat_id="C1",
+            user_id="U9",
+            user_name="bob",
             chat_type="channel",
         ),
     )
@@ -270,7 +279,9 @@ def test_unauthorized_messages_park_and_resolve(tmp_path, monkeypatch):
 
     # allow_deliver: sender allow-listed AND the parked message reaches the subscriber + buffer
     r = asyncio.run(
-        mgr.resolve_unauthorized("slack", mgr.parked.list("slack")[0]["id"], "allow_deliver")
+        mgr.resolve_unauthorized(
+            "slack", mgr.parked.list("slack")[0]["id"], "allow_deliver"
+        )
     )
     assert r["ok"]
     profile = mgr.secrets.get("slack:default")
@@ -283,7 +294,9 @@ def test_unauthorized_messages_park_and_resolve(tmp_path, monkeypatch):
     assert slack["allowed_user_names"] == {"U9": "bob"}
 
     # unknown item / wrong platform → error
-    assert asyncio.run(mgr.resolve_unauthorized("slack", "nope", "dismiss"))["ok"] is False
+    assert (
+        asyncio.run(mgr.resolve_unauthorized("slack", "nope", "dismiss"))["ok"] is False
+    )
 
 
 def test_parked_store_persists_and_caps(tmp_path):
@@ -293,7 +306,9 @@ def test_parked_store_persists_and_caps(tmp_path):
     store = ParkedStore(path, cap=2)
     store.park(platform="slack", chat_id="C1", user_id="U1", text="one")
     store.park(platform="slack", chat_id="C1", user_id="U1", text="two")
-    store.park(platform="slack", chat_id="C1", user_id="U1", text="three")  # evicts "one"
+    store.park(
+        platform="slack", chat_id="C1", user_id="U1", text="three"
+    )  # evicts "one"
     assert [i["text"] for i in store.list("slack")] == ["three", "two"]  # newest first
 
     reloaded = ParkedStore(path, cap=2)

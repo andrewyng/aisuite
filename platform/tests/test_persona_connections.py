@@ -66,7 +66,9 @@ def test_persona_detail_endpoint(tmp_path, monkeypatch):
     assert detail["id"] == "ops"
     assert detail["name"] == "Ops Coworker"
     assert detail["enabled"] is False  # non-default personas ship disabled (opt-in)
-    assert detail["workspace"] == "deliverable"  # §16 collapse: ops is a scratch persona now
+    assert (
+        detail["workspace"] == "deliverable"
+    )  # §16 collapse: ops is a scratch persona now
     assert detail["default_permission_mode"] == "interactive"
     assert "anthropic:claude-opus-4-8" in detail["recommended_models"]
     assert set(detail["tools"]) == {"files", "search", "shell", "todo"}
@@ -200,7 +202,9 @@ def test_fresh_session_view_uses_persona_hint(tmp_path, monkeypatch):
 
     # without the hint the same fresh session would fall back to the default persona
     fallback = client.get("/v1/sessions/brand-new/connections").json()
-    assert {c["connector"]: c for c in fallback["connected"]}["slack"]["enabled"] is True
+    assert {c["connector"]: c for c in fallback["connected"]}["slack"][
+        "enabled"
+    ] is True
 
 
 def test_session_set_override(tmp_path, monkeypatch):

@@ -50,7 +50,12 @@ def test_send_file_success_within_workspace(tmp_path):
     )
 
     out = tool("slack:C9:1700.1", "report.pdf", comment="here you go")
-    assert out == {"ok": True, "file_id": "F123", "target": "slack:C9:1700.1", "filename": "report.pdf"}
+    assert out == {
+        "ok": True,
+        "file_id": "F123",
+        "target": "slack:C9:1700.1",
+        "filename": "report.pdf",
+    }
     sent = record[0]
     assert sent["chat_id"] == "C9" and sent["thread_id"] == "1700.1"
     assert sent["data"] == b"%PDF-fake" and sent["comment"] == "here you go"
@@ -97,7 +102,9 @@ def test_send_file_unsupported_platform_and_missing_token(tmp_path):
     assert "not supported" in tool("telegram:123", "a.txt")["error"]
 
     no_token = make_send_file_tool(
-        _secrets(tmp_path / "nt", token=None), workspace=ws, file_senders=_fake_sender([])
+        _secrets(tmp_path / "nt", token=None),
+        workspace=ws,
+        file_senders=_fake_sender([]),
     )
     assert "no bot token" in no_token("slack:C9", "a.txt")["error"]
 
@@ -115,7 +122,10 @@ def test_send_file_screenshot_is_html_only_and_renames_to_png(tmp_path):
         render_html=lambda p: b"PNG-bytes-for-" + Path(p).name.encode(),
     )
 
-    assert "only applies to .html" in tool("slack:C9", "notes.md", as_screenshot=True)["error"]
+    assert (
+        "only applies to .html"
+        in tool("slack:C9", "notes.md", as_screenshot=True)["error"]
+    )
 
     out = tool("slack:C9", "dash.html", as_screenshot=True)
     assert out["ok"] and out["filename"] == "dash.png"
@@ -132,10 +142,16 @@ def test_thread_send_message_grant_never_covers_send_file(tmp_path):
     from coworker.connectors.tools import make_send_file_tool, make_send_message_tool
 
     msg_meta = make_send_message_tool(_secrets(tmp_path)).__aisuite_tool_metadata__
-    file_meta = make_send_file_tool(_secrets(tmp_path), workspace=tmp_path).__aisuite_tool_metadata__
+    file_meta = make_send_file_tool(
+        _secrets(tmp_path), workspace=tmp_path
+    ).__aisuite_tool_metadata__
 
-    allowed = engine.evaluate("send_message", {"target": target, "text": "hi"}, msg_meta)
+    allowed = engine.evaluate(
+        "send_message", {"target": target, "text": "hi"}, msg_meta
+    )
     assert allowed.allowed and "standing rule" in allowed.reason
 
-    asked = engine.evaluate("send_file", {"target": target, "path": "report.pdf"}, file_meta)
+    asked = engine.evaluate(
+        "send_file", {"target": target, "path": "report.pdf"}, file_meta
+    )
     assert not asked.allowed and asked.needs_user

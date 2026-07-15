@@ -48,7 +48,12 @@ def _tool(secrets, name: str):
 def test_legacy_default_migrates_to_one_account(secrets):
     secrets.put(
         "gmail:default",
-        {"type": "oauth", "enabled": True, "access_token": "ya29", "account": "Old@X.com"},
+        {
+            "type": "oauth",
+            "enabled": True,
+            "access_token": "ya29",
+            "account": "Old@X.com",
+        },
     )
     accounts = gmail_accounts.list_accounts(secrets)
     assert [e for e, _ in accounts] == ["old@x.com"]
@@ -62,7 +67,11 @@ def test_legacy_default_migrates_to_one_account(secrets):
 def test_migration_preserves_filters_and_is_idempotent(secrets):
     secrets.put(
         "gmail:default",
-        {"access_token": "t", "account": "a@x.com", "filters": {"senders": ["ceo@x.com"]}},
+        {
+            "access_token": "t",
+            "account": "a@x.com",
+            "filters": {"senders": ["ceo@x.com"]},
+        },
     )
     gmail_accounts.migrate_legacy_default(secrets)
     gmail_accounts.migrate_legacy_default(secrets)
@@ -96,7 +105,9 @@ def test_last_disconnect_keeps_filters_only(secrets):
     gmail_accounts.disconnect_account(secrets, "one@x.com")
     listed = {c["name"]: c for c in connector_list(secrets)}
     assert not listed["gmail"]["connected"]
-    assert gmail_accounts.get_filters(secrets)["senders"] == ["@spam.com"]  # policy survives
+    assert gmail_accounts.get_filters(secrets)["senders"] == [
+        "@spam.com"
+    ]  # policy survives
 
 
 def test_full_disconnect_drops_every_account(secrets):
@@ -203,7 +214,10 @@ def test_get_filtered_message_reads_like_a_real_404(secrets, monkeypatch):
     out = _tool(secrets, "gmail_get_message")("m1")
     assert out["error"] == "HTTP 404"
     assert out["_display"] == {"hidden_by_filters": 1, "connector": "gmail"}
-    assert "filter" not in json.dumps({k: v for k, v in out.items() if k != "_display"}).lower()
+    assert (
+        "filter"
+        not in json.dumps({k: v for k, v in out.items() if k != "_display"}).lower()
+    )
 
 
 def test_label_filter_uses_label_names(secrets, monkeypatch):
@@ -254,7 +268,9 @@ def test_sender_rule_matching():
 def test_account_profile_refreshes_in_place(secrets, monkeypatch):
     from coworker import cloud
 
-    secrets.put(cloud.CLOUD_AUTH_PROFILE, {"access_token": "jwt", "expires": time.time() + 3600})
+    secrets.put(
+        cloud.CLOUD_AUTH_PROFILE, {"access_token": "jwt", "expires": time.time() + 3600}
+    )
     gmail_accounts.managed_connect_account(
         secrets,
         _account(

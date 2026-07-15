@@ -50,7 +50,9 @@ class WakeStore:
         self._lock = threading.Lock()
         self._wakes: dict[str, Wake] = {}
         if self.path and self.path.is_file():
-            for raw in json.loads(self.path.read_text(encoding="utf-8")).get("wakes", []):
+            for raw in json.loads(self.path.read_text(encoding="utf-8")).get(
+                "wakes", []
+            ):
                 w = Wake(**raw)
                 self._wakes[w.id] = w
 
@@ -64,21 +66,31 @@ class WakeStore:
         )
 
     def add_timer(self, session_id: str, fire_at: datetime, *, note: str = "") -> Wake:
-        w = Wake(uuid.uuid4().hex, session_id, KIND_TIMER, fire_at=fire_at.isoformat(), note=note)
+        w = Wake(
+            uuid.uuid4().hex,
+            session_id,
+            KIND_TIMER,
+            fire_at=fire_at.isoformat(),
+            note=note,
+        )
         with self._lock:
             self._wakes[w.id] = w
             self._save()
         return w
 
     def add_completion(self, session_id: str, job_id: str, *, note: str = "") -> Wake:
-        w = Wake(uuid.uuid4().hex, session_id, KIND_COMPLETION, job_id=job_id, note=note)
+        w = Wake(
+            uuid.uuid4().hex, session_id, KIND_COMPLETION, job_id=job_id, note=note
+        )
         with self._lock:
             self._wakes[w.id] = w
             self._save()
         return w
 
     def add_event(self, session_id: str, event_key: str, *, note: str = "") -> Wake:
-        w = Wake(uuid.uuid4().hex, session_id, KIND_EVENT, event_key=event_key, note=note)
+        w = Wake(
+            uuid.uuid4().hex, session_id, KIND_EVENT, event_key=event_key, note=note
+        )
         with self._lock:
             self._wakes[w.id] = w
             self._save()
@@ -91,7 +103,11 @@ class WakeStore:
         for w in self._wakes.values():
             if w.state != STATE_PENDING and w.state != STATE_DUE:
                 continue
-            if w.kind == KIND_TIMER and w.fire_at and datetime.fromisoformat(w.fire_at) <= now:
+            if (
+                w.kind == KIND_TIMER
+                and w.fire_at
+                and datetime.fromisoformat(w.fire_at) <= now
+            ):
                 out.append(w)
             elif w.kind in (KIND_COMPLETION, KIND_EVENT) and w.state == STATE_DUE:
                 out.append(w)
@@ -99,11 +115,15 @@ class WakeStore:
 
     def complete_job(self, job_id: str) -> list[Wake]:
         """Mark completion wakes for ``job_id`` as due (the job exited). Returns them."""
-        return self._mark_due(lambda w: w.kind == KIND_COMPLETION and w.job_id == job_id)
+        return self._mark_due(
+            lambda w: w.kind == KIND_COMPLETION and w.job_id == job_id
+        )
 
     def fire_event(self, event_key: str) -> list[Wake]:
         """Mark on-event wakes for ``event_key`` as due (a connector/webhook fired). Returns them."""
-        return self._mark_due(lambda w: w.kind == KIND_EVENT and w.event_key == event_key)
+        return self._mark_due(
+            lambda w: w.kind == KIND_EVENT and w.event_key == event_key
+        )
 
     def _mark_due(self, pred) -> list[Wake]:
         fired = []
@@ -127,7 +147,8 @@ class WakeStore:
         return [
             w
             for w in self._wakes.values()
-            if w.state != STATE_FIRED and (session_id is None or w.session_id == session_id)
+            if w.state != STATE_FIRED
+            and (session_id is None or w.session_id == session_id)
         ]
 
 
@@ -137,7 +158,9 @@ def selfwake_tools(store: WakeStore, session_id: str) -> list:
     def sleep_for(seconds: int, note: str = "") -> dict:
         """Suspend and wake this session after `seconds`. Use for polling/waiting without
         burning context while idle."""
-        w = store.add_timer(session_id, _now() + timedelta(seconds=int(seconds)), note=note)
+        w = store.add_timer(
+            session_id, _now() + timedelta(seconds=int(seconds)), note=note
+        )
         return {"ok": True, "wake_id": w.id, "fire_at": w.fire_at}
 
     def sleep_until(when_iso: str, note: str = "") -> dict:

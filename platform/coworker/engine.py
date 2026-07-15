@@ -206,7 +206,10 @@ class TurnEngine:
                         turn = chunk.turn
             except Exception as exc:  # provider failure
                 friendly = friendly_model_error(self.model, exc)
-                payload = {"error": friendly or str(exc), "error_type": type(exc).__name__}
+                payload = {
+                    "error": friendly or str(exc),
+                    "error_type": type(exc).__name__,
+                }
                 if friendly:
                     payload["raw"] = str(exc)
                 yield Event(EventType.ERROR, payload)
@@ -692,9 +695,11 @@ class TurnEngine:
         # (e.g. filter-hidden counts) — copying only messages that carry one.
         _SIDECARS = ("source", "_display")
         out = [
-            {k: v for k, v in msg.items() if k not in _SIDECARS}
-            if any(s in msg for s in _SIDECARS)
-            else msg
+            (
+                {k: v for k, v in msg.items() if k not in _SIDECARS}
+                if any(s in msg for s in _SIDECARS)
+                else msg
+            )
             for msg in self.messages
         ]
         context = (

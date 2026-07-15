@@ -45,6 +45,7 @@ class RelayTransport(Protocol):
     async def recv(self) -> Optional[dict]:
         """Next frame, or None when the connection has closed."""
         ...
+
     async def close(self) -> None: ...
 
 
@@ -93,7 +94,9 @@ class RelayHub:
         self.last_error: str = ""  # last connect/reconnect failure ("" once healthy)
         self._progress = asyncio.Event()
 
-    def register(self, provider: str, handler: Callable[[dict], Awaitable[None]]) -> None:
+    def register(
+        self, provider: str, handler: Callable[[dict], Awaitable[None]]
+    ) -> None:
         self._handlers[provider] = handler
 
     async def release(self, provider: str) -> None:
@@ -196,11 +199,15 @@ class RelayHub:
             self._progress.clear()
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise TimeoutError(f"only {self._dispatched} frames dispatched (< {at_least})")
+                raise TimeoutError(
+                    f"only {self._dispatched} frames dispatched (< {at_least})"
+                )
             try:
                 await asyncio.wait_for(self._progress.wait(), timeout=remaining)
             except asyncio.TimeoutError:
-                raise TimeoutError(f"only {self._dispatched} frames dispatched (< {at_least})")
+                raise TimeoutError(
+                    f"only {self._dispatched} frames dispatched (< {at_least})"
+                )
 
     # -- default transport ---------------------------------------------------
     def _default_transport_factory(self) -> RelayTransport:
@@ -281,7 +288,9 @@ class SlackRelayAdapter(BasePlatformAdapter):
         await self._hub.wait_dispatched(at_least, timeout)
 
     # -- team registry -------------------------------------------------------
-    def set_team(self, team_id: str, bot_token: str, bot_user_id: Optional[str] = None) -> None:
+    def set_team(
+        self, team_id: str, bot_token: str, bot_user_id: Optional[str] = None
+    ) -> None:
         self._teams[team_id] = {"bot_token": bot_token, "bot_user_id": bot_user_id}
 
     def _bot_user_id(self, team_id: str) -> Optional[str]:
@@ -307,7 +316,9 @@ class SlackRelayAdapter(BasePlatformAdapter):
         await self._on_event(frame)
 
     async def _on_event(self, frame: dict) -> None:
-        await self._dispatch_slack_event(frame.get("team_id", ""), frame.get("event") or {})
+        await self._dispatch_slack_event(
+            frame.get("team_id", ""), frame.get("event") or {}
+        )
 
     async def _dispatch_slack_event(self, team_id: str, event: dict) -> None:
         """Map a raw Slack event → MessageEvent, resolve display names via the
@@ -321,7 +332,9 @@ class SlackRelayAdapter(BasePlatformAdapter):
         # mirroring the Socket-Mode adapter — so cards read "@ocw"/"Rohit"/"#ocw-test"
         # not raw U…/C… ids. Best-effort: ids fall through on failure.
         if not mapped.source.user_name:
-            mapped.source.user_name = await self._display_name(team_id, mapped.source.user_id)
+            mapped.source.user_name = await self._display_name(
+                team_id, mapped.source.user_id
+            )
         if not mapped.source.chat_name:
             mapped.source.chat_name = await self._channel_name(team_id, channel)
         mapped.text = await self._resolve_mentions(team_id, mapped.text)
@@ -379,7 +392,9 @@ class SlackRelayAdapter(BasePlatformAdapter):
             info["token_ok"] = False
 
     # -- name resolution (per workspace, via that team's bot token) ----------
-    async def _slack_get(self, team_id: str, method: str, params: dict) -> Optional[dict]:
+    async def _slack_get(
+        self, team_id: str, method: str, params: dict
+    ) -> Optional[dict]:
         """Call a Slack Web API read method with the team's bot token. Best-effort
         (None on any failure). `SLACK_API_URL` redirects to the fake in tests."""
         import httpx
@@ -391,7 +406,8 @@ class SlackRelayAdapter(BasePlatformAdapter):
         try:
             async with httpx.AsyncClient(timeout=15) as http:
                 resp = await http.get(
-                    base + method, params=params,
+                    base + method,
+                    params=params,
                     headers={"Authorization": f"Bearer {token}"},
                 )
             data = resp.json()
@@ -409,7 +425,12 @@ class SlackRelayAdapter(BasePlatformAdapter):
         data = await self._slack_get(team_id, "users.info", {"user": uid})
         u = (data or {}).get("user") or {}
         prof = u.get("profile") or {}
-        name = prof.get("display_name") or prof.get("real_name") or u.get("real_name") or u.get("name")
+        name = (
+            prof.get("display_name")
+            or prof.get("real_name")
+            or u.get("real_name")
+            or u.get("name")
+        )
         if name:
             cache[uid] = name
         return name

@@ -1,6 +1,7 @@
 """New-flagship rollout (2026-07-14): GPT-5.6 Sol/Terra/Luna + Claude Fable 5 in the
 matrix, both families' flagships as defaults, and friendly errors when an account can't
-use them (GPT-5.6 rolls out per-organization; quota/credits can run out on any model)."""
+use them (GPT-5.6 rolls out per-organization; quota/credits can run out on any model).
+"""
 
 from coworker.config import Config
 from coworker.providers.errors import friendly_model_error
@@ -65,7 +66,21 @@ def test_quota_errors_are_translated():
 
 def test_unrelated_errors_pass_through_raw():
     # a plain rate-limit (429 without a quota code) must NOT be dressed up
-    assert friendly_model_error("gpt-5.6-sol", RuntimeError("Error code: 429 - rate_limit_exceeded, retry after 2s")) is None
+    assert (
+        friendly_model_error(
+            "gpt-5.6-sol",
+            RuntimeError("Error code: 429 - rate_limit_exceeded, retry after 2s"),
+        )
+        is None
+    )
     # a 404 from a wrong base_url isn't an access problem
-    assert friendly_model_error("gpt-5.6-sol", RuntimeError("Error code: 404 - no route /v2/chat")) is None
-    assert friendly_model_error("gpt-5.6-sol", RuntimeError("connection reset by peer")) is None
+    assert (
+        friendly_model_error(
+            "gpt-5.6-sol", RuntimeError("Error code: 404 - no route /v2/chat")
+        )
+        is None
+    )
+    assert (
+        friendly_model_error("gpt-5.6-sol", RuntimeError("connection reset by peer"))
+        is None
+    )

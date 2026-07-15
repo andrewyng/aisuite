@@ -284,7 +284,9 @@ def test_engine_connector_tools_are_cowork_scoped(tmp_path):
         is False
     )
     assert (
-        cowork_with_github.registry.get("github_create_issue").metadata.requires_approval
+        cowork_with_github.registry.get(
+            "github_create_issue"
+        ).metadata.requires_approval
         is True
     )
 
@@ -304,7 +306,9 @@ def test_connector_list_descriptors(tmp_path):
     # relay (inbound mentions) but sessions can't subscribe to "GitHub channels".
     assert by_name["telegram"]["channels"] is True
     assert by_name["slack"]["channels"] is True
-    assert by_name["github"]["two_way"] is True and by_name["github"]["channels"] is False
+    assert (
+        by_name["github"]["two_way"] is True and by_name["github"]["channels"] is False
+    )
     assert (
         by_name["gmail"]["available"] is True and by_name["gmail"]["connected"] is False
     )
@@ -740,7 +744,10 @@ def test_new_tools_error_when_not_connected(tmp_path):
     assert "not connected" in tools["hubspot_search"]("acme")["error"]
     assert "not connected" in tools["posthog_query"]("SELECT 1")["error"]
     assert "not connected" in tools["mixpanel_top_events"]()["error"]
-    assert "not connected" in tools["amplitude_active_users"]("20260701", "20260707")["error"]
+    assert (
+        "not connected"
+        in tools["amplitude_active_users"]("20260701", "20260707")["error"]
+    )
     assert "not connected" in tools["apollo_enrich_company"]("acme.io")["error"]
     assert "not connected" in tools["hunter_verify_email"]("a@b.co")["error"]
     assert "not connected" in tools["dropbox_list_folder"]()["error"]
@@ -913,7 +920,10 @@ def test_batch2_tools_request_routing(tmp_path, monkeypatch):
 
     tools["notion_query_database"]("db1")
     assert calls[-1]["url"].endswith("/v1/databases/db1/query")
-    assert "must be a Notion filter" in tools["notion_query_database"]("db1", "nope")["error"]
+    assert (
+        "must be a Notion filter"
+        in tools["notion_query_database"]("db1", "nope")["error"]
+    )
 
     tools["notion_create_page"]("pg1", "Weekly notes", "line one\n\nline two")
     assert calls[-1]["json"]["parent"] == {"page_id": "pg1"}

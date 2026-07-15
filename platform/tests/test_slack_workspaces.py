@@ -87,9 +87,7 @@ def test_disconnect_one_workspace_keeps_the_other(client, monkeypatch):
     assert client.manager.secrets.get("slack:team:T1") is None
     assert client.manager.secrets.get("slack:team:T2") is not None
     # connector still connected in relay mode for the surviving workspace
-    slack = next(
-        c for c in client.manager.list_connectors() if c["name"] == "slack"
-    )
+    slack = next(c for c in client.manager.list_connectors() if c["name"] == "slack")
     assert slack["connected"] is True
     assert [w["team_id"] for w in slack["workspaces"]] == ["T2"]
 
@@ -101,9 +99,7 @@ def test_disconnect_last_workspace_flips_connector_off(client, monkeypatch):
     body = client.post("/v1/connectors/slack/workspaces/T1/disconnect").json()
     assert body["ok"] is True and body["remaining_workspaces"] == 0
     assert client.manager.secrets.get("slack:default") is None
-    slack = next(
-        c for c in client.manager.list_connectors() if c["name"] == "slack"
-    )
+    slack = next(c for c in client.manager.list_connectors() if c["name"] == "slack")
     assert slack["connected"] is False
 
 

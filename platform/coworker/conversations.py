@@ -355,7 +355,8 @@ class ConversationStore:
 
     def set_origin(self, session_id: str, origin: str, origin_label: str = "") -> bool:
         """Mark where a spawned session came from (§31). Set once at spawn; `save()` never
-        names these columns, so per-turn saves can't clobber them (the pinned mechanism)."""
+        names these columns, so per-turn saves can't clobber them (the pinned mechanism).
+        """
         with self._lock:
             cur = self._conn.execute(
                 "UPDATE sessions SET origin = ?, origin_label = ? WHERE session_id = ?",

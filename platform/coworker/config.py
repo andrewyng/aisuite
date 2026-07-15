@@ -62,7 +62,9 @@ class Config:
     # default shipped once as "connected but relay OFF" on every machine
     # without a hand-edited config.toml. Empty override ⇒ relay disabled
     # (manual Socket Mode still works); dev/BYO deployments point elsewhere.
-    cloud_relay_ws_url: str = "wss://l4z1paxb83.execute-api.us-east-1.amazonaws.com/ocw-connect"
+    cloud_relay_ws_url: str = (
+        "wss://l4z1paxb83.execute-api.us-east-1.amazonaws.com/ocw-connect"
+    )
 
 
 _FIELDS = {

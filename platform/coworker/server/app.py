@@ -65,7 +65,9 @@ def _browser_page(
         color = _BRAND_COLORS.get(connector, "#3670b2")
         initial = _html.escape((connector[:1] or "?").upper())
         badge = f'<span class="mini" style="background:{color}">{initial}</span>'
-    icon = f'<div class="ico ok">✓{badge}</div>' if ok else '<div class="ico bad">✕</div>'
+    icon = (
+        f'<div class="ico ok">✓{badge}</div>' if ok else '<div class="ico bad">✕</div>'
+    )
     err = f'<div class="err">{_html.escape(error)}</div>' if error else ""
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
@@ -371,14 +373,20 @@ def create_app(manager: SessionManager) -> FastAPI:
                     }
                 markdown = manifest.get("manifest_markdown", "")
                 digest = "sha256:" + hashlib.sha256(markdown.encode()).hexdigest()
-                if manifest.get("manifest_hash") and manifest["manifest_hash"] != digest:
+                if (
+                    manifest.get("manifest_hash")
+                    and manifest["manifest_hash"] != digest
+                ):
                     return {"ok": False, "error": "manifest hash mismatch"}
                 with tempfile.TemporaryDirectory() as td:
                     (Path(td) / f"{slug}.md").write_text(markdown)
                     summaries = reg.install_from_dir(td)
                 cloud.gallery_install_event(manager.secrets, load_config(), slug)
             else:
-                return {"ok": False, "error": "provide a `dir`, `git_url`, or `gallery_slug`"}
+                return {
+                    "ok": False,
+                    "error": "provide a `dir`, `git_url`, or `gallery_slug`",
+                }
         except Exception as e:  # surface manifest/clone errors to the caller
             return {"ok": False, "error": str(e)}
         return {"ok": True, "consent": summaries, "personas": reg.list_all()}
@@ -404,7 +412,11 @@ def create_app(manager: SessionManager) -> FastAPI:
 
         body = cloud.gallery_list(manager.secrets, load_config())
         if body is None:
-            return {"ok": False, "error": "gallery requires cloud sign-in", "personas": []}
+            return {
+                "ok": False,
+                "error": "gallery requires cloud sign-in",
+                "personas": [],
+            }
         return {"ok": True, "personas": body.get("personas", [])}
 
     @app.post("/v1/personas/{persona_id}")
@@ -415,9 +427,9 @@ def create_app(manager: SessionManager) -> FastAPI:
             if "enabled" in body:
                 # Disable archives the persona's sessions atomically (server-side, one
                 # request) so any client gets the same semantic. See set_persona_enabled.
-                archived = manager.set_persona_enabled(persona_id, bool(body["enabled"]))[
-                    "archived_sessions"
-                ]
+                archived = manager.set_persona_enabled(
+                    persona_id, bool(body["enabled"])
+                )["archived_sessions"]
             if "surfaced" in body:
                 reg.set_surfaced(persona_id, bool(body["surfaced"]))
             if body.get("default"):
@@ -451,7 +463,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         # Dedicated §5/§8 route; delegates to the same manager toggle as POST /v1/personas/{id}
         # (so disable archives the persona's sessions here too).
         try:
-            manager.set_persona_enabled(persona_id, bool((body or {}).get("enabled", True)))
+            manager.set_persona_enabled(
+                persona_id, bool((body or {}).get("enabled", True))
+            )
         except KeyError:
             return {"ok": False, "error": f"unknown persona: {persona_id}"}
         return {"ok": True, "personas": manager.personas.list_all()}
@@ -703,7 +717,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         profile_key = gcal_accounts.PREFIX + email.strip().lower()
         await asyncio.to_thread(
             lambda: cloud.cloud_disconnect(
-                manager.secrets, load_config(), "google_calendar", profile_key=profile_key
+                manager.secrets,
+                load_config(),
+                "google_calendar",
+                profile_key=profile_key,
             )
         )
         return gcal_accounts.disconnect_account(manager.secrets, email)
@@ -829,10 +846,14 @@ def create_app(manager: SessionManager) -> FastAPI:
         from .. import cloud
         from ..config import load_config
 
-        signin_failed_detail = "Close this tab and try signing in again from OpenCoworker."
+        signin_failed_detail = (
+            "Close this tab and try signing in again from OpenCoworker."
+        )
         if error:
             return HTMLResponse(
-                _browser_page("Sign-in failed", signin_failed_detail, ok=False, error=error),
+                _browser_page(
+                    "Sign-in failed", signin_failed_detail, ok=False, error=error
+                ),
                 status_code=400,
             )
         result = await asyncio.to_thread(
@@ -861,7 +882,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
 
     @app.post("/v1/connectors/{name}/connect-managed")
-    async def connector_connect_managed(name: str, body: Optional[dict] = None) -> dict[str, Any]:
+    async def connector_connect_managed(
+        name: str, body: Optional[dict] = None
+    ) -> dict[str, Any]:
         """One-click managed OAuth (requires cloud sign-in). Opens the provider
         consent page in the system browser; the broker's callback page will
         form-POST the tokens to /oauth/callback below. `access` picks a consent
@@ -898,7 +921,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         if data.get("error"):
             return HTMLResponse(
                 _browser_page(
-                    "Connection failed", _CONNECT_FAILED_DETAIL, ok=False, error=data["error"]
+                    "Connection failed",
+                    _CONNECT_FAILED_DETAIL,
+                    ok=False,
+                    error=data["error"],
                 ),
                 status_code=400,
             )
@@ -931,7 +957,10 @@ def create_app(manager: SessionManager) -> FastAPI:
         if not connector or not data.get("access_token"):
             return HTMLResponse(
                 _browser_page(
-                    "Connection failed", _CONNECT_FAILED_DETAIL, ok=False, error="missing fields"
+                    "Connection failed",
+                    _CONNECT_FAILED_DETAIL,
+                    ok=False,
+                    error="missing fields",
                 ),
                 status_code=400,
             )
@@ -1009,7 +1038,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
 
     @app.get("/v1/connectors/slack/workspaces/{team_id}/directory")
-    async def slack_directory(team_id: str, q: str = "", limit: int = 25) -> dict[str, Any]:
+    async def slack_directory(
+        team_id: str, q: str = "", limit: int = 25
+    ) -> dict[str, Any]:
         """Workspace member roster for the people picker (team_id "default" =
         the manual Socket-Mode workspace). Cached locally; never leaves this machine."""
         from ..connectors import slack_directory as roster
@@ -1019,7 +1050,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         )
 
     @app.get("/v1/connectors/slack/workspaces/{team_id}/channels")
-    async def slack_channels(team_id: str, q: str = "", limit: int = 25) -> dict[str, Any]:
+    async def slack_channels(
+        team_id: str, q: str = "", limit: int = 25
+    ) -> dict[str, Any]:
         """Channel roster for the channel typeahead: all public channels, private
         ones only where the bot is a member (Slack API constraint)."""
         from ..connectors import slack_directory as roster

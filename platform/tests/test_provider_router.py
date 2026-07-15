@@ -312,7 +312,8 @@ def test_manager_provider_config(tmp_path, monkeypatch):
 
 def test_manager_curated_models(tmp_path, monkeypatch):
     """No seed list: the picker is the curated matrix filtered to key-holding providers,
-    plus user-added custom ids. A fresh install shows only the (not-yet-usable) default."""
+    plus user-added custom ids. A fresh install shows only the (not-yet-usable) default.
+    """
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
     from coworker.providers.registry import provider_descriptors
 
