@@ -155,6 +155,10 @@ def make_send_message_tool(
         token = _resolve_token(secrets, platform, chat_id)
         if not token:
             return {"error": f"no bot token for {platform} — connect it first"}
+        if platform == "slack":
+            from .attribution import sender_prefix
+
+            text = sender_prefix(secrets, chat_id) + text
         result = sender(token, chat_id, text, thread_id)
         if result.ok:
             return {"ok": True, "message_id": result.message_id, "target": target}
@@ -309,6 +313,10 @@ def make_send_file_tool(
                 return {"error": "file is larger than 50 MB"}
             data = resolved.read_bytes()
             filename = resolved.name
+        if platform == "slack" and comment:
+            from .attribution import sender_prefix
+
+            comment = sender_prefix(secrets, chat_id) + comment
         result = sender(token, chat_id, thread_id, filename, data, title, comment)
         if result.ok:
             return {"ok": True, "file_id": result.message_id, "target": target, "filename": filename}

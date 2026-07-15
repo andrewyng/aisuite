@@ -401,6 +401,9 @@ def managed_connect_slack_install(
             "managed": True,
             "bot_token": bot_token,
             "bot_user_id": form.get("bot_user_id", ""),
+            # The INSTALLER's Slack member id (authed_user) — who this workspace's
+            # outbound posts speak for (attribution.py resolves + caches the name).
+            "slack_user_id": form.get("slack_user_id", ""),
             "team_id": team_id,
             "account": form.get("account", ""),
             # The workspace's slack.com subdomain (broker resolves it via auth.test)
