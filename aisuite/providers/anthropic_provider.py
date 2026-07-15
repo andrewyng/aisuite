@@ -4,6 +4,7 @@
 
 import anthropic
 import json
+import re
 from aisuite.provider import Provider
 from aisuite.framework import ChatCompletionResponse
 from aisuite.framework.chat_completion_chunk import (
@@ -23,6 +24,11 @@ from aisuite.framework.message import (
 
 # Define a constant for the default max_tokens value
 DEFAULT_MAX_TOKENS = 4096
+
+# OpenAI-style image_url parts carry either a data URL or a plain http(s) URL.
+DATA_URL_RE = re.compile(
+    r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL
+)
 
 
 class AnthropicMessageConverter:
@@ -166,7 +172,7 @@ class AnthropicMessageConverter:
             return self._create_assistant_tool_message(
                 msg["content"], msg["tool_calls"]
             )
-        return {"role": msg["role"], "content": msg["content"]}
+        return {"role": msg["role"], "content": self._convert_content(msg["content"])}
 
     def _convert_message_object(self, msg):
         """Convert a Message object to Anthropic format."""
@@ -174,7 +180,46 @@ class AnthropicMessageConverter:
             return self._create_tool_result_message(msg.tool_call_id, msg.content)
         elif msg.role == self.ROLE_ASSISTANT and msg.tool_calls:
             return self._create_assistant_tool_message(msg.content, msg.tool_calls)
-        return {"role": msg.role, "content": msg.content}
+        return {"role": msg.role, "content": self._convert_content(msg.content)}
+
+    def _convert_content(self, content):
+        """String content passes through unchanged; an OpenAI-style parts list
+        (``{"type": "text"}`` / ``{"type": "image_url"}``) becomes Anthropic
+        content blocks. Empty text parts are dropped — Anthropic rejects them."""
+        if not isinstance(content, list):
+            return content
+        blocks = []
+        for part in content:
+            block = self._convert_content_part(part)
+            if block is not None:
+                blocks.append(block)
+        return blocks
+
+    def _convert_content_part(self, part):
+        """One OpenAI-style content part → an Anthropic content block (or None)."""
+        kind = part.get("type") if isinstance(part, dict) else None
+        if kind == "text":
+            text = part.get("text") or ""
+            return {"type": "text", "text": text} if text else None
+        if kind == "image_url":
+            url = (part.get("image_url") or {}).get("url") or ""
+            match = DATA_URL_RE.match(url)
+            if match:
+                return {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": match.group(1).lower(),
+                        "data": match.group(2),
+                    },
+                }
+            if url.startswith(("http://", "https://")):
+                return {"type": "image", "source": {"type": "url", "url": url}}
+            raise ValueError(
+                "Unsupported image_url for Anthropic: expected a base64 data URL "
+                f"(data:image/...;base64,...) or an http(s) URL, got {url[:80]!r}"
+            )
+        raise ValueError(f"Unsupported content part type for Anthropic: {kind!r}")
 
     def _create_tool_result_message(self, tool_call_id, content):
         """Create a tool result message in Anthropic format."""
