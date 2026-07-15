@@ -2574,6 +2574,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "serde",
+ "sha2",
  "ureq",
  "whisper-rs",
 ]

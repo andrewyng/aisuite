@@ -10,7 +10,25 @@ import {
   type CloudStatus,
   type ModelSettings,
 } from "../api";
-import { getAutostart, getKeepAwake, isTauri, pickFolder, setAutostart, setKeepAwake } from "../tauri";
+import {
+  cancelDictationModelDownload,
+  deleteDictationModel,
+  downloadDictationModel,
+  getAutostart,
+  getDictationStatus,
+  getKeepAwake,
+  isTauri,
+  listenDictationDownloadProgress,
+  markDictationTestPassed,
+  pickFolder,
+  setAutostart,
+  setKeepAwake,
+  startDictation,
+  stopDictation,
+  verifyDictationModel,
+  type DictationDownloadProgress,
+  type DictationStatus,
+} from "../tauri";
 import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
@@ -23,7 +41,7 @@ import { PersonasTab } from "./PersonasTab";
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
-type SetTab = "appearance" | "files" | "models" | "personas";
+type SetTab = "appearance" | "files" | "models" | "voice" | "personas";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -34,10 +52,11 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 
-const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "folder" | "code" | "sparkle" }[] = [
+const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "folder" | "code" | "mic" | "sparkle" }[] = [
   { key: "appearance", label: "Appearance", icon: "sliders" },
   { key: "files", label: "Files", icon: "folder" },
   { key: "models", label: "Models", icon: "code" },
+  { key: "voice", label: "Voice input", icon: "mic" },
   { key: "personas", label: "Personas", icon: "sparkle" },
 ];
 
@@ -87,12 +106,231 @@ export function SettingsView({
               />
               <ModelsTab />
             </section>
+          ) : tab === "voice" ? (
+            <VoiceInputSection />
           ) : (
             <PersonasSection onOpenPersona={onOpenPersona} />
           )}
         </div>
       </div>
     </main>
+  );
+}
+
+// -- Voice input: deliberate model provisioning + compatibility + microphone test (§37) --------
+const voiceError = (error: unknown) =>
+  error instanceof Error ? error.message : typeof error === "string" ? error : "Voice Input could not complete that action.";
+
+const formatBytes = (bytes: number) => {
+  if (!bytes) return "0 MiB";
+  return `${Math.round(bytes / 1024 / 1024)} MiB`;
+};
+
+function VoiceInputSection() {
+  const [status, setStatus] = useState<DictationStatus | null>(null);
+  const [progress, setProgress] = useState<DictationDownloadProgress | null>(null);
+  const [phase, setPhase] = useState<"idle" | "downloading" | "verifying" | "testing" | "transcribing">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [testTranscript, setTestTranscript] = useState("");
+  const desktop = isTauri();
+
+  const publish = (next: DictationStatus) => {
+    setStatus(next);
+    window.dispatchEvent(new CustomEvent("coworker:voice-input-changed", { detail: next }));
+  };
+
+  useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    let unlisten = () => {};
+    void listenDictationDownloadProgress((next) => {
+      if (active) setProgress(next);
+    }).then((stop) => {
+      unlisten = stop;
+    });
+    void getDictationStatus().then(async (initial) => {
+      if (!active || !initial) return;
+      publish(initial);
+      // One-time migration for models installed by the first STT cut, before verification markers.
+      if (initial.model_installed && !initial.model_verified) {
+        setPhase("verifying");
+        try {
+          const verified = await verifyDictationModel();
+          if (active) publish(verified);
+        } catch (verifyError) {
+          if (active) setError(voiceError(verifyError));
+        } finally {
+          if (active) setPhase("idle");
+        }
+      }
+    });
+    return () => {
+      active = false;
+      unlisten();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desktop]);
+
+  const download = async () => {
+    setError(null);
+    setProgress({ downloaded_bytes: 0, total_bytes: status?.model_bytes || 0 });
+    setPhase("downloading");
+    try {
+      publish(await downloadDictationModel());
+    } catch (downloadError) {
+      setError(voiceError(downloadError));
+      const latest = await getDictationStatus();
+      if (latest) publish(latest);
+    } finally {
+      setPhase("idle");
+    }
+  };
+
+  const cancelDownload = async () => {
+    await cancelDictationModelDownload().catch(() => undefined);
+  };
+
+  const repair = async () => {
+    setError(null);
+    try {
+      publish(await deleteDictationModel());
+      await download();
+    } catch (repairError) {
+      setError(voiceError(repairError));
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm("Delete the local Whisper model and disable Voice Input?")) return;
+    setError(null);
+    try {
+      publish(await deleteDictationModel());
+      setTestTranscript("");
+      setProgress(null);
+    } catch (deleteError) {
+      setError(voiceError(deleteError));
+    }
+  };
+
+  const toggleTest = async () => {
+    if (!status?.supported || !status.model_verified) return;
+    setError(null);
+    try {
+      if (status.recording) {
+        setPhase("transcribing");
+        const transcript = (await stopDictation()).trim();
+        setTestTranscript(transcript);
+        if (!transcript) throw new Error("No speech was detected. Try again and speak for a little longer.");
+        publish(await markDictationTestPassed());
+      } else {
+        setTestTranscript("");
+        setPhase("testing");
+        publish(await startDictation());
+      }
+    } catch (testError) {
+      setError(voiceError(testError));
+      const latest = await getDictationStatus();
+      if (latest) publish(latest);
+    } finally {
+      setPhase("idle");
+    }
+  };
+
+  const downloading = phase === "downloading" || !!status?.download_in_progress;
+  const progressTotal = progress?.total_bytes || status?.model_bytes || 1;
+  const progressPercent = Math.min(100, Math.round(((progress?.downloaded_bytes || 0) / progressTotal) * 100));
+  const ready = !!status?.supported && !!status?.model_verified && !!status?.test_passed;
+
+  return (
+    <section>
+      <PanelHead
+        title="Voice input"
+        sub="Speak naturally in the composer. Recordings and transcripts stay on this device."
+      />
+
+      {!desktop ? (
+        <div className={CARD + " p-4 text-[13px] text-muted"}>Voice Input setup is available in the OpenCoworker desktop app.</div>
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-green-200 bg-green-50/70 px-4 py-3 text-[12.5px] text-green-800">
+            <span className="font-medium">Private by design.</span> Audio is held in memory only while you record and is transcribed locally.
+          </div>
+
+          <div className={CARD}>
+            <div className="p-4 flex items-start gap-3">
+              <Icon name="code" size={18} className="text-accent mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-medium">This device</div>
+                <div className="text-[12px] text-muted mt-1">{status?.device_summary || "Checking compatibility…"}</div>
+                {status?.compatibility_reason && <div className="text-[12px] text-red-600 mt-1.5">{status.compatibility_reason}</div>}
+              </div>
+              {status && (
+                <span className={"text-[11.5px] px-2 py-1 rounded-full " + (status.supported ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600")}>
+                  {status.supported ? "● Compatible" : "Unsupported"}
+                </span>
+              )}
+            </div>
+            <div className="border-t border-line bg-paper/50 px-4 py-3 grid grid-cols-2 gap-3 text-[12px] text-muted">
+              <div><span className="block text-ink font-medium">Mac</span>macOS 12+ · Apple Silicon M1+</div>
+              <div><span className="block text-ink font-medium">Windows</span>Windows 10 22H2/11 · x64</div>
+              <div><span className="block text-ink font-medium">Memory</span>8 GB recommended</div>
+              <div><span className="block text-ink font-medium">Processor</span>4 CPU cores recommended</div>
+            </div>
+          </div>
+
+          <div className={CARD}>
+            <div className="p-4 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center font-semibold">W</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-medium">Whisper Base · English</div>
+                <div className="text-[12px] text-muted mt-0.5">
+                  {status?.model_verified ? `Installed and verified · ${formatBytes(status.model_bytes)}` : `Local voice model · ${formatBytes(status?.model_bytes || 147_964_211)}`}
+                </div>
+              </div>
+              {status?.model_verified ? (
+                <>
+                  <span className="text-[11.5px] px-2 py-1 rounded-full bg-green-50 text-green-700">Verified</span>
+                  <button className={BTN_BORDERED} onClick={() => void repair()}>Repair</button>
+                  <button className="text-[12px] text-red-600 px-2 py-2" onClick={() => void remove()}>Delete</button>
+                </>
+              ) : downloading ? (
+                <button className={BTN_BORDERED} onClick={() => void cancelDownload()}>Cancel</button>
+              ) : phase === "verifying" ? (
+                <span className="text-[12px] text-muted">Verifying…</span>
+              ) : (
+                <button className={BTN_ACCENT} disabled={!status?.supported} onClick={() => void download()}>Download model</button>
+              )}
+            </div>
+            {downloading && (
+              <div className="border-t border-line px-4 py-3">
+                <div className="h-1.5 rounded-full bg-line overflow-hidden"><div className="h-full bg-accent transition-all" style={{ width: `${progressPercent}%` }} /></div>
+                <div className="mt-1.5 text-[11.5px] text-muted flex"><span>{formatBytes(progress?.downloaded_bytes || 0)} of {formatBytes(progressTotal)}</span><span className="ml-auto">{progressPercent}%</span></div>
+              </div>
+            )}
+          </div>
+
+          <div className={CARD}>
+            <div className="p-4 flex items-center gap-3">
+              <Icon name="mic" size={18} className={ready ? "text-green-600" : "text-muted"} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-medium">Microphone test</div>
+                <div className="text-[12px] text-muted mt-0.5">
+                  {ready ? "Your microphone and local transcription engine are working." : "Record a short phrase to enable the composer microphone."}
+                </div>
+              </div>
+              {ready && <span className="text-[11.5px] px-2 py-1 rounded-full bg-green-50 text-green-700">● Ready</span>}
+              <button className={BTN_BORDERED} disabled={!status?.supported || !status?.model_verified || phase === "transcribing"} onClick={() => void toggleTest()}>
+                {status?.recording ? "Stop and check" : phase === "transcribing" ? "Transcribing…" : ready ? "Test again" : "Test microphone"}
+              </button>
+            </div>
+            {status?.recording && <div className="border-t border-line px-4 py-3 text-[12px] text-accent" role="status">● Listening… speak a short phrase, then stop.</div>}
+            {testTranscript && <div className="border-t border-line bg-paper/50 px-4 py-3 text-[13px]">“{testTranscript}”</div>}
+          </div>
+
+          {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
+        </div>
+      )}
+    </section>
   );
 }
 
