@@ -55,3 +55,26 @@ test("run_shell → full card: description title, command preview, stays-on-this
   await page.getByRole("button", { name: "Allow once" }).last().click();
   await expect(page.getByText("The command ran; 1 file found.")).toBeVisible();
 });
+
+test("a one-paragraph digest send is clamped to a card, expandable in place", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const box = page.getByPlaceholder(/Ask the coworker/);
+  await box.fill("post the long digest");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  // The message rides in a clamped preview box — not an unbounded quote wall.
+  const prev = page.locator(".approval-prev");
+  await expect(prev).toBeVisible();
+  await expect(prev).toContainText("aisuite — last 24 hours");
+  const clampedHeight = (await prev.boundingBox())!.height;
+  expect(clampedHeight).toBeLessThan(200);
+
+  await page.screenshot({ path: "test-results/send-digest-clamped.png", fullPage: false });
+
+  // Expands in place, and can collapse back.
+  await prev.getByText("show the full message").click();
+  expect((await prev.boundingBox())!.height).toBeGreaterThan(clampedHeight);
+  await expect(prev.getByText("show less")).toBeVisible();
+});

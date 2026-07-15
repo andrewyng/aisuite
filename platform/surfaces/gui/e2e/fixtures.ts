@@ -511,6 +511,21 @@ export async function mockApi(page: import("@playwright/test").Page) {
           send("permission_required", { name: "write_file", arguments: args, reason: "" });
           return; // suspended on the approval
         }
+        // A one-paragraph digest with NO newlines — the owner-repro shape that once
+        // ballooned the card to full-transcript height (char clamp, 2026-07-15).
+        if (/post the long digest/i.test(msg.text)) {
+          pendingTool = "send_message";
+          const args = {
+            target: "slack:T1/C1",
+            text:
+              "aisuite — last 24 hours of work (through Jul 15): 5 PRs merged covering chat-completion streaming with unified chunks across providers, multimodal input conversion, Slack collaboration improvements, human attribution for outbound posts, and repo-wide formatting. ".repeat(
+                6,
+              ),
+          };
+          send("tool_proposed", { name: "send_message", arguments: args });
+          send("permission_required", { name: "send_message", arguments: args, reason: "", category: "messaging" });
+          return;
+        }
         // Standing scoped approvals (§25): an eligible connector-ish write — the event
         // carries the pinnable target, exactly like the real engine computes it.
         if (/post the digest/i.test(msg.text)) {

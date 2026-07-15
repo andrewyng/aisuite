@@ -127,6 +127,25 @@ describe("ApprovalCard — §35 shapes", () => {
     expect(screen.getByText("Allow once")).toBeTruthy();
   });
 
+  it("long single-paragraph send_message text is clamped, expandable, and never a wall", () => {
+    // Owner repro 2026-07-15: a one-paragraph Slack digest (no newlines) blew the card
+    // up to full-transcript height — the preview clamped by LINES only.
+    const digest = "aisuite last 24 hours of work: five PRs merged covering streaming, multimodal input, Slack improvements, human attribution, and formatting. ".repeat(8);
+    render(<ApprovalCard item={sendApproval({ args: { target: "slack:T1/C1", text: digest } })} onApprove={vi.fn()} />);
+
+    const prev = document.querySelector(".approval-prev") as HTMLElement;
+    expect(prev.textContent!.length).toBeLessThan(500);
+    fireEvent.click(screen.getByText("show the full message"));
+    expect(document.querySelector(".approval-prev")!.textContent!.length).toBeGreaterThan(1000);
+    expect(screen.getByText("show less")).toBeTruthy();
+  });
+
+  it("short send_message text keeps the inline quote (no preview box)", () => {
+    render(<ApprovalCard item={sendApproval()} onApprove={vi.fn()} />);
+    expect(screen.getByText(/“digest”/)).toBeTruthy();
+    expect(document.querySelector(".approval-prev")).toBeNull();
+  });
+
   it("run_shell titles with the model's description and previews the command", () => {
     render(
       <ApprovalCard
