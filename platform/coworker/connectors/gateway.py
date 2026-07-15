@@ -157,9 +157,13 @@ class Gateway:
         adapter = self._adapters.get(platform)
         if adapter is None:
             return SendResult(False, error=f"no adapter for {platform}")
-        return await adapter.send_interactive(chat_id, text, buttons, thread_id=thread_id)
+        return await adapter.send_interactive(
+            chat_id, text, buttons, thread_id=thread_id
+        )
 
-    async def update_message(self, platform: str, chat_id: str, message_id: str, text: str) -> None:
+    async def update_message(
+        self, platform: str, chat_id: str, message_id: str, text: str
+    ) -> None:
         """Replace a resolved prompt's buttons with a plain-text outcome, if the adapter supports it."""
         adapter = self._adapters.get(platform)
         fn = getattr(adapter, "update_message", None)

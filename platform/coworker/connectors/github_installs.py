@@ -32,7 +32,7 @@ def list_installs(secrets: SecretStore) -> list[tuple[str, dict[str, Any]]]:
     for meta in secrets.status():
         key = meta.get("profile", "")
         if key.startswith(PREFIX):
-            out.append((key[len(PREFIX):], secrets.get(key) or {}))
+            out.append((key[len(PREFIX) :], secrets.get(key) or {}))
     return sorted(out, key=lambda t: t[0])
 
 
@@ -44,7 +44,9 @@ def default_install(secrets: SecretStore) -> str:
     return next(iter(installs), "")
 
 
-def resolve(secrets: SecretStore, install: str = "") -> tuple[str, dict[str, Any] | None]:
+def resolve(
+    secrets: SecretStore, install: str = ""
+) -> tuple[str, dict[str, Any] | None]:
     """(installation_id, profile) for the requested — or default — installation.
     Accepts the id or the account login (what agents see in results)."""
     installs = list_installs(secrets)

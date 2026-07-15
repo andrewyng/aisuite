@@ -54,7 +54,8 @@ class Capability:
 
 def _code_files(context: AgentContext) -> list:
     """Repo-oriented files: single-root, line-numbered/windowed `read_file`. Our `grep` and
-    windowed `read_file` replace aisuite's slower `search_files` / `read_file`/`read_file_lines`."""
+    windowed `read_file` replace aisuite's slower `search_files` / `read_file`/`read_file_lines`.
+    """
     ws = str(context.workspace)
     replaced = {"search_files", "read_file", "read_file_lines"}
     files = [
@@ -67,7 +68,8 @@ def _code_files(context: AgentContext) -> list:
 
 def _files(context: AgentContext) -> list:
     """Knowledge-work files: multi-root aware (reads/writes across the session's roots), keeps
-    aisuite's `read_file`/`read_file_lines`. Only our `grep` replaces the slow `search_files`."""
+    aisuite's `read_file`/`read_file_lines`. Only our `grep` replaces the slow `search_files`.
+    """
     ws = str(context.workspace)
     file_kwargs = (
         {"roots": context.roots} if context.roots else {"root": ws, "allow_write": True}
@@ -160,7 +162,8 @@ def capability(cap_id: str) -> Capability:
 def expand(ids: list[str], context: AgentContext) -> list:
     """Expand a persona's ``tools:`` id list into concrete tool callables for this context.
     Capabilities whose context prerequisites aren't met are skipped (no shell without an
-    executor, no files without a workspace) — exactly like the old hand-written factories."""
+    executor, no files without a workspace) — exactly like the old hand-written factories.
+    """
     tools: list = []
     for cap_id in ids:
         cap = capability(cap_id)

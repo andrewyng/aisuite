@@ -48,7 +48,11 @@ def derive_account_id(d: ConnectorDescriptor, profile: dict[str, Any]) -> str:
     validator identity (stored as `account` at connect time). "default" only
     when neither exists — never fails, so migration can't strand a profile."""
     if d.account_field and d.account_field != IDENTITY:
-        return _norm(profile.get(d.account_field)) or _norm(profile.get("account")) or "default"
+        return (
+            _norm(profile.get(d.account_field))
+            or _norm(profile.get("account"))
+            or "default"
+        )
     return _norm(profile.get("account")) or "default"
 
 
@@ -86,7 +90,7 @@ def list_accounts(
     for meta in secrets.status():
         key = meta.get("profile", "")
         if key.startswith(pre):
-            out.append((key[len(pre):], secrets.get(key) or {}))
+            out.append((key[len(pre) :], secrets.get(key) or {}))
     return sorted(out, key=lambda t: t[0])
 
 
@@ -131,7 +135,9 @@ def add_account(
     return {"ok": True, "account": account_id}
 
 
-def set_default(secrets: SecretStore, connector: str, account_id: str) -> dict[str, Any]:
+def set_default(
+    secrets: SecretStore, connector: str, account_id: str
+) -> dict[str, Any]:
     account_id = _norm(account_id)
     if not secrets.get(prefix(connector) + account_id):
         return {"ok": False, "error": "account not connected"}

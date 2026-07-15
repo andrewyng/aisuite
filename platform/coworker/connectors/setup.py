@@ -54,32 +54,32 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
         profile = secrets.get(f"{d.name}:default") or {}
         connected = _profile_connected(d, profile)
         entry = {
-                "name": d.name,
-                "title": d.title,
-                "icon": d.icon,
-                "blurb": d.blurb,
-                "auth": d.auth,
-                "two_way": d.two_way,
-                "channels": d.channels,
-                "available": d.available,
-                "brand_color": d.brand_color,
-                "logo": d.logo,
-                "fields": [f.to_dict() for f in d.fields],
-                "instructions": d.instructions,
-                "connected": connected,
-                "account": profile.get("account"),
-                "enabled": bool(profile.get("enabled", True)) and connected,
-                # The actual allow-list (the GUI manages it inline); was a bare count.
-                "allowed_users": list(profile.get("allowed_users") or []),
-                "tools": tool_dicts(secrets, d.name),
-                "experimental": d.experimental,
-                "risk_notice": d.risk_notice,
-                "managed": d.managed,
-                # Whether THIS profile came from managed OAuth (vs manual paste).
-                "managed_profile": bool(profile.get("managed")),
-                # "relay" for the managed cloud path; empty for manual/token connect.
-                "mode": profile.get("mode") or "",
-            }
+            "name": d.name,
+            "title": d.title,
+            "icon": d.icon,
+            "blurb": d.blurb,
+            "auth": d.auth,
+            "two_way": d.two_way,
+            "channels": d.channels,
+            "available": d.available,
+            "brand_color": d.brand_color,
+            "logo": d.logo,
+            "fields": [f.to_dict() for f in d.fields],
+            "instructions": d.instructions,
+            "connected": connected,
+            "account": profile.get("account"),
+            "enabled": bool(profile.get("enabled", True)) and connected,
+            # The actual allow-list (the GUI manages it inline); was a bare count.
+            "allowed_users": list(profile.get("allowed_users") or []),
+            "tools": tool_dicts(secrets, d.name),
+            "experimental": d.experimental,
+            "risk_notice": d.risk_notice,
+            "managed": d.managed,
+            # Whether THIS profile came from managed OAuth (vs manual paste).
+            "managed_profile": bool(profile.get("managed")),
+            # "relay" for the managed cloud path; empty for manual/token connect.
+            "mode": profile.get("mode") or "",
+        }
         if d.name == "slack":
             # Managed relay is multi-workspace: each `slack:team:*` profile is one
             # connected workspace with its OWN allow-list (ids are workspace-scoped).
@@ -250,9 +250,7 @@ def _hubspot_portal_list(secrets: SecretStore) -> list[dict[str, Any]]:
                 "managed": bool(profile.get("managed")),
                 # Consent tier granted at connect: managed profiles reveal it in
                 # their scope grant; a manual private-app token doesn't say.
-                "access": (".write" in scope and "write")
-                or (scope and "read")
-                or "",
+                "access": (".write" in scope and "write") or (scope and "read") or "",
             }
         )
     return out
@@ -434,7 +432,9 @@ def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
         from . import gmail_accounts
 
         for email, _profile in gmail_accounts.list_accounts(secrets):
-            dropped_accounts = secrets.delete(gmail_accounts.PREFIX + email) or dropped_accounts
+            dropped_accounts = (
+                secrets.delete(gmail_accounts.PREFIX + email) or dropped_accounts
+            )
     if name == "google_calendar":
         from . import gcal_accounts
 

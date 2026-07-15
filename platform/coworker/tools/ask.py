@@ -39,7 +39,10 @@ def ask_user_tool() -> object:
         """
         # Real handling lives in the engine (it needs the out-of-band Inbox round-trip). This body
         # only runs if no question_asker is wired (e.g. a headless surface).
-        return {"answer": "", "error": "asking the user isn't available in this surface"}
+        return {
+            "answer": "",
+            "error": "asking the user isn't available in this surface",
+        }
 
     return tool(
         ask_user,

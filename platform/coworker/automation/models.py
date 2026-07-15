@@ -38,7 +38,8 @@ def grant_entries(permissions: Any) -> list[str]:
     create payload) down to the entries actually grantable. Only `access: "write"` items
     become grants; the tool must declare a target argument (which excludes exec/destructive
     tools by construction) and the target must be non-empty. Reads are disclosure-only —
-    rendered on the consent card, never stored. Anything else is dropped, fail-closed."""
+    rendered on the consent card, never stored. Anything else is dropped, fail-closed.
+    """
     from ..connectors.tool_defs import target_arg_for
 
     entries: list[str] = []

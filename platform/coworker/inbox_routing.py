@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 DEFAULT_INBOX = "default"
-_ID_TOKEN = re.compile(r"\[ocw:([0-9a-f]{6,})\]")  # embeds the item id in a delivered message
+_ID_TOKEN = re.compile(
+    r"\[ocw:([0-9a-f]{6,})\]"
+)  # embeds the item id in a delivered message
 
 
 @dataclass
@@ -33,7 +35,9 @@ class InboxRouting:
     def __init__(self, path: Optional[str | Path] = None) -> None:
         self.path = Path(path) if path else None
         self._lock = threading.Lock()
-        self._bindings: dict[str, InboxBinding] = {DEFAULT_INBOX: InboxBinding(DEFAULT_INBOX)}
+        self._bindings: dict[str, InboxBinding] = {
+            DEFAULT_INBOX: InboxBinding(DEFAULT_INBOX)
+        }
         self._persona_default: dict[str, str] = {}
         self._session_override: dict[str, str] = {}
         self._load()
@@ -64,7 +68,9 @@ class InboxRouting:
         )
 
     # -- config -----------------------------------------------------------------
-    def set_binding(self, name: str, *, channel: Optional[str] = None, target: str = "") -> None:
+    def set_binding(
+        self, name: str, *, channel: Optional[str] = None, target: str = ""
+    ) -> None:
         with self._lock:
             self._bindings[name] = InboxBinding(name, channel, target)
             self._save()
@@ -110,7 +116,9 @@ def deliver(item, binding: InboxBinding, sender: Optional[Sender]) -> bool:
     return True
 
 
-def resolve_from_reply(reply: str, resolve: Callable[[str, str], bool]) -> Optional[bool]:
+def resolve_from_reply(
+    reply: str, resolve: Callable[[str, str], bool]
+) -> Optional[bool]:
     """Correlate an inbound channel reply to its item (by the embedded id) and resolve it.
 
     Looks for the ``[ocw:<id>]`` token and an allow/deny intent; falls back to treating the whole

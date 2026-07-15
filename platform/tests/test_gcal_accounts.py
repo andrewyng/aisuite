@@ -64,7 +64,12 @@ def _fake_gcal(monkeypatch, responses: dict[str, dict]):
 def test_legacy_default_migrates_to_one_account(secrets):
     secrets.put(
         "google_calendar:default",
-        {"type": "oauth", "enabled": True, "access_token": "ya29", "account": "Old@X.com"},
+        {
+            "type": "oauth",
+            "enabled": True,
+            "access_token": "ya29",
+            "account": "Old@X.com",
+        },
     )
     accounts = gcal_accounts.list_accounts(secrets)
     assert [e for e, _ in accounts] == ["old@x.com"]
@@ -128,7 +133,10 @@ def test_tools_pick_the_requested_account_token(secrets, monkeypatch):
     assert out["ok"] and out["account"] == "one@x.com"
     out = listing(account="two@y.com")
     assert out["ok"] and out["account"] == "two@y.com"
-    assert [t for _, _, t, _ in calls] == ["Bearer tok-one@x.com", "Bearer tok-two@y.com"]
+    assert [t for _, _, t, _ in calls] == [
+        "Bearer tok-one@x.com",
+        "Bearer tok-two@y.com",
+    ]
 
     out = listing(account="nobody@z.com")
     assert "no google calendar account" in out["error"]
@@ -150,7 +158,9 @@ def test_legacy_single_account_still_works_via_tools(secrets, monkeypatch):
 
 def test_update_event_patches_only_provided_fields(secrets, monkeypatch):
     gcal_accounts.managed_connect_account(secrets, _account("me@x.com"))
-    calls = _fake_gcal(monkeypatch, {"/events/ev1": {"ok": True, "data": {"id": "ev1"}}})
+    calls = _fake_gcal(
+        monkeypatch, {"/events/ev1": {"ok": True, "data": {"id": "ev1"}}}
+    )
     out = _tool(secrets, "gcal_update_event")(
         "ev1", summary="Moved", start="2026-07-10T10:00:00Z"
     )
@@ -173,7 +183,9 @@ def test_update_event_with_nothing_to_change_refuses(secrets, monkeypatch):
 def test_delete_event_targets_the_calendar(secrets, monkeypatch):
     gcal_accounts.managed_connect_account(secrets, _account("me@x.com"))
     calls = _fake_gcal(monkeypatch, {"/events/ev9": {"ok": True, "data": ""}})
-    out = _tool(secrets, "gcal_delete_event")("ev9", calendar_id="team@group.calendar.google.com")
+    out = _tool(secrets, "gcal_delete_event")(
+        "ev9", calendar_id="team@group.calendar.google.com"
+    )
     assert out["ok"]
     method, url, _, _ = calls[0]
     assert method == "DELETE"
@@ -213,7 +225,9 @@ def test_write_tools_require_approval(secrets):
 def test_account_profile_refreshes_in_place(secrets, monkeypatch):
     from coworker import cloud
 
-    secrets.put(cloud.CLOUD_AUTH_PROFILE, {"access_token": "jwt", "expires": time.time() + 3600})
+    secrets.put(
+        cloud.CLOUD_AUTH_PROFILE, {"access_token": "jwt", "expires": time.time() + 3600}
+    )
     gcal_accounts.managed_connect_account(
         secrets,
         _account(

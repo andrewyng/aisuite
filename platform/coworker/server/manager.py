@@ -544,7 +544,8 @@ class SessionManager:
         non-internal) sessions — disable means "put this coworker and its history away", so
         the persona's sidebar section disappears with it (owner call, 2026-07-04). Re-enabling
         never unarchives: that would overwrite the user's archive state; history returns one
-        click at a time via the Show-archived disclosure. Raises KeyError for unknown ids."""
+        click at a time via the Show-archived disclosure. Raises KeyError for unknown ids.
+        """
         self.personas.set_enabled(persona_id, enabled)
         archived = 0
         if not enabled:
@@ -588,7 +589,8 @@ class SessionManager:
         ``persona_id`` is the caller's hint (the GUI knows the active persona). It matters for a
         brand-new session: no SessionRecord exists until the first turn persists, so without the
         hint the view would resolve to the DEFAULT persona and show its defaults/recommends —
-        the owner's 2026-07-03 finding (a fresh Project Manager session rendered cowork's view)."""
+        the owner's 2026-07-03 finding (a fresh Project Manager session rendered cowork's view).
+        """
         persona = self._persona_of(session_id, persona_id)
         entry = self.personas.get(persona)
         manifest = entry.manifest if entry else None
@@ -1187,7 +1189,8 @@ class SessionManager:
     def pick_native_folder(self) -> dict[str, Any]:
         """Open the OS folder picker FROM THE SIDECAR — the browser GUI can't obtain absolute
         paths from web file dialogs, but the sidecar is local and can (the desktop shell uses
-        Tauri's own picker instead). Blocking until pick/cancel; callers run it off-thread."""
+        Tauri's own picker instead). Blocking until pick/cancel; callers run it off-thread.
+        """
         import subprocess
         import sys
 
@@ -1406,7 +1409,8 @@ class SessionManager:
         (`get_settings` culls the ones whose provider has no key) plus custom ids the user
         added, minus matrix models they removed. Deliberately NO built-in seed list — a
         fresh install offers nothing until a provider key exists, and then exactly that
-        provider's matrix models appear. The active default is always kept selectable."""
+        provider's matrix models appear. The active default is always kept selectable.
+        """
         from ..providers.matrix import MATRIX
 
         user = self._prefs.get("models")
@@ -1628,7 +1632,9 @@ class SessionManager:
         if not profile:
             return {
                 "ok": False,
-                "error": "workspace not connected" if team_id else "connector not connected",
+                "error": (
+                    "workspace not connected" if team_id else "connector not connected"
+                ),
             }
         allowed = set(profile.get("allowed_users") or [])
         allowed.add(user_id) if add else allowed.discard(user_id)
@@ -1709,8 +1715,12 @@ class SessionManager:
             "last_error": "",
         }
         teams: dict[str, Any] = {}
-        adapter = self.gateway._adapters.get("slack") if self.gateway is not None else None
-        snapshot = getattr(adapter, "status", None)  # relay adapter only; Socket Mode has none
+        adapter = (
+            self.gateway._adapters.get("slack") if self.gateway is not None else None
+        )
+        snapshot = getattr(
+            adapter, "status", None
+        )  # relay adapter only; Socket Mode has none
         if callable(snapshot):
             relay = snapshot()
             teams = relay.pop("teams", {})
@@ -1722,7 +1732,9 @@ class SessionManager:
             "teams": teams,
         }
 
-    async def disconnect_github_installation(self, installation_id: str) -> dict[str, Any]:
+    async def disconnect_github_installation(
+        self, installation_id: str
+    ) -> dict[str, Any]:
         """Stop relaying ONE GitHub installation: delete the cloud routing rows
         (best-effort), drop the local profile, hot-reload the gateway. The Slack
         per-workspace disconnect, GitHub flavour — a manual PAT stays untouched."""
@@ -1759,7 +1771,9 @@ class SessionManager:
         }
         installs: dict[str, Any] = {}
         missed: dict[str, Any] = {}
-        adapter = self.gateway._adapters.get("github") if self.gateway is not None else None
+        adapter = (
+            self.gateway._adapters.get("github") if self.gateway is not None else None
+        )
         snapshot = getattr(adapter, "status", None)
         if callable(snapshot):
             relay = snapshot()
@@ -1851,9 +1865,12 @@ class SessionManager:
             self.gateway = None
 
     # -- unauthorized inbound (parked, §19) --------------------------------------
-    def _note_person(self, platform: str, user_id: Optional[str], name: Optional[str]) -> None:
+    def _note_person(
+        self, platform: str, user_id: Optional[str], name: Optional[str]
+    ) -> None:
         """Remember a sender's display name (persisted) so ID-keyed surfaces — the allow-list
-        chips above all — can show who a U07JK… actually is. Best-effort, newest name wins."""
+        chips above all — can show who a U07JK… actually is. Best-effort, newest name wins.
+        """
         if not user_id or not name:
             return
         key = f"{platform}:{user_id}"
@@ -1886,7 +1903,8 @@ class SessionManager:
     ) -> dict[str, Any]:
         """Resolve one parked message: "dismiss" throws it away; "allow" adds the sender to the
         allow-list (future messages flow); "allow_deliver" also re-injects the parked message
-        through the NORMAL inbound path — buffer + subscriptions — as if it just arrived."""
+        through the NORMAL inbound path — buffer + subscriptions — as if it just arrived.
+        """
         item = self.parked.pop(item_id)
         if item is None or item.platform != name:
             return {"ok": False, "error": "unknown item"}
@@ -2006,7 +2024,8 @@ class SessionManager:
 
     def approval_outcome(self, resolution: str, request, session_id: str):
         """Map an approval resolution (from any surface) to an ApprovalOutcome, handling
-        the task-persistent "always_task" vocabulary alongside the session-scoped ones."""
+        the task-persistent "always_task" vocabulary alongside the session-scoped ones.
+        """
         from ..engine import ApprovalOutcome
 
         if resolution == "always_task":
@@ -2330,7 +2349,9 @@ class SessionManager:
                 if not self._inbound_connector_allowed(sub.session_id, src.platform):
                     continue
                 try:
-                    await self.deliver_to_session(sub.session_id, msg, source=ms.to_dict())
+                    await self.deliver_to_session(
+                        sub.session_id, msg, source=ms.to_dict()
+                    )
                 except Exception:
                     pass
             return
@@ -2370,7 +2391,9 @@ class SessionManager:
         self.mention_sessions.set(
             thread_target, sid, channel=f"{src.platform}:{src.chat_id}"
         )
-        engine.permissions.task_rules.setdefault("send_message", set()).add(thread_target)
+        engine.permissions.task_rules.setdefault("send_message", set()).add(
+            thread_target
+        )
         self.save(sid, engine)  # the sessions row must exist before rename/set_origin
         # Title = the ASK first, channel last (owner call 2026-07-14): the text is what
         # varies between sessions, so it gets the truncation budget; the mention token is

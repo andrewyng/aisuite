@@ -694,9 +694,7 @@ for _def in TOOL_DEFS:
 # always-available messaging tool `send_message` (its `target` is the reply handle
 # "platform:chat_id" — exactly the address a rule pins). This dict is the single source of
 # which tools can EVER carry a standing rule: exec/destructive tools must never appear here.
-TARGET_ARGS: dict[str, str] = {
-    d.name: d.target_arg for d in TOOL_DEFS if d.target_arg
-}
+TARGET_ARGS: dict[str, str] = {d.name: d.target_arg for d in TOOL_DEFS if d.target_arg}
 TARGET_ARGS["send_message"] = "target"
 
 

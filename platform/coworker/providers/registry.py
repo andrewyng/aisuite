@@ -128,7 +128,8 @@ def _openai_compat(vendor: str, default_base_url: str, env_key: Optional[str] = 
     Kimi, MiniMax, Qwen, xAI, Mistral). The key is resolved from the vendor's OWN profile (or its
     env var) — deliberately NOT from the OpenAI env/SecretStore fallback, so a configured OpenAI
     key is never silently sent to a different vendor's endpoint. Missing key ⇒ fail fast with a
-    vendor-named error (these are only built on demand, when one of their models is selected)."""
+    vendor-named error (these are only built on demand, when one of their models is selected).
+    """
 
     def build(profile: dict[str, Any], secrets: Any) -> ProviderClient:
         base_url = ((profile or {}).get("base_url") or "").strip() or default_base_url

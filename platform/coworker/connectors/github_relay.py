@@ -107,8 +107,12 @@ class GitHubRelayAdapter(BasePlatformAdapter):
         kind = frame.get("kind")
         if kind == "missed":
             repo = frame.get("channel", "")
-            self.missed[repo] = self.missed.get(repo, 0) + int(frame.get("count", 0) or 1)
-            logger.info("github relay: %s event(s) missed in %s", frame.get("count"), repo)
+            self.missed[repo] = self.missed.get(repo, 0) + int(
+                frame.get("count", 0) or 1
+            )
+            logger.info(
+                "github relay: %s event(s) missed in %s", frame.get("count"), repo
+            )
             return
         if kind == "revoked":
             self._installs.pop(str(frame.get("installation_id", "")), None)
@@ -191,6 +195,8 @@ class GitHubRelayAdapter(BasePlatformAdapter):
             self._note_token_health(installation_id, False)
             return SendResult(False, error="installation token rejected")
         if resp.status_code not in (200, 201):
-            return SendResult(False, error=f"github comment failed ({resp.status_code})")
+            return SendResult(
+                False, error=f"github comment failed ({resp.status_code})"
+            )
         self._note_token_health(installation_id, True)
         return SendResult(True, message_id=str((resp.json() or {}).get("id", "")))

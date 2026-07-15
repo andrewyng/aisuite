@@ -51,11 +51,13 @@ class UnroutedStore:
         )
 
     def record(self, source: str, sender: str, text: str, reason: str) -> UnroutedItem:
-        item = UnroutedItem(source=source or "?", sender=sender or "-", text=text or "", reason=reason)
+        item = UnroutedItem(
+            source=source or "?", sender=sender or "-", text=text or "", reason=reason
+        )
         with self._lock:
             self._items.append(item)
             if len(self._items) > self._cap:
-                self._items = self._items[-self._cap:]
+                self._items = self._items[-self._cap :]
             self._save()
         return item
 

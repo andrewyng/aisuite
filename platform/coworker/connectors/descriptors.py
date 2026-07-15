@@ -1034,7 +1034,9 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="api_token",
         two_way=False,
         fields=[
-            Field("api_key", "API key", secret=True, help="Project Settings → API Keys."),
+            Field(
+                "api_key", "API key", secret=True, help="Project Settings → API Keys."
+            ),
             Field("secret_key", "Secret key", secret=True),
         ],
         instructions=[
@@ -1053,7 +1055,9 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="api_token",
         two_way=False,
         fields=[
-            Field("api_key", "API key", secret=True, help="Settings → Integrations → API."),
+            Field(
+                "api_key", "API key", secret=True, help="Settings → Integrations → API."
+            ),
             Field(
                 "label",
                 "Account label",
@@ -1078,7 +1082,9 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="api_token",
         two_way=False,
         fields=[
-            Field("api_key", "API key", secret=True, help="hunter.io → API → API keys."),
+            Field(
+                "api_key", "API key", secret=True, help="hunter.io → API → API keys."
+            ),
         ],
         instructions=[
             "In Hunter, open API → API keys and copy your key.",

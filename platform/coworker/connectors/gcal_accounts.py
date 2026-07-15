@@ -53,7 +53,7 @@ def list_accounts(secrets: SecretStore) -> list[tuple[str, dict[str, Any]]]:
     for meta in secrets.status():
         key = meta.get("profile", "")
         if key.startswith(PREFIX):
-            out.append((key[len(PREFIX):], secrets.get(key) or {}))
+            out.append((key[len(PREFIX) :], secrets.get(key) or {}))
     return sorted(out, key=lambda t: t[0])
 
 

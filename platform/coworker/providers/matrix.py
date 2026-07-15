@@ -47,10 +47,18 @@ MATRIX: dict[str, ModelEntry] = {
     "gpt-5.5": ModelEntry("GPT-5.5 · OpenAI", _AGENTIC_VISION),
     # Fable 5 (2026-06-09) is GA; its Mythos 5 sibling is approved-orgs-only, so it
     # stays out of a picker meant for the public.
-    "anthropic:claude-fable-5": ModelEntry("Claude Fable 5 · Anthropic", _AGENTIC_VISION),
-    "anthropic:claude-opus-4-8": ModelEntry("Claude Opus 4.8 · Anthropic", _AGENTIC_VISION),
-    "anthropic:claude-sonnet-4-6": ModelEntry("Claude Sonnet 4.6 · Anthropic", _AGENTIC_VISION),
-    "anthropic:claude-haiku-4-5": ModelEntry("Claude Haiku 4.5 · Anthropic", _AGENTIC_VISION),
+    "anthropic:claude-fable-5": ModelEntry(
+        "Claude Fable 5 · Anthropic", _AGENTIC_VISION
+    ),
+    "anthropic:claude-opus-4-8": ModelEntry(
+        "Claude Opus 4.8 · Anthropic", _AGENTIC_VISION
+    ),
+    "anthropic:claude-sonnet-4-6": ModelEntry(
+        "Claude Sonnet 4.6 · Anthropic", _AGENTIC_VISION
+    ),
+    "anthropic:claude-haiku-4-5": ModelEntry(
+        "Claude Haiku 4.5 · Anthropic", _AGENTIC_VISION
+    ),
     "gemini:gemini-2.5-pro": ModelEntry("Gemini 2.5 Pro · Google", _AGENTIC_VISION),
     "gemini:gemini-2.5-flash": ModelEntry("Gemini 2.5 Flash · Google", _AGENTIC_VISION),
     # -- direct OpenAI-compatible vendors ----------------------------------------
@@ -65,12 +73,18 @@ MATRIX: dict[str, ModelEntry] = {
     # -- resellers (their model namespaces, verbatim) -----------------------------
     "together:zai-org/GLM-5.2": ModelEntry("GLM-5.2 · via Together"),
     "together:moonshotai/Kimi-K2.6": ModelEntry("Kimi K2.6 · via Together"),
-    "together:deepseek-ai/DeepSeek-V4-Pro": ModelEntry("DeepSeek V4 Pro · via Together"),
+    "together:deepseek-ai/DeepSeek-V4-Pro": ModelEntry(
+        "DeepSeek V4 Pro · via Together"
+    ),
     "together:meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": ModelEntry(
         "Llama 4 Maverick · via Together"
     ),
-    "fireworks:accounts/fireworks/models/glm-5p2": ModelEntry("GLM-5.2 · via Fireworks"),
-    "fireworks:accounts/fireworks/models/kimi-k2p6": ModelEntry("Kimi K2.6 · via Fireworks"),
+    "fireworks:accounts/fireworks/models/glm-5p2": ModelEntry(
+        "GLM-5.2 · via Fireworks"
+    ),
+    "fireworks:accounts/fireworks/models/kimi-k2p6": ModelEntry(
+        "Kimi K2.6 · via Fireworks"
+    ),
     "fireworks:accounts/fireworks/models/deepseek-v4-pro": ModelEntry(
         "DeepSeek V4 Pro · via Fireworks"
     ),

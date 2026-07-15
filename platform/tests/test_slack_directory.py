@@ -66,7 +66,9 @@ def test_members_filtered_ranked_and_guest_tagged(secrets, monkeypatch):
 
     out = slack_directory.list_members(secrets, "T1", query="ro")
     assert [m["id"] for m in out["members"]] == ["U2"]  # prefix beats substring
-    out = slack_directory.list_members(secrets, "T1", query="maya")  # handle matches too
+    out = slack_directory.list_members(
+        secrets, "T1", query="maya"
+    )  # handle matches too
     assert [m["id"] for m in out["members"]] == ["U1"]
 
 
@@ -86,7 +88,12 @@ def test_channels_carry_privacy_and_membership(secrets, monkeypatch):
         {
             "conversations.list": [
                 {"id": "C1", "name": "general", "is_private": False, "is_member": True},
-                {"id": "C2", "name": "launch-team", "is_private": False, "is_member": False},
+                {
+                    "id": "C2",
+                    "name": "launch-team",
+                    "is_private": False,
+                    "is_member": False,
+                },
                 {"id": "C3", "name": "leads", "is_private": True, "is_member": True},
             ]
         },

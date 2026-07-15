@@ -33,7 +33,10 @@ def _connect_slack(mgr):
     """Inbound delivery is gated on the connector being CONNECTED (§4.3). Tests used to pass
     by riding the developer's real Slack profile; with the isolated state dir (conftest) each
     test must connect its own."""
-    mgr.secrets.put("slack:default", {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True})
+    mgr.secrets.put(
+        "slack:default",
+        {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True},
+    )
 
 
 def test_dm_with_designated_session_delivers(tmp_path, monkeypatch):

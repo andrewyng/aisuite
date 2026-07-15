@@ -202,8 +202,14 @@ _FILE_SCHEMA = {
                     "type": "string",
                     "description": "The file to send — workspace-relative, or absolute within an allowed folder.",
                 },
-                "title": {"type": "string", "description": "Display title (defaults to the filename)."},
-                "comment": {"type": "string", "description": "Short message posted with the file."},
+                "title": {
+                    "type": "string",
+                    "description": "Display title (defaults to the filename).",
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Short message posted with the file.",
+                },
                 "as_screenshot": {
                     "type": "boolean",
                     "description": "HTML only: render the page headless and send a PNG preview instead of the raw file.",
@@ -296,7 +302,9 @@ def make_send_file_tool(
             return {"error": "no workspace folders available to read from"}
         resolved = _resolve_within(path, bases)
         if resolved is None or not resolved.is_file():
-            return {"error": "path is outside the folders this session can access (or missing)"}
+            return {
+                "error": "path is outside the folders this session can access (or missing)"
+            }
         token = _resolve_token(secrets, platform, chat_id)
         if not token:
             return {"error": f"no bot token for {platform} — connect it first"}
@@ -319,7 +327,12 @@ def make_send_file_tool(
             comment = sender_prefix(secrets, chat_id) + comment
         result = sender(token, chat_id, thread_id, filename, data, title, comment)
         if result.ok:
-            return {"ok": True, "file_id": result.message_id, "target": target, "filename": filename}
+            return {
+                "ok": True,
+                "file_id": result.message_id,
+                "target": target,
+                "filename": filename,
+            }
         return {"error": result.error or "file send failed"}
 
     send_file.__name__ = "send_file"

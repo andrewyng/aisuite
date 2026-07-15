@@ -92,9 +92,7 @@ def test_is_authorized_flat_path_unchanged():
 # -- load_settings ---------------------------------------------------------------
 def test_load_settings_populates_teams(tmp_path):
     secrets = SecretStore(tmp_path / "secrets.json")
-    secrets.put(
-        "slack:default", {"type": "oauth", "mode": "relay", "enabled": True}
-    )
+    secrets.put("slack:default", {"type": "oauth", "mode": "relay", "enabled": True})
     secrets.put(
         "slack:team:T1",
         {"bot_token": "xoxb-1", "allowed_users": ["U_A", "U_B"]},
@@ -180,7 +178,8 @@ async def test_resolve_teamless_parked_uses_flat_list(tmp_path):
     m._dispatch_inbound = _noop
     await m._park_unauthorized(
         MessageEvent(
-            text="hi", source=SessionSource("slack", "D1", user_id="U_M", chat_type="dm")
+            text="hi",
+            source=SessionSource("slack", "D1", user_id="U_M", chat_type="dm"),
         )
     )
     item = m.parked.list("slack")[0]
@@ -200,7 +199,8 @@ def test_rest_allow_with_team_and_workspaces_field(tmp_path):
     )
     assert r.json()["ok"] is True
     slack = next(
-        c for c in client.get("/v1/connectors").json()["connectors"]
+        c
+        for c in client.get("/v1/connectors").json()["connectors"]
         if c["name"] == "slack"
     )
     assert slack["connected"] is True and slack["mode"] == "relay"

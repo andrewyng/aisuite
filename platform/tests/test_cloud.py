@@ -87,7 +87,9 @@ def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
         assert url == "https://tenant.auth0.test/oauth/token"
         assert kwargs["data"]["code_verifier"]
         assert kwargs["data"]["redirect_uri"] == authorize_redirect
-        return FakeResponse(200, {"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600})
+        return FakeResponse(
+            200, {"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600}
+        )
 
     def fake_get(url, **kwargs):
         if url == "https://cloud.test/v1/me":
@@ -158,9 +160,16 @@ def test_sync_connections_restores_github_installs(secrets, config, monkeypatch)
     _signed_in(secrets)
     rows = [
         _github_connection_row(),
-        {"connector": "slack", "status": "connected", "tenant_metadata": {"team_id": "T1"}},
-        {"connector": "github", "status": "disconnected",
-         "tenant_metadata": {"installation_id": "999", "github_login": "octocat"}},
+        {
+            "connector": "slack",
+            "status": "connected",
+            "tenant_metadata": {"team_id": "T1"},
+        },
+        {
+            "connector": "github",
+            "status": "disconnected",
+            "tenant_metadata": {"installation_id": "999", "github_login": "octocat"},
+        },
     ]
     monkeypatch.setattr(
         cloud.httpx, "get", lambda url, **k: FakeResponse(200, {"connections": rows})
@@ -178,7 +187,9 @@ def test_sync_connections_restores_github_installs(secrets, config, monkeypatch)
     assert default["mode"] == "relay" and default["default_install"] == "101"
 
 
-def test_sync_connections_pre_restore_rows_fall_back_to_primary(secrets, config, monkeypatch):
+def test_sync_connections_pre_restore_rows_fall_back_to_primary(
+    secrets, config, monkeypatch
+):
     """Rows written before the broker stored the installations list carry only
     the primary install in tenant_metadata — restore that one."""
     _signed_in(secrets)
@@ -192,7 +203,9 @@ def test_sync_connections_pre_restore_rows_fall_back_to_primary(secrets, config,
     assert secrets.get("github:install:101")["account_login"] == "acme"
 
 
-def test_sync_connections_requires_sign_in_and_survives_errors(secrets, config, monkeypatch):
+def test_sync_connections_requires_sign_in_and_survives_errors(
+    secrets, config, monkeypatch
+):
     assert not cloud.sync_connections(secrets, config)["ok"]  # signed out
     _signed_in(secrets)
     monkeypatch.setattr(cloud.httpx, "get", lambda url, **k: FakeResponse(503, {}))
@@ -357,10 +370,17 @@ def test_emit_sends_nothing_signed_out(secrets, config, monkeypatch):
         raise AssertionError("signed-out users must send no telemetry")
 
     monkeypatch.setattr(cloud.httpx, "post", boom)
-    assert cloud.emit_session_created(
-        secrets, config, session_id="s1", persona_id="sales",
-        persona_family="knowledge", workspace_kind="deliverable",
-    ) is False
+    assert (
+        cloud.emit_session_created(
+            secrets,
+            config,
+            session_id="s1",
+            persona_id="sales",
+            persona_family="knowledge",
+            workspace_kind="deliverable",
+        )
+        is False
+    )
 
 
 def test_emit_sends_nothing_when_opted_out(secrets, config, monkeypatch):
@@ -370,8 +390,12 @@ def test_emit_sends_nothing_when_opted_out(secrets, config, monkeypatch):
         cloud.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError())
     )
     assert not cloud.emit_session_created(
-        secrets, config, session_id="s1", persona_id="sales",
-        persona_family="knowledge", workspace_kind="deliverable",
+        secrets,
+        config,
+        session_id="s1",
+        persona_id="sales",
+        persona_family="knowledge",
+        workspace_kind="deliverable",
     )
 
 
@@ -386,8 +410,12 @@ def test_emit_is_content_free_and_hashes_session_id(secrets, config, monkeypatch
 
     monkeypatch.setattr(cloud.httpx, "post", fake_post)
     ok = cloud.emit_session_created(
-        secrets, config, session_id="sess-secret-id", persona_id="sales",
-        persona_family="knowledge", workspace_kind="deliverable",
+        secrets,
+        config,
+        session_id="sess-secret-id",
+        persona_id="sales",
+        persona_family="knowledge",
+        workspace_kind="deliverable",
     )
     assert ok
     assert sent["url"] == "https://cloud.test/v1/telemetry/events"
@@ -397,7 +425,10 @@ def test_emit_is_content_free_and_hashes_session_id(secrets, config, monkeypatch
     assert "sess-secret-id" not in str(body)  # raw id never leaves the device
     assert body["session"]["session_id_hash"].startswith("sha256:")
     assert set(body["session"]) == {
-        "session_id_hash", "persona_id", "persona_family", "workspace_kind",
+        "session_id_hash",
+        "persona_id",
+        "persona_family",
+        "workspace_kind",
     }
 
 
@@ -421,8 +452,16 @@ You are the Sales Coworker."""
 
     def fake_get(s, c, path):
         if path.endswith("/manifest"):
-            return {"slug": "sales", "manifest_markdown": manifest_md, "manifest_hash": ""}
-        return {"slug": "sales", "name": "Sales Coworker", "pitch_markdown": "**pitch**"}
+            return {
+                "slug": "sales",
+                "manifest_markdown": manifest_md,
+                "manifest_hash": "",
+            }
+        return {
+            "slug": "sales",
+            "name": "Sales Coworker",
+            "pitch_markdown": "**pitch**",
+        }
 
     monkeypatch.setattr(cloud, "_gallery_get", fake_get)
     out = cloud.gallery_detail(secrets, config, "sales")

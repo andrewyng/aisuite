@@ -48,7 +48,12 @@ def _tool(secrets, name: str):
 def test_legacy_private_app_default_migrates_to_one_portal(secrets):
     secrets.put(
         "hubspot:default",
-        {"type": "token", "enabled": True, "token": "pat-x", "account": "portal 424242"},
+        {
+            "type": "token",
+            "enabled": True,
+            "token": "pat-x",
+            "account": "portal 424242",
+        },
     )
     portals = hubspot_portals.list_portals(secrets)
     assert [h for h, _ in portals] == ["424242"]
@@ -60,7 +65,8 @@ def test_legacy_private_app_default_migrates_to_one_portal(secrets):
 def test_managed_portals_list_with_access_and_sandbox(secrets):
     hubspot_portals.managed_connect_portal(secrets, _portal("111", sandbox=True))
     hubspot_portals.managed_connect_portal(
-        secrets, _portal("222", scope="crm.objects.contacts.read crm.objects.deals.write")
+        secrets,
+        _portal("222", scope="crm.objects.contacts.read crm.objects.deals.write"),
     )
     listed = {c["name"]: c for c in connector_list(secrets)}
     hs = listed["hubspot"]
@@ -107,7 +113,9 @@ def _fake_hubspot(monkeypatch, responses: dict[str, dict]):
 def test_tools_pick_the_requested_portal_by_id_or_name(secrets, monkeypatch):
     hubspot_portals.managed_connect_portal(secrets, _portal("111"))
     hubspot_portals.managed_connect_portal(secrets, _portal("222"))
-    calls = _fake_hubspot(monkeypatch, {"/search": {"ok": True, "data": {"results": []}}})
+    calls = _fake_hubspot(
+        monkeypatch, {"/search": {"ok": True, "data": {"results": []}}}
+    )
     search = _tool(secrets, "hubspot_search")
 
     out = search("acme")  # default portal
@@ -117,7 +125,9 @@ def test_tools_pick_the_requested_portal_by_id_or_name(secrets, monkeypatch):
     out = search("acme", portal="acme-222")  # by name too
     assert out["portal"] == "acme-222"
     assert [t for _, t, _ in calls] == [
-        "Bearer tok-111", "Bearer tok-222", "Bearer tok-222",
+        "Bearer tok-111",
+        "Bearer tok-222",
+        "Bearer tok-222",
     ]
     out = search("acme", portal="999")
     assert "no hubspot portal" in out["error"]
@@ -159,7 +169,9 @@ def test_no_delete_tool_exists(secrets):
     assert not any("delete" in n for n in names if n.startswith("hubspot"))
     # the write surface is exactly: create contact, update, note, task
     assert {
-        "hubspot_update_object", "hubspot_log_note", "hubspot_create_task",
+        "hubspot_update_object",
+        "hubspot_log_note",
+        "hubspot_create_task",
         "hubspot_create_contact",
     } <= names
 
@@ -211,8 +223,12 @@ def test_managed_callback_lands_in_portal_profile(client):
     listed = {c["name"]: c for c in client.manager.list_connectors()}
     row = listed["hubspot"]["portals"][0]
     assert row == {
-        "hub_id": "424242", "name": "Acme Inc", "sandbox": True,
-        "default": True, "managed": True, "access": "read",
+        "hub_id": "424242",
+        "name": "Acme Inc",
+        "sandbox": True,
+        "default": True,
+        "managed": True,
+        "access": "read",
     }
 
 
@@ -228,6 +244,7 @@ def test_portal_routes_default_and_disconnect(client, monkeypatch):
     assert r["ok"] and r["remaining_portals"] == 1
 
     r = client.patch(
-        "/v1/connectors/hubspot/hidden-fields", json={"hidden_fields": ["Salary", "ssn "]}
+        "/v1/connectors/hubspot/hidden-fields",
+        json={"hidden_fields": ["Salary", "ssn "]},
     ).json()
     assert r["hidden_fields"] == ["salary", "ssn"]  # normalized

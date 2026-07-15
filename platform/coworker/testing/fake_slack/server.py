@@ -172,7 +172,9 @@ class FakeSlack:
         """Total Socket Mode connects so far — a reconnect bumps this."""
         return self._socket_connections
 
-    async def wait_socket_connections(self, at_least: int, timeout: float = 5.0) -> None:
+    async def wait_socket_connections(
+        self, at_least: int, timeout: float = 5.0
+    ) -> None:
         """Block until the client has connected `at_least` times (used to await a reconnect)."""
         deadline = asyncio.get_event_loop().time() + timeout
         while self._socket_connections < at_least:
@@ -184,7 +186,8 @@ class FakeSlack:
 
     async def close_sockets(self) -> None:
         """Drop every live Socket Mode connection from the server side — simulates Slack cycling
-        the connection so a reconnect (slack_sdk's or our watchdog's) has to re-establish it."""
+        the connection so a reconnect (slack_sdk's or our watchdog's) has to re-establish it.
+        """
         for ws in list(self._sockets):
             try:
                 await ws.close()

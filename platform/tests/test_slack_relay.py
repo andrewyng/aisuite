@@ -17,6 +17,7 @@ from coworker.connectors.slack_addr import qualify, split
 from coworker.connectors.tools import make_send_message_tool
 from coworker.secrets import SecretStore
 
+
 @pytest.fixture(autouse=True)
 def _no_slack_network(monkeypatch):
     """Name/channel resolution is best-effort; unstubbed lookups must fail
@@ -72,7 +73,13 @@ def _event_frame(team, channel, user, text="hi", ts="1.0"):
         "address": f"slack:{team}:{channel}",
         "channel": channel,
         "event_id": f"Ev-{ts}",
-        "event": {"type": "app_mention", "user": user, "channel": channel, "text": text, "ts": ts},
+        "event": {
+            "type": "app_mention",
+            "user": user,
+            "channel": channel,
+            "text": text,
+            "ts": ts,
+        },
     }
 
 
@@ -169,7 +176,10 @@ async def test_relay_name_cache_is_per_workspace(monkeypatch):
 
     async def fake_get(team_id, method, params):
         calls.append((team_id, params.get("user")))
-        return {"ok": True, "user": {"profile": {"display_name": f"{team_id}:{params['user']}"}}}
+        return {
+            "ok": True,
+            "user": {"profile": {"display_name": f"{team_id}:{params['user']}"}},
+        }
 
     monkeypatch.setattr(adapter, "_slack_get", fake_get)
     # Same uid string in two workspaces resolves independently + caches per team.
@@ -181,7 +191,10 @@ async def test_relay_name_cache_is_per_workspace(monkeypatch):
 
 async def test_relay_two_workspace_fan_in():
     adapter = _adapter(
-        [_event_frame("T1", "C1", "U_A", ts="1"), _event_frame("T2", "C2", "U_B", ts="2")]
+        [
+            _event_frame("T1", "C1", "U_A", ts="1"),
+            _event_frame("T2", "C2", "U_B", ts="2"),
+        ]
     )
     events: list[MessageEvent] = []
 

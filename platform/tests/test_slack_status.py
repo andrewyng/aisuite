@@ -50,7 +50,9 @@ async def _noop_stop():
 
 def _gateway_with(adapter) -> SimpleNamespace:
     # `stop` because app shutdown tears the gateway down.
-    return SimpleNamespace(_adapters={"slack": adapter} if adapter else {}, stop=_noop_stop)
+    return SimpleNamespace(
+        _adapters={"slack": adapter} if adapter else {}, stop=_noop_stop
+    )
 
 
 # --- endpoint aggregation ----------------------------------------------------
@@ -139,7 +141,14 @@ async def test_adapter_stamps_last_event_and_reports_live():
         assert adapter.status()["state"] == "live"
         assert adapter.status()["last_event_at"] is None
         await adapter._dispatch_slack_event(
-            "T1", {"type": "app_mention", "user": "U1", "channel": "C1", "text": "x", "ts": "1"}
+            "T1",
+            {
+                "type": "app_mention",
+                "user": "U1",
+                "channel": "C1",
+                "text": "x",
+                "ts": "1",
+            },
         )
         assert adapter.status()["last_event_at"] is not None
     finally:
