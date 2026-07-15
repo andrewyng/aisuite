@@ -29,6 +29,9 @@
 # `.ocw-notary.env` one directory ABOVE the repo (shared by every clone/worktree on a machine,
 # never committed). Vars missing → the DMG is still produced, with a loud warning.
 #
+# LOCAL ITERATION: leave APPLE_SIGNING_IDENTITY unset for a fully unsigned dev build, or set
+# OCW_SKIP_NOTARIZE=1 to sign but skip the slow notary round-trip. Neither is distributable.
+#
 # Experimental (use-at-your-own-risk) connectors are EXCLUDED from this build by default —
 # the spec strips coworker.connectors.experimental. Self-builders can opt in with:
 #   COWORKER_EXPERIMENTAL=1 ./build_dmg.sh
@@ -135,7 +138,13 @@ if ! style_dmg; then
 fi
 rm -rf "$STAGING"
 
-if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+if [ "${OCW_SKIP_NOTARIZE:-}" = "1" ] && [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+  # Local-iteration escape hatch: sign (seconds) but skip the notary round-trip
+  # (minutes). Locally built DMGs carry no quarantine flag, so Gatekeeper never
+  # prompts on this machine anyway. NEVER distribute a build made this way.
+  echo "==> [5/5] OCW_SKIP_NOTARIZE=1 — signing container, SKIPPING notarize/staple (do not distribute)"
+  codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG"
+elif [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
   echo "==> [5/5] release finishing: sign container → notarize → staple"
   codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG"
 
