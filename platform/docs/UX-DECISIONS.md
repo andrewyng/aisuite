@@ -898,8 +898,9 @@ therefore has an explicit setup home and a visible readiness contract before it 
   Download / Cancel / Repair / Delete / Test again. The composer never downloads a model.
 - **Honest state machine:** `unsupported → not installed → downloading → verifying → ready`, with
   `needs microphone permission`, `test required`, and `error` as actionable substates. Download
-  progress shows transferred/total bytes; completion verifies the expected size + SHA-1 before the
-  partial file is promoted. A failed/interrupted download stays non-ready and can resume or restart.
+  progress shows transferred/total bytes; completion verifies the expected size + SHA-256 before
+  the partial file is promoted. A failed/interrupted download stays non-ready and can be restarted
+  (transfers begin from zero; a resumable Range request is a possible later refinement).
 - **Test before enablement:** after installation, Settings asks the user to record one short phrase,
   displays the local transcript, and marks Voice input Ready only after a successful non-empty test.
   The test is also where macOS/Windows microphone consent is requested. Readiness is invalidated if

@@ -369,15 +369,25 @@ fn get_dictation_status(state: tauri::State<Arc<Dictation>>) -> VoiceInputStatus
 }
 
 #[tauri::command]
-fn start_dictation(state: tauri::State<Arc<Dictation>>) -> Result<VoiceInputStatus, String> {
+async fn start_dictation(
+    state: tauri::State<'_, Arc<Dictation>>,
+) -> Result<VoiceInputStatus, String> {
+    // Off the main thread: opening the input device blocks on macOS's one-time microphone
+    // permission dialog (and CoreAudio device setup) — a sync command would freeze the UI
+    // behind the system prompt.
     let (supported, _, reason) = voice_input_compatibility();
     if !supported {
         return Err(
             reason.unwrap_or_else(|| "Voice Input is not supported on this device.".to_owned())
         );
     }
-    state.start()?;
-    Ok(voice_input_status(&state))
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        dictation.start()?;
+        Ok::<VoiceInputStatus, String>(voice_input_status(&dictation))
+    })
+    .await
+    .map_err(|e| format!("Dictation failed to start: {e}"))?
 }
 
 #[tauri::command]
