@@ -1,9 +1,9 @@
-"""MyHelper — the always-on personal helper (the super-agent's agent).
+"""MyHelper — a personal-helper agent persona.
 
-Shares Cowork's workspace toolset but has its own personality + prompt: a *persistent*
-personal assistant on one continuous thread, reachable from the GUI and over messaging, with
-long-term memory. The messaging mechanics (how replies go out) are appended at build time
-(`SUPERAGENT_MESSAGING_NOTE`). The name is personal — `name=` lets the user rename it later.
+Shares Cowork's workspace toolset but has its own personality + prompt: a personal assistant
+with long-term memory, reachable in the app and over messaging. Retained as a resolvable persona
+(persisted sessions may reference it); the legacy always-on super-agent surface has been retired
+in favour of durable sessions + DM routing. The name is personal — `name=` lets the user rename it.
 """
 
 from __future__ import annotations
@@ -34,4 +34,6 @@ def myhelper_agent(name: str = DEFAULT_HELPER_NAME) -> Agent:
         system_prompt=myhelper_instructions(name),
         needs_workspace=True,
         tool_factory=cowork_tool_factory,
+        family="knowledge",
+        messaging=True,
     )

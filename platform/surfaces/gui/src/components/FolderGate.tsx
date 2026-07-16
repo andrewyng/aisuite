@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { getRecentWorkspaces, openWorkspace, type RecentWorkspace } from "../api";
-import { isTauri, pickFolder } from "../tauri";
+import { chooseFolder } from "../tauri";
 
+// The mandatory workspace picker for project-scoped personas. Deliberately no
+// "switch persona" escape hatch: if a persona needs a folder, the choice here is
+// pick one or cancel — offering Chat as an exit undermined the persona the user
+// just chose (owner call, 2026-07-03).
 interface Props {
   onChoose: (path: string, branch?: string | null) => void;
   onCancel?: () => void; // present when changing folder mid-session
-  onChat?: () => void; // escape to the Chat agent (no folder needed)
   create?: boolean; // "New project" mode: create the folder if missing
 }
 
-export function FolderGate({ onChoose, onCancel, onChat, create }: Props) {
+export function FolderGate({ onChoose, onCancel, create }: Props) {
   const [recents, setRecents] = useState<RecentWorkspace[]>([]);
   const [path, setPath] = useState("");
   const [error, setError] = useState("");
@@ -26,7 +29,7 @@ export function FolderGate({ onChoose, onCancel, onChat, create }: Props) {
   };
 
   const browse = async () => {
-    const picked = await pickFolder();
+    const picked = await chooseFolder();
     if (picked) {
       setPath(picked);
       open(picked, create); // a picked folder already exists; create flag is harmless
@@ -36,12 +39,12 @@ export function FolderGate({ onChoose, onCancel, onChat, create }: Props) {
   return (
     <div className="gate-overlay">
       <div className="gate">
-        <div className="gate-mark">✳</div>
+        <div className="gate-mark">✦</div>
         <h2>{create ? "New project" : "Choose a project folder"}</h2>
         <p className="gate-sub">
           {create
             ? "Pick a folder or enter a path. If the path doesn't exist, it will be created."
-            : "Code needs a workspace to read, edit, and run in."}
+            : "This coworker needs a workspace to read, edit, and run in."}
         </p>
 
         <div className="gate-input">
@@ -52,11 +55,9 @@ export function FolderGate({ onChoose, onCancel, onChat, create }: Props) {
             onKeyDown={(e) => e.key === "Enter" && open(path, create)}
             autoFocus
           />
-          {isTauri() && (
-            <button className="btn" onClick={browse} title="Pick a folder">
-              Browse…
-            </button>
-          )}
+          <button className="btn" onClick={browse} title="Pick a folder">
+            Browse…
+          </button>
           <button className="btn primary" onClick={() => open(path, create)} disabled={!path.trim()}>
             {create ? "Create" : "Open"}
           </button>
@@ -77,18 +78,13 @@ export function FolderGate({ onChoose, onCancel, onChat, create }: Props) {
           </>
         )}
 
-        <div className="gate-foot">
-          {onChat && (
-            <span className="gate-link" onClick={onChat}>
-              Start a Chat session instead →
-            </span>
-          )}
-          {onCancel && (
+        {onCancel && (
+          <div className="gate-foot">
             <button className="btn gate-cancel" onClick={onCancel}>
               Cancel
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

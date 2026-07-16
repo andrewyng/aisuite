@@ -14,6 +14,7 @@ Today: `openai` (the default, with an optional custom endpoint that covers Azure
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -35,6 +36,9 @@ class ProviderField:
     required: bool = True
     help: str = ""
     placeholder: str = ""
+    # Pre-filled (still editable) form value — e.g. an OpenAI-compatible vendor's official
+    # endpoint, so the user only has to paste a key. Distinct from `placeholder` (grey hint).
+    default: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,6 +48,7 @@ class ProviderField:
             "required": self.required,
             "help": self.help,
             "placeholder": self.placeholder,
+            "default": self.default,
         }
 
 
@@ -62,6 +67,8 @@ class ProviderDescriptor:
     env_key: Optional[str] = (
         None  # env var that can supply the API key (e.g. ANTHROPIC_API_KEY)
     )
+    # One-line note under the provider title (e.g. "Connects through X's OpenAI-compatible API").
+    blurb: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,6 +77,7 @@ class ProviderDescriptor:
             "needs_key": self.needs_key,
             "fields": [f.to_dict() for f in self.fields],
             "recommended_model": self.recommended_model,
+            "blurb": self.blurb,
         }
 
 
@@ -115,6 +123,66 @@ def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     return OpenAIProvider(api_key="ollama", base_url=base_url)
 
 
+def _openai_compat(vendor: str, default_base_url: str, env_key: Optional[str] = None):
+    """Builder factory for vendors reached through their OpenAI-compatible API (Z AI, DeepSeek,
+    Kimi, MiniMax, Qwen, xAI, Mistral). The key is resolved from the vendor's OWN profile (or its
+    env var) — deliberately NOT from the OpenAI env/SecretStore fallback, so a configured OpenAI
+    key is never silently sent to a different vendor's endpoint. Missing key ⇒ fail fast with a
+    vendor-named error (these are only built on demand, when one of their models is selected).
+    """
+
+    def build(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+        base_url = ((profile or {}).get("base_url") or "").strip() or default_base_url
+        api_key = ((profile or {}).get("api_key") or "").strip() or (
+            os.environ.get(env_key, "").strip() if env_key else ""
+        )
+        if not api_key:
+            raise RuntimeError(
+                f"No {vendor} API key configured — add it in Settings ▸ Models."
+            )
+        return OpenAIProvider(api_key=api_key, base_url=base_url)
+
+    return build
+
+
+def _compat(
+    name: str,
+    title: str,
+    *,
+    base_url: str,
+    recommended_model: str,
+    env_key: str,
+    endpoint_help: str = "",
+) -> ProviderDescriptor:
+    """Descriptor for an OpenAI-compatible vendor: key + a prefilled, editable endpoint."""
+    vendor = title.split(" (")[0]
+    return ProviderDescriptor(
+        name=name,
+        title=title,
+        needs_key=True,
+        fields=[
+            ProviderField(
+                "api_key",
+                f"{vendor} API key",
+                secret=True,
+            ),
+            ProviderField(
+                "base_url",
+                "Endpoint",
+                required=False,
+                default=base_url,
+                placeholder=base_url,
+                help=endpoint_help
+                or f"Prefilled with {vendor}'s official endpoint; edit only for a regional or proxy variant.",
+            ),
+        ],
+        build=_openai_compat(vendor, base_url, env_key),
+        recommended_model=recommended_model,
+        env_key=env_key,
+        blurb=f"Uses {vendor}'s OpenAI-compatible API — the endpoint is prefilled, just add your key.",
+    )
+
+
 DESCRIPTORS: list[ProviderDescriptor] = [
     ProviderDescriptor(
         name="openai",
@@ -126,7 +194,6 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 "OpenAI API key",
                 secret=True,
                 placeholder="sk-…",
-                help="Stored locally (0600). Never sent to the model.",
             ),
             ProviderField(
                 "base_url",
@@ -138,7 +205,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
             ),
         ],
         build=_build_openai,
-        recommended_model="gpt-5.5",
+        recommended_model="gpt-5.6-sol",
         env_key="OPENAI_API_KEY",
     ),
     ProviderDescriptor(
@@ -151,11 +218,10 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 "Anthropic API key",
                 secret=True,
                 placeholder="sk-ant-…",
-                help="Stored locally (0600). Never sent to the model.",
             ),
         ],
         build=_build_anthropic,
-        recommended_model="claude-sonnet-4-6",
+        recommended_model="claude-fable-5",
         env_key="ANTHROPIC_API_KEY",
     ),
     ProviderDescriptor(
@@ -168,12 +234,84 @@ DESCRIPTORS: list[ProviderDescriptor] = [
                 "Gemini API key",
                 secret=True,
                 placeholder="AIza…",
-                help="Stored locally (0600). Never sent to the model.",
             ),
         ],
         build=_build_gemini,
         recommended_model="gemini-2.5-flash",
         env_key="GEMINI_API_KEY",
+    ),
+    # OpenAI-compatible vendors, listed as first-class providers so users don't need to know the
+    # "point the OpenAI slot at a different endpoint" trick (owner call, 2026-07-04). Each keeps
+    # its own key profile; the endpoint is prefilled and editable (regional variants in `help`).
+    _compat(
+        "zai",
+        "Z AI (GLM)",
+        base_url="https://api.z.ai/api/paas/v4",
+        recommended_model="glm-5.2",
+        env_key="ZAI_API_KEY",
+        endpoint_help="Prefilled with Z AI's international endpoint. China mainland: https://open.bigmodel.cn/api/paas/v4",
+    ),
+    _compat(
+        "deepseek",
+        "DeepSeek",
+        base_url="https://api.deepseek.com",
+        recommended_model="deepseek-v4-flash",
+        env_key="DEEPSEEK_API_KEY",
+    ),
+    _compat(
+        "kimi",
+        "Kimi (Moonshot AI)",
+        base_url="https://api.moonshot.ai/v1",
+        recommended_model="kimi-k2.6",
+        env_key="MOONSHOT_API_KEY",
+        endpoint_help="Prefilled with Moonshot's international endpoint. China mainland: https://api.moonshot.cn/v1",
+    ),
+    _compat(
+        "minimax",
+        "MiniMax",
+        base_url="https://api.minimax.io/v1",
+        recommended_model="MiniMax-M2.5",
+        env_key="MINIMAX_API_KEY",
+    ),
+    _compat(
+        "qwen",
+        "Qwen (Alibaba)",
+        base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        recommended_model="qwen3-max",
+        env_key="DASHSCOPE_API_KEY",
+        endpoint_help="Prefilled with Alibaba Model Studio's international endpoint. China (Beijing): https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ),
+    _compat(
+        "xai",
+        "xAI (Grok)",
+        base_url="https://api.x.ai/v1",
+        recommended_model="grok-4.3",
+        env_key="XAI_API_KEY",
+    ),
+    _compat(
+        "mistral",
+        "Mistral",
+        base_url="https://api.mistral.ai/v1",
+        recommended_model="mistral-large-latest",
+        env_key="MISTRAL_API_KEY",
+    ),
+    # Resellers: many labs' models behind one key, using THEIR model namespaces (the curated
+    # ids + display labels live in providers/matrix.py). TODO: add Groq and OpenRouter here
+    # (+ their matrix rows) once the current provider surface is tested — deliberately
+    # deferred to bound how much needs verifying at once (owner call, 2026-07-04).
+    _compat(
+        "together",
+        "Together AI",
+        base_url="https://api.together.xyz/v1",
+        recommended_model="zai-org/GLM-5.2",
+        env_key="TOGETHER_API_KEY",
+    ),
+    _compat(
+        "fireworks",
+        "Fireworks AI",
+        base_url="https://api.fireworks.ai/inference/v1",
+        recommended_model="accounts/fireworks/models/glm-5p2",
+        env_key="FIREWORKS_API_KEY",
     ),
     ProviderDescriptor(
         name="ollama",
@@ -217,3 +355,84 @@ def build_provider_client(
     """Build a `ProviderClient` for `name` from its stored profile. Unknown → OpenAI default."""
     descriptor = _BY_NAME.get(name) or _BY_NAME["openai"]
     return descriptor.build(profile or {}, secrets)
+
+
+def detect_provider(api_key: str) -> Optional[str]:
+    """Best-effort provider guess from an API key's shape, for the onboarding auto-detect.
+    Returns a known provider name or None. Mirrors the GUI's client-side detection so both agree.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    if key.startswith("sk-ant-"):
+        return "anthropic"
+    if key.startswith("AIza"):
+        return "gemini"
+    if key.startswith(("sk-", "sk_")):
+        return "openai"
+    return None
+
+
+def verify_provider_key(
+    name: str,
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    timeout: float = 10.0,
+) -> dict[str, Any]:
+    """Validate a provider's credentials with one cheap, read-only call (list models) — the same
+    pattern connectors use to validate tokens. Transient: callers pass the key directly so a user
+    can Test before saving. Never raises; returns {ok, error?}.
+    """
+    import httpx
+
+    d = _BY_NAME.get(name) or _BY_NAME["openai"]
+    key = (api_key or "").strip()
+    try:
+        if name == "anthropic":
+            resp = httpx.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                timeout=timeout,
+            )
+        elif name == "gemini":
+            resp = httpx.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": key},
+                timeout=timeout,
+            )
+        elif name == "ollama":
+            base = _normalize_ollama_url(base_url)
+            resp = httpx.get(base.rstrip("/") + "/models", timeout=timeout)
+        else:  # openai + any OpenAI-compatible endpoint (Azure, OpenRouter, vendors, vLLM…)
+            default_base = next(
+                (f.default for f in d.fields if f.key == "base_url" and f.default), ""
+            )
+            base = (
+                (base_url or "").strip().rstrip("/")
+                or default_base.rstrip("/")
+                or "https://api.openai.com/v1"
+            )
+            resp = httpx.get(
+                base + "/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=timeout,
+            )
+    except Exception as exc:  # DNS/connection/timeout — never let it bubble to a 500
+        return {
+            "ok": False,
+            "error": f"Couldn't reach {d.title} ({exc.__class__.__name__}).",
+        }
+
+    if resp.status_code < 300:
+        return {"ok": True}
+    if resp.status_code in (401, 403):
+        if name == "ollama":
+            return {"ok": False, "error": "Server rejected the request."}
+        return {"ok": False, "error": "Invalid API key."}
+    if resp.status_code == 404 and name == "ollama":
+        return {
+            "ok": False,
+            "error": "Reached the server, but no OpenAI-compatible /v1 API there.",
+        }
+    return {"ok": False, "error": f"{d.title} returned HTTP {resp.status_code}."}

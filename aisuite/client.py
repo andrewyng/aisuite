@@ -23,7 +23,7 @@ except ImportError:
 class Client:
     def __init__(
         self,
-        provider_configs: dict = {},
+        provider_configs: Optional[dict] = None,
         extra_param_mode: Literal["strict", "warn", "permissive"] = "warn",
     ):
         """
@@ -49,18 +49,28 @@ class Client:
                 - "permissive": Allow all params without validation (testing)
         """
         self.providers = {}
-        self.provider_configs = provider_configs
+        self.provider_configs = self._copy_provider_configs(provider_configs)
         self.extra_param_mode = extra_param_mode
         self.param_validator = ParamValidator(extra_param_mode)
         self._chat = None
         self._audio = None
+
+    @staticmethod
+    def _copy_provider_configs(provider_configs: Optional[dict]) -> dict:
+        if provider_configs is None:
+            return {}
+
+        return {
+            provider_key: dict(config)
+            for provider_key, config in provider_configs.items()
+        }
 
     def _initialize_providers(self):
         """Helper method to initialize or update providers."""
         for provider_key, config in self.provider_configs.items():
             provider_key = self._validate_provider_key(provider_key)
             self.providers[provider_key] = ProviderFactory.create_provider(
-                provider_key, config
+                provider_key, dict(config)
             )
 
     def _validate_provider_key(self, provider_key):
@@ -84,7 +94,7 @@ class Client:
         if provider_configs is None:
             return
 
-        self.provider_configs.update(provider_configs)
+        self.provider_configs.update(self._copy_provider_configs(provider_configs))
         # Providers will be lazily initialized when needed
 
     @property
@@ -234,6 +244,65 @@ class Completions:
 
         return response
 
+    def _init_tool_runner(self, tools, kwargs):
+        """Validate/convert tools and set OpenAI-format specs on kwargs."""
+        if isinstance(tools, Tools):
+            tools_instance = tools
+        else:
+            if not all(callable(tool) for tool in tools):
+                raise ValueError("One or more tools is not callable")
+            tools_instance = Tools(tools)
+        kwargs["tools"] = tools_instance.tools()
+        return tools_instance
+
+    def _emit_model_send(self, messages, model_identifier):
+        self._emit_model_event(
+            "model.send",
+            normalize_model_input(messages, model=model_identifier),
+        )
+
+    def _emit_model_error(self, exc, model_identifier):
+        self._emit_model_event(
+            "model.error",
+            {
+                "model": model_identifier,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+
+    def _handle_model_response(self, response, model_identifier):
+        response = self._extract_thinking_content(response)
+        self._emit_model_event(
+            "model.response",
+            normalize_model_response(response, model=model_identifier),
+        )
+        return response
+
+    @staticmethod
+    def _response_tool_calls(response):
+        return (
+            getattr(response.choices[0].message, "tool_calls", None)
+            if hasattr(response, "choices")
+            else None
+        )
+
+    def _finalize_runner_response(
+        self,
+        response,
+        intermediate_responses,
+        intermediate_messages,
+        tool_policy_events,
+        tool_events,
+    ):
+        # Exclude the final response from the intermediate list.
+        response.intermediate_responses = intermediate_responses[:-1]
+        response.choices[0].intermediate_messages = intermediate_messages
+        response.tool_policy_events = tool_policy_events
+        response.tool_events = tool_events
+        response.tool_events_emitted = self._active_trace_context() is not None
+        return response
+
     def _tool_runner(
         self,
         provider,
@@ -260,16 +329,7 @@ class Completions:
         Returns:
             The final response from the model with intermediate responses and messages
         """
-        # Handle tools validation and conversion
-        if isinstance(tools, Tools):
-            tools_instance = tools
-            kwargs["tools"] = tools_instance.tools()
-        else:
-            # Check if passed tools are callable
-            if not all(callable(tool) for tool in tools):
-                raise ValueError("One or more tools is not callable")
-            tools_instance = Tools(tools)
-            kwargs["tools"] = tools_instance.tools()
+        tools_instance = self._init_tool_runner(tools, kwargs)
 
         turns = 0
         intermediate_responses = []  # Store intermediate responses
@@ -278,56 +338,29 @@ class Completions:
         tool_events = []
 
         while turns < max_turns:
-            # Make the API call
-            self._emit_model_event(
-                "model.send",
-                normalize_model_input(messages, model=model_identifier),
-            )
+            self._emit_model_send(messages, model_identifier)
             try:
                 response = provider.chat_completions_create(
                     model_name, messages, **kwargs
                 )
             except Exception as exc:
-                self._emit_model_event(
-                    "model.error",
-                    {
-                        "model": model_identifier,
-                        "error": str(exc),
-                        "error_type": type(exc).__name__,
-                    },
-                )
+                self._emit_model_error(exc, model_identifier)
                 raise
-            response = self._extract_thinking_content(response)
-            self._emit_model_event(
-                "model.response",
-                normalize_model_response(response, model=model_identifier),
-            )
+            response = self._handle_model_response(response, model_identifier)
 
-            # Store intermediate response
             intermediate_responses.append(response)
-
-            # Check if there are tool calls in the response
-            tool_calls = (
-                getattr(response.choices[0].message, "tool_calls", None)
-                if hasattr(response, "choices")
-                else None
-            )
-
-            # Store the model's message
+            tool_calls = self._response_tool_calls(response)
             intermediate_messages.append(response.choices[0].message)
 
             if not tool_calls:
-                # Set the intermediate data in the final response
-                response.intermediate_responses = intermediate_responses[
-                    :-1
-                ]  # Exclude final response
-                response.choices[0].intermediate_messages = intermediate_messages
-                response.tool_policy_events = tool_policy_events
-                response.tool_events = tool_events
-                response.tool_events_emitted = self._active_trace_context() is not None
-                return response
+                return self._finalize_runner_response(
+                    response,
+                    intermediate_responses,
+                    intermediate_messages,
+                    tool_policy_events,
+                    tool_events,
+                )
 
-            # Execute tools and get results
             results, tool_messages = tools_instance.execute_tool(
                 tool_calls,
                 tool_policy=tool_policy,
@@ -335,30 +368,89 @@ class Completions:
             )
             tool_policy_events.extend(getattr(tools_instance, "last_policy_events", []))
             tool_events.extend(getattr(tools_instance, "last_tool_events", []))
-
-            # Add tool messages to intermediate messages
             intermediate_messages.extend(tool_messages)
-
-            # Add the assistant's response and tool results to messages
             messages.extend([response.choices[0].message, *tool_messages])
-
             turns += 1
 
-        # Set the intermediate data in the final response
-        response.intermediate_responses = intermediate_responses[
-            :-1
-        ]  # Exclude final response
-        response.choices[0].intermediate_messages = intermediate_messages
-        response.tool_policy_events = tool_policy_events
-        response.tool_events = tool_events
-        response.tool_events_emitted = self._active_trace_context() is not None
-        return response
+        return self._finalize_runner_response(
+            response,
+            intermediate_responses,
+            intermediate_messages,
+            tool_policy_events,
+            tool_events,
+        )
 
-    def create(self, model: str, messages: list, **kwargs):
+    async def _atool_runner(
+        self,
+        provider,
+        model_name: str,
+        model_identifier: str,
+        messages: list,
+        tools: Any,
+        max_turns: int,
+        tool_policy=None,
+        tool_policy_context=None,
+        **kwargs,
+    ):
+        """Async variant of ``_tool_runner``.
+
+        Awaits the provider's async completion and the async tool execution.
+        Event emission, response handling, and bookkeeping are shared with the
+        sync path via helper methods.
         """
-        Create chat completion based on the model, messages, and any extra arguments.
-        Supports automatic tool execution when max_turns is specified.
-        """
+        tools_instance = self._init_tool_runner(tools, kwargs)
+
+        turns = 0
+        intermediate_responses = []
+        intermediate_messages = []
+        tool_policy_events = []
+        tool_events = []
+
+        while turns < max_turns:
+            self._emit_model_send(messages, model_identifier)
+            try:
+                response = await provider.achat_completions_create(
+                    model_name, messages, **kwargs
+                )
+            except Exception as exc:
+                self._emit_model_error(exc, model_identifier)
+                raise
+            response = self._handle_model_response(response, model_identifier)
+
+            intermediate_responses.append(response)
+            tool_calls = self._response_tool_calls(response)
+            intermediate_messages.append(response.choices[0].message)
+
+            if not tool_calls:
+                return self._finalize_runner_response(
+                    response,
+                    intermediate_responses,
+                    intermediate_messages,
+                    tool_policy_events,
+                    tool_events,
+                )
+
+            results, tool_messages = await tools_instance.aexecute_tool(
+                tool_calls,
+                tool_policy=tool_policy,
+                tool_policy_context=tool_policy_context,
+            )
+            tool_policy_events.extend(getattr(tools_instance, "last_policy_events", []))
+            tool_events.extend(getattr(tools_instance, "last_tool_events", []))
+            intermediate_messages.extend(tool_messages)
+            messages.extend([response.choices[0].message, *tool_messages])
+            turns += 1
+
+        return self._finalize_runner_response(
+            response,
+            intermediate_responses,
+            intermediate_messages,
+            tool_policy_events,
+            tool_events,
+        )
+
+    def _resolve_provider(self, model: str):
+        """Validate the model string and return ``(provider, model_name)``."""
         # Check that correct format is used
         if ":" not in model:
             raise ValueError(
@@ -382,18 +474,34 @@ class Completions:
         if provider_key not in self.client.providers:
             config = self.client.provider_configs.get(provider_key, {})
             self.client.providers[provider_key] = ProviderFactory.create_provider(
-                provider_key, config
+                provider_key, dict(config)
             )
 
         provider = self.client.providers.get(provider_key)
         if not provider:
             raise ValueError(f"Could not load provider for '{provider_key}'.")
+        return provider, model_name
+
+    def create(self, model: str, messages: list, **kwargs):
+        """
+        Create chat completion based on the model, messages, and any extra arguments.
+        Supports automatic tool execution when max_turns is specified.
+        With stream=True, returns an iterator of OpenAI-shaped chunks instead
+        (see ``aisuite.framework.chat_completion_chunk``).
+        """
+        provider, model_name = self._resolve_provider(model)
 
         # Extract tool-related parameters
         max_turns = kwargs.pop("max_turns", None)
         tools = kwargs.pop("tools", None)
         tool_policy = kwargs.pop("tool_policy", None)
         tool_policy_context = kwargs.pop("tool_policy_context", None)
+
+        if kwargs.pop("stream", False):
+            kwargs = self._prepare_stream_kwargs(tools, max_turns, kwargs)
+            return provider.chat_completions_create_stream(
+                model_name, messages, **kwargs
+            )
 
         # Use ExitStack to manage MCP client cleanup automatically
         with ExitStack() as stack:
@@ -420,21 +528,108 @@ class Completions:
                 )
 
             # Manual tool calling (no max_turns): the provider must still see the tool
-            # schemas, so re-add the processed tools to kwargs — schema dicts pass
-            # through as-is, callables (including MCP-derived ones) become OpenAI-format
-            # specs. Regression guard: a plain `kwargs.pop("tools")` here used to drop
-            # them entirely (#266).
+            # schemas, so re-add the processed tools to kwargs. Regression guard: a
+            # plain `kwargs.pop("tools")` here used to drop them entirely (#266).
             if tools is not None:
-                converted = []
-                for tool in tools:
-                    if callable(tool):
-                        converted.extend(Tools(tools=[tool]).tools())
-                    else:
-                        converted.append(tool)
-                kwargs["tools"] = converted
+                kwargs["tools"] = self._provider_ready_tools(tools)
 
             # Delegate the chat completion to the correct provider's implementation
             response = provider.chat_completions_create(model_name, messages, **kwargs)
+            return self._extract_thinking_content(response)
+
+    def _prepare_stream_kwargs(self, tools, max_turns, kwargs):
+        """Validate and finish kwargs for a streaming call.
+
+        Raises eagerly — before any generator is handed back — so misuse fails
+        at the call site rather than on first iteration. Streaming is manual
+        tool calling only: the tool runner needs whole turns to execute tools,
+        and MCP configs need a client whose lifetime the runner manages, so
+        neither combines with a caller-driven chunk iterator.
+        """
+        if max_turns is not None:
+            raise ValueError(
+                "stream=True cannot be combined with max_turns. Run the tool "
+                "loop without streaming, or stream and execute tools manually."
+            )
+        if tools is not None:
+            if any(self._is_mcp_tool_config(tool) for tool in tools):
+                raise ValueError(
+                    "MCP tool configs are not supported with stream=True; "
+                    "pass tool schemas or callables instead."
+                )
+            kwargs["tools"] = self._provider_ready_tools(tools)
+        return kwargs
+
+    @staticmethod
+    def _is_mcp_tool_config(tool) -> bool:
+        """True for MCP config dicts, whether or not the mcp extra is installed."""
+        if not isinstance(tool, dict):
+            return False
+        if MCP_AVAILABLE:
+            return is_mcp_config(tool)
+        return tool.get("type") == "mcp"
+
+    @staticmethod
+    def _provider_ready_tools(tools: list) -> list:
+        """Tools as a provider request can carry them: schema dicts pass through
+        as-is; callables (including MCP-derived ones) become OpenAI-format specs."""
+        converted = []
+        for tool in tools:
+            if callable(tool):
+                converted.extend(Tools(tools=[tool]).tools())
+            else:
+                converted.append(tool)
+        return converted
+
+    async def acreate(self, model: str, messages: list, **kwargs):
+        """Async variant of ``create``.
+
+        Awaits the provider's async completion and, when ``max_turns`` and
+        ``tools`` are supplied, the async tool-execution loop. MCP client
+        cleanup remains synchronous and is handled by the ExitStack.
+        With stream=True, returns an async iterator of OpenAI-shaped chunks.
+        """
+        provider, model_name = self._resolve_provider(model)
+
+        max_turns = kwargs.pop("max_turns", None)
+        tools = kwargs.pop("tools", None)
+        tool_policy = kwargs.pop("tool_policy", None)
+        tool_policy_context = kwargs.pop("tool_policy_context", None)
+
+        if kwargs.pop("stream", False):
+            kwargs = self._prepare_stream_kwargs(tools, max_turns, kwargs)
+            return provider.achat_completions_create_stream(
+                model_name, messages, **kwargs
+            )
+
+        with ExitStack() as stack:
+            mcp_clients = []
+            if tools is not None:
+                tools, mcp_clients = self._process_mcp_configs(tools)
+                for mcp_client in mcp_clients:
+                    stack.enter_context(mcp_client)
+
+            if max_turns is not None and tools is not None:
+                return await self._atool_runner(
+                    provider,
+                    model_name,
+                    model,
+                    messages.copy(),
+                    tools,
+                    max_turns,
+                    tool_policy=tool_policy,
+                    tool_policy_context=tool_policy_context,
+                    **kwargs,
+                )
+
+            # Manual tool calling (no max_turns): same regression guard as create()
+            # (#266) — the provider must still see the tool schemas.
+            if tools is not None:
+                kwargs["tools"] = self._provider_ready_tools(tools)
+
+            response = await provider.achat_completions_create(
+                model_name, messages, **kwargs
+            )
             return self._extract_thinking_content(response)
 
 
@@ -534,7 +729,7 @@ class Transcriptions:
             config = self.client.provider_configs.get(provider_key, {})
             try:
                 self.client.providers[provider_key] = ProviderFactory.create_provider(
-                    provider_key, config
+                    provider_key, dict(config)
                 )
             except ImportError as e:
                 raise ValueError(f"Provider '{provider_key}' is not available: {e}")

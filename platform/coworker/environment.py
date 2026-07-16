@@ -68,5 +68,10 @@ def environment_context(workspace: str | Path) -> str:
     body = "\n".join(lines)
     return (
         "Environment (snapshot from session start — verify before relying on git "
-        f"state):\n<environment>\n{body}\n</environment>"
+        f"state):\n<environment>\n{body}\n</environment>\n"
+        "Folder scope: work inside the workspace and any folders the user has granted. Do not "
+        "read or list other locations (home directory sweeps, ~/Desktop, ~/Downloads, photo "
+        "libraries, etc.) — not even via shell commands like find/ls/grep. On macOS every such "
+        "touch fires an OS permission prompt the user can't connect to any action they took. "
+        "If a task needs files elsewhere, ask first with request_directory."
     )

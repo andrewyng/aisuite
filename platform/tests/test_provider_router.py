@@ -311,21 +311,45 @@ def test_manager_provider_config(tmp_path, monkeypatch):
 
 
 def test_manager_curated_models(tmp_path, monkeypatch):
+    """No seed list: the picker is the curated matrix filtered to key-holding providers,
+    plus user-added custom ids. A fresh install shows only the (not-yet-usable) default.
+    """
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from coworker.providers.registry import provider_descriptors
+
+    for d in provider_descriptors():  # ambient dev-shell keys must not leak in
+        if d.env_key:
+            monkeypatch.delenv(d.env_key, raising=False)
     from coworker.server.manager import SessionManager
 
     mgr = SessionManager(data_dir=tmp_path)
-    assert "gpt-5.5" in mgr.get_settings()["models"]  # defaults to built-ins
+    # no provider keys → nothing but the always-selectable default
+    assert mgr.get_settings()["models"] == [mgr.model]
 
-    added = mgr.add_model("ollama:qwen2.5-coder:32b")
+    # a provider key unlocks exactly that provider's matrix models
+    mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})
+    models = mgr.get_settings()["models"]
+    assert "anthropic:claude-opus-4-8" in models
+    assert "gpt-4o" not in models  # no OpenAI seed anywhere
+
+    added = mgr.add_model("ollama:qwen2.5-coder:32b")  # keyless provider → selectable
     assert added["ok"] and "ollama:qwen2.5-coder:32b" in added["models"]
 
     n = len(mgr.get_settings()["models"])
     mgr.add_model("ollama:qwen2.5-coder:32b")  # idempotent
     assert len(mgr.get_settings()["models"]) == n
 
-    removed = mgr.remove_model("gpt-4o")
-    assert "gpt-4o" not in removed["models"]
+    # removing a matrix model hides it persistently; re-adding unhides it
+    removed = mgr.remove_model("anthropic:claude-haiku-4-5")
+    assert "anthropic:claude-haiku-4-5" not in removed["models"]
+    mgr2 = SessionManager(data_dir=tmp_path)  # survives a restart
+    assert "anthropic:claude-haiku-4-5" not in mgr2.get_settings()["models"]
+    mgr.add_model("anthropic:claude-haiku-4-5")
+    assert "anthropic:claude-haiku-4-5" in mgr.get_settings()["models"]
+
+    # removing a custom id drops it
+    mgr.remove_model("ollama:qwen2.5-coder:32b")
+    assert "ollama:qwen2.5-coder:32b" not in mgr.get_settings()["models"]
 
     # the active default stays selectable even if removed from the curated list
     mgr.remove_model(mgr.model)
@@ -408,12 +432,12 @@ def test_anthropic_gemini_provider_config(tmp_path, monkeypatch):
     assert "gemini-2.5-flash" in provs["gemini"]["suggested_models"]
 
     res = mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})
-    assert res["ok"] is True and res["recommended_model"] == "claude-sonnet-4-6"
+    assert res["ok"] is True and res["recommended_model"] == "claude-fable-5"
     provs = {p["name"]: p for p in mgr.get_providers()}
     assert provs["anthropic"]["configured"] is True
     assert "api_key" not in provs["anthropic"].get("values", {})  # secrets never leak
     # the recommended model is auto-added to the curated list with its provider prefix
-    assert "anthropic:claude-sonnet-4-6" in mgr.get_settings()["models"]
+    assert "anthropic:claude-fable-5" in mgr.get_settings()["models"]
 
     # env var alone marks a provider configured
     monkeypatch.setenv("GEMINI_API_KEY", "AIza-env")
@@ -429,16 +453,16 @@ def test_first_configured_provider_wins_default(tmp_path, monkeypatch):
 
     mgr = SessionManager(data_dir=tmp_path)
     assert (
-        mgr.model == "gpt-5.5"
+        mgr.model == "gpt-5.6-sol"
     )  # fresh install: built-in default, openai unconfigured
 
     # the first provider that gets a key takes over the default
     mgr.set_provider("anthropic", {"api_key": "sk-ant-x"})
-    assert mgr.model == "anthropic:claude-sonnet-4-6"
+    assert mgr.model == "anthropic:claude-fable-5"
 
     # but a default that already works is never stolen by the next provider
     mgr.set_provider("gemini", {"api_key": "AIza-x"})
-    assert mgr.model == "anthropic:claude-sonnet-4-6"
+    assert mgr.model == "anthropic:claude-fable-5"
 
 
 def test_surface_visibility(tmp_path, monkeypatch):
@@ -478,3 +502,58 @@ def test_provider_suggested_models(tmp_path, monkeypatch):
     sugg = provs["ollama"]["suggested_models"]
     assert isinstance(sugg, list)
     assert all(not m.startswith("ollama:") for m in sugg)
+
+
+# -- last-used tracking (router on_use hook + manager persistence) ----------------
+
+
+def test_router_on_use_fires_with_provider_name():
+    seen: list[str] = []
+    router = ProviderRouter(on_use=seen.append)
+    router._clients["openai"] = OpenAIProvider(client=_FakeOAClient(content="hi"))
+    router._clients["zai"] = OpenAIProvider(client=_FakeOAClient(content="hi"))
+
+    router.complete(model="gpt-5.5", messages=[])
+    router.complete(model="zai:glm-5.2", messages=[])
+    assert seen == ["openai", "zai"]
+
+
+def test_router_on_use_failures_never_break_the_call():
+    def boom(_name):
+        raise RuntimeError("telemetry down")
+
+    router = ProviderRouter(on_use=boom)
+    router._clients["openai"] = OpenAIProvider(client=_FakeOAClient(content="ok"))
+    assert router.complete(model="gpt-5.5", messages=[]).text == "ok"
+
+
+def test_manager_key_hygiene_stamps(tmp_path, monkeypatch):
+    """set_provider stamps key_set_at; _note_provider_use records (throttled) last_used_at;
+    get_providers exposes both for the Settings pane."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from datetime import date
+
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    mgr.set_provider("deepseek", {"api_key": "ds-key"})
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["deepseek"]["configured"] is True
+    assert provs["deepseek"]["key_set_at"] == date.today().isoformat()
+    assert provs["deepseek"]["last_used_at"] is None  # configured but never used
+
+    # Endpoint-only re-save keeps the original stamp (the key wasn't touched).
+    mgr.set_provider("deepseek", {"base_url": "https://api.deepseek.com/v1"})
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["deepseek"]["key_set_at"] == date.today().isoformat()
+
+    mgr._note_provider_use("deepseek")
+    first = mgr._prefs["provider_last_used"]["deepseek"]
+    mgr._note_provider_use("deepseek")  # within the 60s throttle window → unchanged
+    assert mgr._prefs["provider_last_used"]["deepseek"] == first
+    provs = {p["name"]: p for p in mgr.get_providers()}
+    assert provs["deepseek"]["last_used_at"] == first
+    # and it survives a reload (persisted to prefs.json)
+    mgr2 = SessionManager(data_dir=tmp_path)
+    provs2 = {p["name"]: p for p in mgr2.get_providers()}
+    assert provs2["deepseek"]["last_used_at"] == first

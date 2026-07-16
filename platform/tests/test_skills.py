@@ -46,7 +46,8 @@ def test_chat_agent_has_no_workspace_tools():
 
 def test_get_agent_fallback():
     assert get_agent("chat").name == "chat"
-    assert get_agent("nope").name == "code"  # unknown falls back to code
+    # Unknown ids fall back to the default persona (Cowork), per the persona registry.
+    assert get_agent("nope").name == "cowork"
 
 
 # -- SKILL.md loader ------------------------------------------------------------

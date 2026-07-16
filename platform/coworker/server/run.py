@@ -108,7 +108,24 @@ def build_app(workspace: str | None, model: str, mode: str):
     return create_app(manager)
 
 
+def _ensure_ca_bundle() -> None:
+    """Point SSL at certifi's CA bundle if the interpreter has none configured. macOS framework
+    Python ships without a usable system trust store for `aiohttp` (it builds an `ssl` context with
+    no CAs), so the Slack Socket-Mode client fails with CERTIFICATE_VERIFY_FAILED. `httpx`/`requests`
+    bundle certifi already; aiohttp honours the SSL_CERT_FILE env var, so set it once at startup.
+    """
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+    try:
+        import certifi
+
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+    except Exception:
+        pass
+
+
 def main(argv=None) -> None:
+    _ensure_ca_bundle()
     cfg = load_config()  # global config supplies defaults
     parser = argparse.ArgumentParser(prog="coworker-server")
     parser.add_argument("--cwd", default=None, help="optional seed/default workspace")
@@ -121,6 +138,12 @@ def main(argv=None) -> None:
     parser.add_argument("--host", default=cfg.host)
     parser.add_argument("--port", type=int, default=cfg.port)
     args = parser.parse_args(argv)
+
+    # Publish the ACTUAL bound port so loopback URLs (the managed-OAuth callback)
+    # target this process, not config.port. The desktop shell runs the sidecar on
+    # a random free port (to coexist with a hand-run server on 8765), so the
+    # managed-connect redirect must follow the real port, not the 8765 default.
+    os.environ["COWORKER_PORT"] = str(args.port)
 
     import uvicorn
 

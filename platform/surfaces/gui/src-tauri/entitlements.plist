@@ -8,5 +8,10 @@
   <dict>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Voice input (§37): hardened-runtime processes need this entitlement to capture the
+         microphone — without it the SIGNED app is denied by macOS even though dev builds work
+         (Info.plist's NSMicrophoneUsageDescription is only the prompt text, not the grant). -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>

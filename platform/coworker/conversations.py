@@ -57,6 +57,7 @@ class ConversationStore:
                 session_id TEXT PRIMARY KEY, workspace TEXT, model TEXT, mode TEXT,
                 title TEXT, agent TEXT DEFAULT 'code', n_msgs INTEGER DEFAULT 0, messages TEXT,
                 extra_roots TEXT, pinned INTEGER DEFAULT 0, archived INTEGER DEFAULT 0,
+                origin TEXT, origin_label TEXT,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -70,6 +71,8 @@ class ConversationStore:
             "ALTER TABLE sessions ADD COLUMN extra_roots TEXT",
             "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0",
+            "ALTER TABLE sessions ADD COLUMN origin TEXT",
+            "ALTER TABLE sessions ADD COLUMN origin_label TEXT",
         ):
             try:
                 self._conn.execute(ddl)
@@ -216,6 +219,8 @@ class ConversationStore:
             ),
             pinned=bool(row["pinned"]),
             archived=bool(row["archived"]),
+            origin=row["origin"],
+            origin_label=row["origin_label"],
         )
 
     def set_extra_roots(self, session_id: str, extra_roots: list[dict]) -> None:
@@ -252,6 +257,8 @@ class ConversationStore:
                 updated_at=r["updated_at"],
                 pinned=bool(r["pinned"]),
                 archived=bool(r["archived"]),
+                origin=r["origin"],
+                origin_label=r["origin_label"],
             )
             for r in rows
         ]
@@ -342,6 +349,18 @@ class ConversationStore:
             cur = self._conn.execute(
                 f"UPDATE sessions SET {', '.join(sets)} WHERE session_id = ?",
                 (*params, session_id),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def set_origin(self, session_id: str, origin: str, origin_label: str = "") -> bool:
+        """Mark where a spawned session came from (§31). Set once at spawn; `save()` never
+        names these columns, so per-turn saves can't clobber them (the pinned mechanism).
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE sessions SET origin = ?, origin_label = ? WHERE session_id = ?",
+                (origin, origin_label or None, session_id),
             )
             self._conn.commit()
         return cur.rowcount > 0

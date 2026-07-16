@@ -13,7 +13,7 @@ from typing import Any, Callable, Optional
 
 import aisuite as ai
 
-from .models import Schedule, ScheduledTask
+from .models import Schedule, ScheduledTask, grant_entries
 from .store import TaskStore
 
 _CREATE_SCHEMA = {
@@ -53,6 +53,38 @@ _CREATE_SCHEMA = {
                 "timezone": {
                     "type": "string",
                     "description": "IANA tz, e.g. 'America/New_York'. Defaults to the machine's local time — pass it only to override.",
+                },
+                "permissions": {
+                    "type": "array",
+                    "description": (
+                        "What this automation will touch, surfaced on the creation consent "
+                        "card. List every external read and write the instructions imply. "
+                        "Reads (access:'read') are disclosure only. Writes (access:'write') "
+                        "become standing grants IF the user approves: the automation may then "
+                        "call that exact tool against that exact target without asking each "
+                        "run. Targets must be exact (a channel address like 'slack:T…/C…', a "
+                        "recipient) — no wildcards. Omit writes whose target you don't know "
+                        "yet; the run will ask instead."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tool": {
+                                "type": "string",
+                                "description": "Exact tool name, e.g. 'send_message'.",
+                            },
+                            "target": {
+                                "type": "string",
+                                "description": "The exact target argument value the rule binds to.",
+                            },
+                            "access": {
+                                "type": "string",
+                                "enum": ["read", "write"],
+                                "description": "'write' proposes a standing grant; 'read' is disclosure.",
+                            },
+                        },
+                        "required": ["tool", "target", "access"],
+                    },
                 },
             },
             "required": ["title", "instructions"],
@@ -123,7 +155,7 @@ def scheduling_tools(
     default_workspace: str,
 ) -> list[Callable[..., Any]]:
     def create_scheduled_task(
-        title, instructions, cron=None, fire_at=None, timezone="local"
+        title, instructions, cron=None, fire_at=None, timezone="local", permissions=None
     ):
         from croniter import croniter
 
@@ -140,6 +172,10 @@ def scheduling_tools(
             timezone=timezone or "local",
         )
         workspace = origin.get("workspace") or default_workspace
+        # The agent PROPOSES permissions; the human granted them by approving this gated
+        # call (the consent card rendered the proposal). Only validated write grants stick:
+        # tool must declare a target argument (never exec/destructive), target non-empty.
+        grants = grant_entries(permissions)
         task = ScheduledTask(
             title=title,
             instructions=instructions,
@@ -148,6 +184,7 @@ def scheduling_tools(
             origin_surface=origin.get("surface", "cowork"),
             origin_session_id=origin.get("session_id", ""),
             agent=origin.get("agent", "cowork"),
+            always_allowed_tools=grants,
         )
         store.save(task)
         return {
@@ -157,6 +194,7 @@ def scheduling_tools(
             "schedule": schedule.human(),
             "next_run": task.next_run,
             "workspace": workspace,
+            "always_allowed": grants,
         }
 
     def list_scheduled_tasks():

@@ -1,8 +1,12 @@
 // A small set of clean, single-weight line icons (SF-Symbols-ish): 24px grid, 1.7 stroke,
 // currentColor, rounded caps/joins. Replaces emoji in the chrome for a crisp, consistent look.
 
-type IconName =
+export type IconName =
   | "sparkle"
+  | "logo"
+  | "sidebar"
+  | "sidebarRight"
+  | "signOut"
   | "chat"
   | "diamond"
   | "search"
@@ -11,7 +15,10 @@ type IconName =
   | "plus"
   | "clock"
   | "sliders"
+  | "gear"
+  | "inbox"
   | "code"
+  | "wrench"
   | "pencil"
   | "branch"
   | "arrowLeft"
@@ -26,11 +33,15 @@ type IconName =
   | "moreHorizontal"
   | "pin"
   | "archive"
+  | "trash"
   | "shield"
   | "file"
   | "fileCode"
   | "image"
-  | "table";
+  | "table"
+  | "mic"
+  | "stop"
+  | "x";
 
 export function Icon({
   name,
@@ -62,11 +73,41 @@ export function Icon({
           <path d="M12 2.4c.5 4.7 2.5 6.7 7.2 7.2-4.7.5-6.7 2.5-7.2 7.2-.5-4.7-2.5-6.7-7.2-7.2 4.7-.5 6.7-2.5 7.2-7.2z" />
         </svg>
       );
-    case "folder":
+    case "logo":
+      // The OpenCoworker mark — a 6-point star, matching the app + macOS tray icon.
+      return (
+        <svg {...s} fill="currentColor" stroke="none">
+          <path d="M12.00 1.80 L13.35 9.66 L20.83 6.90 L14.70 12.00 L20.83 17.10 L13.35 14.34 L12.00 22.20 L10.65 14.34 L3.17 17.10 L9.30 12.00 L3.17 6.90 L10.65 9.66 Z" />
+        </svg>
+      );
+    case "sidebar":
+      // Clean "sidebar panel" toggle — rounded rect + divider, no chevron (one glyph both states).
       return (
         <svg {...s}>
-          <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
-          <path d="M3.4 10h17.2" />
+          <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+          <path d="M9 4.5v15" />
+        </svg>
+      );
+    case "sidebarRight":
+      // Right-panel counterpart of "sidebar" — same rounded rect + divider, mirrored.
+      return (
+        <svg {...s}>
+          <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+          <path d="M15 4.5v15" />
+        </svg>
+      );
+    case "signOut":
+      return (
+        <svg {...s}>
+          <path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H9" />
+          <path d="M15 8l4 4-4 4M19 12H9" />
+        </svg>
+      );
+    case "folder":
+      // Clean single-tab folder (Lucide-style) — no internal divider line.
+      return (
+        <svg {...s}>
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
         </svg>
       );
     case "shield":
@@ -109,11 +150,31 @@ export function Icon({
           <path d="M4 10h16M10 10v9M4 14.5h16" />
         </svg>
       );
-    case "folderPlus":
+    case "mic":
       return (
         <svg {...s}>
-          <path d="M3 7.8c0-1 .8-1.8 1.8-1.8h3c.5 0 1 .2 1.3.6l1.1 1.2c.3.4.8.6 1.3.6h7.7c1 0 1.8.8 1.8 1.8v6.9c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.8z" />
-          <path d="M3.4 10h17.2M12 12.2v4M10 14.2h4" />
+          <rect x="8.5" y="3.5" width="7" height="11" rx="3.5" />
+          <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
+        </svg>
+      );
+    case "stop":
+      return (
+        <svg {...s} fill="currentColor" stroke="none">
+          <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+        </svg>
+      );
+    case "x":
+      return (
+        <svg {...s}>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      );
+    case "folderPlus":
+      // Same clean folder body + a centered plus (Lucide-style).
+      return (
+        <svg {...s}>
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h8.5" />
+          <path d="M19 14v6M16 17h6" />
         </svg>
       );
     case "plus":
@@ -130,12 +191,27 @@ export function Icon({
         </svg>
       );
     case "sliders":
+      // Two rails, knob on each, rails broken around the knobs (owner pick 2026-07-11:
+      // the three-rail version read as heavier than the mocks' two-rail glyph).
       return (
         <svg {...s}>
-          <path d="M4 7h16M4 12h16M4 17h16" />
-          <circle cx="15.5" cy="7" r="2.4" style={{ fill: "var(--panel)" }} />
-          <circle cx="8.5" cy="12" r="2.4" style={{ fill: "var(--panel)" }} />
-          <circle cx="14" cy="17" r="2.4" style={{ fill: "var(--panel)" }} />
+          <path d="M4 8h10M18 8h2M4 16h2M10 16h10" />
+          <circle cx="16" cy="8" r="2" />
+          <circle cx="8" cy="16" r="2" />
+        </svg>
+      );
+    case "gear":
+      return (
+        <svg {...s}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1L16.5 3h-4l-.4 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.4h4l.4-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6c.1-.3.1-.7.1-1z" />
+        </svg>
+      );
+    case "inbox":
+      return (
+        <svg {...s}>
+          <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+          <path d="M5.4 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1z" />
         </svg>
       );
     case "code":
@@ -148,6 +224,12 @@ export function Icon({
       return (
         <svg {...s}>
           <path d="M5 5.5h14c.8 0 1.5.7 1.5 1.5v7c0 .8-.7 1.5-1.5 1.5H9.5L5.5 19v-3H5c-.8 0-1.5-.7-1.5-1.5V7c0-.8.7-1.5 1.5-1.5z" />
+        </svg>
+      );
+    case "wrench":
+      return (
+        <svg {...s}>
+          <path d="M14.6 6.4a3.8 3.8 0 0 0-5 4.9l-6 6a1.6 1.6 0 0 0 2.3 2.3l6-6a3.8 3.8 0 0 0 4.9-5l-2.4 2.4-2-.5-.5-2 2.7-2.1z" />
         </svg>
       );
     case "search":
@@ -256,6 +338,15 @@ export function Icon({
         <svg {...s}>
           <path d="M4.5 7.5h15M6 7.5v10.2c0 1 .8 1.8 1.8 1.8h8.4c1 0 1.8-.8 1.8-1.8V7.5M5.6 4.5h12.8c.6 0 1.1.5 1.1 1.1v1.9h-15V5.6c0-.6.5-1.1 1.1-1.1z" />
           <path d="M9.5 11.5h5" />
+        </svg>
+      );
+    case "trash":
+      return (
+        <svg {...s}>
+          <path d="M4.5 7h15" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M6.5 7l.9 12c.1.9.8 1.5 1.7 1.5h7.8c.9 0 1.6-.6 1.7-1.5l.9-12" />
+          <path d="M9.2 7V4.9c0-.5.4-.9.9-.9h3.8c.5 0 .9.4.9.9V7" />
         </svg>
       );
   }
