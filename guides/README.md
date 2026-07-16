@@ -12,6 +12,7 @@ Here are the instructions for:
 - [Hugging Face](huggingface.md)
 - [Mistral](mistral.md)
 - [OpenAI](openai.md)
+- [Featherless](featherless.md)
 - [SambaNova](sambanova.md)
 - [xAI](xai.md)
 - [DeepSeek](deepseek.md)
