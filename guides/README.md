@@ -15,6 +15,7 @@ Here are the instructions for:
 - [SambaNova](sambanova.md)
 - [xAI](xai.md)
 - [DeepSeek](deepseek.md)
+- [Eden AI](edenai.md)
 
 For locally hosted models using `Ollama` or `LM Studio`, follow these instructions:
 - [Ollama](ollama.md)
