@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session View Mock</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              app: "#eef3f1",
+              ink: "#17211f",
+              muted: "#65736f",
+              faint: "#8b9793",
+              line: "#dce3df",
+              panel: "#f7faf8",
+              brand: "#146c5d",
+              blue: "#3f6fdd",
+              slackA: "#36c5f0",
+              slackB: "#2eb67d",
+              slackC: "#ecb22e",
+              slackD: "#e01e5a"
+            },
+            boxShadow: {
+              soft: "0 18px 50px rgba(20, 31, 28, 0.10)",
+              panel: "0 8px 24px rgba(20, 31, 28, 0.07)"
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="bg-app text-ink antialiased">
+    <div class="flex min-h-screen">
+      <aside class="hidden w-72 shrink-0 border-r border-line bg-white/80 px-4 py-4 lg:block">
+        <div class="flex items-center gap-3 px-2 py-2">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-sm font-semibold text-white">OC</div>
+          <div>
+            <div class="text-sm font-semibold">OpenCoworker</div>
+            <div class="text-xs text-muted">Local workspace</div>
+          </div>
+        </div>
+
+        <button class="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-ink px-3 py-2.5 text-sm font-medium text-white shadow-sm">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
+          New session
+        </button>
+
+        <div class="mt-6 space-y-5">
+          <section>
+            <div class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-faint">Cowork</div>
+            <div class="space-y-1">
+              <div class="rounded-lg bg-[#e9f2ef] px-3 py-2">
+                <div class="truncate text-sm font-medium">Monitor launch feedback</div>
+                <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                  <span class="h-1.5 w-1.5 rounded-full bg-brand"></span>
+                  Slack listening
+                </div>
+              </div>
+              <div class="rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Vendor proposal review</div>
+              <div class="rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Sales report cleanup</div>
+            </div>
+          </section>
+
+          <section>
+            <div class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-faint">Code</div>
+            <div class="space-y-1">
+              <div class="rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">aisuite-personas</div>
+              <div class="rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">oauth callback</div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <main class="flex min-w-0 flex-1 flex-col">
+        <header class="flex h-16 shrink-0 items-center justify-between border-b border-line bg-white/75 px-5 backdrop-blur">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h1 class="truncate text-base font-semibold">Monitor launch feedback</h1>
+              <span class="rounded-full border border-[#b7d8ce] bg-[#edf8f4] px-2 py-0.5 text-xs font-medium text-brand">Unattended</span>
+            </div>
+            <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+              <span>Cowork agent</span>
+              <span class="h-1 w-1 rounded-full bg-faint"></span>
+              <span title="856b16f8-76d">Session 856b...</span>
+              <span class="h-1 w-1 rounded-full bg-faint"></span>
+              <span>/Users/rohit/OpenCoworker/launch</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-muted hover:text-ink">Share</button>
+            <button class="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-muted hover:text-ink">Details</button>
+          </div>
+        </header>
+
+        <div class="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <section class="flex min-w-0 flex-col">
+            <div class="border-b border-line bg-white/65 px-5 py-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-medium uppercase tracking-wide text-faint">Listening to</span>
+                <button class="group inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-sm shadow-sm" title="slack:C0BD7KZ1AH5">
+                  <span class="relative h-4 w-4">
+                    <span class="absolute left-1 top-0 h-2.5 w-1.5 rounded bg-slackA"></span>
+                    <span class="absolute bottom-0 left-1 h-2.5 w-1.5 rounded bg-slackB"></span>
+                    <span class="absolute left-0 top-1 h-1.5 w-2.5 rounded bg-slackD"></span>
+                    <span class="absolute right-0 top-1 h-1.5 w-2.5 rounded bg-slackC"></span>
+                  </span>
+                  <span class="font-medium">#customer-launch</span>
+                  <span class="text-xs text-muted">all messages</span>
+                </button>
+                <button class="inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-sm shadow-sm" title="salesforce:account:Acme">
+                  <span class="flex h-4 w-4 items-center justify-center rounded bg-[#dbeafe] text-[10px] font-bold text-blue">S</span>
+                  <span class="font-medium">Acme account</span>
+                  <span class="text-xs text-muted">Salesforce</span>
+                </button>
+                <button class="inline-flex items-center gap-2 rounded-full border border-dashed border-line bg-transparent px-3 py-1.5 text-sm font-medium text-muted hover:border-brand hover:text-brand">
+                  <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
+                  Add source
+                </button>
+              </div>
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+              <div class="mx-auto max-w-3xl space-y-6">
+                <div class="ml-auto max-w-[78%] rounded-2xl rounded-tr-md bg-ink px-4 py-3 text-sm leading-6 text-white shadow-panel">
+                  Watch the launch channel and alert me if enterprise customers mention onboarding blockers. Draft replies when there is something actionable.
+                </div>
+
+                <div class="rounded-xl border border-line bg-white p-4 shadow-panel">
+                  <div class="mb-3 flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e8f3ef] text-brand">
+                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l3 3" /><circle cx="12" cy="12" r="9" /></svg>
+                      </div>
+                      <div>
+                        <div class="text-sm font-semibold">Agent is monitoring connected sources</div>
+                        <div class="text-xs text-muted">Slack channel, Salesforce account, and HubSpot company context are available to this session.</div>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-panel px-2.5 py-1 text-xs font-medium text-muted">Background</span>
+                  </div>
+                </div>
+
+                <article class="overflow-hidden rounded-xl border border-[#d6e1df] bg-white shadow-panel">
+                  <div class="flex items-center justify-between border-b border-line bg-[#fbfcfb] px-4 py-3">
+                    <div class="flex min-w-0 items-center gap-3">
+                      <div class="relative h-7 w-7 shrink-0" aria-label="Slack">
+                        <span class="absolute left-3 top-0 h-4 w-2 rounded bg-slackA"></span>
+                        <span class="absolute bottom-0 left-3 h-4 w-2 rounded bg-slackB"></span>
+                        <span class="absolute left-0 top-3 h-2 w-4 rounded bg-slackD"></span>
+                        <span class="absolute right-0 top-3 h-2 w-4 rounded bg-slackC"></span>
+                      </div>
+                      <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                          <span class="font-semibold">Slack</span>
+                          <span class="text-muted">#customer-launch</span>
+                          <span class="text-faint">from</span>
+                          <span class="font-medium">Maya Chen</span>
+                        </div>
+                        <div class="text-xs text-muted" title="channel: C0BD7KZ1AH5, user: U07JK68S4BH, message: 1719598122.000200">
+                          Today at 11:42 AM · channel message · hover shows Slack IDs
+                        </div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="rounded-full bg-[#fff7df] px-2.5 py-1 text-xs font-medium text-[#8a5b00]">Matched watch rule</span>
+                      <button class="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-muted hover:text-ink">Open in Slack</button>
+                    </div>
+                  </div>
+                  <div class="px-4 py-4">
+                    <p class="text-sm leading-6 text-ink">
+                      Enterprise onboarding is blocked for Acme. The SSO mapping doc still points to the old workspace URL, and their admin cannot finish SCIM setup.
+                    </p>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <button class="rounded-lg bg-ink px-3 py-2 text-sm font-medium text-white">Draft response</button>
+                      <button class="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-muted hover:text-ink">Create follow-up</button>
+                      <button class="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-muted hover:text-ink">Ignore</button>
+                    </div>
+                  </div>
+                </article>
+
+                <div class="rounded-2xl bg-white px-5 py-4 shadow-panel">
+                  <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">Assistant</div>
+                  <p class="text-sm leading-6 text-ink">
+                    I found matching context in Salesforce and HubSpot. Acme is in enterprise onboarding, owned by Priya, and their launch date is July 3. I can draft a Slack reply with the corrected SSO and SCIM docs, then create a follow-up task.
+                  </p>
+                </div>
+
+                <div class="rounded-xl border border-line bg-white p-3 shadow-panel">
+                  <button class="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-sm font-medium text-muted hover:bg-panel">
+                    <span>Ran 3 tools</span>
+                    <span>View details</span>
+                  </button>
+                  <div class="mt-2 grid gap-2 md:grid-cols-3">
+                    <div class="rounded-lg bg-panel px-3 py-2 text-xs">
+                      <div class="font-medium text-ink">salesforce_get_account</div>
+                      <div class="mt-1 truncate text-muted">Acme account status</div>
+                    </div>
+                    <div class="rounded-lg bg-panel px-3 py-2 text-xs">
+                      <div class="font-medium text-ink">hubspot_get_company</div>
+                      <div class="mt-1 truncate text-muted">Onboarding owner</div>
+                    </div>
+                    <div class="rounded-lg bg-panel px-3 py-2 text-xs">
+                      <div class="font-medium text-ink">docs_search</div>
+                      <div class="mt-1 truncate text-muted">SSO mapping guide</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="border-t border-line bg-white/80 px-5 py-4">
+              <div class="mx-auto flex max-w-3xl items-end gap-3 rounded-xl border border-line bg-white p-2 shadow-panel">
+                <textarea class="min-h-[46px] flex-1 resize-none rounded-lg border-0 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-faint" placeholder="Message the agent, attach context, or ask it to act..."></textarea>
+                <button class="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white">Send</button>
+              </div>
+            </div>
+          </section>
+
+          <aside class="hidden min-h-0 border-l border-line bg-white/72 xl:block">
+            <div class="border-b border-line px-5 py-4">
+              <div class="text-sm font-semibold">Session context</div>
+              <div class="mt-1 text-xs text-muted">Connected apps and live routing for this agent.</div>
+            </div>
+            <div class="space-y-5 overflow-y-auto px-5 py-5">
+              <section>
+                <div class="mb-2 flex items-center justify-between">
+                  <h2 class="text-xs font-semibold uppercase tracking-wide text-faint">Subscribed channels</h2>
+                  <button class="text-xs font-medium text-brand">Manage</button>
+                </div>
+                <div class="space-y-2">
+                  <div class="rounded-xl border border-line bg-white p-3">
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="flex items-center gap-2">
+                        <span class="h-2.5 w-2.5 rounded-full bg-brand"></span>
+                        <span class="text-sm font-medium">#customer-launch</span>
+                      </div>
+                      <span class="text-xs text-muted">Live</span>
+                    </div>
+                    <div class="mt-2 text-xs leading-5 text-muted" title="slack:C0BD7KZ1AH5">All channel messages are delivered to this session.</div>
+                  </div>
+                  <button class="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-transparent px-3 py-3 text-sm font-medium text-muted hover:border-brand hover:text-brand">
+                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
+                    Add Slack channel
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">Connected records</h2>
+                <div class="space-y-2">
+                  <div class="rounded-xl border border-line bg-white p-3">
+                    <div class="flex items-center gap-2 text-sm font-medium"><span class="rounded bg-[#dbeafe] px-1.5 py-0.5 text-xs text-blue">SF</span> Acme account</div>
+                    <div class="mt-1 text-xs text-muted">Enterprise · Renewal in 41 days</div>
+                  </div>
+                  <div class="rounded-xl border border-line bg-white p-3">
+                    <div class="flex items-center gap-2 text-sm font-medium"><span class="rounded bg-[#fff1d6] px-1.5 py-0.5 text-xs text-[#9a5b00]">HS</span> Acme company</div>
+                    <div class="mt-1 text-xs text-muted">Owner: Priya Shah</div>
+                  </div>
+                </div>
+              </section>
+
+              <section>
+                <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">Approvals</h2>
+                <div class="rounded-xl border border-line bg-white p-3">
+                  <div class="text-sm font-medium">Route unattended prompts</div>
+                  <div class="mt-1 text-xs text-muted">#agent-approvals</div>
+                  <div class="mt-3 flex gap-2">
+                    <button class="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted">Change</button>
+                    <button class="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted">Test</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

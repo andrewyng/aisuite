@@ -1,6 +1,7 @@
 """The shared interface for model providers."""
 
 
+# TODO(rohit): Remove this. This interface is obsolete in favor of Provider.
 class ProviderInterface:
     """Defines the expected behavior for provider-specific interfaces."""
 
