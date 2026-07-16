@@ -1,0 +1,72 @@
+{
+  "name": "aisuite",
+  "version": "0.1.1",
+  "description": "Unified TypeScript library for multiple LLM providers",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --config=jest.config.ts",
+    "test:examples": "tsx examples/test-suite.ts",
+    "example:basic": "tsx examples/basic-usage.ts",
+    "example:tools": "tsx examples/tool-calling.ts",
+    "example:streaming": "tsx examples/streaming.ts",
+    "example:mistral": "tsx examples/mistral.ts",
+    "example:groq": "tsx examples/groq.ts",
+    "example:deepgram": "tsx examples/deepgram.ts",
+    "example:openai-asr": "tsx examples/openai-asr.ts",
+    "lint": "eslint src/**/*.ts",
+    "prepublishOnly": "npm run build",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.56.0",
+    "@deepgram/sdk": "^4.11.2",
+    "@mistralai/mistralai": "^0.1.3",
+    "groq-sdk": "^0.29.0",
+    "openai": "^4.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.5.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "dotenv": "^16.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "llm",
+    "openai",
+    "anthropic",
+    "claude",
+    "gpt",
+    "ai",
+    "typescript"
+  ],
+  "author": "Andrew Ng and Rohit P",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andrewyng/aisuite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/andrewyng/aisuite/issues"
+  },
+  "homepage": "https://github.com/andrewyng/aisuite#readme",
+  "type": "module"
+}

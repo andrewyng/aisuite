@@ -1,13 +1,14 @@
+"""Mistral provider for the aisuite."""
+
 import os
 from mistralai import Mistral
-from aisuite.framework.message import Message
 from aisuite.framework import ChatCompletionResponse
 from aisuite.provider import Provider, LLMError
 from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
-
 # Implementation of Mistral provider.
-# Mistral's message format is same as OpenAI's. Just different class names, but fully cross-compatible.
+# Mistral's message format is the same as OpenAI's. Just different class names,
+# but fully cross-compatible.
 # Links:
 # https://docs.mistral.ai/capabilities/function_calling/
 
@@ -17,14 +18,11 @@ class MistralMessageConverter(OpenAICompliantMessageConverter):
     Mistral-specific message converter
     """
 
-    @staticmethod
-    def convert_response(response_data) -> ChatCompletionResponse:
+    def convert_response(self, response_data) -> ChatCompletionResponse:
         """Convert Mistral's response to our standard format."""
         # Convert Mistral's response object to dict format
         response_dict = response_data.model_dump()
-        return super(MistralMessageConverter, MistralMessageConverter).convert_response(
-            response_dict
-        )
+        return super().convert_response(response_dict)
 
 
 # Function calling is available for the following models:
@@ -37,6 +35,7 @@ class MistralMessageConverter(OpenAICompliantMessageConverter):
 # Pixtral 12B
 # Mixtral 8x22B
 # Mistral Nemo
+# pylint: disable=too-few-public-methods
 class MistralProvider(Provider):
     """
     Mistral AI Provider using the official Mistral client.
@@ -51,7 +50,8 @@ class MistralProvider(Provider):
         config.setdefault("api_key", os.getenv("MISTRAL_API_KEY"))
         if not config["api_key"]:
             raise ValueError(
-                "Mistral API key is missing. Please provide it in the config or set the MISTRAL_API_KEY environment variable."
+                "Mistral API key is missing. Please provide it in the config or set the "
+                "MISTRAL_API_KEY environment variable."
             )
         self.client = Mistral(**config)
         self.transformer = MistralMessageConverter()
@@ -71,4 +71,4 @@ class MistralProvider(Provider):
 
             return self.transformer.convert_response(response)
         except Exception as e:
-            raise LLMError(f"An error occurred: {e}")
+            raise LLMError(f"An error occurred: {e}") from e

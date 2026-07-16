@@ -82,6 +82,7 @@ class AzureProvider(Provider):
     def __init__(self, **config):
         self.base_url = config.get("base_url") or os.getenv("AZURE_BASE_URL")
         self.api_key = config.get("api_key") or os.getenv("AZURE_API_KEY")
+        self.api_version = config.get("api_version") or os.getenv("AZURE_API_VERSION")
         if not self.api_key:
             raise ValueError("For Azure, api_key is required.")
         if not self.base_url:
@@ -92,6 +93,9 @@ class AzureProvider(Provider):
 
     def chat_completions_create(self, model, messages, **kwargs):
         url = f"{self.base_url}/chat/completions"
+
+        if self.api_version:
+            url = f"{url}?api-version={self.api_version}"
 
         # Remove 'stream' from kwargs if present
         kwargs.pop("stream", None)
@@ -129,4 +133,4 @@ class AzureProvider(Provider):
             error_message = f"The request failed with status code: {error.code}\n"
             error_message += f"Headers: {error.info()}\n"
             error_message += error.read().decode("utf-8", "ignore")
-            raise Exception(error_message)
+            raise RuntimeError(error_message)

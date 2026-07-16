@@ -1,16 +1,20 @@
+"""Tests for the AnthropicMessageConverter."""
+
 import unittest
 from unittest.mock import MagicMock
 from aisuite.providers.anthropic_provider import AnthropicMessageConverter
-from aisuite.framework.message import Message, ChatCompletionMessageToolCall, Function
 from aisuite.framework import ChatCompletionResponse
 
 
 class TestAnthropicMessageConverter(unittest.TestCase):
+    """Test suite for the AnthropicMessageConverter class."""
 
     def setUp(self):
+        """Set up the test case."""
         self.converter = AnthropicMessageConverter()
 
     def test_convert_request_single_user_message(self):
+        """Test converting a single user message."""
         messages = [{"role": "user", "content": "Hello, how are you?"}]
         system_message, converted_messages = self.converter.convert_request(messages)
 
@@ -20,6 +24,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         )
 
     def test_convert_request_with_system_message(self):
+        """Test converting a request with a system message."""
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "What is the weather?"},
@@ -32,6 +37,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         )
 
     def test_convert_request_with_tool_use_message(self):
+        """Test converting a request with a tool use message."""
         messages = [
             {"role": "tool", "tool_call_id": "tool123", "content": "Weather data here."}
         ]
@@ -55,6 +61,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         )
 
     def test_convert_response_normal_message(self):
+        """Test converting a normal text response."""
         response = MagicMock()
         response.stop_reason = "end_turn"
         response.usage.input_tokens = 10
@@ -68,16 +75,15 @@ class TestAnthropicMessageConverter(unittest.TestCase):
 
         self.assertIsInstance(normalized_response, ChatCompletionResponse)
         self.assertEqual(normalized_response.choices[0].finish_reason, "stop")
-        self.assertEqual(
-            normalized_response.usage,
-            {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        )
+        self.assertEqual(normalized_response.usage.prompt_tokens, 10)
+        self.assertEqual(normalized_response.usage.completion_tokens, 5)
+        self.assertEqual(normalized_response.usage.total_tokens, 15)
         self.assertEqual(
             normalized_response.choices[0].message.content, "The weather is sunny."
         )
 
-    # Test that - when Anthropic returns a tool use message, it is correctly converted.
     def test_convert_response_with_tool_use(self):
+        """Test converting a response containing a tool use request."""
         response = MagicMock()
         response.id = "msg_01Aq9w938a90dw8q"
         response.model = "claude-3-5-sonnet-20241022"
@@ -101,10 +107,9 @@ class TestAnthropicMessageConverter(unittest.TestCase):
 
         self.assertIsInstance(normalized_response, ChatCompletionResponse)
         self.assertEqual(normalized_response.choices[0].finish_reason, "tool_calls")
-        self.assertEqual(
-            normalized_response.usage,
-            {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
-        )
+        self.assertEqual(normalized_response.usage.prompt_tokens, 20)
+        self.assertEqual(normalized_response.usage.completion_tokens, 10)
+        self.assertEqual(normalized_response.usage.total_tokens, 30)
         self.assertEqual(
             normalized_response.choices[0].message.content,
             "<thinking>I need to call the get_weather function</thinking>",
@@ -119,6 +124,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         )
 
     def test_convert_tool_spec(self):
+        """Test converting OpenAI tool specifications to Anthropic format."""
         openai_tools = [
             {
                 "type": "function",
@@ -153,6 +159,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         )
 
     def test_convert_request_with_tool_call_and_result(self):
+        """Test converting a request with a tool call and its result."""
         messages = [
             {
                 "role": "assistant",
@@ -162,41 +169,44 @@ class TestAnthropicMessageConverter(unittest.TestCase):
                         "id": "tool123",
                         "function": {
                             "name": "get_weather",
-                            "arguments": '{"location": "San Francisco"}',
+                            "arguments": '{"location": "Paris"}',
                         },
+                        "type": "function",
                     }
                 ],
             },
-            {"role": "tool", "tool_call_id": "tool123", "content": "65 degrees"},
+            {
+                "role": "tool",
+                "tool_call_id": "tool123",
+                "content": "The weather in Paris is sunny.",
+            },
         ]
         system_message, converted_messages = self.converter.convert_request(messages)
 
         self.assertEqual(system_message, [])
+        self.assertEqual(len(converted_messages), 2)
+        self.assertEqual(converted_messages[0]["role"], "assistant")
+        self.assertEqual(converted_messages[1]["role"], "user")
         self.assertEqual(
-            converted_messages,
+            converted_messages[0]["content"],
+            [
+                {"type": "text", "text": "Let me check the weather."},
+                {
+                    "type": "tool_use",
+                    "id": "tool123",
+                    "name": "get_weather",
+                    "input": {"location": "Paris"},
+                },
+            ],
+        )
+        self.assertEqual(
+            converted_messages[1]["content"],
             [
                 {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "Let me check the weather."},
-                        {
-                            "type": "tool_use",
-                            "id": "tool123",
-                            "name": "get_weather",
-                            "input": {"location": "San Francisco"},
-                        },
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "tool123",
-                            "content": "65 degrees",
-                        }
-                    ],
-                },
+                    "type": "tool_result",
+                    "tool_use_id": "tool123",
+                    "content": "The weather in Paris is sunny.",
+                }
             ],
         )
 

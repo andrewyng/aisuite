@@ -24,6 +24,7 @@ class TestAzureMessageConverter(unittest.TestCase):
         expected_message = {
             "role": "user",
             "content": "Hello",
+            "reasoning_content": None,
             "tool_calls": None,
             "refusal": None,
         }
