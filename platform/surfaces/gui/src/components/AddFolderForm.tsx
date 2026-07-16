@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { isTauri, pickFolder } from "../tauri";
+import { chooseFolder } from "../tauri";
 import { Icon } from "./Icon";
 
 // A single "Give access to a folder" affordance. Collapsed it's one button; expanded it's a path
@@ -32,7 +32,7 @@ export function AddFolderForm({
   };
 
   const browse = async () => {
-    const p = await pickFolder();
+    const p = await chooseFolder();
     if (p) setPath(p);
   };
 
@@ -65,11 +65,9 @@ export function AddFolderForm({
             else if (e.key === "Escape") reset();
           }}
         />
-        {isTauri() && (
-          <button className="btn icon-only" onClick={browse} title="Choose location" aria-label="Choose location">
-            <Icon name="folder" size={15} />
-          </button>
-        )}
+        <button className="btn icon-only" onClick={browse} title="Choose location" aria-label="Choose location">
+          <Icon name="folder" size={15} />
+        </button>
       </div>
       <div className="addfolder-actions">
         <label className="addfolder-write" title="Off = read-only. Tick to let the agent write here.">

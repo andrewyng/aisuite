@@ -38,7 +38,7 @@ DEFAULT_ALLOWED_COMMANDS = [
 
 @dataclass
 class Config:
-    model: str = "gpt-5.5"
+    model: str = "gpt-5.6-sol"
     mode: str = "interactive"
     max_iterations: int = 150
     allowed_commands: list[str] = field(
@@ -49,10 +49,22 @@ class Config:
     auto_allow: list[str] = field(default_factory=list)
     host: str = "127.0.0.1"
     port: int = 8765
-    # Always-on super-agent (inbound messaging): its workspace (default: <state>/superagent).
-    superagent_workspace: Optional[str] = None
     # Web search provider: "duckduckgo" (keyless default) | "tavily" | "brave" (need a key).
     web_search_provider: str = "duckduckgo"
+    # OpenCoworker Cloud (sign-in + managed connectors). Config, never constants:
+    # dev/staging/BYO-VPC deployments point these at their own instances.
+    cloud_base_url: str = "https://api.opencoworker.app"
+    cloud_auth_domain: str = "opencoworker.us.auth0.com"
+    cloud_client_id: str = "g1l4Q1lhYWmyS03qPSf4KEJGrgq02Qam"
+    cloud_audience: str = "https://api.opencoworker.app"
+    # Managed relay WebSocket endpoint (Slack/GitHub inbound). Defaults to the
+    # PRODUCTION relay so a fresh install relays out of the box — an empty
+    # default shipped once as "connected but relay OFF" on every machine
+    # without a hand-edited config.toml. Empty override ⇒ relay disabled
+    # (manual Socket Mode still works); dev/BYO deployments point elsewhere.
+    cloud_relay_ws_url: str = (
+        "wss://l4z1paxb83.execute-api.us-east-1.amazonaws.com/ocw-connect"
+    )
 
 
 _FIELDS = {
@@ -63,8 +75,12 @@ _FIELDS = {
     "auto_allow",
     "host",
     "port",
-    "superagent_workspace",
     "web_search_provider",
+    "cloud_base_url",
+    "cloud_auth_domain",
+    "cloud_client_id",
+    "cloud_audience",
+    "cloud_relay_ws_url",
 }
 
 

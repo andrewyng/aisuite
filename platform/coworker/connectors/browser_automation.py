@@ -48,8 +48,13 @@ def _schema(
 
 
 def _attach(fn: Callable[..., Any], schema: dict[str, Any], *, approval: bool = True):
+    from .tool_defs import approval_for_tool
+
+    name = schema["function"]["name"]
+    # §36: the tool registry's read/write kind wins for registered tools — reads never gate.
+    approval = approval_for_tool(name, default=approval)
     fn.__coworker_schema__ = schema
-    fn.__aisuite_tool_metadata__ = _meta(schema["function"]["name"], approval=approval)
+    fn.__aisuite_tool_metadata__ = _meta(name, approval=approval)
     fn.__doc__ = schema["function"]["description"]
     return fn
 

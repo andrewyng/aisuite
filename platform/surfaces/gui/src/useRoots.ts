@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { addRoot, getRoots, removeRoot, type RootInfo } from "./api";
 
-// Shared roots state for a session — used by the composer chip (RootsBar) and the session start
-// panel. Reads are live; mutations go through the manager, which applies them to the running
-// engine and persists them. `reloadKey` bumps force a refetch (e.g. when a popover reopens).
+// Shared roots state for a session — used by the Session settings drawer's Working-directories
+// section, the settings row's folder glance, and the session start panel. Reads are live;
+// mutations go through the manager, which applies them to the running engine and persists them.
+// `reloadKey` bumps force a refetch (e.g. when the drawer reopens).
 export function useRoots(sessionId: string, reloadKey?: number) {
   const [roots, setRoots] = useState<RootInfo[]>([]);
   const [busy, setBusy] = useState(false);

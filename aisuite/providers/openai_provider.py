@@ -30,6 +30,8 @@ class OpenaiProvider(Provider):
 
         # Pass the entire config to the OpenAI client constructor
         self.client = openai.OpenAI(**config)
+        # Async client shares the same config for true non-blocking I/O.
+        self.aclient = openai.AsyncOpenAI(**config)
         self.transformer = OpenAICompliantMessageConverter()
 
         # Initialize audio functionality
@@ -49,6 +51,48 @@ class OpenaiProvider(Provider):
             return response
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
+
+    async def achat_completions_create(self, model, messages, **kwargs):
+        # Native async path via openai.AsyncOpenAI.
+        try:
+            transformed_messages = self.transformer.convert_request(messages)
+            response = await self.aclient.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                **kwargs,  # Pass any additional arguments to the OpenAI API
+            )
+            return response
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")
+
+    def chat_completions_create_stream(self, model, messages, **kwargs):
+        # OpenAI's own chunks already have the unified shape — pass them through.
+        try:
+            transformed_messages = self.transformer.convert_request(messages)
+            stream = self.client.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                stream=True,
+                **kwargs,
+            )
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")
+        yield from stream
+
+    async def achat_completions_create_stream(self, model, messages, **kwargs):
+        # Native async streaming via openai.AsyncOpenAI.
+        try:
+            transformed_messages = self.transformer.convert_request(messages)
+            stream = await self.aclient.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                stream=True,
+                **kwargs,
+            )
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")
+        async for chunk in stream:
+            yield chunk
 
 
 # Audio Classes

@@ -10,6 +10,15 @@ from .base import ModelCapabilities
 
 
 def capabilities_for(model: str) -> ModelCapabilities:
+    # Curated models answer from the matrix (exact full-id match — including reseller ids
+    # like `together:zai-org/GLM-5.2`, whose names defeat the prefix heuristics below).
+    # Custom user-added models fall through to the heuristics, at their own risk.
+    from .matrix import entry_for
+
+    entry = entry_for(model)
+    if entry is not None:
+        return entry.caps
+
     provider = model.split(":", 1)[0].lower() if ":" in model else ""
     name = model.split(":", 1)[-1].lower()  # strip a provider prefix if present
 
@@ -40,7 +49,12 @@ def capabilities_for(model: str) -> ModelCapabilities:
             tools=True, vision=False, parallel_tool_calls=False, streaming=True
         )
 
-    if name.startswith("deepseek"):
+    # OpenAI-compatible vendors (DeepSeek, Z AI/GLM, Kimi, MiniMax, Qwen, xAI/Grok, Mistral):
+    # tool calling + streaming across their current lineups; vision left off until probed
+    # per-model (several have vision variants, but the text flagships are what we suggest).
+    if name.startswith(
+        ("deepseek", "glm", "kimi", "minimax", "qwen", "grok", "mistral", "magistral")
+    ):
         return ModelCapabilities(
             tools=True, vision=False, parallel_tool_calls=True, streaming=True
         )

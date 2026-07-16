@@ -17,6 +17,47 @@ def _now() -> float:
     return time.time()
 
 
+# -- standing scoped approvals (UX-DECISIONS §25) --------------------------------
+# An `always_allowed_tools` entry is either a bare tool name (legacy, allows the tool
+# against any argument) or "tool target" — one space, tool names never contain spaces —
+# binding the allowance to one exact target (channel address, recipient, …). Rules live
+# on the task record so revocation is per-automation and deletion takes them along.
+
+
+def rule_entry(tool: str, target: Optional[str] = None) -> str:
+    return f"{tool} {target}" if target else tool
+
+
+def rule_parts(entry: str) -> tuple[str, Optional[str]]:
+    tool, _, target = entry.strip().partition(" ")
+    return tool, (target.strip() or None)
+
+
+def grant_entries(permissions: Any) -> list[str]:
+    """Validate a proposed `permissions` list (from the create-tool schema or the GUI
+    create payload) down to the entries actually grantable. Only `access: "write"` items
+    become grants; the tool must declare a target argument (which excludes exec/destructive
+    tools by construction) and the target must be non-empty. Reads are disclosure-only —
+    rendered on the consent card, never stored. Anything else is dropped, fail-closed.
+    """
+    from ..connectors.tool_defs import target_arg_for
+
+    entries: list[str] = []
+    for item in permissions or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("access", "")).lower() != "write":
+            continue
+        tool = str(item.get("tool", "")).strip()
+        target = str(item.get("target", "")).strip()
+        if not tool or not target or target_arg_for(tool) is None:
+            continue
+        entry = rule_entry(tool, target)
+        if entry not in entries:
+            entries.append(entry)
+    return entries
+
+
 def _human_time(hour: int, minute: int) -> str:
     ampm = "AM" if hour < 12 else "PM"
     h12 = hour % 12 or 12
@@ -110,6 +151,38 @@ class ScheduledTask:
         d["schedule"] = Schedule.from_dict(d.get("schedule") or {})
         return cls(**d)
 
+    # -- standing rules (§25) --------------------------------------------------
+    def standing_rules(self) -> dict[str, set[str]]:
+        """Target-bound entries as {tool: {targets}} — the shape the permission engine
+        matches against the declared target argument."""
+        out: dict[str, set[str]] = {}
+        for entry in self.always_allowed_tools:
+            tool, target = rule_parts(entry)
+            if tool and target:
+                out.setdefault(tool, set()).add(target)
+        return out
+
+    def name_allowed_tools(self) -> set[str]:
+        """Legacy name-only entries (no target binding) — back-compatible behavior."""
+        return {
+            tool
+            for tool, target in map(rule_parts, self.always_allowed_tools)
+            if tool and target is None
+        }
+
+    def add_rule(self, tool: str, target: str) -> bool:
+        entry = rule_entry(tool, target)
+        if not tool or not target or entry in self.always_allowed_tools:
+            return False
+        self.always_allowed_tools.append(entry)
+        return True
+
+    def revoke_rule(self, entry: str) -> bool:
+        if entry in self.always_allowed_tools:
+            self.always_allowed_tools.remove(entry)
+            return True
+        return False
+
     def public(self) -> dict[str, Any]:
         """Status shape for the API/UI (no instructions truncation; never any secret)."""
         return {
@@ -126,7 +199,13 @@ class ScheduledTask:
             "last_status": self.last_status,
             "run_count": self.run_count,
             "notify_on_completion": self.notify_on_completion,
-            "always_allowed": sorted(set(self.always_allowed_tools)),
+            # Structured for the task page's revoke list; `entry` is the revoke handle.
+            "always_allowed": [
+                {"entry": e, "tool": t, "target": tg}
+                for e, (t, tg) in (
+                    (e, rule_parts(e)) for e in sorted(set(self.always_allowed_tools))
+                )
+            ],
         }
 
 

@@ -21,6 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
+from .providers.errors import friendly_model_error
 from .tools import ToolRegistry
 
 
@@ -37,6 +38,7 @@ class PermissionRequest:
     arguments: dict[str, Any]
     metadata: Any
     reason: str
+    tool_call_id: Optional[str] = None  # for durable resume (idempotent inbox item)
 
 
 Approver = Callable[[PermissionRequest], Awaitable[ApprovalOutcome]]
@@ -67,6 +69,9 @@ class TurnEngine:
         plan_approver: Optional[
             Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
         ] = None,
+        question_asker: Optional[
+            Callable[[dict[str, Any]], "Awaitable[dict[str, Any]]"]
+        ] = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -90,28 +95,96 @@ class TurnEngine:
         # An approving result flips the live PermissionEngine out of plan mode (same session,
         # context kept). None on surfaces that can't prompt (the tool then no-ops).
         self.plan_approver = plan_approver
+        # Handles the `ask_user` tool: turns a question into an Inbox item and waits for the answer
+        # (answerable inline in a live session or from the Inbox when unattended). None on surfaces
+        # that can't ask (the tool then no-ops).
+        self.question_asker = question_asker
         self.audit_context: dict[str, Any] = {}
         if instructions and not (
             self.messages and self.messages[0].get("role") == "system"
         ):
             self.messages.insert(0, {"role": "system", "content": instructions})
         self._cancel = asyncio.Event()
-        self._steering: list[str] = []
+        # Each pending steering message: (text, optional MessageSource sidecar dict).
+        self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
+        # tool_call.id → the standing rule that auto-allowed it ("tool → target"), so the
+        # TOOL_FINISHED event can carry the note to the tool card (§25).
+        self._standing_notes: dict[str, str] = {}
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
         self._cancel.set()
 
-    def queue_steering(self, text: str) -> None:
-        self._steering.append(text)
+    def queue_steering(
+        self, text: str, source: Optional[dict[str, Any]] = None
+    ) -> None:
+        self._steering.append((text, source))
 
     # -- main loop --------------------------------------------------------------
-    async def run(self, user_input: "str | list") -> AsyncIterator[Event]:
+    async def run(
+        self, user_input: "str | list", *, source: Optional[dict[str, Any]] = None
+    ) -> AsyncIterator[Event]:
         # `user_input` is a string, or OpenAI content-parts (text + image_url) for attachments.
-        self.messages.append({"role": "user", "content": user_input})
+        # `source` (a MessageSource dict) is a display-only sidecar for connector messages: it
+        # rides on the persisted user message + the TURN_START event, but is stripped before the
+        # message reaches a provider (see `_outbound_messages`). `content` stays the framed text.
+        message: dict[str, Any] = {"role": "user", "content": user_input}
+        if source is not None:
+            message["source"] = source
+        self.messages.append(message)
         self._cancel.clear()
-        yield Event(EventType.TURN_START, {"input": user_input})
+        data: dict[str, Any] = {"input": user_input}
+        if source is not None:
+            data["source"] = source
+        yield Event(EventType.TURN_START, data)
+        async for event in self._loop():
+            yield event
 
+    async def resume(self) -> AsyncIterator[Event]:
+        """Continue a turn that was suspended at a prompt and persisted — durable resume after a
+        restart (or engine eviction). Re-process the trailing assistant message's UNANSWERED
+        tool-calls (the prompt callbacks find the already-resolved Inbox item and return without
+        re-prompting; answered calls are skipped, so nothing double-executes), then run the model
+        loop to finish the turn."""
+        pending = self._unanswered_trailing_tool_calls()
+        if not pending:
+            return
+        self._cancel.clear()
+        yield Event(EventType.TURN_START, {"input": "(resumed)"})
+        async for event in self._handle_tool_calls(pending):
+            yield event
+        yield Event(EventType.ITERATION_END, {"iteration": 0})
+        if not self._cancel.is_set():
+            async for event in self._loop():
+                yield event
+
+    def _unanswered_trailing_tool_calls(self) -> list[ToolCall]:
+        """The tool-calls of the last assistant message that don't yet have a tool result —
+        i.e. the prompt we suspended on (+ any after it). Reconstructed from the persisted thread.
+        """
+        answered = {
+            m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"
+        }
+        for msg in reversed(self.messages):
+            if msg.get("role") == "user":
+                return []
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                out: list[ToolCall] = []
+                for tc in msg["tool_calls"]:
+                    if tc.get("id") in answered:
+                        continue
+                    fn = tc.get("function") or {}
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except Exception:
+                        args = {}
+                    out.append(
+                        ToolCall(id=tc.get("id"), name=fn.get("name"), arguments=args)
+                    )
+                return out
+        return []
+
+    async def _loop(self) -> AsyncIterator[Event]:
         iterations = 0
         while True:
             if iterations >= self.max_iterations:
@@ -132,10 +205,14 @@ class TurnEngine:
                     if chunk.turn is not None:
                         turn = chunk.turn
             except Exception as exc:  # provider failure
-                yield Event(
-                    EventType.ERROR,
-                    {"error": str(exc), "error_type": type(exc).__name__},
-                )
+                friendly = friendly_model_error(self.model, exc)
+                payload = {
+                    "error": friendly or str(exc),
+                    "error_type": type(exc).__name__,
+                }
+                if friendly:
+                    payload["raw"] = str(exc)
+                yield Event(EventType.ERROR, payload)
                 return
             if turn is None:
                 turn = AssistantTurn()
@@ -226,6 +303,10 @@ class TurnEngine:
                 async for event in self._handle_plan_proposal(tool_call):
                     yield event
                 continue
+            if tool_call.name == "ask_user":
+                async for event in self._handle_ask_user(tool_call):
+                    yield event
+                continue
             allowed = False
             async for item in self._authorize(tool_call):
                 if isinstance(item, Event):
@@ -271,6 +352,8 @@ class TurnEngine:
         """Permission flow for one call (TOOL_PROPOSED is emitted by the caller). Yields
         its events, then True/False (allowed) last. Denied/unknown calls get their
         tool-error message appended here."""
+        from .permissions import standing_rule_candidate
+
         spec = self.registry.get(tool_call.name)
         metadata = spec.metadata if spec else None
 
@@ -280,6 +363,15 @@ class TurnEngine:
         allowed = decision.allowed
         reason = decision.reason
 
+        if allowed and decision.rule:
+            # A task-scoped standing rule auto-allowed this call: audit the exact rule
+            # (§25 invariant — every auto-allowed call cites its rule) and remember it so
+            # the tool card can say "allowed by standing rule".
+            self._standing_notes[tool_call.id] = decision.rule
+            self._audit(
+                tool_call, stage="auto_allowed", status="allowed", reason=reason
+            )
+
         if not allowed and decision.needs_user:
             yield Event(
                 EventType.PERMISSION_REQUIRED,
@@ -288,6 +380,15 @@ class TurnEngine:
                     "arguments": tool_call.arguments,
                     "reason": decision.reason,
                     "category": getattr(metadata, "category", ""),
+                    # The exact target a standing rule could pin, or None when the call
+                    # isn't eligible (no declared target arg / exec risk). Surfaces use it
+                    # to offer "Allow every time" on automation-run approval cards only.
+                    "standing_target": standing_rule_candidate(
+                        tool_call.name,
+                        tool_call.arguments,
+                        metadata,
+                        self.permissions.risk_overrides,
+                    ),
                 },
             )
             self._audit(tool_call, stage="approval_requested", reason=decision.reason)
@@ -297,6 +398,7 @@ class TurnEngine:
                     arguments=tool_call.arguments,
                     metadata=metadata,
                     reason=decision.reason,
+                    tool_call_id=tool_call.id,
                 )
             )
             if outcome is ApprovalOutcome.DENY:
@@ -357,7 +459,34 @@ class TurnEngine:
             return {"error": str(exc), "error_type": type(exc).__name__}, "error"
 
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
-        self.messages.append(_tool_result_message(tool_call, result))
+        # A `_display` key on a tool result is user-facing metadata the AGENT must
+        # never see (e.g. how many gmail hits the privacy filters hid — a count
+        # the model could probe around). Lift it onto the message as a sidecar
+        # (like `source`), stripped from every provider feed in
+        # `_outbound_messages` but persisted for the GUI's tool card.
+        display: Optional[dict[str, Any]] = None
+        if isinstance(result, dict) and "_display" in result:
+            display = result.get("_display") or None
+            result = {k: v for k, v in result.items() if k != "_display"}
+        message = _tool_result_message(tool_call, result)
+        if display:
+            message["_display"] = display
+        self.messages.append(message)
+        hidden = int((display or {}).get("hidden_by_filters") or 0)
+        stripped = int((display or {}).get("hidden_fields") or 0)
+        if hidden or stripped:
+            # The out-of-band trace the user CAN see: rule class + count, never content.
+            parts = []
+            if hidden:
+                parts.append(f"{hidden} result(s) hidden")
+            if stripped:
+                parts.append(f"{stripped} field value(s) stripped")
+            self._audit(
+                tool_call,
+                stage="filtered",
+                status="hidden",
+                reason=" · ".join(parts) + " by privacy filters",
+            )
         self._audit(
             tool_call,
             stage="finished",
@@ -365,12 +494,15 @@ class TurnEngine:
             result=result,
             result_preview=_preview(result),
         )
+        rule = self._standing_notes.pop(tool_call.id, "")
         return Event(
             EventType.TOOL_FINISHED,
             {
                 "name": tool_call.name,
                 "status": status,
                 "result_preview": _preview(result),
+                **({"display": display} if display else {}),
+                **({"standing_rule": rule} if rule else {}),
             },
         )
 
@@ -416,7 +548,7 @@ class TurnEngine:
         else:
             yield Event(EventType.PLAN_PROPOSED, {"plan": plan})
             self._audit(tool_call, stage="plan_proposed")
-            result = await self.plan_approver(dict(args)) or {
+            result = await self.plan_approver(dict(args), tool_call.id) or {
                 "approved": False,
                 "error": "no response",
             }
@@ -477,7 +609,7 @@ class TurnEngine:
                 stage="directory_requested",
                 reason=str(args.get("reason", "")),
             )
-            result = await self.directory_requester(dict(args)) or {
+            result = await self.directory_requester(dict(args), tool_call.id) or {
                 "granted": False,
                 "error": "no response",
             }
@@ -500,23 +632,82 @@ class TurnEngine:
             },
         )
 
+    async def _handle_ask_user(self, tool_call: ToolCall) -> AsyncIterator[Event]:
+        """Emit the question, await the user's out-of-band answer (inline in the live session or
+        from the Inbox when unattended), and return it as the tool result."""
+        args = tool_call.arguments or {}
+        question = str(args.get("question", "")).strip()
+        if self.question_asker is None or not question:
+            result: dict[str, Any] = {
+                "answer": "",
+                "error": (
+                    "no question was asked"
+                    if not question
+                    else "asking isn't available here"
+                ),
+            }
+        else:
+            # The asker is mode-aware (attended → live inline prompt; unattended → Inbox), so it
+            # owns surfacing the question. The engine just awaits the answer.
+            self._audit(tool_call, stage="question_requested", reason=question)
+            result = await self.question_asker(dict(args), tool_call.id) or {
+                "answer": "",
+                "error": "no response",
+            }
+
+        status = "ok" if result.get("answer") else "denied"
+        self.messages.append(_tool_result_message(tool_call, result))
+        self._audit(
+            tool_call,
+            stage="finished",
+            status=status,
+            result=result,
+            result_preview=_preview(result),
+        )
+        yield Event(
+            EventType.TOOL_FINISHED,
+            {
+                "name": tool_call.name,
+                "status": status,
+                "result_preview": _preview(result),
+            },
+        )
+
     def _inject_steering(self) -> None:
-        for text in self._steering:
-            self.messages.append({"role": "user", "content": text})
+        for text, source in self._steering:
+            message: dict[str, Any] = {"role": "user", "content": text}
+            if source is not None:
+                message["source"] = source
+            self.messages.append(message)
         self._steering = []
 
     def _outbound_messages(self) -> list[dict[str, Any]]:
-        """`self.messages` with an ephemeral `<system-context>` block appended to the last user
-        message. Returns the list unchanged when there's no context provider or it yields "".
-        Never mutates `self.messages`, so the block is sent but never persisted/replayed.
+        """`self.messages` prepared for the provider. The SOLE provider feed (see `_astream`).
+
+        Every message is stripped of the display-only sidecars — `source` and `_display` —
+        (providers reject unknown keys), unconditionally — whether or not a `<system-context>`
+        block is added. When a context
+        provider yields a non-empty string, an ephemeral `<system-context>` block is appended to the
+        last user message. Never mutates `self.messages`, so neither the strip nor the block is
+        persisted/replayed.
         """
-        if self.context_provider is None:
-            return self.messages
-        context = self.context_provider() or ""
+        # Strip the display-only sidecars — `source` (connector cards) and `_display`
+        # (e.g. filter-hidden counts) — copying only messages that carry one.
+        _SIDECARS = ("source", "_display")
+        out = [
+            (
+                {k: v for k, v in msg.items() if k not in _SIDECARS}
+                if any(s in msg for s in _SIDECARS)
+                else msg
+            )
+            for msg in self.messages
+        ]
+        context = (
+            self.context_provider() if self.context_provider is not None else ""
+        ) or ""
         if not context:
-            return self.messages
+            return out
         block = f"\n\n<system-context>\n{context}\n</system-context>"
-        out = list(self.messages)
         for i in range(len(out) - 1, -1, -1):
             if out[i].get("role") != "user":
                 continue

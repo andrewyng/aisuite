@@ -101,6 +101,35 @@ def test_default_model_and_onboarding_persist(tmp_path, monkeypatch):
     assert s["onboarded"] is True and s["model"] == "gpt-4o"
 
 
+def test_nav_layout_setting_roundtrips(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from coworker.server.app import create_app
+    from coworker.server.manager import SessionManager
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    data_dir = tmp_path / "data"
+    client = TestClient(create_app(SessionManager(data_dir=data_dir)))
+
+    # defaults to "flat"
+    assert client.get("/v1/settings").json()["nav_layout"] == "flat"
+
+    resp = client.post("/v1/settings/nav-layout", json={"nav_layout": "grouped"}).json()
+    assert resp == {"ok": True, "nav_layout": "grouped"}
+    assert client.get("/v1/settings").json()["nav_layout"] == "grouped"
+
+    # unknown value falls back to flat; persists across a restart
+    assert (
+        client.post("/v1/settings/nav-layout", json={"nav_layout": "bogus"}).json()[
+            "nav_layout"
+        ]
+        == "flat"
+    )
+    client.post("/v1/settings/nav-layout", json={"nav_layout": "grouped"})
+    reborn = SessionManager(data_dir=data_dir)
+    assert reborn.get_settings()["nav_layout"] == "grouped"
+
+
 def test_scratch_base_setting_persists_and_drives_provisioning(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 

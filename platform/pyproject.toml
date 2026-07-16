@@ -17,9 +17,11 @@ dependencies = [
     # aisuite (toolkits/tracing) is sourced from this worktree via a .pth in the venv,
     # not PyPI; these are aisuite's light base deps the toolkits need.
     "docstring_parser",
+    "pyyaml>=6",  # persona manifest frontmatter (YAML)
     "pydantic>=2",
     "mcp>=1.1",  # MCP client (stdio + streamable-http); we use our own async layer on it
     "httpx>=0.27",  # sync outbound senders for messaging connectors (send_message tool)
+    "websockets>=13",  # managed Slack relay client transport (relay_client.py)
     "ddgs>=9",  # keyless default web-search provider (DuckDuckGo); Tavily/Brave use httpx
     "croniter>=2",  # cron next-fire math for the automation scheduler
     # IANA tz database for zoneinfo. Windows ships no system tz db, so without this every
@@ -30,7 +32,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio", "httpx"]
 # Inbound messaging listeners (outbound send_message needs only httpx, already a core dep).
-messaging = ["python-telegram-bot>=21", "slack-bolt>=1.18"]
+# aiohttp is slack-bolt's Socket Mode transport at runtime (and the FakeSlack test harness
+# drives the real handler) — declare it so CI installs it, not just transitively.
+messaging = ["python-telegram-bot>=21", "slack-bolt>=1.18", "aiohttp>=3.9"]
 # Interactive Cowork browser automation.
 browser = ["playwright>=1.44"]
 
@@ -42,6 +46,9 @@ coworker-connectors = "coworker.connectors.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["coworker*"]
+
+[tool.setuptools.package-data]
+coworker = ["personas/builtin/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -20,7 +20,7 @@ import aisuite as ai
 from ..secrets import SecretStore
 from .browser_automation import make_browser_automation_tools
 from .email_tools import make_email_tools
-from .tool_defs import connector_for_tool
+from .tool_defs import approval_for_tool, connector_for_tool
 
 
 def _meta(
@@ -59,10 +59,13 @@ def _attach(
     approval: bool = True,
     caps: Optional[list[str]] = None,
 ):
+    name = schema["function"]["name"]
+    # §36: the tool registry's read/write kind overrides the call-site flag for
+    # registered tools — connector READS never gate. The explicit arg only governs
+    # tools without a registry entry.
+    approval = approval_for_tool(name, default=approval)
     fn.__coworker_schema__ = schema
-    fn.__aisuite_tool_metadata__ = _meta(
-        schema["function"]["name"], approval=approval, capabilities=caps
-    )
+    fn.__aisuite_tool_metadata__ = _meta(name, approval=approval, capabilities=caps)
     fn.__doc__ = schema["function"]["description"]
     return fn
 
@@ -71,10 +74,233 @@ def _profile(
     secrets: SecretStore, name: str, *keys: str
 ) -> tuple[Optional[dict[str, Any]], Optional[dict[str, str]]]:
     profile = secrets.get(f"{name}:default") or {}
+    if profile.get("managed"):
+        # Managed-OAuth profiles renew through the cloud broker just before
+        # expiry; manual token profiles are never touched (no-op inside).
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), name)
+        profile = secrets.get(f"{name}:default") or {}
     missing = [k for k in keys if not profile.get(k)]
     if missing:
         return None, {"error": f"{name} is not connected; missing {', '.join(missing)}"}
     return profile, None
+
+
+def _account_profile(
+    secrets: SecretStore, connector: str, account: str = "", *keys: str
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
+    """(account_id, profile, err) for an account-patterned connector (generic
+    accounts.py layer): requested — or default — account, managed tokens
+    refreshed in place. The gmail/gcal/hubspot bespoke helpers predate this."""
+    from . import accounts as _accounts
+
+    account_id, key, profile = _accounts.resolve(secrets, connector, account)
+    if profile is None:
+        hint = (
+            f"no {connector} account matching {account!r}"
+            if account
+            else f"{connector} is not connected"
+        )
+        return "", None, {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), connector, profile_key=key)
+        profile = secrets.get(key) or profile
+    missing = [k for k in keys if not profile.get(k)]
+    if missing:
+        return (
+            account_id,
+            None,
+            {"error": f"{connector} is not connected; missing {', '.join(missing)}"},
+        )
+    return account_id, profile, None
+
+
+def _acct_result(account_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Stamp which account served a tool call — approvals and transcripts must
+    name the account once more than one is connected."""
+    if isinstance(result, dict) and account_id:
+        return {"account": account_id, **result}
+    return result
+
+
+_GEN_ACCOUNT_PROP = {
+    "type": "string",
+    "description": "Which connected account to use (default account when empty)",
+}
+
+
+def _gmail_profile(
+    secrets: SecretStore, account: str = ""
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
+    """(email, profile, err) for the requested — or default — mailbox, with the
+    managed token refreshed in place. Multi-account: `gmail:account:<email>`."""
+    from . import gmail_accounts
+
+    email, key, profile = gmail_accounts.resolve(secrets, account)
+    if profile is None:
+        hint = (
+            f"no gmail account matching {account!r}"
+            if account
+            else "gmail is not connected"
+        )
+        return "", None, {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), "gmail", profile_key=key)
+        profile = secrets.get(key) or profile
+    if not profile.get("access_token"):
+        return "", None, {"error": f"gmail account {email} has no usable token"}
+    return email, profile, None
+
+
+def _gcal_profile(
+    secrets: SecretStore, account: str = ""
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
+    """(email, profile, err) for the requested — or default — Google account,
+    with the managed token refreshed in place. Multi-account:
+    `google_calendar:account:<email>`."""
+    from . import gcal_accounts
+
+    email, key, profile = gcal_accounts.resolve(secrets, account)
+    if profile is None:
+        hint = (
+            f"no google calendar account matching {account!r}"
+            if account
+            else "google calendar is not connected"
+        )
+        return "", None, {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(
+            secrets, load_config(), "google_calendar", profile_key=key
+        )
+        profile = secrets.get(key) or profile
+    if not profile.get("access_token"):
+        return (
+            "",
+            None,
+            {"error": f"google calendar account {email} has no usable token"},
+        )
+    return email, profile, None
+
+
+# HubSpot-defined association type ids: note → object (v4 default associations).
+_HS_NOTE_ASSOC = {"contacts": 202, "companies": 190, "deals": 214, "tickets": 228}
+
+
+def _now_ms() -> int:
+    from time import time
+
+    return int(time() * 1000)
+
+
+def _hubspot_profile(
+    secrets: SecretStore, portal: str = ""
+) -> tuple[str, str, Optional[dict[str, str]]]:
+    """(portal name, bearer token, err) for the requested — or default — portal,
+    with a managed token refreshed in place. Multi-portal: `hubspot:portal:<id>`."""
+    from . import hubspot_portals
+
+    hub_id, key, profile = hubspot_portals.resolve(secrets, portal)
+    if profile is None:
+        hint = (
+            f"no hubspot portal matching {portal!r}"
+            if portal
+            else "hubspot is not connected"
+        )
+        return "", "", {"error": hint}
+    if profile.get("managed"):
+        from ..cloud import ensure_fresh_connector_token
+        from ..config import load_config
+
+        ensure_fresh_connector_token(secrets, load_config(), "hubspot", profile_key=key)
+        profile = secrets.get(key) or profile
+    # Manual private-app profiles carry `token`; managed OAuth carries
+    # `access_token` (which is what the broker refresh rotates).
+    token = profile.get("token") or profile.get("access_token") or ""
+    if not token:
+        return "", "", {"error": f"hubspot portal {hub_id} has no usable token"}
+    name = str(profile.get("account") or f"portal {hub_id}")
+    return name, token, None
+
+
+def _hubspot_result(secrets: SecretStore, portal_name: str, result: dict) -> dict:
+    """Post-process a CRM read: strip denylisted fields (model-facing policy)
+    and name the portal so transcripts/approvals say where data came from.
+    Stripped-value counts ride `_display` → audit; agents see nothing."""
+    from . import hubspot_portals
+
+    if not result.get("ok"):
+        return result
+    hidden = hubspot_portals.get_hidden_fields(secrets)
+    data, removed = hubspot_portals.strip_hidden(result.get("data"), hidden)
+    out = {**result, "data": data, "portal": portal_name}
+    if removed:
+        out["_display"] = {"hidden_fields": removed, "connector": "hubspot"}
+    return out
+
+
+# --- "Never show agents" enforcement (desktop tool layer, silent to agents) ----
+
+
+def _gmail_filters(secrets: SecretStore) -> Optional[dict[str, list[str]]]:
+    from . import gmail_accounts
+
+    f = gmail_accounts.get_filters(secrets)
+    return f if (f["senders"] or f["labels"]) else None
+
+
+def _gmail_from_address(message: dict[str, Any]) -> str:
+    from email.utils import parseaddr
+
+    for h in (message.get("payload") or {}).get("headers") or []:
+        if str(h.get("name", "")).lower() == "from":
+            return parseaddr(str(h.get("value") or ""))[1]
+    return ""
+
+
+def _gmail_label_map(token: str) -> dict[str, str]:
+    """Label id → name for the mailbox (names are what the user filters on)."""
+    resp = _request(
+        "GET",
+        "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        headers=_google_headers(token),
+    )
+    if not resp.get("ok"):
+        return {}
+    labels = (resp.get("data") or {}).get("labels") or []
+    return {str(l.get("id") or ""): str(l.get("name") or "") for l in labels}
+
+
+def _gmail_is_hidden(
+    message: dict[str, Any],
+    filters: dict[str, list[str]],
+    label_map: dict[str, str],
+) -> bool:
+    from .gmail_accounts import sender_matches
+
+    if filters["senders"] and sender_matches(
+        _gmail_from_address(message), filters["senders"]
+    ):
+        return True
+    if filters["labels"]:
+        wanted = {name.lower() for name in filters["labels"]}
+        for lid in message.get("labelIds") or []:
+            if (
+                label_map.get(str(lid), "").lower() in wanted
+                or str(lid).lower() in wanted
+            ):
+                return True
+    return False
 
 
 def _request(
@@ -134,6 +360,109 @@ def _github_headers(token: str) -> dict[str, str]:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+def _github_base() -> str:
+    import os
+
+    return os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+
+
+def _github_auth(
+    secrets: SecretStore, install: str = "", *, force: bool = False
+) -> tuple[Optional[dict[str, str]], Optional[dict[str, str]]]:
+    """(headers, err). A manual PAT (`github:default.token`) wins, untouched;
+    a managed relay profile mints a short-lived installation token instead —
+    memory-cached, never stored (github-relay-spec §4). `install` picks the
+    installation by account login (pass the repo owner) or id; unknown values
+    fall back to the default installation."""
+    profile = secrets.get("github:default") or {}
+    if profile.get("token"):
+        return _github_headers(profile["token"]), None
+    if profile.get("mode") == "relay":
+        from ..cloud import github_installation_token
+        from ..config import load_config
+        from . import github_installs
+
+        installation_id, _prof = github_installs.resolve(secrets, install)
+        if not installation_id and install:
+            installation_id, _prof = github_installs.resolve(secrets, "")
+        if not installation_id:
+            return None, {"error": "github is not connected; no App installation"}
+        token = github_installation_token(
+            secrets, load_config(), installation_id, force=force
+        )
+        if not token:
+            return None, {
+                "error": "github installation token unavailable "
+                "(sign in to OpenCoworker Cloud and retry)"
+            }
+        return _github_headers(token), None
+    return None, {"error": "github is not connected; missing token"}
+
+
+def _github_git_auth_args(secrets: SecretStore, owner: str) -> list[str]:
+    """Per-invocation git auth: the token rides an HTTP header on the command
+    line only — it must NEVER land in .git/config or a credential store (the
+    no-token-at-rest rule; github-relay-spec §4). Empty for the tokenless case
+    (public repos clone fine without auth)."""
+    import base64
+
+    headers, err = _github_auth(secrets, owner)
+    if err:
+        return ["-c", "credential.helper="]
+    token = headers["Authorization"].split(" ", 1)[1]
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return [
+        "-c",
+        f"http.extraHeader=AUTHORIZATION: basic {basic}",
+        "-c",
+        "credential.helper=",
+    ]
+
+
+def _run_git(
+    args: list[str], *, cwd: Any = None, timeout: int = 600
+) -> tuple[str, str]:
+    """(stdout, error). Never raises; the error string is capped and carries no
+    auth material (git never echoes header values)."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
+    except FileNotFoundError:
+        return "", "git is not installed"
+    except subprocess.TimeoutExpired:
+        return "", "git timed out"
+    if proc.returncode != 0:
+        return "", (proc.stderr or proc.stdout).strip()[-500:]
+    return proc.stdout.strip(), ""
+
+
+def _github_git_base() -> str:
+    import os
+
+    return os.environ.get("GITHUB_GIT_URL", "https://github.com").rstrip("/")
+
+
+def _github_call(
+    secrets: SecretStore, method: str, path: str, *, install: str = "", **kw: Any
+) -> dict[str, Any]:
+    """A GitHub API call that works on either auth path. A 401 on the managed
+    path re-mints once (the cached installation token may have just expired)."""
+    headers, err = _github_auth(secrets, install)
+    if err:
+        return err
+    out = _request(method, _github_base() + path, headers=headers, **kw)
+    managed = not (secrets.get("github:default") or {}).get("token")
+    if managed and out.get("error") == "HTTP 401":
+        headers, err = _github_auth(secrets, install, force=True)
+        if err:
+            return out
+        out = _request(method, _github_base() + path, headers=headers, **kw)
+    return out
 
 
 def _google_headers(token: str) -> dict[str, str]:
@@ -228,14 +557,11 @@ def make_integration_tools(
     def github_search(
         query: str, search_type: str = "issues", max_results: int = 10
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "github", "token")
-        if err:
-            return err
         kind = "repositories" if search_type == "repositories" else "issues"
-        out = _request(
+        out = _github_call(
+            secrets,
             "GET",
-            f"https://api.github.com/search/{kind}",
-            headers=_github_headers(profile["token"]),
+            f"/search/{kind}",
             params={"q": query, "per_page": max(1, min(int(max_results or 10), 20))},
         )
         if "error" in out:
@@ -262,13 +588,11 @@ def make_integration_tools(
     )
 
     def github_get_issue(owner: str, repo: str, issue_number: int) -> dict[str, Any]:
-        profile, err = _profile(secrets, "github", "token")
-        if err:
-            return err
-        return _request(
+        return _github_call(
+            secrets,
             "GET",
-            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}",
-            headers=_github_headers(profile["token"]),
+            f"/repos/{owner}/{repo}/issues/{issue_number}",
+            install=owner,
         )
 
     github_get_issue.__name__ = "github_get_issue"
@@ -292,13 +616,11 @@ def make_integration_tools(
     def github_create_issue(
         owner: str, repo: str, title: str, body: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "github", "token")
-        if err:
-            return err
-        return _request(
+        return _github_call(
+            secrets,
             "POST",
-            f"https://api.github.com/repos/{owner}/{repo}/issues",
-            headers=_github_headers(profile["token"]),
+            f"/repos/{owner}/{repo}/issues",
+            install=owner,
             json={"title": title, "body": body},
         )
 
@@ -322,124 +644,305 @@ def make_integration_tools(
         )
     )
 
-    def notion_search(query: str, max_results: int = 10) -> dict[str, Any]:
-        profile, err = _profile(secrets, "notion", "token")
-        if err:
-            return err
-        out = _request(
+    # Wave-1 relay write tools (github-relay-spec §8). The write ceiling is
+    # enforced by what exists here: comments, reviews, issues — no push,
+    # branch-delete, or repo-settings tools on any auth path.
+    def github_reply(owner: str, repo: str, number: int, body: str) -> dict[str, Any]:
+        return _github_call(
+            secrets,
             "POST",
-            "https://api.notion.com/v1/search",
-            headers={
-                "Authorization": f"Bearer {profile['token']}",
-                "Notion-Version": "2022-06-28",
-            },
-            json={"query": query, "page_size": max(1, min(int(max_results or 10), 20))},
+            f"/repos/{owner}/{repo}/issues/{number}/comments",
+            install=owner,
+            json={"body": body},
         )
-        return out
 
-    notion_search.__name__ = "notion_search"
+    github_reply.__name__ = "github_reply"
     tools.append(
         _attach(
-            notion_search,
+            github_reply,
             _schema(
-                "notion_search",
-                "Search pages and databases visible to the connected Notion integration.",
-                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
-                ["query"],
-            ),
-            caps=["notion", "read"],
-        )
-    )
-
-    def notion_get_page(page_id: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "notion", "token")
-        if err:
-            return err
-        headers = {
-            "Authorization": f"Bearer {profile['token']}",
-            "Notion-Version": "2022-06-28",
-        }
-        page = _request(
-            "GET", f"https://api.notion.com/v1/pages/{page_id}", headers=headers
-        )
-        blocks = _request(
-            "GET",
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=headers,
-        )
-        return {"page": page, "blocks": blocks}
-
-    notion_get_page.__name__ = "notion_get_page"
-    tools.append(
-        _attach(
-            notion_get_page,
-            _schema(
-                "notion_get_page",
-                "Read a Notion page and its top-level blocks.",
-                {"page_id": {"type": "string"}},
-                ["page_id"],
-            ),
-            caps=["notion", "read"],
-        )
-    )
-
-    def notion_create_page(
-        parent_page_id: str, title: str, body: str = ""
-    ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "notion", "token")
-        if err:
-            return err
-        payload = {
-            "parent": {"page_id": parent_page_id},
-            "properties": {"title": {"title": [{"text": {"content": title}}]}},
-            "children": [
+                "github_reply",
+                "Comment on a GitHub issue or pull request (as the agent's bot "
+                "identity on the managed path). Requires user approval.",
                 {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {"rich_text": [{"text": {"content": body[:1900]}}]},
-                }
-            ],
-        }
-        return _request(
-            "POST",
-            "https://api.notion.com/v1/pages",
-            headers={
-                "Authorization": f"Bearer {profile['token']}",
-                "Notion-Version": "2022-06-28",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-
-    notion_create_page.__name__ = "notion_create_page"
-    tools.append(
-        _attach(
-            notion_create_page,
-            _schema(
-                "notion_create_page",
-                "Create a child Notion page. Requires user approval.",
-                {
-                    "parent_page_id": {"type": "string"},
-                    "title": {"type": "string"},
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "number": {"type": "integer"},
                     "body": {"type": "string"},
                 },
-                ["parent_page_id", "title"],
+                ["owner", "repo", "number", "body"],
             ),
             approval=True,
-            caps=["notion", "write"],
+            caps=["github", "write"],
         )
     )
 
-    def gmail_search_messages(query: str, max_results: int = 10) -> dict[str, Any]:
-        profile, err = _profile(secrets, "gmail", "access_token")
+    def github_review(
+        owner: str, repo: str, pull_number: int, event: str = "COMMENT", body: str = ""
+    ) -> dict[str, Any]:
+        event = (event or "COMMENT").upper()
+        if event not in ("APPROVE", "REQUEST_CHANGES", "COMMENT"):
+            return {"error": "event must be APPROVE, REQUEST_CHANGES or COMMENT"}
+        return _github_call(
+            secrets,
+            "POST",
+            f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            install=owner,
+            json={"event": event, **({"body": body} if body else {})},
+        )
+
+    github_review.__name__ = "github_review"
+    tools.append(
+        _attach(
+            github_review,
+            _schema(
+                "github_review",
+                "Submit a pull-request review (approve / request changes / "
+                "comment). Requires user approval.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "pull_number": {"type": "integer"},
+                    "event": {"type": "string"},
+                    "body": {"type": "string"},
+                },
+                ["owner", "repo", "pull_number"],
+            ),
+            approval=True,
+            caps=["github", "write"],
+        )
+    )
+
+    def github_list_commits(
+        owner: str,
+        repo: str,
+        since: str = "",
+        until: str = "",
+        author: str = "",
+        max_results: int = 30,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"per_page": max(1, min(int(max_results or 30), 100))}
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
+        if author:
+            params["author"] = author
+        out = _github_call(
+            secrets,
+            "GET",
+            f"/repos/{owner}/{repo}/commits",
+            install=owner,
+            params=params,
+        )
+        if "error" in out:
+            return out
+        commits = [
+            {
+                "sha": (c.get("sha") or "")[:12],
+                "author": ((c.get("commit") or {}).get("author") or {}).get("name")
+                or (c.get("author") or {}).get("login", ""),
+                "date": ((c.get("commit") or {}).get("author") or {}).get("date", ""),
+                "message": ((c.get("commit") or {}).get("message") or "")[:500],
+            }
+            for c in (out["data"] if isinstance(out["data"], list) else [])
+        ]
+        return {"commits": commits, "count": len(commits)}
+
+    github_list_commits.__name__ = "github_list_commits"
+    tools.append(
+        _attach(
+            github_list_commits,
+            _schema(
+                "github_list_commits",
+                "List a repository's commits (newest first), optionally filtered "
+                "by ISO-8601 since/until dates or author — the raw material for "
+                "activity summaries.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "since": {
+                        "type": "string",
+                        "description": "ISO-8601, e.g. 2026-07-06T00:00:00Z",
+                    },
+                    "until": {"type": "string"},
+                    "author": {"type": "string", "description": "GitHub login"},
+                    "max_results": {"type": "integer"},
+                },
+                ["owner", "repo"],
+            ),
+            approval=False,
+            caps=["github", "read"],
+        )
+    )
+
+    def _writable_target(
+        raw: str, *, default_name: str = ""
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Resolve a directory inside a WRITABLE granted root — clones and pulls
+        never touch anything the user hasn't shared with the session."""
+        from pathlib import Path as _Path
+
+        writable = [r.path for r in (roots or []) if r.writable]
+        if not writable:
+            return None, {"error": "no writable session directory to clone into"}
+        path = (
+            _Path(str(raw)).expanduser().resolve()
+            if raw
+            else (writable[0] / default_name).resolve()
+        )
+        if not any(path.is_relative_to(root) for root in writable):
+            return None, {
+                "error": f"{path} is outside the session's writable directories"
+            }
+        return path, None
+
+    def github_clone(owner: str, repo: str, directory: str = "") -> dict[str, Any]:
+        target, err = _writable_target(directory, default_name=repo)
         if err:
             return err
-        return _request(
+        if target.exists() and any(target.iterdir()):
+            return {
+                "error": f"{target} already exists and is not empty (use github_pull?)"
+            }
+        url = f"{_github_git_base()}/{owner}/{repo}.git"
+        _out, git_err = _run_git(
+            [*_github_git_auth_args(secrets, owner), "clone", url, str(target)]
+        )
+        if git_err:
+            return {"error": f"clone failed: {git_err}"}
+        # Belt and braces for the no-token-at-rest rule: header auth is
+        # process-only, so nothing secret can be in the clone's config — verify.
+        config = (target / ".git" / "config").read_text()
+        if "AUTHORIZATION" in config or "x-access-token" in config:
+            import shutil
+
+            shutil.rmtree(target)
+            return {"error": "clone aborted: credentials would have persisted"}
+        head, _ = _run_git(["rev-parse", "--short", "HEAD"], cwd=target)
+        return {"ok": True, "path": str(target), "head": head}
+
+    github_clone.__name__ = "github_clone"
+    tools.append(
+        _attach(
+            github_clone,
+            _schema(
+                "github_clone",
+                "Clone a GitHub repository into a session folder so the agent can "
+                "explore the code locally. Private repos use a short-lived token "
+                "that is never written to disk. Requires user approval.",
+                {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "directory": {
+                        "type": "string",
+                        "description": "target path inside a granted folder (default: <primary>/<repo>)",
+                    },
+                },
+                ["owner", "repo"],
+            ),
+            approval=True,
+            caps=["github", "read"],
+        )
+    )
+
+    def github_pull(directory: str) -> dict[str, Any]:
+        target, err = _writable_target(directory)
+        if err:
+            return err
+        if not (target / ".git").exists():
+            return {"error": f"{target} is not a git repository"}
+        remote, git_err = _run_git(["remote", "get-url", "origin"], cwd=target)
+        if git_err:
+            return {"error": f"no origin remote: {git_err}"}
+        m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", remote)
+        owner = m.group(1) if m else ""
+        _out, git_err = _run_git(
+            [
+                *_github_git_auth_args(secrets, owner),
+                "-C",
+                str(target),
+                "pull",
+                "--ff-only",
+            ]
+        )
+        if git_err:
+            return {"error": f"pull failed: {git_err}"}
+        head, _ = _run_git(["rev-parse", "--short", "HEAD"], cwd=target)
+        return {"ok": True, "path": str(target), "head": head}
+
+    github_pull.__name__ = "github_pull"
+    tools.append(
+        _attach(
+            github_pull,
+            _schema(
+                "github_pull",
+                "Fast-forward an existing clone in a session folder to the latest "
+                "upstream commits. Requires user approval.",
+                {"directory": {"type": "string"}},
+                ["directory"],
+            ),
+            approval=True,
+            caps=["github", "read"],
+        )
+    )
+
+    _ACCOUNT_PROP = {
+        "type": "string",
+        "description": "Mailbox email to use; omit for the default account.",
+    }
+
+    def gmail_search_messages(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        email, profile, err = _gmail_profile(secrets, account)
+        if err:
+            return err
+        token = profile["access_token"]
+        result = _request(
             "GET",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-            headers=_google_headers(profile["access_token"]),
+            headers=_google_headers(token),
             params={"q": query, "maxResults": max(1, min(int(max_results or 10), 20))},
         )
+        filters = _gmail_filters(secrets)
+        if result.get("ok") and filters:
+            # Enforce "Never show agents" HERE, silently: matching hits are
+            # omitted (no tombstone); the count rides the `_display` sidecar for
+            # the user's tool card + audit — never the agent-visible content.
+            data = dict(result.get("data") or {})
+            label_map = _gmail_label_map(token) if filters["labels"] else {}
+            kept, hidden = [], 0
+            for m in data.get("messages") or []:
+                meta = _request(
+                    "GET",
+                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m.get('id')}",
+                    headers=_google_headers(token),
+                    params={"format": "metadata", "metadataHeaders": "From"},
+                )
+                detail = meta.get("data") if meta.get("ok") else None
+                # Fail-open on a metadata miss: ids alone reveal nothing, and
+                # gmail_get_message re-enforces before any content flows.
+                if isinstance(detail, dict) and _gmail_is_hidden(
+                    detail, filters, label_map
+                ):
+                    hidden += 1
+                else:
+                    kept.append(m)
+            if hidden:
+                data["messages"] = kept
+                if isinstance(data.get("resultSizeEstimate"), int):
+                    data["resultSizeEstimate"] = max(
+                        0, data["resultSizeEstimate"] - hidden
+                    )
+                result = {
+                    "ok": True,
+                    "data": data,
+                    "_display": {"hidden_by_filters": hidden, "connector": "gmail"},
+                }
+        if result.get("ok"):
+            result["account"] = email
+        return result
 
     gmail_search_messages.__name__ = "gmail_search_messages"
     tools.append(
@@ -448,23 +951,43 @@ def make_integration_tools(
             _schema(
                 "gmail_search_messages",
                 "Search Gmail messages using Gmail query syntax.",
-                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _ACCOUNT_PROP,
+                },
                 ["query"],
             ),
             caps=["gmail", "read"],
         )
     )
 
-    def gmail_get_message(message_id: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "gmail", "access_token")
+    def gmail_get_message(message_id: str, account: str = "") -> dict[str, Any]:
+        email, profile, err = _gmail_profile(secrets, account)
         if err:
             return err
-        return _request(
+        token = profile["access_token"]
+        result = _request(
             "GET",
             f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}",
-            headers=_google_headers(profile["access_token"]),
+            headers=_google_headers(token),
             params={"format": "full"},
         )
+        filters = _gmail_filters(secrets)
+        if result.get("ok") and filters:
+            data = result.get("data") or {}
+            label_map = _gmail_label_map(token) if filters["labels"] else {}
+            if isinstance(data, dict) and _gmail_is_hidden(data, filters, label_map):
+                # Indistinguishable from a real miss — the agent must not be able
+                # to tell "filtered" from "gone" (a tombstone invites probing).
+                return {
+                    "error": "HTTP 404",
+                    "details": {"error": {"code": 404, "message": "Not Found"}},
+                    "_display": {"hidden_by_filters": 1, "connector": "gmail"},
+                }
+        if result.get("ok"):
+            result["account"] = email
+        return result
 
     gmail_get_message.__name__ = "gmail_get_message"
     tools.append(
@@ -473,7 +996,7 @@ def make_integration_tools(
             _schema(
                 "gmail_get_message",
                 "Read a Gmail message by ID.",
-                {"message_id": {"type": "string"}},
+                {"message_id": {"type": "string"}, "account": _ACCOUNT_PROP},
                 ["message_id"],
             ),
             caps=["gmail", "read"],
@@ -481,9 +1004,9 @@ def make_integration_tools(
     )
 
     def gmail_send_email(
-        to: str, subject: str, body: str, cc: str = ""
+        to: str, subject: str, body: str, cc: str = "", account: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "gmail", "access_token")
+        email, profile, err = _gmail_profile(secrets, account)
         if err:
             return err
         msg = EmailMessage()
@@ -492,12 +1015,15 @@ def make_integration_tools(
             msg["Cc"] = cc
         msg.set_content(body)
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")
-        return _request(
+        result = _request(
             "POST",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
             headers=_google_headers(profile["access_token"]),
             json={"raw": raw},
         )
+        if result.get("ok"):
+            result["account"] = email
+        return result
 
     gmail_send_email.__name__ = "gmail_send_email"
     tools.append(
@@ -505,12 +1031,14 @@ def make_integration_tools(
             gmail_send_email,
             _schema(
                 "gmail_send_email",
-                "Send an email through Gmail. Requires user approval.",
+                "Send an email through Gmail. Requires user approval; the "
+                "`account` argument names the sending mailbox on the approval card.",
                 {
                     "to": {"type": "string"},
                     "subject": {"type": "string"},
                     "body": {"type": "string"},
                     "cc": {"type": "string"},
+                    "account": _ACCOUNT_PROP,
                 },
                 ["to", "subject", "body"],
             ),
@@ -519,13 +1047,26 @@ def make_integration_tools(
         )
     )
 
+    _CAL_ACCOUNT_PROP = {
+        "type": "string",
+        "description": "Google account email to use; omit for the default account.",
+    }
+
+    def _gcal_result(email: str, result: dict[str, Any]) -> dict[str, Any]:
+        # Name the account on every success so approvals/transcripts say whose
+        # calendar was touched (same contract as the gmail tools).
+        if result.get("ok"):
+            result["account"] = email
+        return result
+
     def gcal_list_events(
         calendar_id: str = "primary",
         time_min: str = "",
         time_max: str = "",
         max_results: int = 10,
+        account: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "google_calendar", "access_token")
+        email, profile, err = _gcal_profile(secrets, account)
         if err:
             return err
         params: dict[str, Any] = {
@@ -537,11 +1078,14 @@ def make_integration_tools(
             params["timeMin"] = time_min
         if time_max:
             params["timeMax"] = time_max
-        return _request(
-            "GET",
-            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
-            headers=_google_headers(profile["access_token"]),
-            params=params,
+        return _gcal_result(
+            email,
+            _request(
+                "GET",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
+                headers=_google_headers(profile["access_token"]),
+                params=params,
+            ),
         )
 
     gcal_list_events.__name__ = "gcal_list_events"
@@ -556,8 +1100,60 @@ def make_integration_tools(
                     "time_min": {"type": "string"},
                     "time_max": {"type": "string"},
                     "max_results": {"type": "integer"},
+                    "account": _CAL_ACCOUNT_PROP,
                 },
                 [],
+            ),
+            caps=["calendar", "read"],
+        )
+    )
+
+    def gcal_free_busy(
+        time_min: str,
+        time_max: str,
+        calendars: str = "primary",
+        timezone: str = "UTC",
+        account: str = "",
+    ) -> dict[str, Any]:
+        email, profile, err = _gcal_profile(secrets, account)
+        if err:
+            return err
+        items = [
+            {"id": c.strip()}
+            for c in str(calendars or "primary").split(",")
+            if c.strip()
+        ]
+        return _gcal_result(
+            email,
+            _request(
+                "POST",
+                "https://www.googleapis.com/calendar/v3/freeBusy",
+                headers=_google_headers(profile["access_token"]),
+                json={
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                    "timeZone": timezone,
+                    "items": items,
+                },
+            ),
+        )
+
+    gcal_free_busy.__name__ = "gcal_free_busy"
+    tools.append(
+        _attach(
+            gcal_free_busy,
+            _schema(
+                "gcal_free_busy",
+                "Look up busy intervals (availability) for one or more calendars. "
+                "time_min/time_max are RFC3339 timestamps; calendars is a comma-separated list of calendar ids.",
+                {
+                    "time_min": {"type": "string"},
+                    "time_max": {"type": "string"},
+                    "calendars": {"type": "string"},
+                    "timezone": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
+                },
+                ["time_min", "time_max"],
             ),
             caps=["calendar", "read"],
         )
@@ -570,8 +1166,9 @@ def make_integration_tools(
         calendar_id: str = "primary",
         timezone: str = "UTC",
         description: str = "",
+        account: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "google_calendar", "access_token")
+        email, profile, err = _gcal_profile(secrets, account)
         if err:
             return err
         payload = {
@@ -580,11 +1177,14 @@ def make_integration_tools(
             "start": {"dateTime": start, "timeZone": timezone},
             "end": {"dateTime": end, "timeZone": timezone},
         }
-        return _request(
-            "POST",
-            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
-            headers=_google_headers(profile["access_token"]),
-            json=payload,
+        return _gcal_result(
+            email,
+            _request(
+                "POST",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
+                headers=_google_headers(profile["access_token"]),
+                json=payload,
+            ),
         )
 
     gcal_create_event.__name__ = "gcal_create_event"
@@ -601,8 +1201,104 @@ def make_integration_tools(
                     "calendar_id": {"type": "string"},
                     "timezone": {"type": "string"},
                     "description": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
                 },
                 ["summary", "start", "end"],
+            ),
+            approval=True,
+            caps=["calendar", "write"],
+        )
+    )
+
+    def gcal_update_event(
+        event_id: str,
+        calendar_id: str = "primary",
+        summary: str = "",
+        start: str = "",
+        end: str = "",
+        timezone: str = "UTC",
+        description: str = "",
+        account: str = "",
+    ) -> dict[str, Any]:
+        email, profile, err = _gcal_profile(secrets, account)
+        if err:
+            return err
+        # PATCH semantics: only the provided fields change.
+        payload: dict[str, Any] = {}
+        if summary:
+            payload["summary"] = summary
+        if description:
+            payload["description"] = description
+        if start:
+            payload["start"] = {"dateTime": start, "timeZone": timezone}
+        if end:
+            payload["end"] = {"dateTime": end, "timeZone": timezone}
+        if not payload:
+            return {
+                "error": "nothing to update — pass summary, description, start, or end"
+            }
+        return _gcal_result(
+            email,
+            _request(
+                "PATCH",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+                headers=_google_headers(profile["access_token"]),
+                json=payload,
+            ),
+        )
+
+    gcal_update_event.__name__ = "gcal_update_event"
+    tools.append(
+        _attach(
+            gcal_update_event,
+            _schema(
+                "gcal_update_event",
+                "Update fields of a Google Calendar event (only the provided fields change). Requires user approval.",
+                {
+                    "event_id": {"type": "string"},
+                    "calendar_id": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "timezone": {"type": "string"},
+                    "description": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
+                },
+                ["event_id"],
+            ),
+            approval=True,
+            caps=["calendar", "write"],
+        )
+    )
+
+    def gcal_delete_event(
+        event_id: str, calendar_id: str = "primary", account: str = ""
+    ) -> dict[str, Any]:
+        email, profile, err = _gcal_profile(secrets, account)
+        if err:
+            return err
+        return _gcal_result(
+            email,
+            _request(
+                "DELETE",
+                f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+                headers=_google_headers(profile["access_token"]),
+            ),
+        )
+
+    gcal_delete_event.__name__ = "gcal_delete_event"
+    tools.append(
+        _attach(
+            gcal_delete_event,
+            _schema(
+                "gcal_delete_event",
+                "Delete a Google Calendar event. Requires user approval.",
+                {
+                    "event_id": {"type": "string"},
+                    "calendar_id": {"type": "string"},
+                    "account": _CAL_ACCOUNT_PROP,
+                },
+                ["event_id"],
             ),
             approval=True,
             caps=["calendar", "write"],
@@ -1516,23 +2212,52 @@ def make_integration_tools(
         )
     )
 
+    _PORTAL_PROP = {
+        "type": "string",
+        "description": "Portal (hub id or name) to use; omit for the default portal.",
+    }
+    _HS_KINDS = ("contacts", "companies", "deals", "tickets")
+
     def hubspot_search(
-        query: str, object_type: str = "contacts", max_results: int = 10
+        query: str = "",
+        object_type: str = "contacts",
+        max_results: int = 10,
+        properties: str = "",
+        filters: str = "",
+        portal: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "hubspot", "token")
+        name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
-        kind = (
-            object_type
-            if object_type in ("contacts", "companies", "deals", "tickets")
-            else "contacts"
-        )
-        return _request(
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        # The search API only returns HubSpot's default properties unless asked,
+        # and free-text `query` never matches custom properties — so property
+        # filters are the only way to select on them (e.g. an "org_type" field).
+        body: dict[str, Any] = {"limit": _clamp(max_results, ceiling=100)}
+        if query:
+            body["query"] = query
+        if properties:
+            body["properties"] = [p.strip() for p in properties.split(",") if p.strip()]
+        if filters:
+            try:
+                parsed = json.loads(filters)
+            except ValueError:
+                return {"error": "filters must be a JSON array of filter objects"}
+            if not isinstance(parsed, list) or not all(
+                isinstance(f, dict) and f.get("property") and f.get("operator")
+                for f in parsed
+            ):
+                return {"error": "each filter needs at least 'property' and 'operator'"}
+            body["filterGroups"] = [{"filters": parsed}]
+        if not query and not filters:
+            return {"error": "provide a query, filters, or both"}
+        result = _request(
             "POST",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/search",
-            headers=_bearer_headers(profile["token"]),
-            json={"query": query, "limit": _clamp(max_results)},
+            headers=_bearer_headers(token),
+            json=body,
         )
+        return _hubspot_result(secrets, name, result)
 
     hubspot_search.__name__ = "hubspot_search"
     tools.append(
@@ -1540,32 +2265,55 @@ def make_integration_tools(
             hubspot_search,
             _schema(
                 "hubspot_search",
-                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type).",
+                "Search HubSpot CRM contacts, companies, deals, or tickets (object_type). "
+                "Custom properties are only returned if named in `properties`, and only "
+                "matchable via `filters` (free-text query searches default fields only).",
                 {
-                    "query": {"type": "string"},
+                    "query": {"type": "string", "description": "Free-text search"},
                     "object_type": {"type": "string"},
                     "max_results": {"type": "integer"},
+                    "properties": {
+                        "type": "string",
+                        "description": "Comma-separated property names to return "
+                        "(include custom properties here)",
+                    },
+                    "filters": {
+                        "type": "string",
+                        "description": 'JSON array of {"property", "operator", "value"} '
+                        "objects, ANDed together. Operators: EQ, NEQ, LT, LTE, GT, GTE, "
+                        "CONTAINS_TOKEN, HAS_PROPERTY, NOT_HAS_PROPERTY, IN",
+                    },
+                    "portal": _PORTAL_PROP,
                 },
-                ["query"],
+                [],
             ),
             caps=["hubspot", "read"],
         )
     )
 
-    def hubspot_get_object(object_type: str, object_id: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "hubspot", "token")
+    def hubspot_get_object(
+        object_type: str,
+        object_id: str,
+        properties: str = "",
+        associations: str = "",
+        portal: str = "",
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
-        kind = (
-            object_type
-            if object_type in ("contacts", "companies", "deals", "tickets")
-            else "contacts"
-        )
-        return _request(
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = properties  # API takes the comma string as-is
+        if associations:
+            params["associations"] = associations
+        result = _request(
             "GET",
             f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
-            headers=_bearer_headers(profile["token"]),
+            headers=_bearer_headers(token),
+            params=params or None,
         )
+        return _hubspot_result(secrets, name, result)
 
     hubspot_get_object.__name__ = "hubspot_get_object"
     tools.append(
@@ -1573,8 +2321,23 @@ def make_integration_tools(
             hubspot_get_object,
             _schema(
                 "hubspot_get_object",
-                "Read a HubSpot CRM record by ID.",
-                {"object_type": {"type": "string"}, "object_id": {"type": "string"}},
+                "Read a HubSpot CRM record by ID. Custom properties are only "
+                "returned if named in `properties`; pass `associations` to also get "
+                "linked record ids.",
+                {
+                    "object_type": {"type": "string"},
+                    "object_id": {"type": "string"},
+                    "properties": {
+                        "type": "string",
+                        "description": "Comma-separated property names to return",
+                    },
+                    "associations": {
+                        "type": "string",
+                        "description": "Comma-separated object types to return "
+                        "associated ids for (e.g. companies,contacts)",
+                    },
+                    "portal": _PORTAL_PROP,
+                },
                 ["object_type", "object_id"],
             ),
             caps=["hubspot", "read"],
@@ -1582,9 +2345,9 @@ def make_integration_tools(
     )
 
     def hubspot_create_contact(
-        email: str, first_name: str = "", last_name: str = ""
+        email: str, first_name: str = "", last_name: str = "", portal: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "hubspot", "token")
+        name, token, err = _hubspot_profile(secrets, portal)
         if err:
             return err
         props = {"email": email}
@@ -1592,12 +2355,13 @@ def make_integration_tools(
             props["firstname"] = first_name
         if last_name:
             props["lastname"] = last_name
-        return _request(
+        result = _request(
             "POST",
             "https://api.hubapi.com/crm/v3/objects/contacts",
-            headers=_bearer_headers(profile["token"]),
+            headers=_bearer_headers(token),
             json={"properties": props},
         )
+        return _hubspot_result(secrets, name, result)
 
     hubspot_create_contact.__name__ = "hubspot_create_contact"
     tools.append(
@@ -1605,13 +2369,147 @@ def make_integration_tools(
             hubspot_create_contact,
             _schema(
                 "hubspot_create_contact",
-                "Create a HubSpot contact. Requires user approval.",
+                "Create a HubSpot contact. Requires user approval; the `portal` "
+                "argument names the portal on the approval card.",
                 {
                     "email": {"type": "string"},
                     "first_name": {"type": "string"},
                     "last_name": {"type": "string"},
+                    "portal": _PORTAL_PROP,
                 },
                 ["email"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def hubspot_update_object(
+        object_type: str, object_id: str, properties: dict, portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
+        if err:
+            return err
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        if not isinstance(properties, dict) or not properties:
+            return {"error": "properties must be a non-empty object"}
+        result = _request(
+            "PATCH",
+            f"https://api.hubapi.com/crm/v3/objects/{kind}/{object_id}",
+            headers=_bearer_headers(token),
+            json={"properties": properties},
+        )
+        return _hubspot_result(secrets, name, result)
+
+    hubspot_update_object.__name__ = "hubspot_update_object"
+    tools.append(
+        _attach(
+            hubspot_update_object,
+            _schema(
+                "hubspot_update_object",
+                "Update properties on a HubSpot CRM record (no deletes exist). "
+                "Requires user approval.",
+                {
+                    "object_type": {"type": "string"},
+                    "object_id": {"type": "string"},
+                    "properties": {"type": "object"},
+                    "portal": _PORTAL_PROP,
+                },
+                ["object_type", "object_id", "properties"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def hubspot_log_note(
+        object_type: str, object_id: str, note: str, portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
+        if err:
+            return err
+        kind = object_type if object_type in _HS_KINDS else "contacts"
+        # Note engagement associated to the record (association type ids are
+        # HubSpot-defined per object; v4 default associations handle the rest).
+        result = _request(
+            "POST",
+            "https://api.hubapi.com/crm/v3/objects/notes",
+            headers=_bearer_headers(token),
+            json={
+                "properties": {
+                    "hs_note_body": note,
+                    "hs_timestamp": _now_ms(),
+                },
+                "associations": [
+                    {
+                        "to": {"id": object_id},
+                        "types": [
+                            {
+                                "associationCategory": "HUBSPOT_DEFINED",
+                                "associationTypeId": _HS_NOTE_ASSOC[kind],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        return _hubspot_result(secrets, name, result)
+
+    hubspot_log_note.__name__ = "hubspot_log_note"
+    tools.append(
+        _attach(
+            hubspot_log_note,
+            _schema(
+                "hubspot_log_note",
+                "Log a note on a HubSpot record's timeline. Requires user approval.",
+                {
+                    "object_type": {"type": "string"},
+                    "object_id": {"type": "string"},
+                    "note": {"type": "string"},
+                    "portal": _PORTAL_PROP,
+                },
+                ["object_type", "object_id", "note"],
+            ),
+            approval=True,
+            caps=["hubspot", "write"],
+        )
+    )
+
+    def hubspot_create_task(
+        title: str, due: str = "", notes: str = "", portal: str = ""
+    ) -> dict[str, Any]:
+        name, token, err = _hubspot_profile(secrets, portal)
+        if err:
+            return err
+        props: dict[str, Any] = {
+            "hs_task_subject": title,
+            "hs_task_status": "NOT_STARTED",
+            "hs_timestamp": due or _now_ms(),
+        }
+        if notes:
+            props["hs_task_body"] = notes
+        result = _request(
+            "POST",
+            "https://api.hubapi.com/crm/v3/objects/tasks",
+            headers=_bearer_headers(token),
+            json={"properties": props},
+        )
+        return _hubspot_result(secrets, name, result)
+
+    hubspot_create_task.__name__ = "hubspot_create_task"
+    tools.append(
+        _attach(
+            hubspot_create_task,
+            _schema(
+                "hubspot_create_task",
+                "Create a HubSpot task (due = epoch ms or ISO date). Requires user approval.",
+                {
+                    "title": {"type": "string"},
+                    "due": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "portal": _PORTAL_PROP,
+                },
+                ["title"],
             ),
             approval=True,
             caps=["hubspot", "write"],
@@ -1976,6 +2874,782 @@ def make_integration_tools(
             ),
             approval=True,
             caps=["whatsapp", "write"],
+        )
+    )
+
+    # -- notion (managed OAuth or integration token, multi-workspace) --
+
+    def _notion_headers(profile: dict[str, Any]) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {profile['access_token']}",
+            "Notion-Version": "2022-06-28",
+        }
+
+    def _notion_blocks_text(blocks: list[dict]) -> str:
+        """Flatten block children to readable lines (rich_text plain_text)."""
+        lines = []
+        for b in blocks:
+            content = b.get(b.get("type", ""), {})
+            texts = content.get("rich_text") or content.get("title") or []
+            line = "".join(
+                t.get("plain_text", "") for t in texts if isinstance(t, dict)
+            )
+            if line:
+                lines.append(line)
+        return "\n".join(lines)
+
+    def notion_search(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "POST",
+            "https://api.notion.com/v1/search",
+            headers=_notion_headers(profile),
+            json={"query": query, "page_size": _clamp(max_results, ceiling=100)},
+        )
+        return _acct_result(aid, result)
+
+    notion_search.__name__ = "notion_search"
+    tools.append(
+        _attach(
+            notion_search,
+            _schema(
+                "notion_search",
+                "Search Notion pages and databases the integration can see.",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["query"],
+            ),
+            caps=["notion", "read"],
+        )
+    )
+
+    def notion_read_page(page_id: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        page = _request(
+            "GET",
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=_notion_headers(profile),
+        )
+        if "error" in page:
+            return _acct_result(aid, page)
+        blocks = _request(
+            "GET",
+            f"https://api.notion.com/v1/blocks/{page_id}/children",
+            headers=_notion_headers(profile),
+            params={"page_size": 100},
+        )
+        text = (
+            _notion_blocks_text((blocks.get("data") or {}).get("results") or [])
+            if "error" not in blocks
+            else ""
+        )
+        return _acct_result(
+            aid,
+            {
+                "ok": True,
+                "properties": (page.get("data") or {}).get("properties"),
+                "url": (page.get("data") or {}).get("url"),
+                "text": text,
+            },
+        )
+
+    notion_read_page.__name__ = "notion_read_page"
+    tools.append(
+        _attach(
+            notion_read_page,
+            _schema(
+                "notion_read_page",
+                "Read a Notion page: properties plus its content flattened to text.",
+                {"page_id": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["page_id"],
+            ),
+            caps=["notion", "read"],
+        )
+    )
+
+    def notion_query_database(
+        database_id: str,
+        filter_json: str = "",
+        max_results: int = 10,
+        account: str = "",
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        body: dict[str, Any] = {"page_size": _clamp(max_results, ceiling=100)}
+        if filter_json:
+            try:
+                body["filter"] = json.loads(filter_json)
+            except ValueError:
+                return {"error": "filter_json must be a Notion filter object (JSON)"}
+        result = _request(
+            "POST",
+            f"https://api.notion.com/v1/databases/{database_id}/query",
+            headers=_notion_headers(profile),
+            json=body,
+        )
+        return _acct_result(aid, result)
+
+    notion_query_database.__name__ = "notion_query_database"
+    tools.append(
+        _attach(
+            notion_query_database,
+            _schema(
+                "notion_query_database",
+                "Query a Notion database, optionally with a Notion filter object.",
+                {
+                    "database_id": {"type": "string"},
+                    "filter_json": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["database_id"],
+            ),
+            caps=["notion", "read"],
+        )
+    )
+
+    def notion_create_page(
+        parent_page_id: str, title: str, content: str = "", account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "notion", account, "access_token")
+        if err:
+            return err
+        children = [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"rich_text": [{"text": {"content": line}}]},
+            }
+            for line in content.splitlines()
+            if line.strip()
+        ]
+        result = _request(
+            "POST",
+            "https://api.notion.com/v1/pages",
+            headers=_notion_headers(profile),
+            json={
+                "parent": {"page_id": parent_page_id},
+                "properties": {"title": {"title": [{"text": {"content": title}}]}},
+                "children": children,
+            },
+        )
+        return _acct_result(aid, result)
+
+    notion_create_page.__name__ = "notion_create_page"
+    tools.append(
+        _attach(
+            notion_create_page,
+            _schema(
+                "notion_create_page",
+                "Create a Notion page under a parent page (plain-text paragraphs).",
+                {
+                    "parent_page_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["parent_page_id", "title"],
+            ),
+            approval=True,
+            caps=["notion", "write"],
+        )
+    )
+
+    # -- attio (managed OAuth or API key, multi-workspace) --
+
+    def attio_list_objects(account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://api.attio.com/v2/objects",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+        return _acct_result(aid, result)
+
+    attio_list_objects.__name__ = "attio_list_objects"
+    tools.append(
+        _attach(
+            attio_list_objects,
+            _schema(
+                "attio_list_objects",
+                "List Attio object types (companies, people, deals, custom).",
+                {"account": _GEN_ACCOUNT_PROP},
+                [],
+            ),
+            caps=["attio", "read"],
+        )
+    )
+
+    def attio_query_records(
+        object_type: str,
+        filter_json: str = "",
+        max_results: int = 10,
+        account: str = "",
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        body: dict[str, Any] = {"limit": _clamp(max_results, ceiling=100)}
+        if filter_json:
+            try:
+                body["filter"] = json.loads(filter_json)
+            except ValueError:
+                return {"error": "filter_json must be an Attio filter object (JSON)"}
+        result = _request(
+            "POST",
+            f"https://api.attio.com/v2/objects/{object_type}/records/query",
+            headers=_bearer_headers(profile["access_token"]),
+            json=body,
+        )
+        return _acct_result(aid, result)
+
+    attio_query_records.__name__ = "attio_query_records"
+    tools.append(
+        _attach(
+            attio_query_records,
+            _schema(
+                "attio_query_records",
+                "List/filter records of an Attio object (e.g. companies, people); "
+                "filter_json is an Attio filter object.",
+                {
+                    "object_type": {"type": "string"},
+                    "filter_json": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["object_type"],
+            ),
+            caps=["attio", "read"],
+        )
+    )
+
+    def attio_get_record(
+        object_type: str, record_id: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            f"https://api.attio.com/v2/objects/{object_type}/records/{record_id}",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+        return _acct_result(aid, result)
+
+    attio_get_record.__name__ = "attio_get_record"
+    tools.append(
+        _attach(
+            attio_get_record,
+            _schema(
+                "attio_get_record",
+                "Read one Attio record by object type and record id.",
+                {
+                    "object_type": {"type": "string"},
+                    "record_id": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["object_type", "record_id"],
+            ),
+            caps=["attio", "read"],
+        )
+    )
+
+    def attio_create_note(
+        parent_object: str,
+        parent_record_id: str,
+        title: str,
+        content: str,
+        account: str = "",
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "attio", account, "access_token")
+        if err:
+            return err
+        result = _request(
+            "POST",
+            "https://api.attio.com/v2/notes",
+            headers=_bearer_headers(profile["access_token"]),
+            json={
+                "data": {
+                    "parent_object": parent_object,
+                    "parent_record_id": parent_record_id,
+                    "title": title,
+                    "format": "plaintext",
+                    "content": content,
+                }
+            },
+        )
+        return _acct_result(aid, result)
+
+    attio_create_note.__name__ = "attio_create_note"
+    tools.append(
+        _attach(
+            attio_create_note,
+            _schema(
+                "attio_create_note",
+                "Log a note on an Attio record (e.g. a company or person).",
+                {
+                    "parent_object": {"type": "string"},
+                    "parent_record_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["parent_object", "parent_record_id", "title", "content"],
+            ),
+            approval=True,
+            caps=["attio", "write"],
+        )
+    )
+
+    # -- product analytics: posthog / mixpanel / amplitude (manual keys, multi-account) --
+
+    def _posthog_base(profile: dict[str, Any]) -> str:
+        return str(profile.get("base_url") or "https://us.posthog.com").rstrip("/")
+
+    def posthog_query(hogql: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "posthog", account, "api_key", "project_id"
+        )
+        if err:
+            return err
+        result = _request(
+            "POST",
+            f"{_posthog_base(profile)}/api/projects/{profile['project_id']}/query",
+            headers=_bearer_headers(profile["api_key"]),
+            json={"query": {"kind": "HogQLQuery", "query": hogql}},
+        )
+        return _acct_result(aid, result)
+
+    posthog_query.__name__ = "posthog_query"
+    tools.append(
+        _attach(
+            posthog_query,
+            _schema(
+                "posthog_query",
+                "Run a HogQL (SQL-like) query against PostHog analytics, e.g. "
+                "SELECT event, count() FROM events WHERE timestamp > now() - "
+                "INTERVAL 7 DAY GROUP BY event.",
+                {"hogql": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["hogql"],
+            ),
+            caps=["posthog", "read"],
+        )
+    )
+
+    def posthog_list_insights(
+        query: str = "", max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "posthog", account, "api_key", "project_id"
+        )
+        if err:
+            return err
+        params: dict[str, Any] = {"limit": _clamp(max_results)}
+        if query:
+            params["search"] = query
+        result = _request(
+            "GET",
+            f"{_posthog_base(profile)}/api/projects/{profile['project_id']}/insights",
+            headers=_bearer_headers(profile["api_key"]),
+            params=params,
+        )
+        return _acct_result(aid, result)
+
+    posthog_list_insights.__name__ = "posthog_list_insights"
+    tools.append(
+        _attach(
+            posthog_list_insights,
+            _schema(
+                "posthog_list_insights",
+                "List saved PostHog insights (dashboards' building blocks).",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                [],
+            ),
+            caps=["posthog", "read"],
+        )
+    )
+
+    def mixpanel_segmentation(
+        event: str,
+        from_date: str,
+        to_date: str,
+        unit: str = "day",
+        where: str = "",
+        account: str = "",
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "mixpanel", account, "username", "secret", "project_id"
+        )
+        if err:
+            return err
+        params = {
+            "project_id": profile["project_id"],
+            "event": event,
+            "from_date": from_date,
+            "to_date": to_date,
+            "unit": (
+                unit if unit in ("minute", "hour", "day", "week", "month") else "day"
+            ),
+        }
+        if where:
+            params["where"] = where
+        result = _request(
+            "GET",
+            "https://mixpanel.com/api/query/segmentation",
+            params=params,
+            auth=(profile["username"], profile["secret"]),
+        )
+        return _acct_result(aid, result)
+
+    mixpanel_segmentation.__name__ = "mixpanel_segmentation"
+    tools.append(
+        _attach(
+            mixpanel_segmentation,
+            _schema(
+                "mixpanel_segmentation",
+                "Mixpanel event counts over a date range (YYYY-MM-DD), optionally "
+                'filtered by a `where` expression like properties["plan"]=="pro".',
+                {
+                    "event": {"type": "string"},
+                    "from_date": {"type": "string"},
+                    "to_date": {"type": "string"},
+                    "unit": {"type": "string"},
+                    "where": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["event", "from_date", "to_date"],
+            ),
+            caps=["mixpanel", "read"],
+        )
+    )
+
+    def mixpanel_top_events(max_results: int = 10, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "mixpanel", account, "username", "secret", "project_id"
+        )
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://mixpanel.com/api/query/events/top",
+            params={
+                "project_id": profile["project_id"],
+                "type": "general",
+                "limit": _clamp(max_results, ceiling=100),
+            },
+            auth=(profile["username"], profile["secret"]),
+        )
+        return _acct_result(aid, result)
+
+    mixpanel_top_events.__name__ = "mixpanel_top_events"
+    tools.append(
+        _attach(
+            mixpanel_top_events,
+            _schema(
+                "mixpanel_top_events",
+                "Today's top Mixpanel events by volume.",
+                {"max_results": {"type": "integer"}, "account": _GEN_ACCOUNT_PROP},
+                [],
+            ),
+            caps=["mixpanel", "read"],
+        )
+    )
+
+    def amplitude_active_users(
+        start: str, end: str, metric: str = "active", account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "amplitude", account, "api_key", "secret_key"
+        )
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://amplitude.com/api/2/users",
+            params={
+                "m": metric if metric in ("active", "new") else "active",
+                "start": start.replace("-", ""),
+                "end": end.replace("-", ""),
+                "i": 1,
+            },
+            auth=(profile["api_key"], profile["secret_key"]),
+        )
+        return _acct_result(aid, result)
+
+    amplitude_active_users.__name__ = "amplitude_active_users"
+    tools.append(
+        _attach(
+            amplitude_active_users,
+            _schema(
+                "amplitude_active_users",
+                "Amplitude daily active or new users between two dates (YYYYMMDD "
+                "or YYYY-MM-DD).",
+                {
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "metric": {"type": "string", "description": "active | new"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["start", "end"],
+            ),
+            caps=["amplitude", "read"],
+        )
+    )
+
+    def amplitude_event_totals(
+        event_type: str, start: str, end: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "amplitude", account, "api_key", "secret_key"
+        )
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://amplitude.com/api/2/events/segmentation",
+            params={
+                "e": json.dumps({"event_type": event_type}),
+                "start": start.replace("-", ""),
+                "end": end.replace("-", ""),
+                "m": "totals",
+            },
+            auth=(profile["api_key"], profile["secret_key"]),
+        )
+        return _acct_result(aid, result)
+
+    amplitude_event_totals.__name__ = "amplitude_event_totals"
+    tools.append(
+        _attach(
+            amplitude_event_totals,
+            _schema(
+                "amplitude_event_totals",
+                "Daily totals for one Amplitude event between two dates.",
+                {
+                    "event_type": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["event_type", "start", "end"],
+            ),
+            caps=["amplitude", "read"],
+        )
+    )
+
+    # -- prospecting/enrichment: apollo / hunter (manual keys, multi-account) --
+
+    def _apollo_headers(profile: dict[str, Any]) -> dict[str, str]:
+        return {"X-Api-Key": profile["api_key"], "Content-Type": "application/json"}
+
+    def apollo_enrich_person(
+        email: str = "", name: str = "", company_domain: str = "", account: str = ""
+    ) -> dict[str, Any]:
+        if not email and not name:
+            return {"error": "provide an email, a name, or both"}
+        aid, profile, err = _account_profile(secrets, "apollo", account, "api_key")
+        if err:
+            return err
+        body: dict[str, Any] = {}
+        if email:
+            body["email"] = email
+        if name:
+            body["name"] = name
+        if company_domain:
+            body["domain"] = company_domain
+        result = _request(
+            "POST",
+            "https://api.apollo.io/api/v1/people/match",
+            headers=_apollo_headers(profile),
+            json=body,
+        )
+        return _acct_result(aid, result)
+
+    apollo_enrich_person.__name__ = "apollo_enrich_person"
+    tools.append(
+        _attach(
+            apollo_enrich_person,
+            _schema(
+                "apollo_enrich_person",
+                "Enrich a person from Apollo: title, company, LinkedIn, location "
+                "— by email and/or name (+ optional company domain).",
+                {
+                    "email": {"type": "string"},
+                    "name": {"type": "string"},
+                    "company_domain": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                [],
+            ),
+            caps=["apollo", "read"],
+        )
+    )
+
+    def apollo_enrich_company(domain: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "apollo", account, "api_key")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            "https://api.apollo.io/api/v1/organizations/enrich",
+            headers=_apollo_headers(profile),
+            params={"domain": domain},
+        )
+        return _acct_result(aid, result)
+
+    apollo_enrich_company.__name__ = "apollo_enrich_company"
+    tools.append(
+        _attach(
+            apollo_enrich_company,
+            _schema(
+                "apollo_enrich_company",
+                "Enrich a company from Apollo by domain: size, industry, funding, "
+                "tech stack.",
+                {"domain": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["domain"],
+            ),
+            caps=["apollo", "read"],
+        )
+    )
+
+    def apollo_search_people(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "apollo", account, "api_key")
+        if err:
+            return err
+        result = _request(
+            "POST",
+            "https://api.apollo.io/api/v1/mixed_people/search",
+            headers=_apollo_headers(profile),
+            json={"q_keywords": query, "page": 1, "per_page": _clamp(max_results)},
+        )
+        return _acct_result(aid, result)
+
+    apollo_search_people.__name__ = "apollo_search_people"
+    tools.append(
+        _attach(
+            apollo_search_people,
+            _schema(
+                "apollo_search_people",
+                "Keyword-search people in Apollo's B2B database (e.g. 'VP "
+                "engineering fintech Berlin').",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["query"],
+            ),
+            caps=["apollo", "read"],
+        )
+    )
+
+    def _hunter_get(
+        profile: dict[str, Any], path: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _request(
+            "GET",
+            f"https://api.hunter.io/v2/{path}",
+            params={**params, "api_key": profile["api_key"]},
+        )
+
+    def hunter_domain_search(
+        domain: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
+        if err:
+            return err
+        result = _hunter_get(
+            profile, "domain-search", {"domain": domain, "limit": _clamp(max_results)}
+        )
+        return _acct_result(aid, result)
+
+    hunter_domain_search.__name__ = "hunter_domain_search"
+    tools.append(
+        _attach(
+            hunter_domain_search,
+            _schema(
+                "hunter_domain_search",
+                "Find published email addresses for a company domain (Hunter).",
+                {
+                    "domain": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["domain"],
+            ),
+            caps=["hunter", "read"],
+        )
+    )
+
+    def hunter_find_email(
+        domain: str, first_name: str, last_name: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
+        if err:
+            return err
+        result = _hunter_get(
+            profile,
+            "email-finder",
+            {"domain": domain, "first_name": first_name, "last_name": last_name},
+        )
+        return _acct_result(aid, result)
+
+    hunter_find_email.__name__ = "hunter_find_email"
+    tools.append(
+        _attach(
+            hunter_find_email,
+            _schema(
+                "hunter_find_email",
+                "Find a person's most likely email address from their name and "
+                "company domain (Hunter).",
+                {
+                    "domain": {"type": "string"},
+                    "first_name": {"type": "string"},
+                    "last_name": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["domain", "first_name", "last_name"],
+            ),
+            caps=["hunter", "read"],
+        )
+    )
+
+    def hunter_verify_email(email: str, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(secrets, "hunter", account, "api_key")
+        if err:
+            return err
+        return _acct_result(
+            aid, _hunter_get(profile, "email-verifier", {"email": email})
+        )
+
+    hunter_verify_email.__name__ = "hunter_verify_email"
+    tools.append(
+        _attach(
+            hunter_verify_email,
+            _schema(
+                "hunter_verify_email",
+                "Check whether an email address is deliverable (Hunter).",
+                {"email": {"type": "string"}, "account": _GEN_ACCOUNT_PROP},
+                ["email"],
+            ),
+            caps=["hunter", "read"],
         )
     )
 

@@ -85,7 +85,7 @@ def test_plan_mode_blocks_writes_without_asking(tmp_path):
 def test_plan_approval_flips_mode_and_executes(tmp_path):
     seen_plans = []
 
-    async def approve(args):
+    async def approve(args, tool_call_id=None):
         seen_plans.append(args.get("plan"))
         return {"approved": True, "mode": "auto"}
 
@@ -109,7 +109,7 @@ def test_plan_approval_flips_mode_and_executes(tmp_path):
 
 
 def test_plan_rejection_keeps_plan_mode_and_returns_feedback(tmp_path):
-    async def reject(args):
+    async def reject(args, tool_call_id=None):
         return {"approved": False, "feedback": "don't touch x.py, fix y.py instead"}
 
     engine, permissions = _plan_engine(
@@ -233,7 +233,7 @@ def test_build_engine_discuss_reminder_not_plan_contract(tmp_path):
 
 
 def test_propose_plan_outside_plan_mode_is_rejected(tmp_path):
-    async def approve(args):  # pragma: no cover - must not be called
+    async def approve(args, tool_call_id=None):  # pragma: no cover - must not be called
         raise AssertionError("approver should not run outside plan mode")
 
     engine, permissions = _plan_engine(

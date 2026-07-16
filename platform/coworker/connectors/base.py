@@ -9,7 +9,7 @@ can `send` outbound. Inbound identity is carried by `SessionSource`; a `target` 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Optional
 
@@ -44,8 +44,10 @@ class SessionSource:
     chat_id: str
     user_id: Optional[str] = None
     user_name: Optional[str] = None
+    chat_name: Optional[str] = None  # channel/DM display name (resolved, §2.3)
     chat_type: str = "dm"  # "dm" | "group" | "channel"
     thread_id: Optional[str] = None
+    team_id: Optional[str] = None  # workspace id for managed-relay multi-workspace
 
     @property
     def target(self) -> str:
@@ -60,6 +62,29 @@ class SessionSource:
 
 
 @dataclass
+class MessageSource:
+    """Structured sidecar for a connector inbound message (UI-REFRESH §3.1).
+
+    Attached (as a plain dict via `to_dict`) to the persisted user message for DISPLAY only —
+    the GUI renders a rich card from it. The model-facing `content` stays the framed text and
+    this sidecar is stripped before the message reaches any provider. `text` is the RAW message
+    (what the card shows), distinct from the framed `content`.
+    """
+
+    connector: str  # platform id, e.g. "slack"
+    kind: str  # "channel" | "dm"
+    channel_id: str  # e.g. "C0BD7KZ1AH5"
+    channel_name: str  # resolved display name; falls back to channel_id
+    sender_id: str
+    sender_name: str  # resolved display name; falls back to sender_id
+    ts: float  # epoch seconds
+    text: str  # the RAW message (what the card shows)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class MessageEvent:
     text: str
     source: SessionSource
@@ -67,6 +92,9 @@ class MessageEvent:
     message_type: MessageType = MessageType.TEXT
     reply_to_message_id: Optional[str] = None
     raw: Any = None
+    # The bot itself was @-mentioned (UX-DECISIONS §31 mention router). Computed from the RAW
+    # platform text at mapping time — mention tokens are rewritten for display afterwards.
+    mentions_me: bool = False
 
     def tagged_text(self) -> str:
         """How the message enters the super-agent thread: source + reply handle + text.
@@ -89,6 +117,21 @@ class SendResult:
 MessageHandler = Callable[[MessageEvent], Awaitable[None]]
 
 
+@dataclass
+class InteractionEvent:
+    """A button click on an interactive prompt. `value` is the opaque button value (see
+    `interactions.decode`); `user_name` is who clicked, for the message update."""
+
+    platform: str
+    chat_id: str
+    message_id: Optional[str]  # the clicked message's id/ts (to update it)
+    value: str
+    user_name: Optional[str] = None
+
+
+InteractionHandler = Callable[[InteractionEvent], Awaitable[None]]
+
+
 class BasePlatformAdapter(ABC):
     """One messaging platform. Subclasses implement connect/disconnect/send and call
     `handle_message` for inbound events."""
@@ -97,9 +140,24 @@ class BasePlatformAdapter(ABC):
 
     def __init__(self) -> None:
         self._handler: Optional[MessageHandler] = None
+        self._interaction_handler: Optional[InteractionHandler] = None
 
     def set_message_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
+
+    def set_interaction_handler(self, handler: InteractionHandler) -> None:
+        self._interaction_handler = handler
+
+    async def send_interactive(
+        self, chat_id: str, text: str, buttons, *, thread_id: Optional[str] = None
+    ) -> SendResult:
+        """Send a prompt with choice buttons. Default: plain text (adapters without interactive
+        support just show the text — the user answers in the app)."""
+        return await self.send(chat_id, text, thread_id=thread_id)
+
+    async def handle_interaction(self, event: InteractionEvent) -> None:
+        if self._interaction_handler is not None:
+            await self._interaction_handler(event)
 
     @abstractmethod
     async def connect(self) -> bool:

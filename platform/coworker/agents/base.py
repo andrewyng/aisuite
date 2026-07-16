@@ -32,6 +32,13 @@ class Agent:
     system_prompt: str
     needs_workspace: bool = False
     tool_factory: Optional[Callable[[AgentContext], list]] = None
+    # Traits that replace the old per-agent-name branching in build_engine / manager.
+    # family: "code" gets explorer subagents; "knowledge" gets scheduling / request_directory /
+    # roots context (when it has a workspace). messaging: exposes send_message. connectors:
+    # loads the integration toolset. Defaults keep non-persona callers behaving as before.
+    family: str = "knowledge"
+    messaging: bool = False
+    connectors: bool = False
 
     def build_tools(self, context: AgentContext) -> list:
         return list(self.tool_factory(context)) if self.tool_factory else []

@@ -11,6 +11,7 @@ export function ModelChecklist({
   suggested,
   curated,
   defaultModel,
+  labels,
   onChanged,
 }: {
   provider: string; // decides the id prefix; OpenAI models stay bare
@@ -18,6 +19,7 @@ export function ModelChecklist({
   suggested: string[]; // bare model names suggested by the provider
   curated: string[]; // the full curated list (all providers, full ids)
   defaultModel: string;
+  labels?: Record<string, string>; // curated display names (full id → label); raw id when absent
   onChanged: (next: { models: string[]; model: string }) => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -74,7 +76,7 @@ export function ModelChecklist({
                 onChange={(e) => tick(id, e.target.checked)}
               />
               <span className="mlist-name" title={id}>
-                {bare(id)}
+                {labels?.[id] || bare(id)}
               </span>
             </label>
             {isDefault ? (

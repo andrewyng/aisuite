@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenCoworker UX Mocks</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#17211f",
+              muted: "#65736f",
+              line: "#dce3df",
+              panel: "#f7faf8",
+              brand: "#146c5d",
+              brand2: "#3f6fdd"
+            },
+            boxShadow: {
+              soft: "0 12px 36px rgba(18, 32, 28, 0.08)"
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="bg-[#eef3f1] text-ink antialiased">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-8 py-12">
+      <div class="max-w-2xl">
+        <div class="mb-5 inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-muted shadow-sm">
+          <span class="h-2 w-2 rounded-full bg-brand"></span>
+          UX exploration
+        </div>
+        <h1 class="text-4xl font-semibold tracking-normal text-ink">OpenCoworker session and integrations redesign mocks</h1>
+        <p class="mt-4 text-base leading-7 text-muted">
+          Static HTML + Tailwind sketches for two areas: a session view with first-class Slack message cards and a more navigable Integrations page.
+        </p>
+      </div>
+
+      <div class="mt-10 grid gap-5 md:grid-cols-2">
+        <a href="./session-view.html" class="group rounded-xl border border-line bg-white p-6 shadow-soft transition hover:-translate-y-0.5 hover:border-brand">
+          <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-[#e5f3ef] text-brand">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+            </svg>
+          </div>
+          <h2 class="text-lg font-semibold">Agent session mock</h2>
+          <p class="mt-2 text-sm leading-6 text-muted">Slack event card, subscribed channel treatment, connector chips, and a more polished agent conversation surface.</p>
+          <span class="mt-5 inline-flex text-sm font-medium text-brand group-hover:underline">Open mock</span>
+        </a>
+
+        <a href="./integrations.html" class="group rounded-xl border border-line bg-white p-6 shadow-soft transition hover:-translate-y-0.5 hover:border-brand2">
+          <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-[#edf1ff] text-brand2">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 2v5" />
+              <path d="M12 17v5" />
+              <path d="M4.22 4.22l3.54 3.54" />
+              <path d="M16.24 16.24l3.54 3.54" />
+              <path d="M2 12h5" />
+              <path d="M17 12h5" />
+              <path d="M4.22 19.78l3.54-3.54" />
+              <path d="M16.24 7.76l3.54-3.54" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </div>
+          <h2 class="text-lg font-semibold">Integrations mock</h2>
+          <p class="mt-2 text-sm leading-6 text-muted">Cleaner IA for connectors, session routing, channel subscriptions, MCP servers, and unresolved inbound messages.</p>
+          <span class="mt-5 inline-flex text-sm font-medium text-brand2 group-hover:underline">Open mock</span>
+        </a>
+      </div>
+    </main>
+  </body>
+</html>

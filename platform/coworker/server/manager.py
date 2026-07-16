@@ -9,23 +9,39 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import re
+import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Optional
 
 from ..agent import build_engine
 from ..agents import get_agent
+from ..connections import (
+    PersonaConnectionStore,
+    SessionConnectionStore,
+    effective as effective_connections,
+)
+from ..inbox import InboxStore, args_preview
+from ..inbox_routing import InboxRouting
+from ..personas import PersonaRegistry
+from ..personas.registry import set_registry as set_persona_registry
+from ..selfwake import WakeStore
+from ..mentions import MentionSessionStore
+from ..subscriptions import ChannelBuffer, SubscriptionStore
+from ..unrouted import UnroutedStore
+from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..conversations import ConversationStore, title_from
-from ..engine import Approver, TurnEngine
+from ..engine import ApprovalOutcome, Approver, TurnEngine
 from ..roots import RootDir
-from ..agents import myhelper_agent
-from ..automation import Scheduler, TaskRun, TaskStore
+from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
 from ..connectors import (
     Gateway,
-    SUPERAGENT_MESSAGING_NOTE,
-    SuperAgent,
+    MessageSource,
     connect_connector,
     connector_list,
     disconnect_connector,
@@ -40,6 +56,7 @@ from ..connectors.browser_automation import (
     browser_state,
     browser_take_screenshot,
 )
+from ..connectors.parked import ParkedStore
 from ..mcp import (
     MCPManager,
     build_callables,
@@ -57,12 +74,24 @@ from ..providers import (
     ProviderRouter,
     get_descriptor,
     provider_descriptors,
+    verify_provider_key,
 )
 from ..secrets import SecretStore, state_dir
 from ..sessions import SessionRecord
 from ..skills import SkillLoader
 
 _SCOPES = {s.value for s in Scope}
+
+logger = logging.getLogger("coworker.manager")
+
+
+def _approval_body(request) -> str:
+    """Approval card body: the tool's reason (if any) plus a compact preview of its args, so a
+    mirrored 'Run `write_file`?' shows the path/content rather than just the tool name.
+    """
+    reason = (getattr(request, "reason", "") or "").strip()
+    preview = args_preview(getattr(request, "arguments", None))
+    return "\n".join(p for p in (reason, preview) if p)
 
 
 class SessionManager:
@@ -71,7 +100,7 @@ class SessionManager:
         *,
         workspace: Optional[str | Path] = None,  # default/seed workspace (e.g. --cwd)
         data_dir: Optional[str | Path] = None,
-        model: str = "gpt-5.5",
+        model: str = "gpt-5.6-sol",
         mode: Mode = Mode.INTERACTIVE,
         provider: Optional[ProviderClient] = None,
     ) -> None:
@@ -97,26 +126,80 @@ class SessionManager:
         if self.default_workspace:
             self.session_store.touch_workspace(self.default_workspace)
         self._engines: dict[str, TurnEngine] = {}
+        self._running_sessions: set[str] = (
+            set()
+        )  # sessions with an in-flight turn (busy)
         self.secrets = SecretStore()
         # No explicit provider injected → route by the model's `provider:` prefix (OpenAI default,
         # Ollama, …). Tests inject a provider directly and bypass the router. The same router is
         # shared by every engine and the `/v1/chat/completions` proxy.
         if self.provider is None:
-            self.provider = ProviderRouter(self.secrets, default_provider="openai")
+            self.provider = ProviderRouter(
+                self.secrets, default_provider="openai", on_use=self._note_provider_use
+            )
         self.mcp = MCPManager()
         self.gateway: Optional[Gateway] = None
-        self.superagent: Optional[SuperAgent] = None
         self._data_base = base
         # Desktop/UI prefs (default model, onboarding state) — not secrets; a plain JSON file.
         self._prefs = self._load_prefs()
         if self._prefs.get("default_model"):
             self.model = self._prefs["default_model"]
-        # GUI super-agent surface: connected clients (send callbacks) + pending approval.
-        self._sa_clients: set[Any] = set()
-        self._sa_pending: Optional[asyncio.Future] = None
+        # Per-session live-view registry: every socket open on a session id gets the turn's events,
+        # whoever drives the turn (foreground user_message, channel delivery, self-wake, resume).
+        # Delivery itself is socket-independent — this only governs *live visibility*.
+        self._session_clients: dict[str, set[Any]] = {}
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
+        # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
-        self.scheduler = Scheduler(self.task_store, self._run_scheduled_task)
+        self.scheduler = Scheduler(
+            self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
+        )
+        # Personas: registry + lifecycle state under this manager's data dir. Installed as the
+        # process singleton so agents.get_agent resolves persona ids (incl. third-party) here.
+        self.personas = PersonaRegistry(state_path=base / "personas.json")
+        set_persona_registry(self.personas)
+        # Inbox (cross-session human-attention queue), routing (named inboxes + Slack/Telegram
+        # bindings), the Unattended toggle, and self-wake records.
+        self.inbox = InboxStore(base / "inbox.json")
+        self.inbox_routing = InboxRouting(base / "inbox_routing.json")
+        self.unattended = UnattendedRegistry(base / "unattended.json")
+        self.wakes = WakeStore(base / "wakes.json")
+        # Channel subscriptions (inbound): persisted (session_id, channel) records + a ring buffer
+        # of recently-seen channel messages for get_channel_messages.
+        self.subscriptions = SubscriptionStore(base / "subscriptions.json")
+        self.channel_buffer = ChannelBuffer(state_path=base / "channels.json")
+        # Mention router (§31): thread target → the session that owns that Slack thread.
+        # Also the durable source of the thread's standing send_message grant (re-seeded
+        # onto the engine in get_engine).
+        self.mention_sessions = MentionSessionStore(base / "mention_threads.json")
+        # Unauthorized inbound messages, parked instead of dropped (one-step allow-and-deliver).
+        self.parked = ParkedStore(base / "parked.json")
+        # People directory: "platform:user_id" → display name, noted from every inbound
+        # (authorized or parked) so allow-list chips read "Rohit Prsad", not "U07JK…".
+        self._people_path = base / "people.json"
+        try:
+            self._people: dict[str, str] = json.loads(self._people_path.read_text())
+        except (OSError, ValueError):
+            self._people = {}
+        # Seed from already-parked messages (they carry resolved names) so an allow made from
+        # an old parked item still gets a named chip.
+        for it in self.parked.list():
+            if it.get("user_name"):
+                self._people.setdefault(
+                    f"{it['platform']}:{it['user_id']}", it["user_name"]
+                )
+        # Connection hierarchy (UI-REFRESH §4): per-persona default connector on/off (seeded from the
+        # manifest, then user-editable) + per-session overrides. Resolved into the session's effective
+        # connector set, which gates inbound delivery and the engine's connector tools.
+        self.persona_connections = PersonaConnectionStore(
+            base / "persona_connections.json"
+        )
+        self.session_connections = SessionConnectionStore(
+            base / "session_connections.json"
+        )
+        # Dead-letter: inbound messages with no destination + background-turn failures, so neither
+        # vanishes silently (a debugging/visibility surface, not a redelivery queue).
+        self.unrouted = UnroutedStore(base / "unrouted.json")
 
     # -- workspaces -------------------------------------------------------------
     def open_workspace(self, path: str, *, create: bool = False) -> dict[str, Any]:
@@ -139,9 +222,18 @@ class SessionManager:
         return {"path": str(resolved), "ok": True, "git_branch": _git_branch(resolved)}
 
     def recent_workspaces(self) -> list[dict[str, Any]]:
+        """Recent real projects for the folder gate. Per-conversation scratch dirs are
+        excluded — they're workspaces to the session store, but never something a user
+        should re-open as a 'project'."""
+        scratch = self.scratch_base().resolve()
         out = []
         for path in self.session_store.recent_workspaces():
             p = Path(path)
+            try:
+                if p.resolve().is_relative_to(scratch):
+                    continue
+            except OSError:
+                pass
             out.append({"path": path, "name": p.name, "exists": p.is_dir()})
         return out
 
@@ -187,6 +279,7 @@ class SessionManager:
         extra_tools: Optional[list[Any]] = None,
         directory_requester: Optional[Any] = None,
         plan_approver: Optional[Any] = None,
+        question_asker: Optional[Any] = None,
     ) -> Optional[TurnEngine]:
         engine = self._engines.get(session_id)
         if engine is not None:
@@ -196,9 +289,12 @@ class SessionManager:
                 engine.directory_requester = directory_requester
             if plan_approver is not None:
                 engine.plan_approver = plan_approver
+            if question_asker is not None:
+                engine.question_asker = question_asker
             return engine
 
         record = self.session_store.load(session_id)
+        is_new_session = record is None
         agent_name = (record.agent if record else agent) or "code"
         ag = get_agent(agent_name)
 
@@ -210,10 +306,10 @@ class SessionManager:
             model, mode, messages = self.model, self.mode, None
 
         if ag.needs_workspace and (not ws or not Path(ws).is_dir()):
-            # Cowork starts "orphan": no folder picked → auto-provision a per-conversation
-            # scratch directory (generalizes MyHelper's auto-workspace). Code still requires a
-            # real repo; Chat needs no workspace.
-            if agent_name == "cowork":
+            # Knowledge surfaces (Cowork, Ops, …) start "orphan": no folder picked →
+            # auto-provision a per-conversation scratch directory (generalizes MyHelper's
+            # auto-workspace). Code-family surfaces still require a real repo; Chat needs none.
+            if ag.family == "knowledge":
                 ws = self._provision_scratch(session_id)
             else:
                 return None
@@ -223,7 +319,7 @@ class SessionManager:
         # Orphan surfaces are multi-root: the scratch (ws) is the primary writable root, plus any
         # folders the user added (persisted per session). Code/Chat stay single-root (roots=None).
         roots = None
-        if agent_name in ("cowork", "myhelper") and ws:
+        if ag.family == "knowledge" and ws:
             extra = [
                 r
                 for r in ((record.extra_roots if record else []) or [])
@@ -235,21 +331,439 @@ class SessionManager:
             workspace=ws,
             model=model,
             mode=mode,
-            approver=approver,
             provider=self.provider,
             memory_store=self.memory_store,
             messages=messages,
             extra_tools=extra_tools,
             secrets=self.secrets,
             task_store=self.task_store,
+            wake_store=self.wakes,
             session_id=session_id,
             audit_sink=self.audit_store.append,
             roots=roots,
-            directory_requester=directory_requester,
-            plan_approver=plan_approver,
+            # WS sessions pass mode-aware callbacks (attended → live prompt, unattended → Inbox).
+            # Background / self-wake / durable-resume runs have no live socket → default to the
+            # Inbox-based callbacks so a rebuilt engine can still get approvals/answers (and, on
+            # resume, the already-resolved item returns immediately).
+            approver=approver or self.inbox_approver(session_id, agent),
+            directory_requester=directory_requester
+            or self.inbox_directory_requester(session_id, agent),
+            plan_approver=plan_approver or self.inbox_plan_approver(session_id, agent),
+            question_asker=question_asker
+            or self.inbox_question_asker(session_id, agent),
+            subscription_store=self.subscriptions,
+            channel_buffer=self.channel_buffer,
+            routing_targets=self._routing_targets(session_id, agent),
+            # Per-session connection hierarchy: expose only effective-enabled connectors' tools.
+            connector_filter=self.effective_connectors(session_id, agent_name),
         )
+        # An automation run rebuilt here (manual "Run now" over WS, durable resume) still
+        # carries its task's standing allowances — the rules live on the task record.
+        owning_task = self.task_store.task_for_run_session(session_id)
+        if owning_task is not None:
+            self._seed_task_permissions(engine, owning_task)
+        # A mention-spawned session (§31) keeps its in-thread reply pre-approved across
+        # rebuilds/restarts — the grant is re-derived from the durable thread map.
+        for thread_target in self.mention_sessions.targets_for(session_id):
+            engine.permissions.task_rules.setdefault("send_message", set()).add(
+                thread_target
+            )
         self._engines[session_id] = engine
+        if is_new_session:
+            self._emit_session_created(session_id, agent_name)
         return engine
+
+    def _emit_session_created(self, session_id: str, persona_id: str) -> None:
+        """Phase 5 telemetry, fired once per brand-new session on a background thread
+        (never blocks session start). cloud.emit_session_created is a hard no-op when
+        signed out or opted out, and sends only content-free facts."""
+        import threading
+
+        from .. import cloud
+        from ..config import load_config
+
+        entry = self.personas.get(persona_id)
+        family = entry.family if entry else ""
+        workspace_kind = entry.workspace if entry else ""
+
+        def _send() -> None:
+            try:
+                cloud.emit_session_created(
+                    self.secrets,
+                    load_config(),
+                    session_id=session_id,
+                    persona_id=persona_id,
+                    persona_family=family,
+                    workspace_kind=workspace_kind,
+                )
+            except Exception:
+                pass  # telemetry must never surface as a session error
+
+        threading.Thread(target=_send, daemon=True).start()
+
+    def _routing_targets(self, session_id: str, agent: str) -> list[str]:
+        """The channel address(es) this session's Inbox routes OUT to — used to warn when a
+        subscription (inbound) collides with Inbox routing (outbound) on the same channel.
+        """
+        binding = self.inbox_routing.binding_for(
+            self.inbox_routing.route_for(session_id, agent)
+        )
+        return [f"{binding.channel}:{binding.target}"] if binding.channel else []
+
+    # -- connection hierarchy (UI-REFRESH §4) -----------------------------------
+    def _persona_of(self, session_id: str, persona_id: Optional[str] = None) -> str:
+        if persona_id:
+            return persona_id
+        record = self.session_store.load(session_id)
+        return (record.agent if record else None) or self.personas.default_id()
+
+    def effective_connectors(
+        self, session_id: str, persona_id: Optional[str] = None
+    ) -> set[str]:
+        """The connectors effectively enabled for this session (§4.1): connected AND not muted by
+        the session override / persona default. Drives the engine's connector-tool gating; seeds the
+        persona defaults from the manifest on first read using the full connected set.
+        """
+        persona = self._persona_of(session_id, persona_id)
+        connected = {c["name"] for c in connector_list(self.secrets) if c["connected"]}
+        entry = self.personas.get(persona)
+        manifest = entry.manifest if entry else None
+        persona_defaults = self.persona_connections.defaults_for(
+            persona, manifest, connected=connected
+        )
+        session_overrides = self.session_connections.get(session_id)
+        return set(
+            effective_connections(
+                connected=connected,
+                persona_defaults=persona_defaults,
+                session_overrides=session_overrides,
+            )
+        )
+
+    def _inbound_connector_allowed(self, session_id: str, connector: str) -> bool:
+        """Whether an inbound message on `connector` should be DELIVERED to `session_id` (§4.3).
+
+        Uses the SAME effective set as the engine's connector-tool gating so the inbound gate and the
+        tool gate can never disagree (a muted connector is muted both ways, from the first message).
+        """
+        return connector in self.effective_connectors(session_id)
+
+    # -- persona + session connection surfaces (UI-REFRESH §5/§6) ----------------
+    @staticmethod
+    def _workspace_kind(entry) -> str:
+        """The persona's workspace requirement as a stable string for the GUI. Manifest-backed
+        personas carry it verbatim (git|deliverable|none); builtins (which have no manifest) map
+        family/needs_workspace into the SAME vocabulary so the frontend reads one enum:
+        code-family → git, knowledge-family with a workspace → deliverable, none → none.
+        """
+        if entry.manifest is not None:
+            return entry.manifest.workspace
+        if not entry.needs_workspace:
+            return "none"
+        return "git" if entry.family == "code" else "deliverable"
+
+    def _connected_connectors(self) -> set[str]:
+        """The account-connected connector names (the first layer of the §4 hierarchy)."""
+        return {c["name"] for c in connector_list(self.secrets) if c["connected"]}
+
+    def _persona_default_connections(
+        self, persona_id: str, manifest, connected: set[str]
+    ) -> list[dict[str, Any]]:
+        """The persona's default connector map (seeded from the manifest's connector recommends on
+        first read, then user-editable) as a list, each annotated with account-connectedness.
+        """
+        defaults = self.persona_connections.defaults_for(
+            persona_id, manifest, connected=connected
+        )
+        return [
+            {"connector": c, "enabled": bool(enabled), "connected": c in connected}
+            for c, enabled in defaults.items()
+        ]
+
+    def persona_detail(self, persona_id: str) -> Optional[dict[str, Any]]:
+        """Identity + capabilities + recommends(+connected) + default connections for one persona
+        (UI-REFRESH §5). Returns None for an unknown id (the route maps that to an error).
+        """
+        entry = self.personas.get(persona_id)
+        if entry is None:
+            return None
+        manifest = entry.manifest
+        connected = self._connected_connectors()
+        recommends = [
+            {
+                "kind": rec.kind,
+                "ref": rec.ref,
+                "reason": rec.reason,
+                "tier": rec.tier,
+                "connected": rec.ref in connected,
+            }
+            for rec in (manifest.recommends if manifest else [])
+        ]
+        return {
+            "id": entry.id,
+            "name": entry.name,
+            "icon": entry.icon,
+            "tagline": entry.tagline,
+            "description": manifest.description if manifest else "",
+            "enabled": self.personas.is_enabled(entry.id),
+            "tools": list(entry.tools),
+            "recommended_models": list(manifest.recommended_models) if manifest else [],
+            "default_permission_mode": (
+                manifest.default_permission_mode if manifest else "interactive"
+            ),
+            "workspace": self._workspace_kind(entry),
+            "recommends": recommends,
+            "default_connections": self._persona_default_connections(
+                persona_id, manifest, connected
+            ),
+        }
+
+    def set_persona_connection(
+        self, persona_id: str, connector: str, enabled: bool
+    ) -> dict[str, Any]:
+        """Set a persona-default connector on/off (UI-REFRESH §5). Seeds the manifest defaults
+        first so the stored row stays complete (the edit overlays the full seed rather than
+        collapsing the row to this one connector), then returns the refreshed default_connections
+        so the client can re-render without a second GET."""
+        entry = self.personas.get(persona_id)
+        if entry is None:
+            return {"ok": False, "error": f"unknown persona: {persona_id}"}
+        manifest = entry.manifest
+        connected = self._connected_connectors()
+        self.persona_connections.defaults_for(persona_id, manifest, connected=connected)
+        self.persona_connections.set(persona_id, connector, bool(enabled))
+        return {
+            "ok": True,
+            "default_connections": self._persona_default_connections(
+                persona_id, manifest, connected
+            ),
+        }
+
+    def set_persona_enabled(self, persona_id: str, enabled: bool) -> dict[str, Any]:
+        """Flip a persona's enabled flag. Disabling also archives its real (unarchived,
+        non-internal) sessions — disable means "put this coworker and its history away", so
+        the persona's sidebar section disappears with it (owner call, 2026-07-04). Re-enabling
+        never unarchives: that would overwrite the user's archive state; history returns one
+        click at a time via the Show-archived disclosure. Raises KeyError for unknown ids.
+        """
+        self.personas.set_enabled(persona_id, enabled)
+        archived = 0
+        if not enabled:
+            for r in self.session_store.list():
+                if (
+                    r.agent == persona_id
+                    and not r.archived
+                    and not r.session_id.startswith("__")
+                ):
+                    self.session_store.set_flags(r.session_id, archived=True)
+                    archived += 1
+        return {"ok": True, "archived_sessions": archived}
+
+    def _connection_detail(
+        self, session_id: str, connector: str, info: Optional[dict[str, Any]]
+    ) -> str:
+        """A short human description of WHY a connector is live for a session: the chat ids it's
+        subscribed to on that platform, plus "DMs" if this is the designated DM session. Channel
+        *names* would need the live adapter's resolve cache (not cheap here), so we show the chat
+        ids; with no subscription/DM tie we fall back to the connector's title."""
+        prefix = f"{connector}:"
+        parts = [
+            s.channel.split(":", 1)[1]
+            for s in self.subscriptions.for_session(session_id)
+            if s.channel.startswith(prefix)
+        ]
+        if self.dm_session() == session_id:
+            parts.append("DMs")
+        if parts:
+            return " · ".join(parts)
+        return (info or {}).get("title") or connector
+
+    def session_connections_view(
+        self, session_id: str, persona_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        """The per-session connections drawer payload (UI-REFRESH §6): every account-connected
+        connector with its effective on/off state (muted ones stay VISIBLE as off — a §4.2 toggle
+        must never make a row vanish), the persona's connector recommends that aren't yet
+        account-connected, and the attention count (= those unconnected recommends).
+
+        ``persona_id`` is the caller's hint (the GUI knows the active persona). It matters for a
+        brand-new session: no SessionRecord exists until the first turn persists, so without the
+        hint the view would resolve to the DEFAULT persona and show its defaults/recommends —
+        the owner's 2026-07-03 finding (a fresh Project Manager session rendered cowork's view).
+        """
+        persona = self._persona_of(session_id, persona_id)
+        entry = self.personas.get(persona)
+        manifest = entry.manifest if entry else None
+        connectors = connector_list(self.secrets)
+        by_name = {c["name"]: c for c in connectors}
+        connected_names = {c["name"] for c in connectors if c["connected"]}
+        effective = self.effective_connectors(session_id, persona)
+        connected = [
+            {
+                "connector": name,
+                "enabled": name in effective,
+                "detail": self._connection_detail(session_id, name, by_name.get(name)),
+            }
+            for name in sorted(connected_names)
+        ]
+        recommended = [
+            {
+                "connector": rec.ref,
+                "reason": rec.reason,
+                "tier": rec.tier,
+                "connected": False,
+            }
+            for rec in (manifest.recommends if manifest else [])
+            if rec.kind == "connector" and rec.ref not in connected_names
+        ]
+        return {
+            "connected": connected,
+            "recommended": recommended,
+            "attention": sum(1 for r in recommended if not r["connected"]),
+        }
+
+    def inbox_question_asker(self, session_id: str, agent: str):
+        """The Unattended `ask_user` handler: turn the agent's question into an Inbox item and
+        suspend until a human answers it (from the Inbox, or inline when they open the session).
+        Also the default for background/self-wake runs (no live socket). Mirrors to a bound channel
+        like the approver does."""
+
+        async def ask(
+            args: dict[str, Any], tool_call_id: Optional[str] = None
+        ) -> dict[str, Any]:
+            question = str(args.get("question", "")).strip()
+            if not question:
+                return {"answer": "", "error": "no question"}
+            inbox_name = self.inbox_routing.route_for(session_id, agent)
+            item = self.inbox.add_question(
+                session_id,
+                title=question,
+                inbox=inbox_name,
+                options=list(args.get("options") or []),
+                allow_text=bool(args.get("allow_text", True)),
+                multi=bool(args.get("multi", False)),
+                tool_call_id=tool_call_id,
+            )
+            if (
+                item.state != "pending"
+            ):  # durable resume re-raised an already-answered prompt
+                return {"answer": item.resolution or ""}
+            self.persist_session(session_id)  # the pending tool call is now on disk
+            await self.mirror_inbox_item(item)
+            answer = await self.inbox.wait(item.id)
+            return {"answer": answer}
+
+        return ask
+
+    def inbox_approver(self, session_id: str, agent: str):
+        """Inbox-based approver — the default for no-socket runs (background, self-wake, durable
+        resume). On resume the item already exists + is resolved, so wait returns at once.
+        """
+
+        async def approve(request):
+            item = self.inbox.add_approval(
+                session_id,
+                f"Run `{request.tool_name}`?",
+                body=_approval_body(request),
+                inbox=self.inbox_routing.route_for(session_id, agent),
+                tool_call_id=getattr(request, "tool_call_id", None),
+                data=self.approval_prompt_data(session_id, request),
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resolution = await self.inbox.wait(item.id)
+            return self.approval_outcome(resolution, request, session_id)
+
+        return approve
+
+    def inbox_directory_requester(self, session_id: str, agent: str):
+        async def request(args, tool_call_id=None):
+            item = self.inbox.add_directory(
+                session_id,
+                "Grant access to a folder?",
+                body=str(args.get("reason", "")),
+                inbox=self.inbox_routing.route_for(session_id, agent),
+                data={
+                    "path": str(args.get("path", "")),
+                    "writable": bool(args.get("writable", False)),
+                },
+                tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resp = _parse_inbox_json(await self.inbox.wait(item.id))
+            if not resp.get("granted"):
+                return {"granted": False, "reason": "the user declined the request"}
+            path = (resp.get("path") or args.get("path") or "").strip()
+            if not path:
+                return {"granted": False, "error": "no directory was provided"}
+            writable = bool(resp.get("writable", args.get("writable", False)))
+            res = self.add_root(session_id, path, writable)
+            if not res.get("ok"):
+                return {
+                    "granted": False,
+                    "error": res.get("error", "could not grant access"),
+                }
+            return {"granted": True, "path": path, "writable": writable}
+
+        return request
+
+    def inbox_plan_approver(self, session_id: str, agent: str):
+        async def approve(args, tool_call_id=None):
+            item = self.inbox.add_plan(
+                session_id,
+                "Approve the plan?",
+                body=str(args.get("plan", "")),
+                inbox=self.inbox_routing.route_for(session_id, agent),
+                tool_call_id=tool_call_id,
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resp = _parse_inbox_json(await self.inbox.wait(item.id))
+            if not resp.get("approved"):
+                return {
+                    "approved": False,
+                    "feedback": resp.get("feedback") or "the user rejected the plan",
+                }
+            return {"approved": True, "mode": resp.get("mode") or "interactive"}
+
+        return approve
+
+    def persist_session(self, session_id: str) -> None:
+        """Save the cached engine's thread (so a prompt's pending tool call survives a crash)."""
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            self.save(session_id, engine)
+
+    async def resolve_inbox(self, item_id: str, resolution: str) -> bool:
+        """Resolve an Inbox item from any surface (REST / Slack button / channel reply). If the
+        asking agent is still suspended live, that await handles it. Otherwise the process restarted
+        (or the engine was evicted) while blocked → durably resume: rebuild the engine from the
+        saved thread and continue the turn."""
+        item = self.inbox.get(item_id)
+        ok = self.inbox.resolve(item_id, resolution)
+        if not ok or item is None:
+            return ok
+        if not self.is_running(item.session_id):
+            await self._durable_resume(item)
+        return ok
+
+    async def _durable_resume(self, item) -> None:
+        if not getattr(item, "tool_call_id", None):
+            return  # nothing to reconstruct (legacy item) — best-effort: leave it
+        engine = self.get_engine(item.session_id)
+        if engine is None or not hasattr(engine, "resume"):
+            return
+        self.mark_running(item.session_id)
+        try:
+            async for _event in engine.resume():
+                pass
+            self.save(item.session_id, engine)
+        finally:
+            self.mark_idle(item.session_id)
 
     # -- MCP --------------------------------------------------------------------
     async def prepare_mcp_tools(
@@ -357,7 +871,42 @@ class SessionManager:
 
     # -- connectors -------------------------------------------------------------
     def list_connectors(self) -> list[dict[str, Any]]:
-        return connector_list(self.secrets)
+        # Enrich two-way connectors with the live gateway's recently-seen senders, so the Connectors
+        # tab can manage the allow-list inline (each recent sender flagged authorized or not).
+        connectors = connector_list(self.secrets)
+        for c in connectors:
+            if not (c.get("two_way") and c.get("connected")):
+                continue
+            allowed = set(c.get("allowed_users") or [])
+            # Per-workspace allow-lists (managed relay) — a sender is judged against
+            # ITS workspace's list; the flat list only governs team-less (socket) events.
+            team_allowed = {
+                w["team_id"]: set(w.get("allowed_users") or [])
+                for w in (c.get("workspaces") or [])
+            }
+            recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
+            for r in recent:
+                team = r.get("team_id")
+                pool = team_allowed.get(team, set()) if team else allowed
+                r["authorized"] = r.get("user_id") in pool
+                # Backfill from the people directory (an event may predate name scopes).
+                r["user_name"] = r.get("user_name") or self._people.get(
+                    f"{c['name']}:{r.get('user_id')}"
+                )
+            c["recent"] = recent
+            # Parked unauthorized messages (§19) — the connector page resolves them inline.
+            c["unauthorized"] = self.parked.list(c["name"])
+            # Allow-list display names from the people directory (ids stay the source of truth).
+            c["allowed_user_names"] = {
+                u: self._people.get(f"{c['name']}:{u}")
+                for u in (c.get("allowed_users") or [])
+            }
+            for w in c.get("workspaces") or []:
+                w["allowed_user_names"] = {
+                    u: self._people.get(f"{c['name']}:{u}")
+                    for u in (w.get("allowed_users") or [])
+                }
+        return connectors
 
     def connect_connector(
         self, name: str, fields: dict[str, Any], *, acknowledged: bool = False
@@ -450,6 +999,9 @@ class SessionManager:
                 out.append(
                     {
                         "path": str(rel),
+                        # Absolute path for "Copy path" — the relative one is useless outside
+                        # the app (tester catch 2026-07-12: it copied just the filename).
+                        "abs_path": str(path),
                         "name": path.name,
                         "kind": _artifact_kind(path),
                         "size": st.st_size,
@@ -623,22 +1175,97 @@ class SessionManager:
                     "configured": configured,
                     "values": values,
                     "suggested_models": self._suggested_models(d.name),
+                    # Key hygiene for the Settings pane: when the key was saved (date, stamped
+                    # by set_provider) and when the provider last served a completion (epoch,
+                    # stamped by the router's on_use hook). Absent for env-only config.
+                    "key_set_at": profile.get("key_set_at"),
+                    "last_used_at": (self._prefs.get("provider_last_used") or {}).get(
+                        d.name
+                    ),
                 }
             )
         return out
 
+    def pick_native_folder(self) -> dict[str, Any]:
+        """Open the OS folder picker FROM THE SIDECAR — the browser GUI can't obtain absolute
+        paths from web file dialogs, but the sidecar is local and can (the desktop shell uses
+        Tauri's own picker instead). Blocking until pick/cancel; callers run it off-thread.
+        """
+        import subprocess
+        import sys
+
+        if sys.platform == "darwin":
+            cmd = [
+                "osascript",
+                "-e",
+                'tell application "System Events" to activate',
+                "-e",
+                'POSIX path of (choose folder with prompt "Give the coworker access to a folder")',
+            ]
+        elif sys.platform == "win32":
+            # WinForms folder dialog via PowerShell — no extra deps. -STA is required
+            # (the dialog silently fails in the default MTA apartment).
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = 'Give the coworker access to a folder'; "
+                "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+                "{ [Console]::Out.Write($f.SelectedPath) }"
+            )
+            cmd = ["powershell.exe", "-NoProfile", "-STA", "-Command", ps]
+        else:
+            # Linux: zenity when present; otherwise the GUI's paste-a-path input remains.
+            cmd = ["zenity", "--file-selection", "--directory"]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.TimeoutExpired):
+            return {"ok": False, "error": "no native folder picker available"}
+        path = (out.stdout or "").strip()
+        if out.returncode != 0 or not path:
+            return {"ok": False, "canceled": True}
+        return {"ok": True, "path": path}
+
+    def _note_provider_use(self, name: str) -> None:
+        """Router on_use hook: remember when a provider last served a completion. Persisted
+        THROTTLED (once per provider per minute) — this fires on every model call, from engine
+        threads, and prefs.json isn't a place for a write-per-token-of-work."""
+        import time
+
+        now = time.time()
+        used = self._prefs.setdefault("provider_last_used", {})
+        if now - float(used.get(name) or 0) < 60:
+            return
+        used[name] = now
+        try:
+            self._save_prefs()
+        except OSError:
+            pass
+
+    # Suggestions for the OpenAI-compatible vendor providers (checked against vendor docs
+    # 2026-07-04; refresh alongside `recommended_model` in providers/registry.py).
+    COMPAT_MODELS = {
+        "zai": ["glm-5.2", "glm-4.6"],
+        "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "kimi": ["kimi-k2.6", "kimi-k2.5"],
+        "minimax": ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M3"],
+        "qwen": ["qwen3-max", "qwen3-coder-plus", "qwen-plus"],
+        "xai": ["grok-4.3", "grok-4"],
+        "mistral": ["mistral-large-latest", "mistral-small-latest"],
+    }
+
     def _suggested_models(self, name: str) -> list[str]:
         """Bare model-name suggestions for the 'add model' form (datalist), per provider.
-        OpenAI → the built-in list; Ollama → live `/api/tags` (best-effort)."""
-        if name == "openai":
-            return list(self.KNOWN_MODELS)
-        if name == "anthropic":
-            return ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"]
-        if name == "gemini":
-            return ["gemini-2.5-flash", "gemini-2.5-pro"]
+        Ollama → live `/api/tags` (best-effort); everyone else → the curated matrix,
+        topped up with the compat-vendor extras the matrix doesn't vouch for."""
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
-        return []
+        from ..providers.matrix import models_for_provider
+
+        return list(
+            dict.fromkeys(
+                [*models_for_provider(name), *self.COMPAT_MODELS.get(name, [])]
+            )
+        )
 
     def set_provider(
         self, name: str, fields: Optional[dict[str, Any]]
@@ -663,6 +1290,12 @@ class SessionManager:
         missing = [f.label for f in d.fields if f.required and not profile.get(f.key)]
         if missing:
             return {"ok": False, "error": "missing: " + ", ".join(missing)}
+        # A (re)pasted key stamps its save date — Settings shows "key added <date>" so stale
+        # keys are visible. Endpoint-only saves keep the original stamp.
+        if isinstance(fields.get("api_key"), str) and fields["api_key"].strip():
+            from datetime import date
+
+            profile["key_set_at"] = date.today().isoformat()
         self.secrets.put(f"provider:{name}", profile)
         self._refresh_provider(name)
         # Convenience: if the provider recommends a model and it's actually available, add it to
@@ -674,11 +1307,32 @@ class SessionManager:
             added = rec if name == "openai" else f"{name}:{rec}"
             self.add_model(added)
         # First working provider wins the default: if the current default model belongs to a
-        # provider with no usable config (the fresh-install gpt-5.5 case), switch the default to
+        # provider with no usable config (the fresh-install gpt-5.6-sol case), switch the default to
         # this provider's model. A default that already works is never stolen.
         if added and not self._provider_configured(self._model_provider(self.model)):
             self.set_default_model(added)
         return {"ok": True, "provider": name, "recommended_model": rec}
+
+    def verify_provider(
+        self, name: str, fields: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Test a provider's credentials with a live read-only call, WITHOUT persisting them, so
+        onboarding can offer a "Test" button. Falls back to the stored/env key when the form left
+        the key blank (e.g. testing an already-configured provider)."""
+        import os
+
+        d = get_descriptor(name)
+        if d is None:
+            return {"ok": False, "error": f"unknown provider: {name}"}
+        fields = fields or {}
+        profile = self.secrets.get(f"provider:{name}") or {}
+        api_key = (fields.get("api_key") or profile.get("api_key") or "").strip()
+        if not api_key and d.env_key:
+            api_key = os.environ.get(d.env_key, "").strip()
+        base_url = (fields.get("base_url") or profile.get("base_url") or "").strip()
+        if d.needs_key and not api_key:
+            return {"ok": False, "error": "Enter an API key to test."}
+        return verify_provider_key(name, api_key=api_key, base_url=base_url)
 
     def _model_provider(self, model: str) -> str:
         """The provider a model string routes to (known `prefix:` or the OpenAI default)."""
@@ -700,8 +1354,6 @@ class SessionManager:
         )
 
     # -- settings / prefs (model API key, default model, onboarding) -------------
-    KNOWN_MODELS = ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
-
     def _prefs_path(self) -> Path:
         return self._data_base / "prefs.json"
 
@@ -715,6 +1367,22 @@ class SessionManager:
         self._prefs_path().write_text(
             json.dumps(self._prefs, indent=2), encoding="utf-8"
         )
+
+    # -- direct-message routing -------------------------------------------------
+    def dm_session(self) -> Optional[str]:
+        """The session a DM to the bot is routed to (user-designated). None → DMs are parked."""
+        sid = self._prefs.get("dm_session")
+        return sid or None
+
+    def set_dm_session(self, session_id: Optional[str]) -> dict[str, Any]:
+        """Designate (or clear, with a falsy id) the session that handles incoming DMs."""
+        sid = (session_id or "").strip()
+        if sid:
+            self._prefs["dm_session"] = sid
+        else:
+            self._prefs.pop("dm_session", None)
+        self._save_prefs()
+        return {"ok": True, "dm_session": self.dm_session()}
 
     def _ollama_models(self) -> list[str]:
         """Live list of models pulled into the configured Ollama server (via its native
@@ -737,34 +1405,55 @@ class SessionManager:
             return []
 
     def _curated_models(self) -> list[str]:
-        """The user-curated model list shown in the composer's selector. Persisted in prefs;
-        defaults to the built-in OpenAI models on first run. The active default model is always
-        included so it stays selectable."""
-        models = self._prefs.get("models")
-        if not isinstance(models, list) or not models:
-            models = list(self.KNOWN_MODELS)
+        """The models offered in the composer's selector: every curated-matrix model
+        (`get_settings` culls the ones whose provider has no key) plus custom ids the user
+        added, minus matrix models they removed. Deliberately NO built-in seed list — a
+        fresh install offers nothing until a provider key exists, and then exactly that
+        provider's matrix models appear. The active default is always kept selectable.
+        """
+        from ..providers.matrix import MATRIX
+
+        user = self._prefs.get("models")
+        user = user if isinstance(user, list) else []
+        hidden = set(self._prefs.get("hidden_models") or [])
+        models = [m for m in [*MATRIX, *user] if m not in hidden]
         return list(dict.fromkeys([self.model, *models]))
 
     def add_model(self, model: str) -> dict[str, Any]:
-        """Add a model id (e.g. `gpt-4o`, `ollama:qwen2.5-coder:32b`) to the curated list."""
+        """Add a model id (e.g. `gpt-4o`, `ollama:qwen2.5-coder:32b`) to the picker.
+        Custom ids persist in prefs; a previously removed matrix model is just unhidden
+        (storing it too would shadow future matrix updates)."""
+        from ..providers.matrix import MATRIX
+
         model = (model or "").strip()
         if not model:
             return {"ok": False, "error": "empty model"}
+        hidden = [m for m in self._prefs.get("hidden_models") or [] if m != model]
+        if hidden:
+            self._prefs["hidden_models"] = hidden
+        else:
+            self._prefs.pop("hidden_models", None)
         models = self._prefs.get("models")
-        if not isinstance(models, list):
-            models = list(self.KNOWN_MODELS)
-        if model not in models:
+        models = models if isinstance(models, list) else []
+        if model not in models and model not in MATRIX:
             models.append(model)
         self._prefs["models"] = models
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
     def remove_model(self, model: str) -> dict[str, Any]:
-        """Remove a model id from the curated list."""
+        """Remove a model id from the picker. Custom ids are dropped; matrix models are
+        hidden by id (the matrix is derived, not stored, so a bare drop would resurrect
+        them on the next read)."""
+        from ..providers.matrix import MATRIX
+
         models = self._prefs.get("models")
-        if not isinstance(models, list):
-            models = list(self.KNOWN_MODELS)
+        models = models if isinstance(models, list) else []
         self._prefs["models"] = [m for m in models if m != model]
+        if model in MATRIX:
+            hidden = self._prefs.get("hidden_models") or []
+            if model not in hidden:
+                self._prefs["hidden_models"] = [*hidden, model]
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
@@ -774,15 +1463,36 @@ class SessionManager:
 
         env_key = bool(os.environ.get("OPENAI_API_KEY"))
         stored = bool((self.secrets.get("provider:openai") or {}).get("api_key"))
+        # Only surface models whose provider is actually configured — the composer picker
+        # reflects exactly what's connected. The active default is always kept selectable
+        # (it's hidden behind the "No model" state until a provider is connected anyway).
+        selectable = [
+            m
+            for m in self._curated_models()
+            if self._provider_configured(self._model_provider(m))
+        ]
+        if self.model not in selectable:
+            selectable.insert(0, self.model)
+        from ..providers.matrix import model_labels
+
         return {
             "provider": "openai",
             "model": self.model,
-            "models": self._curated_models(),
+            "models": selectable,
+            # Curated-matrix display names ({full id → "GLM-5.2 · via Together"}) so every
+            # picker shows human labels; custom models absent here render their raw id.
+            "model_labels": model_labels(),
             "has_key": env_key or stored,
+            # Provider-agnostic "can this default model actually run?" — true when the default
+            # model's provider is configured (any provider, not just OpenAI). Drives the GUI's
+            # "No model connected" composer chip and the onboarding Skip warning.
+            "model_ready": self._provider_configured(self._model_provider(self.model)),
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
+            "nav_layout": self._nav_layout(),
+            "sessions_peek": self.sessions_peek(),
             "scratch_base": self._prefs.get("scratch_base")
             or self.DEFAULT_SCRATCH_BASE,
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
@@ -809,6 +1519,36 @@ class SessionManager:
             self._prefs["show_code"] = bool(code)
         self._save_prefs()
         return {"ok": True, "surfaces": self._surfaces()}
+
+    def _nav_layout(self) -> str:
+        """Sidebar layout: ``"flat"`` (default) or ``"grouped"`` (by persona). Persisted in
+        prefs (UI-REFRESH §7)."""
+        return "grouped" if self._prefs.get("nav_layout") == "grouped" else "flat"
+
+    def set_nav_layout(self, nav_layout: str) -> dict[str, Any]:
+        """Set + persist the sidebar layout. Unknown values fall back to ``"flat"``."""
+        value = "grouped" if (nav_layout or "").strip() == "grouped" else "flat"
+        self._prefs["nav_layout"] = value
+        self._save_prefs()
+        return {"ok": True, "nav_layout": value}
+
+    DEFAULT_SESSIONS_PEEK = 5
+
+    def sessions_peek(self) -> int:
+        """How many sessions a sidebar group shows before "Show more" (owner ask, 2026-07-03)."""
+        try:
+            n = int(self._prefs.get("sessions_peek", self.DEFAULT_SESSIONS_PEEK))
+        except (TypeError, ValueError):
+            n = self.DEFAULT_SESSIONS_PEEK
+        return max(1, min(n, 50))
+
+    def set_sessions_peek(self, n: int) -> dict[str, Any]:
+        try:
+            self._prefs["sessions_peek"] = max(1, min(int(n), 50))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "sessions_peek must be a number"}
+        self._save_prefs()
+        return {"ok": True, "sessions_peek": self.sessions_peek()}
 
     def set_model_key(self, api_key: str) -> dict[str, Any]:
         """Persist the model API key to the SecretStore (0600). The new provider client is
@@ -855,217 +1595,364 @@ class SessionManager:
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
-    # -- gateway / super-agent (inbound messaging) ------------------------------
-    SUPERAGENT_SESSION_ID = "__superagent__"
+    # -- gateway + connector allow-list (inbound messaging) ---------------------
+    def allow_user(
+        self,
+        name: str,
+        user_id: str,
+        team_id: Optional[str] = None,
+        *,
+        display_name: str = "",
+    ) -> dict[str, Any]:
+        out = self._set_allowed(name, user_id, team_id=team_id, add=True)
+        # Directory picks arrive with the name in hand — record it so the chip
+        # is readable immediately (message-driven allows learn it on arrival).
+        if out.get("ok") and display_name:
+            self._note_person(name, user_id, display_name)
+        return out
 
-    def _superagent_config_path(self) -> Path:
-        return self._data_base / "superagent.json"
+    def disallow_user(
+        self, name: str, user_id: str, team_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        return self._set_allowed(name, user_id, team_id=team_id, add=False)
 
-    def get_superagent_config(self) -> dict[str, Any]:
-        try:
-            return json.loads(
-                self._superagent_config_path().read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _superagent_workspace(self) -> Path:
-        cfg = self.get_superagent_config()
-        if cfg.get("workspace"):
-            ws = Path(cfg["workspace"]).expanduser()
-        else:
-            ws = self._data_base / "superagent"
-        ws.mkdir(parents=True, exist_ok=True)
-        return ws.resolve()
-
-    def set_superagent_workspace(self, path: str) -> dict[str, Any]:
-        resolved = Path(path).expanduser()
-        try:
-            resolved.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            return {"ok": False, "error": str(exc)}
-        return self._update_superagent_config(workspace=str(resolved.resolve()))
-
-    def set_superagent_name(self, name: str) -> dict[str, Any]:
-        name = (name or "").strip()
-        if not name:
-            return {"ok": False, "error": "name required"}
-        return self._update_superagent_config(name=name)
-
-    def _update_superagent_config(self, **changes: Any) -> dict[str, Any]:
-        cfg = self.get_superagent_config()
-        cfg.update(changes)
-        self._superagent_config_path().write_text(
-            json.dumps(cfg, indent=2), encoding="utf-8"
-        )
-        return {"ok": True, **changes, "restart_required": self.gateway is not None}
-
-    def superagent_status(self) -> dict[str, Any]:
-        from ..connectors import is_authorized as _is_auth
-        from ..connectors.base import SessionSource
-
-        connectors = []
-        for name in ("telegram", "slack"):
-            profile = self.secrets.get(f"{name}:default") or {}
-            if not profile.get("bot_token"):
-                continue
-            allowed = list(profile.get("allowed_users") or [])
-            allowed_set = set(allowed)
-            recent = self.gateway.recent_senders(name) if self.gateway else []
-            for r in recent:
-                r["authorized"] = r.get("user_id") in allowed_set
-            connectors.append(
-                {
-                    "name": name,
-                    "account": profile.get("account"),
-                    "listening": bool(self.gateway and name in self.gateway._adapters),
-                    "allowed_users": allowed,
-                    "recent": recent,
-                }
-            )
-        return {
-            "name": self.get_superagent_config().get("name") or "MyHelper",
-            "workspace": str(self._superagent_workspace()),
-            "running": self.gateway is not None,
-            "connectors": connectors,
-        }
-
-    def allow_user(self, name: str, user_id: str) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, add=True)
-
-    def disallow_user(self, name: str, user_id: str) -> dict[str, Any]:
-        return self._set_allowed(name, user_id, add=False)
-
-    def _set_allowed(self, name: str, user_id: str, *, add: bool) -> dict[str, Any]:
+    def _set_allowed(
+        self, name: str, user_id: str, *, team_id: Optional[str] = None, add: bool
+    ) -> dict[str, Any]:
+        """Add/remove a sender on the allow-list. With `team_id` the edit targets that
+        scope's profile — a workspace's `slack:team:<id>`, or a GitHub App
+        installation's `github:install:<id>` (the same per-tenant pattern);
+        without, the flat `<name>:default` list (manual single-workspace mode)."""
         user_id = str(user_id).strip()
         if not user_id:
             return {"ok": False, "error": "user_id required"}
-        profile = self.secrets.get(f"{name}:default")
+        scope = "install" if name == "github" else "team"
+        profile_key = f"{name}:{scope}:{team_id}" if team_id else f"{name}:default"
+        profile = self.secrets.get(profile_key)
         if not profile:
-            return {"ok": False, "error": "connector not connected"}
+            return {
+                "ok": False,
+                "error": (
+                    "workspace not connected" if team_id else "connector not connected"
+                ),
+            }
         allowed = set(profile.get("allowed_users") or [])
         allowed.add(user_id) if add else allowed.discard(user_id)
         profile["allowed_users"] = sorted(allowed)
-        self.secrets.put(f"{name}:default", profile)
+        self.secrets.put(profile_key, profile)
         # reflect into the live gateway so it takes effect without a restart
         if self.gateway is not None and name in self.gateway.settings:
-            self.gateway.settings[name].allowed_users = set(allowed)
-        return {"ok": True, "allowed_users": sorted(allowed)}
+            if team_id:
+                from ..connectors import TeamAuth
 
-    def _build_superagent_engine(self) -> TurnEngine:
-        ws = self._superagent_workspace()
-        record = self.session_store.load(self.SUPERAGENT_SESSION_ID)
-        name = self.get_superagent_config().get("name") or "MyHelper"
-        engine = build_engine(
-            agent=myhelper_agent(name),
-            workspace=ws,
-            model=self.model,
-            mode=self.mode,
-            approver=self._sa_approver,  # risky tools prompt the GUI surface (if watching)
-            provider=self.provider,
-            memory_store=self.memory_store,
-            messages=record.messages if record else None,
-            secrets=self.secrets,
-            task_store=self.task_store,
-            session_id=self.SUPERAGENT_SESSION_ID,
-            audit_sink=self.audit_store.append,
+                teams = self.gateway.settings[name].teams
+                team = teams.setdefault(team_id, TeamAuth())
+                team.allowed_users = set(allowed)
+            else:
+                self.gateway.settings[name].allowed_users = set(allowed)
+        return {"ok": True, "allowed_users": sorted(allowed), "team_id": team_id}
+
+    async def disconnect_slack_workspace(self, team_id: str) -> dict[str, Any]:
+        """Stop relaying ONE workspace: delete the cloud routing row (best-effort),
+        drop the local per-team token, and hot-reload the gateway. Removing the last
+        workspace also clears relay mode on slack:default so the connector reads
+        disconnected (the manual Socket Mode fields, if any, are left untouched)."""
+        team_id = str(team_id).strip()
+        profile_key = f"slack:team:{team_id}"
+        if not team_id or not self.secrets.get(profile_key):
+            return {"ok": False, "error": "workspace not connected"}
+        from .. import cloud
+        from ..config import load_config
+
+        await asyncio.to_thread(
+            lambda: cloud.slack_disconnect_workspace(
+                self.secrets, load_config(), team_id
+            )
         )
-        engine.permissions.allow_tool_for_session(
-            "send_message"
-        )  # replies always go through
-        engine.messages[0]["content"] += SUPERAGENT_MESSAGING_NOTE
-        return engine
+        self.secrets.delete(profile_key)
+        remaining = [
+            m["profile"]
+            for m in self.secrets.status()
+            if m.get("profile", "").startswith("slack:team:")
+        ]
+        if not remaining:
+            default = self.secrets.get("slack:default") or {}
+            if default.get("mode") == "relay":
+                default.pop("mode", None)
+                default.pop("managed", None)
+                if default.get("bot_token"):
+                    # Manual Socket Mode creds predating the relay switch: keep them
+                    # stored but DISABLED — removing the last workspace must never
+                    # silently start listening with old tokens.
+                    default["type"] = "token"
+                    default["enabled"] = False
+                    self.secrets.put("slack:default", default)
+                else:
+                    default.pop("type", None)
+                    default.pop("enabled", None)
+                    if default:  # e.g. a flat allow-list worth keeping
+                        self.secrets.put("slack:default", default)
+                    else:
+                        self.secrets.delete("slack:default")
+        await self.refresh_gateway()
+        return {"ok": True, "remaining_workspaces": len(remaining)}
+
+    def slack_status(self) -> dict[str, Any]:
+        """Slack connection health in three honest layers (UX-DECISIONS §21):
+        the desktop↔relay socket, the cloud sign-in that authorizes it, and each
+        workspace's bot token. The desktop can't see the Slack↔cloud leg, so no
+        layer here ever claims it — event silence ≠ outage."""
+        from .. import cloud
+
+        default = self.secrets.get("slack:default") or {}
+        mode = default.get("mode") or ""
+        signin = cloud.status(self.secrets)
+
+        relay: dict[str, Any] = {
+            "state": "offline",
+            "reconnects": 0,
+            "last_event_at": None,
+            "last_error": "",
+        }
+        teams: dict[str, Any] = {}
+        adapter = (
+            self.gateway._adapters.get("slack") if self.gateway is not None else None
+        )
+        snapshot = getattr(
+            adapter, "status", None
+        )  # relay adapter only; Socket Mode has none
+        if callable(snapshot):
+            relay = snapshot()
+            teams = relay.pop("teams", {})
+        return {
+            "ok": True,
+            "mode": mode,
+            "relay": relay,
+            "signed_in": bool(signin.get("signed_in")),
+            "teams": teams,
+        }
+
+    async def disconnect_github_installation(
+        self, installation_id: str
+    ) -> dict[str, Any]:
+        """Stop relaying ONE GitHub installation: delete the cloud routing rows
+        (best-effort), drop the local profile, hot-reload the gateway. The Slack
+        per-workspace disconnect, GitHub flavour — a manual PAT stays untouched."""
+        installation_id = str(installation_id).strip()
+        from .. import cloud
+        from ..config import load_config
+        from ..connectors import github_installs
+
+        if not installation_id or not self.secrets.get(
+            github_installs.PREFIX + installation_id
+        ):
+            return {"ok": False, "error": "installation not connected"}
+        await asyncio.to_thread(
+            lambda: cloud.github_disconnect_installation(
+                self.secrets, load_config(), installation_id
+            )
+        )
+        result = github_installs.disconnect_install(self.secrets, installation_id)
+        await self.refresh_gateway()
+        return result
+
+    def github_status(self) -> dict[str, Any]:
+        """GitHub relay health, same three honest layers as Slack: the shared
+        relay socket, the cloud sign-in, and per-installation token health."""
+        from .. import cloud
+
+        default = self.secrets.get("github:default") or {}
+        signin = cloud.status(self.secrets)
+        relay: dict[str, Any] = {
+            "state": "offline",
+            "reconnects": 0,
+            "last_event_at": None,
+            "last_error": "",
+        }
+        installs: dict[str, Any] = {}
+        missed: dict[str, Any] = {}
+        adapter = (
+            self.gateway._adapters.get("github") if self.gateway is not None else None
+        )
+        snapshot = getattr(adapter, "status", None)
+        if callable(snapshot):
+            relay = snapshot()
+            installs = relay.pop("installs", {})
+            missed = relay.pop("missed", {})
+        return {
+            "ok": True,
+            "mode": default.get("mode") or "",
+            "relay": relay,
+            "signed_in": bool(signin.get("signed_in")),
+            "installs": installs,
+            "missed": missed,
+        }
 
     async def start_gateway(self) -> list[str]:
-        """Build the always-on super-agent (always) + gateway, and start enabled listeners.
+        """Build the messaging gateway and start enabled listeners. Inbound messages route to
+        durable sessions: a channel message to its subscribers, a DM to the designated DM session
+        (else parked). Returns the platforms whose listeners came up."""
+        self.scheduler.start()  # tick scheduler for automations (independent of connectors)
+        return await self._build_and_start_gateway()
 
-        The super-agent runs even with no connector so the GUI surface can use it; adapters
-        connect only for enabled connectors. Returns the platforms whose listeners came up.
-        """
+    async def refresh_gateway(self) -> list[str]:
+        """Hot-reload the messaging listeners with fresh secrets — called after a connector
+        connect/disconnect so pasting new tokens takes effect immediately. A platform socket
+        (Slack Socket Mode) authenticates at connect time, so new creds mean reopening that
+        socket; this replaces the adapters in-process — the sidecar never restarts."""
+        await self.stop_gateway()
+        started = await self._build_and_start_gateway()
+        print(f"[coworker] messaging gateway reloaded: {', '.join(started) or 'none'}")
+        return started
+
+    async def _build_and_start_gateway(self) -> list[str]:
         settings = load_settings(self.secrets)
-        engine = self._build_superagent_engine()
-        self.superagent = SuperAgent(
-            engine,
-            on_saved=lambda: self.save(self.SUPERAGENT_SESSION_ID, engine),
-            on_event=self._sa_broadcast,
-        )
         self.gateway = Gateway(
-            secrets=self.secrets, settings=settings, handler=self.superagent.on_message
+            secrets=self.secrets,
+            settings=settings,
+            handler=self._dispatch_inbound,
+            reply_resolver=self._resolve_inbox_reply,
+            interaction_handler=self._on_interaction,
+            on_unauthorized=self._park_unauthorized,
         )
+        # Managed Slack relay wiring (only used when a connector picks relay mode):
+        # the cloud sign-in JWT authorizes the relay WebSocket, and the relay
+        # endpoint comes from config. Both are lazy — Socket Mode needs neither.
+        from ..cloud import fresh_access_token
+        from ..config import load_config
+
+        cloud_config = load_config()
+
+        def _relay_token() -> str:
+            return fresh_access_token(self.secrets, cloud_config) or ""
+
+        # Every relay-mode platform shares ONE cloud socket; the hub fans frames
+        # out by provider tag. Built lazily on the first relay adapter.
+        relay_ws_url = getattr(cloud_config, "cloud_relay_ws_url", "") or None
+        relay_hub = None
+        if relay_ws_url:
+            from ..connectors.relay_client import RelayHub
+
+            relay_hub = RelayHub(relay_ws_url, _relay_token)
+
+        async def _github_token(installation_id: str) -> str:
+            from ..cloud import github_installation_token
+
+            return await asyncio.to_thread(
+                github_installation_token, self.secrets, cloud_config, installation_id
+            )
+
         for platform, st in settings.items():
             if not st.enabled:
                 continue
             profile = self.secrets.get(f"{platform}:default") or {}
-            adapter = make_adapter(platform, profile)
+            adapter = make_adapter(
+                platform,
+                profile,
+                secrets=self.secrets,
+                token_provider=_relay_token,
+                relay_url=relay_ws_url,
+                relay_hub=relay_hub,
+                github_token_client=_github_token,
+            )
             if adapter is not None:
                 self.gateway.register(adapter)
-        self.superagent.start()
-        self.scheduler.start()  # tick scheduler for automations (independent of connectors)
         return await self.gateway.start()
 
     async def stop_gateway(self) -> None:
         if self.gateway is not None:
             await self.gateway.stop()
             self.gateway = None
-        if self.superagent is not None:
-            await self.superagent.stop()
-            self.superagent = None
 
-    # -- GUI super-agent surface ------------------------------------------------
-    def sa_register(self, send_cb: Any) -> None:
-        self._sa_clients.add(send_cb)
+    # -- unauthorized inbound (parked, §19) --------------------------------------
+    def _note_person(
+        self, platform: str, user_id: Optional[str], name: Optional[str]
+    ) -> None:
+        """Remember a sender's display name (persisted) so ID-keyed surfaces — the allow-list
+        chips above all — can show who a U07JK… actually is. Best-effort, newest name wins.
+        """
+        if not user_id or not name:
+            return
+        key = f"{platform}:{user_id}"
+        if self._people.get(key) != name:
+            self._people[key] = name
+            try:
+                self._people_path.write_text(json.dumps(self._people))
+            except OSError:
+                pass
 
-    def sa_unregister(self, send_cb: Any) -> None:
-        self._sa_clients.discard(send_cb)
+    async def _park_unauthorized(self, event) -> None:
+        """Gateway callback: keep what an unallowed sender said (names already resolved by the
+        adapter, best-effort) so the owner can allow-and-deliver without a re-send."""
+        s = event.source
+        self._note_person(s.platform, s.user_id, s.user_name)
+        self.parked.park(
+            platform=s.platform,
+            chat_id=s.chat_id,
+            chat_name=s.chat_name,
+            user_id=s.user_id or "?",
+            user_name=s.user_name,
+            chat_type=s.chat_type,
+            thread_id=s.thread_id,
+            team_id=s.team_id,
+            text=event.text or "",
+        )
 
-    async def _sa_broadcast(self, message: dict) -> None:
-        for cb in list(self._sa_clients):
+    async def resolve_unauthorized(
+        self, name: str, item_id: str, action: str
+    ) -> dict[str, Any]:
+        """Resolve one parked message: "dismiss" throws it away; "allow" adds the sender to the
+        allow-list (future messages flow); "allow_deliver" also re-injects the parked message
+        through the NORMAL inbound path — buffer + subscriptions — as if it just arrived.
+        """
+        item = self.parked.pop(item_id)
+        if item is None or item.platform != name:
+            return {"ok": False, "error": "unknown item"}
+        if action == "dismiss":
+            return {"ok": True}
+        if action not in ("allow", "allow_deliver"):
+            return {"ok": False, "error": f"unknown action: {action}"}
+        allowed = self._set_allowed(name, item.user_id, team_id=item.team_id, add=True)
+        if not allowed.get("ok"):
+            return allowed
+        if action == "allow_deliver":
+            from ..connectors import MessageEvent, SessionSource
+
+            event = MessageEvent(
+                text=item.text,
+                source=SessionSource(
+                    platform=item.platform,
+                    chat_id=item.chat_id,
+                    user_id=item.user_id,
+                    user_name=item.user_name,
+                    chat_name=item.chat_name,
+                    chat_type=item.chat_type,
+                    thread_id=item.thread_id,
+                    team_id=item.team_id,
+                ),
+            )
+            await self._dispatch_inbound(event)
+        return {"ok": True}
+
+    # -- per-session live view --------------------------------------------------
+    def register_session_client(self, session_id: str, send_cb: Any) -> None:
+        self._session_clients.setdefault(session_id, set()).add(send_cb)
+
+    def unregister_session_client(self, session_id: str, send_cb: Any) -> None:
+        clients = self._session_clients.get(session_id)
+        if clients is not None:
+            clients.discard(send_cb)
+            if not clients:
+                self._session_clients.pop(session_id, None)
+
+    async def broadcast_session(self, session_id: str, message: dict) -> None:
+        """Fan a turn event out to every socket viewing this session. Best-effort: a dead socket
+        is dropped, never fatal to the turn (delivery is socket-independent)."""
+        for cb in list(self._session_clients.get(session_id, ())):
             try:
                 await cb(message)
             except Exception:
-                self._sa_clients.discard(cb)
-
-    async def _sa_approver(self, request) -> Any:
-        from ..engine import ApprovalOutcome
-
-        if not self._sa_clients:  # nobody watching → stay safe (deny writes/shell)
-            return ApprovalOutcome.DENY
-        self._sa_pending = asyncio.get_running_loop().create_future()
-        try:
-            decision = await asyncio.wait_for(self._sa_pending, timeout=300)
-        except asyncio.TimeoutError:
-            return ApprovalOutcome.DENY
-        finally:
-            self._sa_pending = None
-        try:
-            return ApprovalOutcome(decision)
-        except ValueError:
-            return ApprovalOutcome.DENY
-
-    def sa_resolve_approval(self, decision: str) -> None:
-        if self._sa_pending is not None and not self._sa_pending.done():
-            self._sa_pending.set_result(decision)
-
-    def sa_transcript(self) -> list[dict[str, Any]]:
-        if self.superagent is not None:
-            return self.superagent.engine.messages
-        record = self.session_store.load(self.SUPERAGENT_SESSION_ID)
-        return record.messages if record else []
-
-    async def sa_user_message(self, text: str) -> bool:
-        """Inject a message from the local GUI owner into the super-agent's thread."""
-        if self.superagent is None:
-            return False
-        from ..connectors.base import MessageEvent, SessionSource
-
-        event = MessageEvent(
-            text=text,
-            source=SessionSource(
-                platform="gui", chat_id="gui", user_id="owner", user_name="you"
-            ),
-        )
-        await self.superagent.on_message(event)
-        return True
+                self.unregister_session_client(session_id, cb)
 
     async def aclose(self) -> None:
         await self.scheduler.stop()
@@ -1074,20 +1961,130 @@ class SessionManager:
         self.audit_store.close()
 
     # -- automation (scheduled tasks) -------------------------------------------
-    def _scheduled_approver(self, task):
+    def approval_prompt_data(self, session_id: str, request) -> dict[str, Any]:
+        """Extra Inbox-item payload for a parked approval. Always carries the tool name +
+        arguments so the GUI can render the same humanized card (§35) it shows live —
+        without them a reopened session fell back to the raw 'Run `tool`?' treatment.
+        Automation runs additionally carry the owning task + (when the call is eligible)
+        the exact target a standing rule would pin: the GUI offers "Allow every time" only
+        when both are present — in-app only, never on Slack-mirrored buttons (§25)."""
+        from ..permissions import standing_rule_candidate
+
+        data: dict[str, Any] = {
+            "tool": request.tool_name,
+            "arguments": getattr(request, "arguments", None) or {},
+        }
+        task = self.task_store.task_for_run_session(session_id)
+        if task is None:
+            return data
+        data.update({"task_id": task.id, "task_title": task.title})
+        target = standing_rule_candidate(
+            request.tool_name,
+            getattr(request, "arguments", None) or {},
+            getattr(request, "metadata", None),
+        )
+        if target:
+            data["standing_target"] = target
+        return data
+
+    def mint_task_rule(
+        self, session_id: str, tool_name: str, arguments: Any, metadata: Any = None
+    ) -> bool:
+        """Persist a standing rule a human minted via "Allow every time" on a run's
+        approval card (§25's retrofit path). Server-side validation, not trust in the
+        card: the session must be an automation run and the call must be rule-eligible
+        (external risk, declared target argument, non-empty target). Also applies the
+        rule to the live engine so the run's next call auto-allows."""
+        from ..permissions import standing_rule_candidate
+
+        task = self.task_store.task_for_run_session(session_id)
+        if task is None:
+            return False
+        target = standing_rule_candidate(tool_name, arguments or {}, metadata)
+        if not target or not task.add_rule(tool_name, target):
+            return False
+        self.task_store.save(task)
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            engine.permissions.task_rules.setdefault(tool_name, set()).add(target)
+        try:
+            self.audit_store.append(
+                {
+                    "session_id": session_id,
+                    "tool": tool_name,
+                    "arguments": arguments or {},
+                    "stage": "standing_rule_minted",
+                    "status": "granted",
+                    "reason": f"allow every time: {tool_name} → {target} (task {task.id})",
+                }
+            )
+        except Exception:
+            pass
+        return True
+
+    def approval_outcome(self, resolution: str, request, session_id: str):
+        """Map an approval resolution (from any surface) to an ApprovalOutcome, handling
+        the task-persistent "always_task" vocabulary alongside the session-scoped ones.
+        """
+        from ..engine import ApprovalOutcome
+
+        if resolution == "always_task":
+            self.mint_task_rule(
+                session_id,
+                request.tool_name,
+                getattr(request, "arguments", None),
+                getattr(request, "metadata", None),
+            )
+            return ApprovalOutcome.ONCE
+        try:
+            return ApprovalOutcome(resolution)
+        except ValueError:
+            pass
+        if resolution == "allow":
+            return ApprovalOutcome.ONCE
+        if resolution == "always":
+            return ApprovalOutcome.ALWAYS_TOOL
+        return ApprovalOutcome.DENY
+
+    def _scheduled_approver(self, task, session_id: str):
         from ..engine import ApprovalOutcome
         from ..permissions import WRITE_TOOLS
 
-        allowed = set(task.always_allowed_tools)
+        name_allowed = task.name_allowed_tools()
 
         async def approver(request):
-            # Unattended: auto-allow the deliverable writes (path-scoped to the task workspace)
-            # + anything in the per-task "Always allowed" set; deny new consequential actions.
-            if request.tool_name in WRITE_TOOLS or request.tool_name in allowed:
+            # Unattended: auto-allow the deliverable writes (path-scoped to the task
+            # workspace) + tools the task allows BY NAME (legacy entries). Target-bound
+            # rules never reach here — the permission engine matched them already.
+            if request.tool_name in WRITE_TOOLS or request.tool_name in name_allowed:
                 return ApprovalOutcome.ONCE
-            return ApprovalOutcome.DENY
+            # Anything else parks in the Inbox and suspends the run (§25 graceful
+            # degradation — an ungranted automation still works, it just asks). The item
+            # carries the task binding so the in-app card can offer "Allow every time";
+            # the Slack mirror renders only Approve/Deny buttons.
+            item = self.inbox.add_approval(
+                session_id,
+                f"Run `{request.tool_name}`?",
+                body=_approval_body(request),
+                inbox=self.inbox_routing.route_for(session_id, task.agent),
+                tool_call_id=getattr(request, "tool_call_id", None),
+                data=self.approval_prompt_data(session_id, request),
+            )
+            if item.state == "pending":
+                self.persist_session(session_id)
+                await self.mirror_inbox_item(item)
+            resolution = await self.inbox.wait(item.id)
+            return self.approval_outcome(resolution, request, session_id)
 
         return approver
+
+    def _seed_task_permissions(self, engine: TurnEngine, task) -> None:
+        """Apply a task's standing allowances to an engine: target-bound rules feed the
+        permission engine's matcher (connector tools included — the target binding is the
+        safety); name-only legacy entries keep their session-allowlist behavior."""
+        engine.permissions.task_rules = task.standing_rules()
+        for tool in task.name_allowed_tools():
+            engine.permissions.allow_tool_for_session(tool)
 
     def _build_task_engine(self, task, *, session_id: str) -> TurnEngine:
         ag = get_agent(task.agent)
@@ -1097,7 +2094,7 @@ class SessionManager:
             workspace=task.workspace,
             model=task.model or self.model,
             mode=Mode.INTERACTIVE,
-            approver=self._scheduled_approver(task),
+            approver=self._scheduled_approver(task, session_id),
             provider=self.provider,
             memory_store=self.memory_store,
             secrets=self.secrets,
@@ -1107,10 +2104,338 @@ class SessionManager:
             task_store=None,
             session_id=session_id,
             audit_sink=self.audit_store.append,
+            # Scheduled runs respect the same per-session connection hierarchy as live sessions:
+            # expose only the persona's effective-enabled connectors' tools (§4.3).
+            connector_filter=self.effective_connectors(session_id, task.agent),
         )
-        for tool in task.always_allowed_tools:
-            engine.permissions.allow_tool_for_session(tool)
+        self._seed_task_permissions(engine, task)
         return engine
+
+    # -- mirroring inbox items to a bound channel -------------------------------
+    async def mirror_inbox_item(self, item) -> None:
+        """Mirror an Inbox item to its bound channel. Discrete choices (approve/deny, ask_user
+        options) render as BUTTONS — the item id rides in each, so a click resolves it
+        unambiguously. Free-text answers aren't offered over messaging (open the app).
+        """
+        from ..interactions import buttons_for
+
+        binding = self.inbox_routing.binding_for(item.inbox)
+        if not (binding.channel and self.gateway is not None):
+            return
+        target = f"{binding.channel}:{binding.target}"
+        body = "\n".join(p for p in (item.title, item.body) if p).strip()
+        buttons = buttons_for(item)
+        try:
+            if buttons:
+                await self.gateway.deliver_interactive(target, body, buttons)
+            else:
+                await self.gateway.deliver(
+                    target,
+                    f"{body}\n(Open the app to respond.)\n[ocw:{item.id}]".strip(),
+                )
+        except Exception:
+            pass
+
+    # -- interactive prompt buttons (Slack/Telegram) ----------------------------
+    async def _on_interaction(self, event) -> None:
+        """A button click on a mirrored Inbox prompt. The button value carries the item id + the
+        resolution, so this is unambiguous — resolve the item, then swap the buttons for the
+        outcome. Resolving releases any agent suspended on it (first-responder-wins)."""
+        from ..interactions import decode
+
+        decoded = decode(getattr(event, "value", "") or "")
+        if decoded is None:
+            return
+        item_id, resolution = decoded
+        item = self.inbox.get(item_id)
+        already = item is not None and item.state != "pending"
+        await self.resolve_inbox(item_id, resolution)
+        who = getattr(event, "user_name", None) or "someone"
+        title = item.title if item is not None else "Prompt"
+        outcome = "already resolved" if already else f"“{resolution}” — by {who}"
+        if self.gateway is not None and getattr(event, "message_id", None):
+            try:
+                await self.gateway.update_message(
+                    getattr(event, "platform", "slack"),
+                    getattr(event, "chat_id", ""),
+                    event.message_id,
+                    f"{title}\n✅ {outcome}",
+                )
+            except Exception:
+                pass
+
+    # -- inbox replies over messaging connectors --------------------------------
+    def _resolve_inbox_reply(self, event) -> bool:
+        """Try to handle an inbound Slack/Telegram message as an Inbox reply. Returns True if the
+        message carried an `[ocw:<id>]` token (so it's consumed here, not routed as a new turn) —
+        resolving the item also releases any agent suspended on it."""
+        from ..inbox_routing import resolve_from_reply
+
+        text = getattr(event, "text", "") or ""
+        return resolve_from_reply(text, self.inbox.resolve) is not None
+
+    # -- self-wake resumption ---------------------------------------------------
+    async def resume_due_wakes(self) -> int:
+        """Resume sessions whose self-wakes are due (called each scheduler tick). A suspended
+        agent (it called sleep_for / wake_on / wake_on_event and ended its turn) is re-invoked on
+        its own session with a wake message so it continues where it left off. Returns the count.
+        """
+        resumed = 0
+        for wake in self.wakes.due():
+            try:
+                await self._resume_wake(wake)
+                resumed += 1
+            except Exception:
+                pass
+            finally:
+                self.wakes.mark_fired(wake.id)
+        return resumed
+
+    def mark_running(self, session_id: str) -> None:
+        self._running_sessions.add(session_id)
+
+    def mark_idle(self, session_id: str) -> None:
+        self._running_sessions.discard(session_id)
+
+    def is_running(self, session_id: str) -> bool:
+        return session_id in self._running_sessions
+
+    async def _resume_wake(self, wake) -> None:
+        await self.deliver_to_session(wake.session_id, self._wake_message(wake))
+
+    async def deliver_to_session(
+        self, session_id: str, message: str, *, source: Optional[dict[str, Any]] = None
+    ) -> None:
+        """Deliver an out-of-band message to a (durable) session — the agent stays resumable
+        forever, so this works with no live socket. Busy (mid tool-loop): steer it into the live
+        turn at its next step (don't start a colliding run). Idle: run a fresh background turn
+        (results persist; if the session is Unattended, any approvals route to the Inbox). Shared
+        by self-wake and channel-subscription delivery. `source` is the display-only MessageSource
+        sidecar for connector messages (framed `message` stays the model-facing text).
+        """
+        if self.is_running(session_id):
+            engine = self._engines.get(session_id)
+            if engine is not None:
+                engine.queue_steering(message, source)
+            return
+        engine = self.get_engine(session_id)
+        if engine is None:
+            return
+        self.mark_running(session_id)
+        try:
+            async for event in engine.run(message, source=source):
+                # Stream every event to any socket viewing this session, so a background turn
+                # (channel delivery, self-wake, durable resume) is seen live — not just on reselect.
+                await self.broadcast_session(
+                    session_id, {"type": event.type.value, "data": event.data}
+                )
+                # A background turn has no user watching to read an inline error: a dead model or
+                # tool failure would otherwise vanish. Log it and park it in the dead-letter store.
+                if event.type.value == "error":
+                    reason = (event.data or {}).get("error", "unknown error")
+                    logger.warning(
+                        "background turn failed for %s: %s", session_id, reason
+                    )
+                    self.unrouted.record(session_id, "-", message, reason=reason)
+            self.save(session_id, engine)
+        except (
+            Exception
+        ) as exc:  # an unexpected raise out of the turn must not be swallowed
+            logger.warning("background turn crashed for %s: %s", session_id, exc)
+            self.unrouted.record(session_id, "-", message, reason=str(exc))
+            await self.broadcast_session(
+                session_id, {"type": "error", "data": {"error": str(exc)}}
+            )
+        finally:
+            self.mark_idle(session_id)
+            await self.broadcast_session(session_id, {"type": "turn_done", "data": {}})
+
+    # -- channel subscriptions (inbound messaging) ------------------------------
+    async def _dispatch_inbound(self, event) -> None:
+        """Route a non-token inbound message. Channel messages are buffered (for catch-up) and
+        fanned out to every subscribed session; a DM (or any non-channel) goes to the user-designated
+        DM session (delivered like any background turn) or, if none is set, is parked as unrouted.
+        """
+        src = event.source
+        text = getattr(event, "text", "") or ""
+        who = src.user_name or src.user_id or "?"
+        channel = f"{src.platform}:{src.chat_id}"  # thread-agnostic channel address
+        self._note_person(src.platform, src.user_id, src.user_name)
+        # Structured sidecar (display-only) built from the resolved identities on the event — the
+        # framed text below stays the model-facing `content`; `ms.text` carries the RAW message.
+        ms = MessageSource(
+            connector=src.platform,
+            kind="channel" if src.chat_type in ("channel", "group") else "dm",
+            channel_id=src.chat_id,
+            channel_name=src.chat_name or src.chat_id,
+            sender_id=src.user_id or "",
+            sender_name=src.user_name or src.user_id or "?",
+            ts=_inbound_epoch(getattr(event, "message_id", None)),
+            text=text,
+        )
+        if src.chat_type in ("channel", "group"):
+            self.channel_buffer.record(
+                channel, who, text, name=src.chat_name
+            )  # buffer all, even unsubscribed
+            subs = self.subscriptions.for_channel(channel)
+            # §31 mention router: a direct @-mention of the bot outranks the passive fan-out —
+            # subscribed sessions must answer it; an unsubscribed channel spawns (or steers)
+            # the per-thread coworker session.
+            if getattr(event, "mentions_me", False):
+                await self._route_mention(event, ms, subs)
+                return
+            if subs:
+                # Chattiness tiers (§31): untagged channel traffic is judgement-only —
+                # silence is the default; the must-respond framing is the mention path's.
+                msg = (
+                    f"💬 New message on {src.chat_name or channel} from {who}: {text}\n"
+                    f"(You're subscribed to this channel but were NOT mentioned. Use your "
+                    f"judgement: stay silent unless the message clearly concerns your job and "
+                    f"a reply adds real value — most channel chatter needs no response from "
+                    f'you. If you do reply, use the send_message tool with target "{channel}".)'
+                )
+                for sub in subs:
+                    # Per-session connection hierarchy (§4.3): a session that has muted this
+                    # connector skips delivery — the message is still buffered (above) for catch-up.
+                    if not self._inbound_connector_allowed(
+                        sub.session_id, src.platform
+                    ):
+                        continue
+                    try:
+                        await self.deliver_to_session(
+                            sub.session_id, msg, source=ms.to_dict()
+                        )
+                    except Exception:
+                        pass
+                return
+            return  # channel with no subscribers — nobody is listening
+        # DM (or any non-channel): route to the designated session, else park it for visibility.
+        dm = self.dm_session()
+        if dm and self._inbound_connector_allowed(dm, src.platform):
+            await self.deliver_to_session(dm, event.tagged_text(), source=ms.to_dict())
+        elif dm:
+            # Designated, but this session has muted the connector → park rather than deliver.
+            self.unrouted.record(
+                src.target, who, text, reason="connector muted for DM session"
+            )
+        else:
+            self.unrouted.record(
+                src.target, who, text, reason="no DM session designated"
+            )
+
+    # -- mention router (§31) ----------------------------------------------------
+    async def _route_mention(self, event, ms: MessageSource, subs) -> None:
+        """@ocw tagged in a channel. A subscribed (user-connected) coworker owns the channel
+        and must answer; otherwise the per-thread coworker session handles it — spawned on the
+        first tag, steered by follow-ups (deduped on the thread target)."""
+        from ..connectors.base import format_target
+
+        src = event.source
+        # Slack semantics: replying to a top-level message threads on THAT message's ts, so a
+        # top-level tag (no thread_ts) keys — and is answered — on its own ts.
+        thread_key = src.thread_id or getattr(event, "message_id", None)
+        thread_target = format_target(src.platform, src.chat_id, thread_key)
+        who = src.user_name or src.user_id or "?"
+        chan = f"#{src.chat_name}" if src.chat_name else src.chat_id
+        if subs:
+            # The user connected a coworker to this channel — it answers tags; no spawn.
+            msg = (
+                f"🔔 You were tagged by {who} in {chan}: {event.text}\n"
+                f"(You are subscribed to this channel and were mentioned directly — you must "
+                f"respond. Reply in the thread with the send_message tool, target "
+                f'"{thread_target}".)'
+            )
+            for sub in subs:
+                if not self._inbound_connector_allowed(sub.session_id, src.platform):
+                    continue
+                try:
+                    await self.deliver_to_session(
+                        sub.session_id, msg, source=ms.to_dict()
+                    )
+                except Exception:
+                    pass
+            return
+        sid = self.mention_sessions.get(thread_target)
+        if sid and self.session_store.load(sid) is not None:
+            # Follow-up tag in a thread we already own → steer the same session.
+            msg = (
+                f"💬 Follow-up in your Slack thread ({chan}) from {who}: {event.text}\n"
+                f'(Reply in the thread with the send_message tool, target "{thread_target}" '
+                f"— replies there are pre-approved.)"
+            )
+            await self.deliver_to_session(sid, msg, source=ms.to_dict())
+            return
+        await self._spawn_mention_session(event, ms, thread_target)
+
+    async def _spawn_mention_session(
+        self, event, ms: MessageSource, thread_target: str
+    ) -> None:
+        """First tag in a thread: a NEW visible coworker session that owns the thread. Its
+        in-thread replies carry a standing grant (§25 shape, exact-target match) so the
+        conversation never stalls on an approval nobody in Slack can see; everything else
+        asks as usual (approvals park to the Inbox)."""
+        import uuid
+
+        src = event.source
+        who = src.user_name or src.user_id or "?"
+        chan = f"#{src.chat_name}" if src.chat_name else src.chat_id
+        sid = uuid.uuid4().hex
+        engine = self.get_engine(sid, agent=self.personas.default_id())
+        if engine is None:
+            self.unrouted.record(
+                src.target, who, event.text, reason="could not spawn mention session"
+            )
+            return
+        # Durable mapping FIRST (a fast follow-up tag mid-turn dedupes into steering),
+        # then the live grant; get_engine re-derives it from the store on any rebuild.
+        self.mention_sessions.set(
+            thread_target, sid, channel=f"{src.platform}:{src.chat_id}"
+        )
+        engine.permissions.task_rules.setdefault("send_message", set()).add(
+            thread_target
+        )
+        self.save(sid, engine)  # the sessions row must exist before rename/set_origin
+        # Title = the ASK first, channel last (owner call 2026-07-14): the text is what
+        # varies between sessions, so it gets the truncation budget; the mention token is
+        # noise (origin is already told by the From Slack group + icon + origin_label).
+        ask = re.sub(r"<@[^>]+>", "", event.text or "")
+        ask = " ".join(ask.split())[:48]
+        self.session_store.rename(sid, f"{ask} — {chan}" if ask else chan)
+        label = chan + (f" · {src.team_id}" if src.team_id else "")
+        self.session_store.set_origin(sid, src.platform, label)
+        # Up to 6 lines of channel context, minus the tag itself (it's the opening line).
+        recent = self.channel_buffer.recent(f"{src.platform}:{src.chat_id}", 7)[:-1]
+        context = "\n".join(f"- {m['from']}: {m['text']}" for m in recent)
+        opening = (
+            f"🔔 You were mentioned on Slack in {chan} by {who}: {event.text}\n\n"
+            f"You own this Slack thread. Reply in the thread using the send_message tool "
+            f'with target "{thread_target}" — replies to this thread are pre-approved and '
+            f"never prompt the user. Anything else (other channels, files, external "
+            f"actions) asks for approval as usual. Keep replies concise and "
+            f"Slack-appropriate."
+            + (f"\n\nRecent channel context:\n{context}" if context else "")
+        )
+        try:
+            await self.deliver_to_session(sid, opening, source=ms.to_dict())
+        except Exception:
+            logger.exception("mention session %s opening turn failed", sid)
+
+    @staticmethod
+    def _wake_message(wake) -> str:
+        note = f" (note: {wake.note})" if getattr(wake, "note", "") else ""
+        if wake.kind == "completion":
+            return (
+                f"⏰ Wake — the job `{wake.job_id}` you were waiting on has completed{note}. "
+                "Continue where you left off."
+            )
+        if wake.kind == "event":
+            return (
+                f"⏰ Wake — the event `{wake.event_key}` you were waiting on has fired{note}. "
+                "Continue where you left off."
+            )
+        return (
+            f"⏰ Wake — the timer you set has fired{note}. Continue where you left off."
+        )
 
     async def _run_scheduled_task(self, task, trigger: str) -> TaskRun:
         run = TaskRun(
@@ -1121,6 +2446,9 @@ class SessionManager:
         # own session id, then saves the transcript. The user can reopen that session and ask a
         # follow-up — the scheduled agent is no longer fire-and-forget.
         engine = self._build_task_engine(task, session_id=run.session_id)
+        # Register the live engine up-front: a parked approval persists the session
+        # mid-run (durable suspend), and resolving from the Inbox must find this engine.
+        self._engines[run.session_id] = engine
         # The first turn is the task itself. The framing matters: instructions often restate the
         # schedule ("every day at 5:32pm…"), so make explicit that the schedule already fired and
         # the job now is to execute, not to (re)schedule.
@@ -1154,7 +2482,9 @@ class SessionManager:
 
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
-        await self._sa_broadcast(
+        # Notify any socket viewing this scheduled run's session (it's a durable session of its own).
+        await self.broadcast_session(
+            run.session_id,
             {
                 "type": "task_done",
                 "data": {
@@ -1163,7 +2493,7 @@ class SessionManager:
                     "text": summary,
                     "run_id": run.run_id,
                 },
-            }
+            },
         )
         if task.notify_target:
             from ..connectors.base import parse_target
@@ -1197,6 +2527,54 @@ class SessionManager:
             "runs": [r.to_dict() for r in self.task_store.runs(task_id)],
         }
 
+    def create_automation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create an automation directly from the GUI (the "New automation" / template flow).
+        Mirrors the agent-facing `create_scheduled_task` validation, but binds the task to a
+        fresh per-task scratch workspace instead of an origin conversation's folder."""
+        from croniter import croniter
+
+        title = (payload.get("title") or "").strip()
+        instructions = (payload.get("instructions") or "").strip()
+        cron = (payload.get("cron") or "").strip() or None
+        fire_at = (payload.get("fire_at") or "").strip() or None
+        timezone = (payload.get("timezone") or "").strip() or "local"
+
+        if not title:
+            return {"ok": False, "error": "title is required"}
+        if not instructions:
+            return {"ok": False, "error": "instructions are required"}
+        if not cron and not fire_at:
+            return {
+                "ok": False,
+                "error": "provide a cron (recurring) or a fire_at ISO datetime (one-time)",
+            }
+        if cron and not croniter.is_valid(cron):
+            return {"ok": False, "error": f"invalid cron expression: {cron}"}
+
+        schedule = Schedule(
+            kind="once" if (fire_at and not cron) else "cron",
+            cron=cron,
+            fire_at=fire_at,
+            timezone=timezone,
+        )
+        from ..automation.models import grant_entries
+
+        task = ScheduledTask(
+            title=title,
+            instructions=instructions,
+            schedule=schedule,
+            workspace="",
+            origin_surface="cowork",
+            agent="cowork",
+            # Human-driven path (GUI form / onboarding recipes): the creating surface
+            # rendered the grants, the submit IS the consent. Same validation as the
+            # agent tool — only target-bound write grants survive.
+            always_allowed_tools=grant_entries(payload.get("permissions")),
+        )
+        task.workspace = self._provision_scratch(task.task_session_id)
+        self.task_store.save(task)
+        return {"ok": True, "task": task.public()}
+
     def update_automation(
         self, task_id: str, changes: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1215,7 +2593,17 @@ class SessionManager:
             if not croniter.is_valid(changes["cron"]):
                 return {"ok": False, "error": "invalid cron"}
             task.schedule.cron, task.schedule.kind = changes["cron"], "cron"
+        if changes.get("revoke"):
+            # Revocation from the task detail page ("Allowed without asking … · Revoke").
+            # Human-only, like minting; the agent-facing update tool has no such field.
+            task.revoke_rule(str(changes["revoke"]))
         self.task_store.save(task)
+        if changes.get("revoke"):
+            # A live run engine may still hold the revoked rule — reseed from the record.
+            for sid, engine in self._engines.items():
+                owner = self.task_store.task_for_run_session(sid)
+                if owner is not None and owner.id == task.id:
+                    engine.permissions.task_rules = task.standing_rules()
         return {"ok": True, "task": task.public()}
 
     def delete_automation(self, task_id: str) -> dict[str, Any]:
@@ -1440,6 +2828,12 @@ class SessionManager:
         return {"ok": True, "roots": self.get_roots(session_id)}
 
     def session_messages(self, session_id: str) -> list[dict[str, Any]]:
+        # A live engine's in-memory thread is authoritative: mid-turn it's ahead of the
+        # persisted record — which may not even exist yet for a scheduled run's first turn
+        # (opening a "running" automation showed a blank session; owner report 2026-07-04).
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            return list(engine.messages)
         record = self.session_store.load(session_id)
         return record.messages if record else []
 
@@ -1474,7 +2868,32 @@ class SessionManager:
                 engine.interrupt()
             except Exception:
                 pass
+        record = self.session_store.load(session_id)
         ok = self.session_store.delete(session_id)
+        # Deleting a session is the one implicit unsubscribe (otherwise subscriptions are permanent).
+        self.subscriptions.remove_session(session_id)
+        # ...and releases any Slack threads it owned (§31): the next tag there spawns fresh.
+        self.mention_sessions.remove_session(session_id)
+        # ...and drops its per-session connector overrides (§4.2, like subscriptions).
+        self.session_connections.remove_session(session_id)
+        # ...and closes its pending Inbox items — an orphaned approval/question can never be
+        # meaningfully answered (owner call, 2026-07-03).
+        self.inbox.resolve_session(session_id)
+        # ...and its scratch dir. STRICTLY scoped: only a directory inside scratch_base is
+        # removed — a real project folder the user picked is never touched.
+        if ok and record and record.workspace:
+            scratch = self.scratch_base().resolve()
+            ws = Path(record.workspace)
+            try:
+                resolved = ws.resolve()
+                if (
+                    resolved.is_relative_to(scratch)
+                    and resolved != scratch
+                    and resolved.is_dir()
+                ):
+                    shutil.rmtree(resolved)
+            except OSError:
+                pass  # a stale/foreign path must not fail the delete
         return {"ok": ok, "session_id": session_id}
 
     # -- provider proxy ---------------------------------------------------------
@@ -1503,12 +2922,31 @@ class SessionManager:
                 "messages": r.message_count,
                 "pinned": r.pinned,
                 "archived": r.archived,
+                # §31: non-user origin ("slack") + display label — drives the sidebar's
+                # "From Slack" group and the row's platform icon.
+                "origin": r.origin,
+                "origin_label": r.origin_label,
+                # Attention = Inbox items awaiting this session (the amber count that bubbles
+                # session → persona → footer Inbox). Liveness = working (in-flight turn) /
+                # sleeping (a self-wake is pending) / idle — a count-less dot that never bubbles.
+                "attention": len(self.inbox.pending(session_id=r.session_id)),
+                "liveness": self._session_liveness(r.session_id),
+                # Channels this session listens to (inbound subscriptions) — drives the per-session
+                # "connections" indicator.
+                "subscriptions": [
+                    s.channel for s in self.subscriptions.for_session(r.session_id)
+                ],
             }
             for r in self.session_store.list(workspace=ws)
-            if not r.session_id.startswith(
-                "__"
-            )  # hide superagent/task-run internal threads
+            if not r.session_id.startswith("__")  # hide internal threads
         ]
+
+    def _session_liveness(self, session_id: str) -> str:
+        if self.is_running(session_id):
+            return "working"
+        if self.wakes.pending(session_id):
+            return "sleeping"
+        return "idle"
 
     def list_agents(self) -> list[dict[str, Any]]:
         return _list_agents()
@@ -1532,9 +2970,35 @@ class SessionManager:
         return {"id": item.id, "scope": item.scope.value, "content": item.content}
 
 
+def _parse_inbox_json(s: str) -> dict[str, Any]:
+    """Parse a structured Inbox resolution (directory/plan carry their reply as a JSON string)."""
+    import json as _json
+
+    try:
+        v = _json.loads(s) if s else {}
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
+
+
 def _epoch() -> float:
     import time
 
+    return time.time()
+
+
+# A Slack message ts looks like "1700000001.000001" (epoch seconds + microseconds). Other
+# platforms use opaque/incrementing ids (e.g. a Telegram integer), so only parse the Slack shape.
+_SLACK_TS_RE = re.compile(r"^\d+\.\d+$")
+
+
+def _inbound_epoch(message_id: Optional[str]) -> float:
+    """Best-effort epoch-seconds for a MessageSource: a Slack-style ts, else wall-clock now."""
+    if message_id and _SLACK_TS_RE.match(str(message_id)):
+        try:
+            return float(message_id)
+        except ValueError:
+            pass
     return time.time()
 
 

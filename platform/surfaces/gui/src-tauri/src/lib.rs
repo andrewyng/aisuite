@@ -16,17 +16,16 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
 #[cfg(target_os = "windows")]
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
+use ocw_stt::{Dictation, DownloadProgress};
+use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
 
@@ -96,6 +95,19 @@ fn desktop_prefs_path() -> PathBuf {
     state_dir().join("desktop.json")
 }
 
+/// The sidecar's log file: `<state_dir>/logs/coworker-server.log`, fresh per
+/// launch with the previous run kept as `.old`. None (→ /dev/null) only if the
+/// directory can't be created — logging must never block startup.
+fn server_log_file() -> Option<std::fs::File> {
+    let dir = state_dir().join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("coworker-server.log");
+    if path.exists() {
+        let _ = std::fs::rename(&path, dir.join("coworker-server.log.old"));
+    }
+    std::fs::File::create(&path).ok()
+}
+
 fn read_keep_awake_pref() -> bool {
     std::fs::read_to_string(desktop_prefs_path())
         .ok()
@@ -109,7 +121,10 @@ fn write_keep_awake_pref(enabled: bool) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(&path, serde_json::json!({ "keep_awake": enabled }).to_string());
+    let _ = std::fs::write(
+        &path,
+        serde_json::json!({ "keep_awake": enabled }).to_string(),
+    );
 }
 
 // -- keep-awake: hold off idle + system sleep so the scheduler keeps firing -------------------
@@ -246,6 +261,196 @@ fn start_window_drag(window: tauri::WebviewWindow) -> bool {
     window.start_dragging().is_ok()
 }
 
+// -- local dictation ---------------------------------------------------------------------------
+// The actual microphone/model code lives in the Tauri-free `ocw-stt` crate. This shell owns the
+// macOS permission prompt and translates the reusable API into React-friendly Tauri commands.
+
+#[derive(Clone, Serialize)]
+struct VoiceInputStatus {
+    recording: bool,
+    model_installed: bool,
+    model_verified: bool,
+    test_passed: bool,
+    download_in_progress: bool,
+    model_name: &'static str,
+    model_bytes: u64,
+    supported: bool,
+    device_summary: String,
+    compatibility_reason: Option<String>,
+}
+
+fn voice_input_status(dictation: &Dictation) -> VoiceInputStatus {
+    let status = dictation.status();
+    let (supported, device_summary, compatibility_reason) = voice_input_compatibility();
+    VoiceInputStatus {
+        recording: status.recording,
+        model_installed: status.model_installed,
+        model_verified: status.model_verified,
+        test_passed: status.test_passed,
+        download_in_progress: status.download_in_progress,
+        model_name: status.model_name,
+        model_bytes: status.model_bytes,
+        supported,
+        device_summary,
+        compatibility_reason,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn voice_input_compatibility() -> (bool, String, Option<String>) {
+    let version = Command::new("/usr/bin/sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .unwrap_or_else(|| "unknown version".to_owned());
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .unwrap_or(0);
+    let apple_silicon = std::env::consts::ARCH == "aarch64";
+    let supported = apple_silicon && major >= 12;
+    let architecture = if apple_silicon {
+        "Apple Silicon"
+    } else {
+        "Intel"
+    };
+    let summary = format!("macOS {version} · {architecture}");
+    let reason = if !apple_silicon {
+        Some("Voice Input currently requires an Apple Silicon Mac (M1 or newer).".to_owned())
+    } else if major < 12 {
+        Some("Voice Input requires macOS 12 or newer.".to_owned())
+    } else {
+        None
+    };
+    (supported, summary, reason)
+}
+
+#[cfg(target_os = "windows")]
+fn voice_input_compatibility() -> (bool, String, Option<String>) {
+    let version = Command::new("cmd")
+        .args(["/C", "ver"])
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .unwrap_or_else(|| "Windows (unknown version)".to_owned());
+    let build = version
+        .split(|character: char| !character.is_ascii_digit() && character != '.')
+        .find(|part| part.matches('.').count() >= 2)
+        .and_then(|part| part.split('.').nth(2))
+        .and_then(|part| part.parse::<u32>().ok())
+        .unwrap_or(0);
+    let x64 = std::env::consts::ARCH == "x86_64";
+    let supported = x64 && build >= 19_045;
+    let reason = if !x64 {
+        Some("Voice Input currently requires a 64-bit x64 Windows PC.".to_owned())
+    } else if build < 19_045 {
+        Some("Voice Input requires Windows 10 22H2 or Windows 11.".to_owned())
+    } else {
+        None
+    };
+    (supported, format!("{version} · x64"), reason)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn voice_input_compatibility() -> (bool, String, Option<String>) {
+    (
+        false,
+        format!("{} · {}", std::env::consts::OS, std::env::consts::ARCH),
+        Some("Voice Input is currently supported on macOS and Windows.".to_owned()),
+    )
+}
+
+#[tauri::command]
+fn get_dictation_status(state: tauri::State<Arc<Dictation>>) -> VoiceInputStatus {
+    voice_input_status(&state)
+}
+
+#[tauri::command]
+async fn start_dictation(
+    state: tauri::State<'_, Arc<Dictation>>,
+) -> Result<VoiceInputStatus, String> {
+    // Off the main thread: opening the input device blocks on macOS's one-time microphone
+    // permission dialog (and CoreAudio device setup) — a sync command would freeze the UI
+    // behind the system prompt.
+    let (supported, _, reason) = voice_input_compatibility();
+    if !supported {
+        return Err(
+            reason.unwrap_or_else(|| "Voice Input is not supported on this device.".to_owned())
+        );
+    }
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        dictation.start()?;
+        Ok::<VoiceInputStatus, String>(voice_input_status(&dictation))
+    })
+    .await
+    .map_err(|e| format!("Dictation failed to start: {e}"))?
+}
+
+#[tauri::command]
+async fn stop_dictation(state: tauri::State<'_, Arc<Dictation>>) -> Result<String, String> {
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || dictation.stop_and_transcribe())
+        .await
+        .map_err(|e| format!("Dictation stopped unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+fn cancel_dictation(state: tauri::State<Arc<Dictation>>) {
+    state.cancel();
+}
+
+#[tauri::command]
+async fn download_dictation_model(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Dictation>>,
+) -> Result<VoiceInputStatus, String> {
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        dictation.install_default_model_with_progress(|progress: DownloadProgress| {
+            let _ = app.emit("dictation-download-progress", progress);
+        })?;
+        Ok::<VoiceInputStatus, String>(voice_input_status(&dictation))
+    })
+    .await
+    .map_err(|e| format!("Voice model download stopped unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+fn cancel_dictation_model_download(state: tauri::State<Arc<Dictation>>) {
+    state.cancel_model_download();
+}
+
+#[tauri::command]
+async fn verify_dictation_model(
+    state: tauri::State<'_, Arc<Dictation>>,
+) -> Result<VoiceInputStatus, String> {
+    let dictation = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        dictation.verify_default_model()?;
+        Ok::<VoiceInputStatus, String>(voice_input_status(&dictation))
+    })
+    .await
+    .map_err(|e| format!("Voice model verification stopped unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+fn mark_dictation_test_passed(
+    state: tauri::State<Arc<Dictation>>,
+) -> Result<VoiceInputStatus, String> {
+    state.mark_test_passed()?;
+    Ok(voice_input_status(&state))
+}
+
+#[tauri::command]
+fn delete_dictation_model(state: tauri::State<Arc<Dictation>>) -> Result<VoiceInputStatus, String> {
+    state.delete_default_model()?;
+    Ok(voice_input_status(&state))
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -280,7 +485,16 @@ pub fn run() {
             set_autostart,
             get_keep_awake,
             set_keep_awake,
-            start_window_drag
+            start_window_drag,
+            get_dictation_status,
+            start_dictation,
+            stop_dictation,
+            cancel_dictation,
+            download_dictation_model,
+            cancel_dictation_model_download,
+            verify_dictation_model,
+            mark_dictation_test_passed,
+            delete_dictation_model
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).
@@ -296,10 +510,25 @@ pub fn run() {
                 .env("COWORKER_PARENT_PID", std::process::id().to_string())
                 // This GUI app has no console, so a console-subsystem child would inherit
                 // invalid std handles and crash a few seconds in when uvicorn writes its logs
-                // (the "Starting coworker…" freeze on Windows). Hand it null handles instead.
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                // (the "Starting coworker…" freeze on Windows). Hand it real handles: the
+                // server's output goes to a log file so field issues are debuggable at all
+                // ("relay off, no messages" was undiagnosable with everything on /dev/null).
+                // One file per launch, previous run kept as .old.
+                .stdin(Stdio::null());
+            match server_log_file() {
+                Some(log) => {
+                    if let Ok(err_clone) = log.try_clone() {
+                        server_cmd
+                            .stdout(Stdio::from(log))
+                            .stderr(Stdio::from(err_clone));
+                    } else {
+                        server_cmd.stdout(Stdio::from(log)).stderr(Stdio::null());
+                    }
+                }
+                None => {
+                    server_cmd.stdout(Stdio::null()).stderr(Stdio::null());
+                }
+            }
             // CREATE_NO_WINDOW: the sidecar is a console binary; without this a console window
             // would flash when the GUI app spawns it on Windows.
             #[cfg(windows)]
@@ -323,6 +552,9 @@ pub fn run() {
                 None
             };
             app.manage(KeepAwake(Mutex::new(ka)));
+            // Voice recordings are transient; only the explicitly installed local Whisper model
+            // lives in the existing application state directory.
+            app.manage(Arc::new(Dictation::new(state_dir().join("models"))));
 
             // 2. Build the window, injecting the sidecar endpoints before the SPA loads.
             //    Overlay title bar (macOS): traffic lights float over the edge-to-edge UI.
@@ -336,7 +568,11 @@ pub fn run() {
             {
                 builder = builder
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .hidden_title(true);
+                    .hidden_title(true)
+                    // Nudge the traffic lights down + in so they sit vertically centered in a
+                    // roomier top strip, aligned with the sidebar toggle and title rather than
+                    // jammed against the top edge.
+                    .traffic_light_position(tauri::LogicalPosition::new(19.0, 24.0));
             }
             let win = builder.build()?;
 
