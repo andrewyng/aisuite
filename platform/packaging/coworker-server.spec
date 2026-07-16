@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for the bundled `coworker-server` (desktop sidecar).
 
-One-file binary so it drops into Tauri's externalBin slot. The wrinkles handled here:
+One-DIR bundle (exe + `_internal/` support folder) shipped via Tauri's `resources` slot.
+It used to be a onefile binary in the externalBin slot, but onefile self-extracts its whole
+archive to a temp dir on EVERY launch — 6-7s of "Starting coworker…" splash (measured; the
+actual Python import is ~0.5s). The wrinkles handled here:
   - aisuite isn't pip-installed — it lives at <repo>/aisuite on sys.path via a `.pth`. We add
     both the repo root and platform/ to `pathex` and collect coworker + aisuite submodules.
   - uvicorn loads its protocol/lifespan impls dynamically → collect_all.
@@ -88,9 +91,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="coworker-server",
     debug=False,
     bootloader_ignore_signals=False,
@@ -100,4 +102,14 @@ exe = EXE(
     # shell hides the window on Windows via CREATE_NO_WINDOW when spawning the sidecar.
     console=True,
     # target_arch left unset → PyInstaller builds for the host architecture.
+)
+# Onedir: dist/coworker-server/{coworker-server[.exe], _internal/}. The build scripts stage
+# this whole folder into src-tauri/binaries/sidecar/ for Tauri's `resources` bundling.
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="coworker-server",
 )

@@ -950,11 +950,18 @@ export function App() {
   if (booting || !uiReady) {
     return (
       <div className={"app boot-splash" + (overlay ? " tauri-overlay" : "")}>
-        {desktop && (
+        {/* overlay (not desktop): ?overlay=1 previews the splash's top-left in the browser
+            too — the wordmark/traffic-light alignment is exactly what it exists to tune. */}
+        {overlay && (
           <div className="titlebar-drag" data-tauri-drag-region>
             <span className="titlebar-brand brand-wordmark">
               <Icon name="logo" size={13} className="mark" /> OpenCoworker
             </span>
+          </div>
+        )}
+        {simOverlay && (
+          <div className="sim-traffic-lights" aria-hidden="true">
+            <span /><span /><span />
           </div>
         )}
         <div className="boot-mark">✦</div>

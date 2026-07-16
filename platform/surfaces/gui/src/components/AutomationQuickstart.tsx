@@ -5,6 +5,7 @@ import {
   getCloudStatus,
   getConnectors,
   getRecentChannels,
+  waitForCloudSignIn,
   type CloudStatus,
   type Connector,
   type RecentChannel,
@@ -247,9 +248,9 @@ export function AutomationQuickstart({
     refresh();
   };
 
-  const signinPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const signinPollRef = useRef<(() => void) | null>(null);
   const cancelSignin = () => {
-    if (signinPollRef.current) clearInterval(signinPollRef.current);
+    signinPollRef.current?.();
     signinPollRef.current = null;
     setSigninPhase(null);
   };
@@ -260,30 +261,20 @@ export function AutomationQuickstart({
     await cloudLogin().catch(() => {});
     setSigninPhase("waiting");
     // Poll until the browser flow lands, then finish the pending connect (bounded).
-    let polls = 0;
-    const t = setInterval(async () => {
-      polls += 1;
-      const s = await getCloudStatus().catch(() => null);
-      if (s?.signed_in) {
-        clearInterval(t);
-        signinPollRef.current = null;
-        setSigninPhase(null);
-        setCloud(s);
-        if (pendingConn) {
-          const name = pendingConn;
-          setConnFlow({ name, phase: "opening" });
-          await connectManaged(name).catch(() => {});
-          setConnFlow((f) => (f?.name === name ? { name, phase: "waiting" } : f));
-          setPendingConn(null);
-          refresh();
-        }
-      } else if (polls > 90) {
-        clearInterval(t);
-        signinPollRef.current = null;
-        setSigninPhase(null);
+    signinPollRef.current = waitForCloudSignIn(async (s) => {
+      signinPollRef.current = null;
+      setSigninPhase(null);
+      if (!s?.signed_in) return;
+      setCloud(s);
+      if (pendingConn) {
+        const name = pendingConn;
+        setConnFlow({ name, phase: "opening" });
+        await connectManaged(name).catch(() => {});
+        setConnFlow((f) => (f?.name === name ? { name, phase: "waiting" } : f));
+        setPendingConn(null);
+        refresh();
       }
-    }, 2000);
-    signinPollRef.current = t;
+    });
   };
 
   const create = () => {
