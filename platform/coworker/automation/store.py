@@ -148,6 +148,21 @@ class TaskStore:
             self._conn.commit()
         return run
 
+    def find_run(self, run_id: str) -> Optional[TaskRun]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT data FROM task_runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+        return TaskRun.from_dict(json.loads(row["data"])) if row else None
+
+    def task_for_run_session(self, session_id: str) -> Optional[ScheduledTask]:
+        """The owning task of a run session ('__run__<run_id>'), or None. How standing
+        scoped approvals resolve which automation a live approval belongs to (§25)."""
+        if not session_id.startswith("__run__"):
+            return None
+        run = self.find_run(session_id[len("__run__") :])
+        return self.get(run.task_id) if run else None
+
     def runs(self, task_id: str, *, limit: int = 50) -> list[TaskRun]:
         with self._lock:
             rows = self._conn.execute(

@@ -51,16 +51,22 @@ def test_oauth_callback_writes_profile_and_returns_page(client):
         },
     )
     assert resp.status_code == 200
-    assert "gmail connected" in resp.text
+    # §30: the loopback page is a branded card, Title-cased connector name.
+    assert "Gmail connected" in resp.text
+    assert "Served locally by OpenCoworker" in resp.text
 
-    profile = client.manager.secrets.get("gmail:default")
+    # Multi-account: the callback lands in gmail:account:<email>; gmail:default
+    # is just the default pointer.
+    profile = client.manager.secrets.get("gmail:account:a@b.c")
     assert profile["access_token"] == "ya29.tok"
     assert profile["managed"] is True
     assert profile["connection_id"] == "conn_9"
+    assert client.manager.secrets.get("gmail:default")["default_account"] == "a@b.c"
 
     listed = {c["name"]: c for c in client.manager.list_connectors()}
     assert listed["gmail"]["connected"]
     assert listed["gmail"]["account"] == "a@b.c"
+    assert [a["email"] for a in listed["gmail"]["accounts"]] == ["a@b.c"]
 
 
 def test_oauth_callback_error_shows_failure_page(client):
@@ -74,12 +80,13 @@ def test_oauth_callback_error_shows_failure_page(client):
 
 
 def test_oauth_callback_rejects_unmanaged_connector(client):
+    # telegram is manual-only (github gained a managed path with the App relay)
     resp = client.post(
         "/oauth/callback",
-        data={"connector": "github", "access_token": "x"},
+        data={"connector": "telegram", "access_token": "x"},
     )
     assert resp.status_code == 400
-    assert client.manager.secrets.get("github:default") is None
+    assert client.manager.secrets.get("telegram:default") is None
 
 
 def test_auth_callback_rejects_unknown_state(client):
@@ -164,7 +171,9 @@ def test_cloud_gallery_endpoint_signed_out(client):
 
 def test_delete_persona_after_gallery_install(client, monkeypatch):
     _stub_gallery(monkeypatch)
-    assert client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()["ok"]
+    assert client.post("/v1/personas/install", json={"gallery_slug": "sales"}).json()[
+        "ok"
+    ]
     body = client.delete("/v1/personas/sales").json()
     assert body["ok"]
     assert "sales" not in {p["id"] for p in body["personas"]}

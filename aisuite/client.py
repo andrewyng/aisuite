@@ -476,6 +476,8 @@ class Completions:
         """
         Create chat completion based on the model, messages, and any extra arguments.
         Supports automatic tool execution when max_turns is specified.
+        With stream=True, returns an iterator of OpenAI-shaped chunks instead
+        (see ``aisuite.framework.chat_completion_chunk``).
         """
         provider, model_name = self._resolve_provider(model)
 
@@ -484,6 +486,12 @@ class Completions:
         tools = kwargs.pop("tools", None)
         tool_policy = kwargs.pop("tool_policy", None)
         tool_policy_context = kwargs.pop("tool_policy_context", None)
+
+        if kwargs.pop("stream", False):
+            kwargs = self._prepare_stream_kwargs(tools, max_turns, kwargs)
+            return provider.chat_completions_create_stream(
+                model_name, messages, **kwargs
+            )
 
         # Use ExitStack to manage MCP client cleanup automatically
         with ExitStack() as stack:
@@ -519,6 +527,38 @@ class Completions:
             response = provider.chat_completions_create(model_name, messages, **kwargs)
             return self._extract_thinking_content(response)
 
+    def _prepare_stream_kwargs(self, tools, max_turns, kwargs):
+        """Validate and finish kwargs for a streaming call.
+
+        Raises eagerly — before any generator is handed back — so misuse fails
+        at the call site rather than on first iteration. Streaming is manual
+        tool calling only: the tool runner needs whole turns to execute tools,
+        and MCP configs need a client whose lifetime the runner manages, so
+        neither combines with a caller-driven chunk iterator.
+        """
+        if max_turns is not None:
+            raise ValueError(
+                "stream=True cannot be combined with max_turns. Run the tool "
+                "loop without streaming, or stream and execute tools manually."
+            )
+        if tools is not None:
+            if any(self._is_mcp_tool_config(tool) for tool in tools):
+                raise ValueError(
+                    "MCP tool configs are not supported with stream=True; "
+                    "pass tool schemas or callables instead."
+                )
+            kwargs["tools"] = self._provider_ready_tools(tools)
+        return kwargs
+
+    @staticmethod
+    def _is_mcp_tool_config(tool) -> bool:
+        """True for MCP config dicts, whether or not the mcp extra is installed."""
+        if not isinstance(tool, dict):
+            return False
+        if MCP_AVAILABLE:
+            return is_mcp_config(tool)
+        return tool.get("type") == "mcp"
+
     @staticmethod
     def _provider_ready_tools(tools: list) -> list:
         """Tools as a provider request can carry them: schema dicts pass through
@@ -537,6 +577,7 @@ class Completions:
         Awaits the provider's async completion and, when ``max_turns`` and
         ``tools`` are supplied, the async tool-execution loop. MCP client
         cleanup remains synchronous and is handled by the ExitStack.
+        With stream=True, returns an async iterator of OpenAI-shaped chunks.
         """
         provider, model_name = self._resolve_provider(model)
 
@@ -544,6 +585,12 @@ class Completions:
         tools = kwargs.pop("tools", None)
         tool_policy = kwargs.pop("tool_policy", None)
         tool_policy_context = kwargs.pop("tool_policy_context", None)
+
+        if kwargs.pop("stream", False):
+            kwargs = self._prepare_stream_kwargs(tools, max_turns, kwargs)
+            return provider.achat_completions_create_stream(
+                model_name, messages, **kwargs
+            )
 
         with ExitStack() as stack:
             mcp_clients = []

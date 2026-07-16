@@ -7,6 +7,7 @@ Here are the instructions for:
 - [AWS](aws.md)
 - [Azure](azure.md) 
 - [Cohere](cohere.md)
+- [Gemini](gemini.md)
 - [Google](google.md)
 - [Hugging Face](huggingface.md)
 - [Mistral](mistral.md)

@@ -65,6 +65,35 @@ class OpenaiProvider(Provider):
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
 
+    def chat_completions_create_stream(self, model, messages, **kwargs):
+        # OpenAI's own chunks already have the unified shape — pass them through.
+        try:
+            transformed_messages = self.transformer.convert_request(messages)
+            stream = self.client.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                stream=True,
+                **kwargs,
+            )
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")
+        yield from stream
+
+    async def achat_completions_create_stream(self, model, messages, **kwargs):
+        # Native async streaming via openai.AsyncOpenAI.
+        try:
+            transformed_messages = self.transformer.convert_request(messages)
+            stream = await self.aclient.chat.completions.create(
+                model=model,
+                messages=transformed_messages,
+                stream=True,
+                **kwargs,
+            )
+        except Exception as e:
+            raise LLMError(f"An error occurred: {e}")
+        async for chunk in stream:
+            yield chunk
+
 
 # Audio Classes
 class OpenAIAudio(Audio):

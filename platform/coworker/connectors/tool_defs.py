@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from ..secrets import SecretStore
 
@@ -16,6 +16,12 @@ class ConnectorToolDef:
     kind: str
     description: str
     default_enabled: bool = True
+    # Which argument names the external object this tool acts ON (channel, recipient, …).
+    # Declaring it makes the tool eligible for a task-scoped standing rule (UX-DECISIONS §25):
+    # "this automation may call this tool against this exact target without asking". Only
+    # single-argument targets are declarable in v1 (no wildcards, no composite targets), and
+    # only write tools should declare one — reads never gate, so a rule would be meaningless.
+    target_arg: Optional[str] = None
 
 
 TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
@@ -114,21 +120,39 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Create a GitHub issue.",
     ),
     ConnectorToolDef(
-        "notion",
-        "notion_search",
-        "Search Notion",
-        "read",
-        "Search Notion pages and databases.",
-    ),
-    ConnectorToolDef(
-        "notion", "notion_get_page", "Read page", "read", "Read a Notion page."
-    ),
-    ConnectorToolDef(
-        "notion",
-        "notion_create_page",
-        "Create page",
+        "github",
+        "github_reply",
+        "Reply on issue/PR",
         "write",
-        "Create a Notion child page.",
+        "Comment on an issue or pull request.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_review",
+        "Review a PR",
+        "write",
+        "Submit a pull-request review (approve / request changes / comment).",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_list_commits",
+        "List commits",
+        "read",
+        "List a repository's recent commits (for activity summaries).",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_clone",
+        "Clone a repo",
+        "read",
+        "Clone a repository into a session folder to explore the code.",
+    ),
+    ConnectorToolDef(
+        "github",
+        "github_pull",
+        "Update a clone",
+        "read",
+        "Fast-forward an existing clone to the latest commits.",
     ),
     ConnectorToolDef(
         "email",
@@ -164,6 +188,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send email",
         "write",
         "Send or reply to an email via SMTP (requires approval).",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "gmail",
@@ -181,6 +206,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send email",
         "write",
         "Send an email through Gmail.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "google_calendar",
@@ -191,10 +217,31 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
     ),
     ConnectorToolDef(
         "google_calendar",
+        "gcal_free_busy",
+        "Check availability",
+        "read",
+        "Look up busy intervals across calendars.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
         "gcal_create_event",
         "Create event",
         "write",
         "Create a Google Calendar event.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
+        "gcal_update_event",
+        "Update event",
+        "write",
+        "Change fields of an existing event.",
+    ),
+    ConnectorToolDef(
+        "google_calendar",
+        "gcal_delete_event",
+        "Delete event",
+        "write",
+        "Delete a calendar event.",
     ),
     ConnectorToolDef(
         "outlook",
@@ -209,6 +256,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send mail",
         "write",
         "Send mail through Outlook.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "outlook",
@@ -331,6 +379,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send message",
         "write",
         "Send a Discord channel message.",
+        target_arg="channel_id",
     ),
     ConnectorToolDef(
         "stripe",
@@ -391,6 +440,27 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Create a HubSpot contact.",
     ),
     ConnectorToolDef(
+        "hubspot",
+        "hubspot_update_object",
+        "Update record",
+        "write",
+        "Update properties on a CRM record (no deletes).",
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_log_note",
+        "Log note",
+        "write",
+        "Log a note on a record's timeline.",
+    ),
+    ConnectorToolDef(
+        "hubspot",
+        "hubspot_create_task",
+        "Create task",
+        "write",
+        "Create a HubSpot task.",
+    ),
+    ConnectorToolDef(
         "dropbox", "dropbox_search", "Search files", "read", "Search Dropbox files."
     ),
     ConnectorToolDef(
@@ -448,6 +518,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send message",
         "write",
         "Send a WhatsApp text message.",
+        target_arg="to",
     ),
     ConnectorToolDef(
         "whatsapp",
@@ -455,13 +526,182 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Send template",
         "write",
         "Send an approved WhatsApp template message.",
+        target_arg="to",
+    ),
+    ConnectorToolDef(
+        "notion",
+        "notion_search",
+        "Search",
+        "read",
+        "Search Notion pages and databases.",
+    ),
+    ConnectorToolDef(
+        "notion",
+        "notion_read_page",
+        "Read page",
+        "read",
+        "Read a page's properties and content.",
+    ),
+    ConnectorToolDef(
+        "notion",
+        "notion_query_database",
+        "Query database",
+        "read",
+        "Query a Notion database.",
+    ),
+    ConnectorToolDef(
+        "notion",
+        "notion_create_page",
+        "Create page",
+        "write",
+        "Create a page under a parent page.",
+    ),
+    ConnectorToolDef(
+        "attio",
+        "attio_list_objects",
+        "List objects",
+        "read",
+        "List Attio object types.",
+    ),
+    ConnectorToolDef(
+        "attio",
+        "attio_query_records",
+        "Query records",
+        "read",
+        "List/filter records of an object.",
+    ),
+    ConnectorToolDef(
+        "attio",
+        "attio_get_record",
+        "Read record",
+        "read",
+        "Read one record by id.",
+    ),
+    ConnectorToolDef(
+        "attio",
+        "attio_create_note",
+        "Log note",
+        "write",
+        "Log a note on a record.",
+    ),
+    ConnectorToolDef(
+        "posthog",
+        "posthog_query",
+        "Run query",
+        "read",
+        "Run a HogQL analytics query.",
+    ),
+    ConnectorToolDef(
+        "posthog",
+        "posthog_list_insights",
+        "List insights",
+        "read",
+        "List saved PostHog insights.",
+    ),
+    ConnectorToolDef(
+        "mixpanel",
+        "mixpanel_segmentation",
+        "Event counts",
+        "read",
+        "Mixpanel event counts over a date range.",
+    ),
+    ConnectorToolDef(
+        "mixpanel",
+        "mixpanel_top_events",
+        "Top events",
+        "read",
+        "Today's top Mixpanel events.",
+    ),
+    ConnectorToolDef(
+        "amplitude",
+        "amplitude_active_users",
+        "Active users",
+        "read",
+        "Amplitude daily active/new users.",
+    ),
+    ConnectorToolDef(
+        "amplitude",
+        "amplitude_event_totals",
+        "Event totals",
+        "read",
+        "Daily totals for one Amplitude event.",
+    ),
+    ConnectorToolDef(
+        "apollo",
+        "apollo_enrich_person",
+        "Enrich person",
+        "read",
+        "Enrich a person by email or name.",
+    ),
+    ConnectorToolDef(
+        "apollo",
+        "apollo_enrich_company",
+        "Enrich company",
+        "read",
+        "Enrich a company by domain.",
+    ),
+    ConnectorToolDef(
+        "apollo",
+        "apollo_search_people",
+        "Search people",
+        "read",
+        "Keyword-search Apollo's B2B database.",
+    ),
+    ConnectorToolDef(
+        "hunter",
+        "hunter_domain_search",
+        "Domain search",
+        "read",
+        "Find published emails for a domain.",
+    ),
+    ConnectorToolDef(
+        "hunter",
+        "hunter_find_email",
+        "Find email",
+        "read",
+        "Find a person's likely email address.",
+    ),
+    ConnectorToolDef(
+        "hunter",
+        "hunter_verify_email",
+        "Verify email",
+        "read",
+        "Check whether an email is deliverable.",
     ),
 )
+
+_KIND_BY_NAME = {d.name: d.kind for d in TOOL_DEFS}
+
+
+# §36: the registry's read/write kind is the SINGLE source of truth for whether a
+# connector tool gates. Reads on a service the user explicitly connected never ask
+# (the §25 design note — "reads never gate" — made law); writes always do. Tools
+# without a registry entry keep their call-site default (MCP/experimental stay
+# conservative).
+def approval_for_tool(name: str, default: bool = True) -> bool:
+    kind = _KIND_BY_NAME.get(name)
+    if kind is None:
+        return default
+    return kind != "read"
+
 
 TOOL_TO_CONNECTOR = {d.name: d.connector for d in TOOL_DEFS}
 TOOLS_BY_CONNECTOR: dict[str, list[ConnectorToolDef]] = {}
 for _def in TOOL_DEFS:
     TOOLS_BY_CONNECTOR.setdefault(_def.connector, []).append(_def)
+
+# Standing-rule target arguments (§25). Declared on connector tool defs above, plus the
+# always-available messaging tool `send_message` (its `target` is the reply handle
+# "platform:chat_id" — exactly the address a rule pins). This dict is the single source of
+# which tools can EVER carry a standing rule: exec/destructive tools must never appear here.
+TARGET_ARGS: dict[str, str] = {d.name: d.target_arg for d in TOOL_DEFS if d.target_arg}
+TARGET_ARGS["send_message"] = "target"
+
+
+def target_arg_for(tool_name: str) -> Optional[str]:
+    """The argument that names this tool's standing-rule target, or None if the tool
+    isn't eligible for standing rules."""
+    return TARGET_ARGS.get(tool_name)
 
 
 def connector_for_tool(tool_name: str) -> str | None:

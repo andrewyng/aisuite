@@ -36,7 +36,9 @@ def consent_summary(m: PersonaManifest) -> dict:
     }
 
 
-def git_clone(url: str, dest: Path) -> None:  # pragma: no cover - exercised via injection
+def git_clone(
+    url: str, dest: Path
+) -> None:  # pragma: no cover - exercised via injection
     """Shallow-clone a persona repo. Injectable so tests don't touch the network."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(

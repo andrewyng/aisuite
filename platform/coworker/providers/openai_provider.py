@@ -37,12 +37,36 @@ def resolve_api_key(secrets: Any = None) -> Optional[str]:
     return None
 
 
+# GPT-5.6 (2026-07) defaults reasoning_effort to "medium" server-side, and
+# /v1/chat/completions rejects function tools combined with any effort other than
+# "none" ("use /v1/responses"). Until we grow a Responses API path, pin effort to
+# none whenever tools ride along on these models — and when the API rejects a call
+# with that exact complaint anyway (a future generation, an alias we didn't list),
+# retry once at effort none so the user gets a working turn instead of a 400.
+_EFFORT_ERROR = "function tools with reasoning_effort are not supported"
+
+
+def _pin_reasoning_effort(kwargs: dict[str, Any]) -> None:
+    if kwargs.get("tools") and str(kwargs.get("model", "")).startswith("gpt-5.6"):
+        kwargs.setdefault("reasoning_effort", "none")
+
+
+def _effort_none_retry(kwargs: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    """Kwargs for the one retry this error earns, or re-raise anything else."""
+    if (
+        kwargs.get("reasoning_effort") == "none"
+        or _EFFORT_ERROR not in str(exc).lower()
+    ):
+        raise exc
+    return {**kwargs, "reasoning_effort": "none"}
+
+
 class OpenAIProvider(ProviderClient):
     def __init__(
         self,
         client: Any = None,
         *,
-        default_model: str = "gpt-5.5",
+        default_model: str = "gpt-5.6-sol",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         secrets: Any = None,
@@ -90,8 +114,13 @@ class OpenAIProvider(ProviderClient):
         kwargs: dict[str, Any] = {"model": model, "messages": messages, **settings}
         if tools:
             kwargs["tools"] = tools
+        _pin_reasoning_effort(kwargs)
 
-        response = self._ensure_client().chat.completions.create(**kwargs)
+        client = self._ensure_client()
+        try:
+            response = client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            response = client.chat.completions.create(**_effort_none_retry(kwargs, exc))
         choice = response.choices[0]
         message = choice.message
         text = getattr(message, "content", None)
@@ -123,13 +152,18 @@ class OpenAIProvider(ProviderClient):
         }
         if tools:
             kwargs["tools"] = tools
+        _pin_reasoning_effort(kwargs)
         client = self._ensure_client()
 
         text_parts: list[str] = []
         tool_accum: dict[int, dict[str, str]] = {}
         finish_reason = None
 
-        for chunk in client.chat.completions.create(**kwargs):
+        try:
+            chunks = client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            chunks = client.chat.completions.create(**_effort_none_retry(kwargs, exc))
+        for chunk in chunks:
             choices = getattr(chunk, "choices", None)
             if not choices:
                 continue

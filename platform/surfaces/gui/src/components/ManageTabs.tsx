@@ -2,20 +2,17 @@ import { useEffect, useState } from "react";
 import {
   addMcpServer,
   allowUser,
-  cloudLogin,
-  cloudLogout,
-  setCloudTelemetry,
   connectConnector,
   connectManaged,
   deleteMcpServer,
   disallowUser,
-  disconnectConnector,
-  getCloudStatus,
-  getConnectors,
   getMcpServers,
   getMcpTools,
   getProviders,
   getSettings,
+  getSubscriptions,
+  resolveUnauthorized,
+  unsubscribeChannel,
   patchMcpServer,
   reloadMcp,
   setProvider,
@@ -23,13 +20,33 @@ import {
   verifyProvider,
   type CloudStatus,
   type Connector,
+  type Subscription,
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
+import { CloudSignInInline } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
-import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { SelectMenu } from "./SelectMenu";
 import { Toggle } from "./Toggle";
+
+// "2h ago"-style label for the providers' Last-used line (null when never used).
+const relTime = (epoch?: number | null): string | null => {
+  if (!epoch) return null;
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - epoch));
+  if (secs < 90) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+};
+
+const fmtDate = (iso?: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+};
 
 // Shared tab bodies for the Settings and Integrations pages (the old top-tab ManageModal was retired
 // when Settings/Activity became full-page surfaces): ModelsTab → Settings ▸ Models; ConnectorsTab +
@@ -44,7 +61,6 @@ const FIELD_LABEL = "block text-[12.5px] font-medium text-ink mb-1.5";
 const FIELD_HELP = "block text-[12px] text-muted mt-1.5 leading-relaxed";
 const INPUT_W =
   "w-full px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
-const SELECT_W = "w-full px-2.5 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink";
 
 /** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
 function initials(name: string): string {
@@ -84,8 +100,12 @@ export function ModelsTab() {
         setProviders(ps);
         const oll = ps.find((p) => p.name === "ollama");
         if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
-        const oai = ps.find((p) => p.name === "openai");
-        if (oai?.values?.base_url) setEndpoint((cur) => cur || oai.values.base_url);
+        // Seed the endpoint for the selected provider: stored value, else the descriptor's
+        // pre-filled default (OpenAI-compatible vendors ship their official endpoint).
+        const sel = ps.find((p) => p.name === apiProv);
+        const seeded =
+          sel?.values?.base_url || sel?.fields.find((f) => f.key === "base_url")?.default || "";
+        if (seeded) setEndpoint((cur) => cur || seeded);
       })
       .catch(() => {});
   useEffect(() => {
@@ -115,10 +135,14 @@ export function ModelsTab() {
   const provName = sub === "local" ? "ollama" : apiProv;
   const selProv = providers.find((p) => p.name === provName);
 
+  // The provider's endpoint field, when it has one (OpenAI's optional custom endpoint + the
+  // OpenAI-compatible vendors' pre-filled one).
+  const endpointField = selProv?.fields.find((f) => f.key === "base_url");
+
   const keyFields = (): Record<string, string> => {
     const fields: Record<string, string> = {};
     if (draft.trim()) fields.api_key = draft.trim();
-    if (apiProv === "openai") fields.base_url = endpoint.trim();
+    if (endpointField) fields.base_url = endpoint.trim();
     return fields;
   };
 
@@ -130,7 +154,7 @@ export function ModelsTab() {
   };
 
   const save = async () => {
-    if (!draft.trim() && !(apiProv === "openai" && endpoint.trim())) return;
+    if (!draft.trim() && !(endpointField && endpoint.trim())) return;
     setBusy(true);
     setMsg(null);
     const res = await setProvider(apiProv, keyFields());
@@ -170,10 +194,39 @@ export function ModelsTab() {
         suggested={selProv?.suggested_models || []}
         curated={settings.models}
         defaultModel={settings.model}
+        labels={settings.model_labels}
         onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
       />
     </div>
   );
+
+  // Unconfigured providers still show their curated models as a read-only preview — what a key
+  // unlocks is part of deciding to get one at all (owner ask, 2026-07-04). Real ids in tooltips.
+  const modelPreview = sub === "api" &&
+    selProv &&
+    !selProv.configured &&
+    (selProv.suggested_models?.length || 0) > 0 && (
+      <div className="mt-6" data-testid="model-preview">
+        <div className={SEC_H + " mb-1.5"}>Included models</div>
+        <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
+          Curated, agent-capable models this provider serves — add your key above to enable them.
+        </p>
+        <div className="space-y-1">
+          {(selProv.suggested_models || []).map((m) => {
+            const full = provName === "openai" ? m : `${provName}:${m}`;
+            return (
+              <div
+                key={m}
+                className="px-2.5 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-muted"
+                title={full}
+              >
+                {settings.model_labels?.[full] || m}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
 
   return (
     <div>
@@ -188,33 +241,56 @@ export function ModelsTab() {
 
       {sub === "api" ? (
         <div className={CARD + " p-4"}>
-          <label className="block mb-4">
+          <div className="mb-4">
             <span className={FIELD_LABEL}>Provider</span>
-            <select
-              className={SELECT_W}
+            {/* Custom select, sectioned "Ready to use" / "Needs a key" (configured providers
+                float to the top). Rows carry a green "key set" dot + a Last-used sub-line, so
+                which providers are configured (and still in use) is visible at a glance. */}
+            <SelectMenu
+              ariaLabel="Provider"
               value={apiProv}
-              onChange={(e) => {
-                setApiProv(e.target.value);
+              options={[...providers]
+                .filter((p) => p.name !== "ollama")
+                .sort((a, b) => Number(b.configured) - Number(a.configured)) // stable: keeps registry order within each section
+                .map((p) => ({
+                  value: p.name,
+                  label: p.title,
+                  group: p.configured ? "Ready to use" : "Needs a key",
+                  dot: p.configured,
+                  sub: p.configured
+                    ? relTime(p.last_used_at)
+                      ? `Last used ${relTime(p.last_used_at)}`
+                      : "Not used yet"
+                    : undefined,
+                }))}
+              onChange={(name) => {
+                setApiProv(name);
                 setDraft("");
                 setMsg(null);
                 setVerify({ state: "idle" });
+                // Re-seed the endpoint for the newly selected provider (stored → default → blank).
+                const p = providers.find((x) => x.name === name);
+                setEndpoint(
+                  p?.values?.base_url || p?.fields.find((f) => f.key === "base_url")?.default || "",
+                );
               }}
-            >
-              {providers
-                .filter((p) => p.name !== "ollama")
-                .map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.title}
-                  </option>
-                ))}
-            </select>
-          </label>
+            />
+          </div>
+
+          {selProv?.blurb && (
+            <p className="text-[12px] text-muted -mt-2 mb-4 leading-relaxed">{selProv.blurb}</p>
+          )}
 
           <div className="text-[12px] mb-4">
             {selProv?.configured ? (
               <span className="text-ok">
-                ● Connected — key set
+                ● Connected
+                {fmtDate(selProv.key_set_at) ? ` — key added ${fmtDate(selProv.key_set_at)}` : " — key set"}
                 {provName === "openai" && settings.source === "env" ? " (from environment)" : ""}
+                <span className="text-muted">
+                  {" · "}
+                  {relTime(selProv.last_used_at) ? `last used ${relTime(selProv.last_used_at)}` : "not used yet"}
+                </span>
               </span>
             ) : (
               <span className="text-danger">● Not connected — add a key below to use this provider</span>
@@ -227,22 +303,19 @@ export function ModelsTab() {
               it below; the stored key is used only when the environment variable is absent.
             </p>
           )}
-          {provName === "openai" && (
+          {endpointField && (
             <label className="block mb-4">
-              <span className={FIELD_LABEL}>Custom endpoint (optional)</span>
+              <span className={FIELD_LABEL}>{endpointField.label}</span>
               <input
                 className={INPUT_W}
                 type="text"
-                placeholder="https://…/openai/v1"
+                placeholder={endpointField.placeholder}
                 value={endpoint}
                 spellCheck={false}
                 autoComplete="off"
                 onChange={(e) => setEndpoint(e.target.value)}
               />
-              <span className={FIELD_HELP}>
-                For Azure OpenAI, OpenRouter, vLLM, or any OpenAI-compliant server. Leave blank for
-                api.openai.com.
-              </span>
+              <span className={FIELD_HELP}>{endpointField.help}</span>
             </label>
           )}
           <label className="block mb-4">
@@ -316,6 +389,7 @@ export function ModelsTab() {
       )}
 
       {checklist}
+      {modelPreview}
     </div>
   );
 }
@@ -517,212 +591,154 @@ function AddForm({
   );
 }
 
-// -- Connectors tab ----------------------------------------------------------
-export function ConnectorsTab() {
-  const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [openName, setOpenName] = useState<string | null>(null);
-  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+// -- Connectors ---------------------------------------------------------------
+// The Connectors tab body moved to connectors/ConnectorsSection.tsx (UX-DECISIONS
+// §21: connected-first list + per-connector detail subpages). This file keeps the
+// shared building blocks the detail pages reuse: ConnectSetup, ConnectorTools, and
+// the two-way blocks (Allowlist/Unauthorized/ListeningSessions).
 
-  const refresh = () => {
-    getConnectors().then(setConnectors).catch(() => setConnectors([]));
-    getCloudStatus().then(setCloud).catch(() => setCloud(null));
+// Parked messages from senders not on the allow-list (§19). The gateway keeps what they said
+// instead of dropping it, so first contact is one step: Allow & deliver replays the original
+// message through the normal inbound path — no "message the bot again".
+// With `teamId` (the Slack-workspaces page) only that workspace's parked messages show;
+// resolving routes the allow to the right workspace server-side (the item carries its team).
+export function UnauthorizedBlock({
+  c,
+  onChanged,
+  teamId,
+}: {
+  c: Connector;
+  onChanged: () => void;
+  teamId?: string;
+}) {
+  const items = (c.unauthorized ?? []).filter(
+    (m) => teamId === undefined || m.team_id === teamId,
+  );
+  if (items.length === 0) return null;
+  const act = async (id: string, action: "dismiss" | "allow" | "allow_deliver") => {
+    await resolveUnauthorized(c.name, id, action);
+    onChanged();
   };
-  useEffect(() => {
-    refresh();
-    // Recent senders arrive over time (someone DMs the bot) — poll so they surface to Allow.
-    // The same poll also picks up sign-in / managed-connect completions from the browser flows.
-    const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
-  }, []);
-
   return (
-    <div className="space-y-3">
-      <CloudAccountCard cloud={cloud} onChanged={refresh} />
-      {/* Single-column list (owner call, 2026-07-03 #2): expanding a card just pushes rows
-          down — a mixed-width grid reordered visually every time one opened. */}
-      <div className="space-y-3">
-        {connectors.map((c) => (
-          <ConnectorRow
-            key={c.name}
-            c={c}
-            cloud={cloud}
-            open={openName === c.name}
-            onToggleOpen={() => setOpenName(openName === c.name ? null : c.name)}
-            onChanged={() => {
-              setOpenName(null);
-              refresh();
-            }}
-            onRefresh={refresh}
-          />
+    <div
+      className="border-t border-line px-3.5 py-3"
+      data-testid={teamId ? `unauthorized-${c.name}-${teamId}` : `unauthorized-${c.name}`}
+    >
+      <div className={SEC_H + " mb-2"}>
+        Messages from senders you haven't allowed · {items.length}
+      </div>
+      <div className="space-y-2">
+        {items.map((m) => (
+          <div key={m.id} className="rounded-xl border border-line bg-paper p-2.5">
+            <div className="flex items-center gap-2 text-[12px] text-muted">
+              <span className="font-medium text-ink">{m.user_name || m.user_id}</span>
+              <span>in {m.chat_name || m.chat_id}</span>
+              <span className="ml-auto shrink-0">{relTime(m.ts) || ""}</span>
+            </div>
+            <div className="text-[12.5px] mt-1 break-words">{m.text}</div>
+            <div className="flex items-center gap-1.5 mt-2">
+              <button
+                className="text-[11.5px] px-2 py-1 rounded-md bg-accent text-white"
+                data-testid={`parked-allow-deliver-${m.id}`}
+                title="Add the sender to the allow-list and deliver this message now"
+                onClick={() => act(m.id, "allow_deliver")}
+              >
+                Allow & deliver
+              </button>
+              <button
+                className={BTN_BORDERED}
+                data-testid={`parked-allow-${m.id}`}
+                title="Add the sender to the allow-list; this message is discarded"
+                onClick={() => act(m.id, "allow")}
+              >
+                Allow only
+              </button>
+              <button
+                className="text-[11.5px] px-2 py-1 rounded-md text-faint hover:text-danger"
+                data-testid={`parked-dismiss-${m.id}`}
+                title="Throw this message away"
+                onClick={() => act(m.id, "dismiss")}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         ))}
       </div>
     </div>
   );
 }
 
-// Optional cloud sign-in: unlocks one-click managed connectors. Local-only /
-// manual token setup keeps working without it (and stays available after).
-function CloudAccountCard({
-  cloud,
-  onChanged,
-}: {
-  cloud: CloudStatus | null;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  // Optimistic local echo of the toggle (the server refetch confirms it) so the
-  // checkbox responds instantly instead of snapping back until status reloads.
-  const [telemetry, setTelemetry] = useState<boolean | null>(null);
-
-  const signIn = async () => {
-    setBusy(true);
-    await cloudLogin(); // sidecar opens the system browser; the tab poll picks up completion
-    setTimeout(() => {
-      setBusy(false);
-      onChanged();
-    }, 2500);
-  };
-
+// Which sessions listen to this connector's channels — the per-connector cut of the global
+// Channel-subscriptions table (Integrations ▸ Messaging routing). Subscribing happens from a
+// session's Sources ▸ Channels panel; here the owner can see and revoke.
+export function ListeningSessionsBlock({ c }: { c: Connector }) {
+  const [subs, setSubs] = useState<Subscription[] | null>(null);
+  const load = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
+  useEffect(() => {
+    load();
+  }, [c.name]);
+  const platformOf = (channel: string) =>
+    channel.includes(":") ? channel.split(":")[0] : "slack";
+  const mine = (subs ?? []).filter((s) => platformOf(s.channel) === c.name);
   return (
-    <div className={CARD + " p-3.5"} data-testid="cloud-account">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0">
-          <div className="font-semibold text-[14px]">OpenCoworker Cloud</div>
-          {cloud?.signed_in ? (
-            <div className="text-[12px] text-muted flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
-              {cloud.account || "signed in"}
-            </div>
-          ) : (
-            <div className="text-[12px] text-muted">
-              Sign in for one-click connectors. Manual token setup always works without it.
-            </div>
-          )}
+    <div className="border-t border-line px-3.5 py-3" data-testid={`listening-${c.name}`}>
+      <div className={SEC_H + " mb-2"}>Sessions listening to {c.title} channels · {mine.length}</div>
+      {mine.length === 0 ? (
+        <div className="text-[12px] text-faint">
+          None yet — open a session's Sources ▸ Channels to subscribe it to a channel.
         </div>
-        <div className="ml-auto">
-          {cloud?.signed_in ? (
-            <button
-              className={BTN_BORDERED}
-              onClick={async () => {
-                await cloudLogout();
-                onChanged();
-              }}
-            >
-              Sign out
-            </button>
-          ) : (
-            <button className={BTN_ACCENT} onClick={signIn} disabled={busy}>
-              {busy ? "Check your browser…" : "Sign in"}
-            </button>
-          )}
-        </div>
-      </div>
-      {cloud?.signed_in && (
-        <label className="flex items-start gap-2.5 mt-3 pt-3 border-t border-line select-none">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={telemetry ?? cloud.telemetry_enabled !== false}
-            data-testid="telemetry-toggle"
-            onChange={async (e) => {
-              setTelemetry(e.target.checked);
-              await setCloudTelemetry(e.target.checked);
-              onChanged();
-            }}
-          />
-          <span>
-            <span className="block text-[12.5px] text-ink">Help improve OpenCoworker</span>
-            <span className="block text-[12px] text-muted">
-              Tells us which coworker type was started and when — never your prompts, files,
-              or connector data. Off means nothing is sent.
-            </span>
-          </span>
-        </label>
-      )}
-    </div>
-  );
-}
-
-function ConnectorRow({
-  c,
-  cloud,
-  open,
-  onToggleOpen,
-  onChanged,
-  onRefresh,
-}: {
-  c: Connector;
-  cloud: CloudStatus | null;
-  open: boolean;
-  onToggleOpen: () => void;
-  onChanged: () => void;
-  onRefresh: () => void;
-}) {
-  return (
-    <div className={CARD} data-testid={`connector-${c.name}`}>
-      <div className="flex items-center gap-3 p-3.5">
-        {/* Real brand color + logo from the API descriptor (Phase 1) via ConnectorBadge; unknown
-            logo ids fall back to the neutral plug glyph. */}
-        <ConnectorBadge connector={c} size={36} title={c.title} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-[14px]">{c.title}</span>
-            {c.two_way && (
-              <span className="text-[10.5px] px-1.5 py-0.5 rounded border border-line text-muted">
-                two-way
+      ) : (
+        <div className="space-y-1.5">
+          {mine.map((s) => (
+            <div className="flex items-center gap-2 text-[12.5px]" key={s.session_id + s.channel}>
+              <span className="min-w-0 truncate" title={s.session_id}>
+                {s.session_title || s.session_id}
+                {s.agent ? <span className="text-faint"> · {s.agent}</span> : null}
               </span>
-            )}
-          </div>
-          {c.connected ? (
-            <div className="text-[12px] text-muted flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
-              {c.account || "connected"}
-              {c.allowed_users.length > 0 ? ` · ${c.allowed_users.length} allowed` : ""}
-            </div>
-          ) : (
-            <div className="text-[12px] text-muted">{c.blurb || (c.available ? "Not connected" : "")}</div>
-          )}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {!c.available ? (
-            <span className="text-[12px] text-faint">Soon</span>
-          ) : c.connected && c.auth === "none" ? (
-            <button className={BTN_BORDERED} onClick={onToggleOpen}>
-              {open ? "Close" : "Settings"}
-            </button>
-          ) : c.connected ? (
-            <>
-              <button className={BTN_BORDERED} onClick={onToggleOpen}>
-                {open ? "Close" : "Settings"}
-              </button>
+              <span className="text-muted shrink-0" title={s.channel}>
+                ← {s.channel_name ? `#${s.channel_name}` : s.channel}
+              </span>
               <button
-                className={BTN_DANGER}
+                className="ml-auto text-faint hover:text-danger shrink-0"
+                title="Unsubscribe this session"
                 onClick={async () => {
-                  await disconnectConnector(c.name);
-                  onChanged();
+                  await unsubscribeChannel(s.session_id, s.channel);
+                  load();
                 }}
               >
-                Disconnect
+                ×
               </button>
-            </>
-          ) : (
-            <button className={BTN_BORDERED} onClick={onToggleOpen}>
-              {open ? "Cancel" : "Connect"}
-            </button>
-          )}
+            </div>
+          ))}
         </div>
-      </div>
-      {open && !c.connected && <ConnectSetup c={c} cloud={cloud} onConnected={onChanged} />}
-      {open && c.connected && <ConnectorTools c={c} onChanged={onChanged} />}
-      {open && c.connected && c.two_way && <AllowlistBlock c={c} onChanged={onRefresh} />}
+      )}
     </div>
   );
 }
 
 // Who may message this two-way bot. Recent senders surface here once they DM/mention the bot, so you
 // can Allow them; allowed users are chips you can remove. (Was orphaned in the super-agent view.)
-function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void }) {
-  const recent = c.recent ?? [];
+// With `teamId` (the Slack-workspaces page) the list is that WORKSPACE's — ids are
+// workspace-scoped, so allow/remove target `slack:team:<id>` and recents filter to the team.
+export function AllowlistBlock({
+  c,
+  onChanged,
+  teamId,
+  allowed,
+  allowedNames,
+}: {
+  c: Connector;
+  onChanged: () => void;
+  teamId?: string;
+  allowed?: string[];
+  allowedNames?: Record<string, string | null>;
+}) {
+  const allowedUsers = allowed ?? c.allowed_users;
+  const names = allowedNames ?? c.allowed_user_names;
+  const recent = (c.recent ?? []).filter(
+    (r) => teamId === undefined || r.team_id === teamId,
+  );
   const unknownRecent = recent.filter((r) => !r.authorized);
 
   return (
@@ -730,23 +746,24 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
       <div>
         <div className={SEC_H + " mb-2"}>Allowed to message</div>
         <div className="flex flex-wrap gap-1.5">
-          {c.allowed_users.length === 0 && (
+          {allowedUsers.length === 0 && (
             <span className="text-[12px] text-faint">nobody yet — Allow a recent sender →</span>
           )}
-          {c.allowed_users.map((u) => (
+          {allowedUsers.map((u) => (
             <span
               key={u}
               className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-paper border border-line text-[12px]"
+              title={`id ${u}`}
             >
               <span className="w-4 h-4 rounded-full bg-accentSoft text-accent grid place-items-center text-[9px] font-bold">
-                {initials(u)}
+                {initials(names?.[u] || u)}
               </span>
-              {u}
+              {names?.[u] || u}
               <button
                 className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
                 title="remove"
                 onClick={async () => {
-                  await disallowUser(c.name, u);
+                  await disallowUser(c.name, u, teamId);
                   onChanged();
                 }}
               >
@@ -773,7 +790,7 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
                 <button
                   className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-accent text-white shrink-0"
                   onClick={async () => {
-                    await allowUser(c.name, r.user_id);
+                    await allowUser(c.name, r.user_id, teamId);
                     onChanged();
                   }}
                 >
@@ -788,7 +805,7 @@ function AllowlistBlock({ c, onChanged }: { c: Connector; onChanged: () => void 
   );
 }
 
-function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void }) {
+export function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () => void }) {
   const toggle = async (toolName: string, enabled: boolean) => {
     await updateConnectorTools(c.name, { [toolName]: enabled });
     onChanged();
@@ -834,10 +851,14 @@ export function ConnectSetup({
   c,
   cloud,
   onConnected,
+  manualOnly = false,
 }: {
   c: Connector;
   cloud: CloudStatus | null;
   onConnected: () => void;
+  // The add-modal's Manual pane: the one-click button lives on the sibling
+  // pill, so don't render the managed block again here.
+  manualOnly?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -864,17 +885,16 @@ export function ConnectSetup({
 
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
-      {c.managed && (
+      {c.managed && !manualOnly && (
         <div className="space-y-2" data-testid="managed-connect">
           {cloud?.signed_in ? (
             <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
               {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
             </button>
           ) : (
-            <div className="text-[12.5px] text-muted">
-              Sign in to OpenCoworker Cloud (above) to connect {c.title} with one click —
-              or connect manually below.
-            </div>
+            <CloudSignInInline
+              blurb={`Sign-in unlocks the one-click ${c.title} connect — or connect manually below.`}
+            />
           )}
           {cloud?.signed_in && (
             <div className="text-[11.5px] text-faint">or connect manually:</div>

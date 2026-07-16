@@ -70,8 +70,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Sidebar layout toggle", () => {
-  it("toggling the layout persists via setNavLayout and switches to the per-persona accordion", async () => {
+describe("Sidebar group/filter control", () => {
+  it("choosing Persona persists via setNavLayout and switches to the per-persona accordion", async () => {
     const calls = stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
@@ -79,10 +79,12 @@ describe("Sidebar layout toggle", () => {
     ]);
     render(<Sidebar {...baseProps} />);
 
-    // personas load drives the surfaces; wait for them.
-    await screen.findByTitle("Flat — tap to group by persona");
+    // personas load drives the surfaces; the RECENT header's group/filter control is always present.
+    const control = await screen.findByLabelText("Group and filter conversations");
 
-    fireEvent.click(screen.getByTitle("Flat — tap to group by persona"));
+    // Open the popover and choose "Group by → Persona".
+    fireEvent.click(control);
+    fireEvent.click(await screen.findByText("Persona"));
 
     // POSTs the new layout pref.
     await waitFor(() => {
@@ -91,24 +93,111 @@ describe("Sidebar layout toggle", () => {
       expect(post!.body).toMatchObject({ nav_layout: "grouped" });
     });
 
+    // Close the popover (it stays open so you can group AND filter in one visit) before asserting
+    // the accordion — otherwise "Ops" also matches the filter-by-coworker checkbox.
+    fireEvent.click(control);
+
     // Grouped view = the per-persona accordion. The Ops header appears; expanding it lists its
-    // session, and the header's gear (rightmost element) opens the persona detail page.
+    // session. (Persona configuration moved to Settings ▸ Personas, so there is no header gear.)
     const opsHeader = await screen.findByText("Ops");
     fireEvent.click(opsHeader);
     expect(screen.getByText("incident watch")).toBeTruthy();
-    fireEvent.click(screen.getByTitle("About the Ops persona"));
-    expect(baseProps.onOpenPersona).toHaveBeenCalledWith("ops");
+    expect(screen.queryByTitle("About the Ops persona")).toBeNull();
+  });
+});
+
+describe("Chronological list row actions", () => {
+  it("flat-layout rows offer rename / archive / delete (not just pin)", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+    await screen.findByText("incident watch"); // flat Recent list rendered
+
+    // Rename: pencil → inline input → Enter commits.
+    fireEvent.click(screen.getAllByTitle("Rename")[0]);
+    const input = screen.getByDisplayValue("incident watch");
+    fireEvent.change(input, { target: { value: "war room" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(baseProps.onRenameSession).toHaveBeenCalledWith("s-ops-1", "war room");
+
+    // Archive.
+    fireEvent.click(screen.getAllByTitle("Archive (reversible)")[0]);
+    expect(baseProps.onArchiveSession).toHaveBeenCalledWith("s-ops-1", true);
+
+    // Delete is two-step: × arms, "Delete?" confirms.
+    fireEvent.click(screen.getAllByTitle("Delete permanently")[0]);
+    fireEvent.click(screen.getByTitle("Click to permanently delete"));
+    expect(baseProps.onDeleteSession).toHaveBeenCalledWith("s-ops-1");
+  });
+});
+
+describe("From Slack group (§31)", () => {
+  const SLACK_SESSION: SessionInfo = {
+    session_id: "s-slack-1",
+    title: "#general — check the deploy?",
+    workspace: "",
+    agent: "cowork",
+    model: "m",
+    mode: "interactive",
+    updated_at: "2026-07-13",
+    messages: 2,
+    origin: "slack",
+    origin_label: "#general · T0AB",
+  };
+
+  it("mention-spawned sessions collapse under From Slack with the platform icon, out of Recent", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} sessions={[...SESSIONS, SLACK_SESSION]} />);
+    await screen.findByText("incident watch"); // flat Recent rendered
+
+    // Collapsed by default: the header shows a count, the row itself is hidden…
+    const toggle = screen.getByTestId("from-slack-toggle");
+    expect(toggle.textContent).toContain("From Slack (1)");
+    expect(screen.queryByText("#general — check the deploy?")).toBeNull();
+
+    // …and the session does NOT duplicate into the chronological Recent list.
+    fireEvent.click(toggle);
+    const row = await screen.findByText("#general — check the deploy?");
+    expect(screen.getAllByText("#general — check the deploy?")).toHaveLength(1);
+
+    // The row wears the Slack logo, right-aligned in the indicator cluster.
+    const list = screen.getByTestId("from-slack-list");
+    expect(list.querySelector('[data-logo="slack"]')).toBeTruthy();
+    expect(row).toBeTruthy();
   });
 });
 
 describe("New-session split button", () => {
+  it("collapses to a plain button when only one persona is enabled", async () => {
+    stubFetch([
+      {
+        match: "/v1/personas",
+        method: "GET",
+        json: { personas: [PERSONAS.personas[0], PERSONAS.personas[3]] }, // cowork + a disabled one
+      },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    const { container } = render(<Sidebar {...baseProps} />);
+    await screen.findByText("incident watch");
+
+    // No ▾ — nothing to pick; the primary button starts the sole enabled persona.
+    await waitFor(() => expect(screen.queryByLabelText("Choose a persona")).toBeNull());
+    fireEvent.click(container.querySelector(".newsplit-primary")!);
+    expect(baseProps.onNewSession).toHaveBeenCalledWith("cowork");
+  });
+
   it("primary starts the last-used persona; the menu lists enabled personas + Manage personas…", async () => {
     stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
     ]);
     const { container } = render(<Sidebar {...baseProps} />);
-    await screen.findByTitle("Flat — tap to group by persona");
+    await screen.findByLabelText("Group and filter conversations");
 
     // Primary action → a new session with the current (last-used) persona.
     fireEvent.click(container.querySelector(".newsplit-primary")!);

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import secrets as _secrets
 import time
 import urllib.parse
@@ -45,7 +46,9 @@ PROVIDER_FOR_CONNECTOR = {
     "google_drive": "google",
     "slack": "slack",
     "notion": "notion",
+    "attio": "attio",
     "hubspot": "hubspot",
+    "github": "github",
 }
 
 # Pending PKCE verifiers keyed by OAuth state; in-process only. A login that
@@ -67,28 +70,40 @@ def _now() -> float:
 
 def begin_login(config: Config) -> dict[str, Any]:
     """Create a PKCE login and return the browser URL. The sidecar's
-    GET /auth/callback completes it."""
+    GET /auth/callback completes it.
+
+    The redirect goes through the BROKER's stable callback, which bounces the
+    browser to our actual loopback port (carried as state's `.port` suffix —
+    Auth0 echoes state untouched). Direct loopback redirects can't work in the
+    packaged app: Auth0's allow-list rejects unregistered ports, and the
+    desktop shell binds the sidecar to a RANDOM free port. This shipped once
+    as "Firefox can't connect to 127.0.0.1:8765" right after Auth0 finished.
+    """
     verifier = _b64url(_secrets.token_bytes(48))
     challenge = _b64url(hashlib.sha256(verifier.encode()).digest())
-    state = _secrets.token_urlsafe(16)
+    port = os.environ.get("COWORKER_PORT") or config.port
+    state = f"{_secrets.token_urlsafe(16)}.{port}"
 
     for key, pending in list(_pending_logins.items()):  # expire stale attempts
         if float(pending["created"]) < _now() - _PENDING_TTL:
             _pending_logins.pop(key, None)
     _pending_logins[state] = {"verifier": verifier, "created": _now()}
 
-    redirect_uri = f"http://127.0.0.1:{config.port}/auth/callback"
-    authorize_url = f"https://{config.cloud_auth_domain}/authorize?" + urllib.parse.urlencode(
-        {
-            "response_type": "code",
-            "client_id": config.cloud_client_id,
-            "redirect_uri": redirect_uri,
-            "scope": LOGIN_SCOPES,
-            "audience": config.cloud_audience,
-            "state": state,
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-        }
+    redirect_uri = config.cloud_base_url.rstrip("/") + "/v1/auth/callback"
+    authorize_url = (
+        f"https://{config.cloud_auth_domain}/authorize?"
+        + urllib.parse.urlencode(
+            {
+                "response_type": "code",
+                "client_id": config.cloud_client_id,
+                "redirect_uri": redirect_uri,
+                "scope": LOGIN_SCOPES,
+                "audience": config.cloud_audience,
+                "state": state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            }
+        )
     )
     return {"authorize_url": authorize_url, "state": state}
 
@@ -107,7 +122,11 @@ def complete_login(
             "client_id": config.cloud_client_id,
             "code": code,
             "code_verifier": pending["verifier"],
-            "redirect_uri": f"http://127.0.0.1:{config.port}/auth/callback",
+            # MUST byte-match begin_login's authorize redirect_uri (RFC 6749 §4.1.3) — the
+            # broker bounce, not the loopback. The bounce change (eda23c9) updated only the
+            # authorize leg; the stale loopback here made Auth0 reject every exchange
+            # ("token exchange failed" on all sign-ins from 07-09 to 07-11).
+            "redirect_uri": config.cloud_base_url.rstrip("/") + "/v1/auth/callback",
         },
         timeout=15,
     )
@@ -122,7 +141,63 @@ def complete_login(
         profile["account"] = me.get("user", {}).get("email") or ""
         profile["user_id"] = me.get("user", {}).get("user_id") or ""
         secrets.put(CLOUD_AUTH_PROFILE, profile)
-    return {"ok": True, **status(secrets)}
+    # Best-effort restore of managed connections (a failure never fails the
+    # sign-in — the user can still connect by hand). The /auth/callback route
+    # hot-adds the gateway when anything came back.
+    try:
+        restored = sync_connections(secrets, config).get("restored", [])
+    except Exception:
+        restored = []
+    return {"ok": True, "restored_github_installs": restored, **status(secrets)}
+
+
+def sync_connections(secrets: SecretStore, config: Config) -> dict[str, Any]:
+    """Rebuild local managed-connection state from the broker's metadata rows
+    (GET /v1/connections) after a cloud sign-in.
+
+    Only GitHub restores fully on a fresh install: its rows are routing metadata
+    (installation ids + logins) and installation tokens mint on demand — nothing
+    secret ever needs to live here. Every other connector's tokens are local-only
+    by design, so those need a one-click re-consent instead."""
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return {"ok": False, "error": "not signed in"}
+    try:
+        resp = httpx.get(
+            config.cloud_base_url.rstrip("/") + "/v1/connections",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+    except httpx.HTTPError:
+        return {"ok": False, "error": "cloud unreachable"}
+    if resp.status_code != 200:
+        return {"ok": False, "error": f"connections fetch failed ({resp.status_code})"}
+
+    from .connectors.github_installs import managed_connect_install
+
+    restored: list[str] = []
+    for row in resp.json().get("connections", []):
+        if row.get("connector") != "github" or row.get("status") != "connected":
+            continue
+        meta = row.get("tenant_metadata") or {}
+        installs = meta.get("installations") or []
+        if not installs and meta.get("installation_id"):
+            installs = [meta]  # pre-restore-era rows carry only the primary install
+        for inst in installs:
+            out = managed_connect_install(
+                secrets,
+                {
+                    "installation_id": str(inst.get("installation_id") or ""),
+                    "account_login": inst.get("account_login", ""),
+                    "account_type": inst.get("account_type", ""),
+                    "repo_selection": inst.get("repo_selection", ""),
+                    "github_login": meta.get("github_login", ""),
+                    "connection_id": row.get("connection_id", ""),
+                },
+            )
+            if out.get("ok"):
+                restored.append(out["installation_id"])
+    return {"ok": True, "restored": restored}
 
 
 def _store_cloud_tokens(secrets: SecretStore, token: dict) -> None:
@@ -244,7 +319,8 @@ def emit_session_created(
             sys.platform, _platform.system().lower() or "unknown"
         ),
         "session": {
-            "session_id_hash": "sha256:" + hashlib.sha256(session_id.encode()).hexdigest(),
+            "session_id_hash": "sha256:"
+            + hashlib.sha256(session_id.encode()).hexdigest(),
             "persona_id": persona_id,
             "persona_family": persona_family,
             "workspace_kind": workspace_kind,
@@ -266,10 +342,18 @@ def emit_session_created(
 
 
 def begin_managed_connect(
-    secrets: SecretStore, config: Config, connector: str
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    access: str = "",
+    flow: str = "",
 ) -> dict[str, Any]:
     """Authenticated start: returns the provider consent URL for the browser.
-    Requires sign-in — the manual token path stays available regardless."""
+    Requires sign-in — the manual token path stays available regardless.
+    `access` names a broker-defined consent tier (hubspot read | write); the
+    desktop never sends scopes. `flow` is GitHub-only: "" = the App install
+    page; "authorize" links a teammate to an existing installation."""
     provider = PROVIDER_FOR_CONNECTOR.get(connector)
     if provider is None:
         return {"ok": False, "error": f"{connector} has no managed OAuth path"}
@@ -278,13 +362,19 @@ def begin_managed_connect(
         return {"ok": False, "error": "not signed in", "signed_in": False}
 
     app_state = _secrets.token_urlsafe(16)
+    # The broker form-POSTs the tokens back to THIS process's loopback. Use the
+    # actually-bound port (published by run.py), falling back to config.port —
+    # the packaged app runs the sidecar on a random port, not 8765.
+    port = os.environ.get("COWORKER_PORT") or config.port
     try:
         resp = httpx.post(
             config.cloud_base_url.rstrip("/") + f"/v1/oauth/{provider}/start",
             json={
                 "connector": connector,
-                "redirect": f"http://127.0.0.1:{config.port}/oauth/callback",
+                "redirect": f"http://127.0.0.1:{port}/oauth/callback",
                 "app_state": app_state,
+                **({"access": access} if access else {}),
+                **({"flow": flow} if flow else {}),
             },
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,
@@ -293,7 +383,11 @@ def begin_managed_connect(
         return {"ok": False, "error": f"cloud unreachable: {type(exc).__name__}"}
     if resp.status_code != 200:
         return {"ok": False, "error": f"start failed ({resp.status_code})"}
-    return {"ok": True, "authorize_url": resp.json()["authorize_url"], "app_state": app_state}
+    return {
+        "ok": True,
+        "authorize_url": resp.json()["authorize_url"],
+        "app_state": app_state,
+    }
 
 
 def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
@@ -314,18 +408,28 @@ def managed_profile_from_callback(form: dict[str, str]) -> dict[str, Any]:
         "provider": form.get("provider", ""),
         "account": form.get("account", ""),
     }
+    if form.get("account_id"):
+        # The stable id behind the display name (workspace/portal id) — what
+        # the generic accounts layer keys multi-account profiles by.
+        profile["account_id"] = form["account_id"]
     if form.get("expires_in"):  # absent ⇒ non-expiring token (e.g. Slack bot tokens)
         profile["expires"] = _now() + int(form["expires_in"]) - 60
     return profile
 
 
 def refresh_managed_token(
-    secrets: SecretStore, config: Config, connector: str
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    profile_key: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """Renew a managed connector token through the broker. Returns the updated
     profile, or None if this profile can't be (or doesn't need to be) renewed
-    that way. Manual profiles are never touched."""
-    profile = secrets.get(f"{connector}:default") or {}
+    that way. Manual profiles are never touched. `profile_key` targets an
+    account-keyed profile (`gmail:account:<email>`); default = `<name>:default`."""
+    key = profile_key or f"{connector}:default"
+    profile = secrets.get(key) or {}
     if not (profile.get("managed") and profile.get("refresh_token")):
         return None
     provider = profile.get("provider") or PROVIDER_FOR_CONNECTOR.get(connector)
@@ -352,28 +456,40 @@ def refresh_managed_token(
     if fresh.get("refresh_token"):
         profile["refresh_token"] = fresh["refresh_token"]
     profile["expires"] = _now() + int(fresh.get("expires_in") or 3600) - 60
-    secrets.put(f"{connector}:default", profile)
+    secrets.put(key, profile)
     return profile
 
 
 def ensure_fresh_connector_token(
-    secrets: SecretStore, config: Config, connector: str, *, leeway: int = 120
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    profile_key: Optional[str] = None,
+    leeway: int = 120,
 ) -> None:
     """Refresh-on-expiry hook for connector tools: if this is a managed profile
     about to expire, renew it in place. No-op for manual profiles."""
-    profile = secrets.get(f"{connector}:default") or {}
+    key = profile_key or f"{connector}:default"
+    profile = secrets.get(key) or {}
     if not profile.get("managed"):
         return
     expires = float(profile.get("expires") or 0)
     if expires and expires > _now() + leeway:
         return
-    refresh_managed_token(secrets, config, connector)
+    refresh_managed_token(secrets, config, connector, profile_key=profile_key)
 
 
-def cloud_disconnect(secrets: SecretStore, config: Config, connector: str) -> None:
+def cloud_disconnect(
+    secrets: SecretStore,
+    config: Config,
+    connector: str,
+    *,
+    profile_key: Optional[str] = None,
+) -> None:
     """Best-effort: tell the cloud a managed connection is gone so its metadata
     flips to disconnected. Local deletion always proceeds regardless."""
-    profile = secrets.get(f"{connector}:default") or {}
+    profile = secrets.get(profile_key or f"{connector}:default") or {}
     connection_id = profile.get("connection_id")
     if not (profile.get("managed") and connection_id):
         return
@@ -382,7 +498,106 @@ def cloud_disconnect(secrets: SecretStore, config: Config, connector: str) -> No
         return
     try:
         httpx.post(
-            config.cloud_base_url.rstrip("/") + f"/v1/connections/{connection_id}/disconnect",
+            config.cloud_base_url.rstrip("/")
+            + f"/v1/connections/{connection_id}/disconnect",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        pass
+
+
+# installation_id -> (token, expires_epoch). MEMORY ONLY by design: GitHub
+# installation tokens live ~1 h and are re-minted from the broker; they must
+# never touch the secret store (github-relay-spec §4).
+_GITHUB_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+_GITHUB_TOKEN_LEEWAY = 600  # re-mint when < 10 min of life remains
+
+
+def github_installation_token(
+    secrets: SecretStore, config: Config, installation_id: str, *, force: bool = False
+) -> str:
+    """A live installation access token for GitHub API calls, minted via the
+    authenticated broker route and cached in memory (~50 min). `force` skips
+    the cache — the 401 retry path. Empty string when unavailable (signed
+    out / revoked installation / cloud unreachable)."""
+    installation_id = str(installation_id or "").strip()
+    if not installation_id:
+        return ""
+    if not force:
+        cached = _GITHUB_TOKEN_CACHE.get(installation_id)
+        if cached and cached[1] > _now() + _GITHUB_TOKEN_LEEWAY:
+            return cached[0]
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return ""
+    try:
+        resp = httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/github/token",
+            json={"installation_id": installation_id},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+    except httpx.HTTPError:
+        return ""
+    if resp.status_code != 200:
+        return ""
+    body = resp.json()
+    minted = body.get("token", "")
+    # expires_at is ISO-8601 from GitHub; parse defensively, default 1 h.
+    expires = _now() + 3600
+    try:
+        from datetime import datetime
+
+        raw = str(body.get("expires_at", ""))
+        if raw:
+            expires = datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        pass
+    if minted:
+        _GITHUB_TOKEN_CACHE[installation_id] = (minted, expires)
+    return minted
+
+
+def clear_github_token(installation_id: str) -> None:
+    """Drop a cached installation token (disconnect / revocation)."""
+    _GITHUB_TOKEN_CACHE.pop(str(installation_id or "").strip(), None)
+
+
+def github_disconnect_installation(
+    secrets: SecretStore, config: Config, installation_id: str
+) -> None:
+    """Best-effort: delete this user's relay routing rows for one installation
+    so the cloud stops pushing its events. Local profile deletion always
+    proceeds regardless (the row only routes)."""
+    clear_github_token(installation_id)
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return
+    try:
+        httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/relay/github/disconnect",
+            json={"installation_id": installation_id},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        pass
+
+
+def slack_disconnect_workspace(
+    secrets: SecretStore, config: Config, team_id: str
+) -> None:
+    """Best-effort: delete this user's relay routing row for one workspace so the
+    cloud stops pushing its events. Local token deletion always proceeds regardless
+    (the row only routes; without the desktop token nothing can be sent anyway)."""
+    token = fresh_access_token(secrets, config)
+    if not token:
+        return
+    try:
+        httpx.post(
+            config.cloud_base_url.rstrip("/") + "/v1/relay/slack/uninstall",
+            json={"team_id": team_id},
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )
@@ -425,7 +640,8 @@ def gallery_install_event(secrets: SecretStore, config: Config, slug: str) -> No
         return
     try:
         httpx.post(
-            config.cloud_base_url.rstrip("/") + f"/v1/personas/gallery/{slug}/install-events",
+            config.cloud_base_url.rstrip("/")
+            + f"/v1/personas/gallery/{slug}/install-events",
             json={"platform": __import__("sys").platform},
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
@@ -455,4 +671,9 @@ def gallery_detail(secrets: SecretStore, config: Config, slug: str) -> Optional[
         ]
     except Exception as exc:  # malformed manifest: surface, don't crash
         return {"ok": False, "error": f"manifest failed local validation: {exc}"}
-    return {"ok": True, "card": card, "capabilities": capabilities, "recommends": recommends}
+    return {
+        "ok": True,
+        "card": card,
+        "capabilities": capabilities,
+        "recommends": recommends,
+    }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getRecentWorkspaces, openWorkspace, type RecentWorkspace } from "../api";
-import { isTauri, pickFolder } from "../tauri";
+import { chooseFolder } from "../tauri";
 
 // The mandatory workspace picker for project-scoped personas. Deliberately no
 // "switch persona" escape hatch: if a persona needs a folder, the choice here is
@@ -29,7 +29,7 @@ export function FolderGate({ onChoose, onCancel, create }: Props) {
   };
 
   const browse = async () => {
-    const picked = await pickFolder();
+    const picked = await chooseFolder();
     if (picked) {
       setPath(picked);
       open(picked, create); // a picked folder already exists; create flag is harmless
@@ -39,7 +39,7 @@ export function FolderGate({ onChoose, onCancel, create }: Props) {
   return (
     <div className="gate-overlay">
       <div className="gate">
-        <div className="gate-mark">✳</div>
+        <div className="gate-mark">✦</div>
         <h2>{create ? "New project" : "Choose a project folder"}</h2>
         <p className="gate-sub">
           {create
@@ -55,11 +55,9 @@ export function FolderGate({ onChoose, onCancel, create }: Props) {
             onKeyDown={(e) => e.key === "Enter" && open(path, create)}
             autoFocus
           />
-          {isTauri() && (
-            <button className="btn" onClick={browse} title="Pick a folder">
-              Browse…
-            </button>
-          )}
+          <button className="btn" onClick={browse} title="Pick a folder">
+            Browse…
+          </button>
           <button className="btn primary" onClick={() => open(path, create)} disabled={!path.trim()}>
             {create ? "Create" : "Open"}
           </button>

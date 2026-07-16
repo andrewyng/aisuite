@@ -36,6 +36,7 @@ class Gateway:
         handler: Optional[MessageHandler] = None,
         reply_resolver: Optional[Callable[[MessageEvent], bool]] = None,
         interaction_handler: Optional[Callable] = None,
+        on_unauthorized: Optional[Callable] = None,
     ) -> None:
         self.secrets = secrets or SecretStore()
         self.settings = (
@@ -47,9 +48,12 @@ class Gateway:
         self._reply_resolver = reply_resolver
         # A button click on an interactive prompt (resolves an Inbox item by id).
         self._interaction_handler = interaction_handler
+        # Called (awaited) with the MessageEvent when the allow-list drops it, so the message
+        # can be PARKED for one-step allow-and-deliver instead of vanishing.
+        self._on_unauthorized = on_unauthorized
         self._adapters: dict[str, BasePlatformAdapter] = {}
         # In-memory recent senders for chat-ID auto-capture (identity only, never persisted).
-        self._recent: "OrderedDict[tuple[str, str], dict]" = OrderedDict()
+        self._recent: "OrderedDict[tuple[str, str, str], dict]" = OrderedDict()
 
     def set_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
@@ -73,7 +77,12 @@ class Gateway:
         self._record_recent(event)  # capture identity even from unauthorized senders
         settings = self.settings.get(event.source.platform)
         if settings is None or not is_authorized(settings, event.source):
-            logger.info("dropping unauthorized inbound from %s", event.source.label())
+            logger.info("parking unauthorized inbound from %s", event.source.label())
+            if self._on_unauthorized is not None:
+                try:
+                    await self._on_unauthorized(event)
+                except Exception:
+                    logger.exception("parking unauthorized inbound failed")
             return
         # An inbound reply that resolves an Inbox item (approval/answer) is consumed here, not
         # routed to the super-agent as a new turn. The suspended agent awaiting that item is
@@ -91,7 +100,8 @@ class Gateway:
         s = event.source
         if not s.user_id:
             return
-        key = (s.platform, s.user_id)
+        # Ids are workspace-scoped, so the same U… in two teams is two senders.
+        key = (s.platform, s.team_id or "", s.user_id)
         self._recent.pop(key, None)  # move to most-recent
         self._recent[key] = {
             "platform": s.platform,
@@ -100,6 +110,7 @@ class Gateway:
             "chat_id": s.chat_id,
             "chat_type": s.chat_type,
             "target": s.target,
+            "team_id": s.team_id,  # workspace (managed relay); None for socket mode
         }
         while len(self._recent) > _RECENT_CAP:
             self._recent.popitem(last=False)
@@ -146,9 +157,13 @@ class Gateway:
         adapter = self._adapters.get(platform)
         if adapter is None:
             return SendResult(False, error=f"no adapter for {platform}")
-        return await adapter.send_interactive(chat_id, text, buttons, thread_id=thread_id)
+        return await adapter.send_interactive(
+            chat_id, text, buttons, thread_id=thread_id
+        )
 
-    async def update_message(self, platform: str, chat_id: str, message_id: str, text: str) -> None:
+    async def update_message(
+        self, platform: str, chat_id: str, message_id: str, text: str
+    ) -> None:
         """Replace a resolved prompt's buttons with a plain-text outcome, if the adapter supports it."""
         adapter = self._adapters.get(platform)
         fn = getattr(adapter, "update_message", None)

@@ -97,6 +97,17 @@ for model in models:
 
 **→ Quickstart:** [docs/chat-completions-quickstart.md](docs/chat-completions-quickstart.md) — install, key setup, local models, and more examples.
 
+### Streaming
+
+Pass `stream=True` to get an iterator of OpenAI-shaped chunks from any supporting provider (OpenAI, Anthropic, Ollama, and OpenAI-compatible endpoints) — the same loop works across all of them:
+
+```python
+for chunk in client.chat.completions.create(model=model, messages=messages, stream=True):
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
+```
+
+The async variant is `await client.chat.completions.acreate(..., stream=True)`, iterated with `async for`. Tool calls stream too: schema dicts and callables are passed to the model as usual, and the chunks carry incremental `delta.tool_calls` fragments for you to assemble and execute (streaming is manual tool calling — it can't be combined with `max_turns`).
+
 ---
 
 <a id="agents"></a>

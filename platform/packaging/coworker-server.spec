@@ -47,7 +47,10 @@ if not INCLUDE_EXPERIMENTAL:
         m for m in hiddenimports if not m.startswith("coworker.connectors.experimental")
     ]
 
-for pkg in ("uvicorn", "certifi", "anyio"):
+# `websockets` powers the managed Slack relay client (relay_client.py). It is
+# lazy-imported inside a function, so PyInstaller's static analysis misses it —
+# collect it explicitly or the packaged relay adapter fails to open its socket.
+for pkg in ("uvicorn", "certifi", "anyio", "websockets"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

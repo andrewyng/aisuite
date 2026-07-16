@@ -72,6 +72,7 @@ class FakeSlack:
 
         self._sockets: set[WebSocket] = set()
         self._socket_connected = asyncio.Event()
+        self._socket_connections = 0  # total Socket Mode connects (tracks reconnects)
         self._ts_base = 1_700_000_000
         self._ts_seq = 0
 
@@ -165,6 +166,35 @@ class FakeSlack:
     async def wait_socket(self, timeout: float = 5.0) -> None:
         """Block until at least one Socket Mode client has connected (and been sent hello)."""
         await asyncio.wait_for(self._socket_connected.wait(), timeout=timeout)
+
+    @property
+    def socket_connections(self) -> int:
+        """Total Socket Mode connects so far — a reconnect bumps this."""
+        return self._socket_connections
+
+    async def wait_socket_connections(
+        self, at_least: int, timeout: float = 5.0
+    ) -> None:
+        """Block until the client has connected `at_least` times (used to await a reconnect)."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while self._socket_connections < at_least:
+            if asyncio.get_event_loop().time() > deadline:
+                raise asyncio.TimeoutError(
+                    f"only {self._socket_connections} socket connects (< {at_least})"
+                )
+            await asyncio.sleep(0.02)
+
+    async def close_sockets(self) -> None:
+        """Drop every live Socket Mode connection from the server side — simulates Slack cycling
+        the connection so a reconnect (slack_sdk's or our watchdog's) has to re-establish it.
+        """
+        for ws in list(self._sockets):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        self._sockets.clear()
+        self._socket_connected.clear()
 
     async def inbound(
         self,
@@ -404,6 +434,7 @@ class FakeSlack:
             )
         )
         self._sockets.add(websocket)
+        self._socket_connections += 1
         self._socket_connected.set()
         try:
             while True:

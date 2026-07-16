@@ -22,12 +22,27 @@ from .registry import build_provider_client, get_descriptor
 
 class ProviderRouter(ProviderClient):
     def __init__(
-        self, secrets: Any = None, *, default_provider: str = "openai"
+        self,
+        secrets: Any = None,
+        *,
+        default_provider: str = "openai",
+        on_use: Any = None,
     ) -> None:
         self._secrets = secrets
         self._default = default_provider
         self._clients: dict[str, ProviderClient] = {}
         self._lock = threading.Lock()
+        # Optional callable(provider_name) fired when a completion is dispatched — drives the
+        # Settings pane's "Last used" line. Best-effort: its failures never break a model call.
+        self._on_use = on_use
+
+    def _note_use(self, model: str) -> None:
+        if self._on_use is None:
+            return
+        try:
+            self._on_use(self._provider_name(model))
+        except Exception:
+            pass
 
     # -- routing ----------------------------------------------------------------
     def _provider_name(self, model: str) -> str:
@@ -81,6 +96,7 @@ class ProviderRouter(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
+        self._note_use(model)
         return self._client_for(model).complete(
             model=self._bare(model), messages=messages, tools=tools, **settings
         )
@@ -93,6 +109,7 @@ class ProviderRouter(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
+        self._note_use(model)
         return self._client_for(model).stream(
             model=self._bare(model), messages=messages, tools=tools, **settings
         )

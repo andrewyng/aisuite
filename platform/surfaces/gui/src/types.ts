@@ -26,7 +26,9 @@ export interface WsEvent {
 // type-only import, so there's no runtime cycle with api.ts's `import type { ... } from "./types"`.
 import type { MessageSource } from "./api";
 
-export type ApprovalDecision = "once" | "deny" | "always_tool" | "always_command";
+// "always_task" persists to the owning automation's task record (standing scoped
+// approval, UX-DECISIONS §25) — offered only on automation-run approval cards, in-app.
+export type ApprovalDecision = "once" | "deny" | "always_tool" | "always_command" | "always_task";
 
 export interface TodoItem {
   content: string;
@@ -50,6 +52,11 @@ export interface SessionInfo {
   liveness?: "working" | "sleeping" | "idle";
   // Channels this session listens to (inbound subscriptions).
   subscriptions?: string[];
+  // §31: set when the session was spawned by a platform mention rather than the user —
+  // machine key ("slack") + display label ("#general · T0ABCD"). Drives the sidebar's
+  // "From Slack" group and the row's platform icon.
+  origin?: string;
+  origin_label?: string;
 }
 
 // Attachments (images, text files) sent with a user message.
@@ -69,13 +76,19 @@ export type Item =
   // registry — no per-connector special-casing.
   | { kind: "connector"; source: MessageSource }
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string }
+  // `hidden` = results the user's privacy filters removed before the agent saw them
+  // (from the tool message's `_display` sidecar; the agent-visible content has no trace).
+  // `standingRule` = the task-scoped rule that auto-allowed this call ("tool → target").
+  | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string; hidden?: number; standingRule?: string }
   | {
       kind: "approval";
       name: string;
       args: any;
       reason: string;
       category?: string;
+      // The exact target a standing rule could pin (server-computed) — with a run
+      // context, the card offers "Allow every time" (§25).
+      standingTarget?: string;
       resolved?: ApprovalDecision;
     }
   | {

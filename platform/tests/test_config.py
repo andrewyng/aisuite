@@ -9,7 +9,7 @@ from coworker.config import load_config
 
 def test_defaults_when_no_files(tmp_path):
     cfg = load_config(global_path=tmp_path / "nope.toml")
-    assert cfg.model == "gpt-5.5"
+    assert cfg.model == "gpt-5.6-sol"
     assert cfg.mode == "interactive"
     assert cfg.max_iterations == 150
     assert "pytest" in cfg.allowed_commands
@@ -49,3 +49,15 @@ def test_build_engine_respects_max_iterations(tmp_path):
         assert engine.max_iterations == 3
     finally:
         engine.executor.close()
+
+
+def test_cloud_endpoints_default_to_production():
+    """A fresh install must work without a hand-edited config.toml. An empty
+    relay default shipped once as "connected but relay OFF" on every machine
+    but the developer's — the managed install succeeded (HTTPS via broker)
+    while inbound relaying silently never started."""
+    from coworker.config import Config
+
+    cfg = Config()
+    assert cfg.cloud_base_url == "https://api.opencoworker.app"
+    assert cfg.cloud_relay_ws_url.startswith("wss://")

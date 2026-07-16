@@ -29,8 +29,19 @@ def _dm(text, chat_id="D1", user="bob"):
     )
 
 
+def _connect_slack(mgr):
+    """Inbound delivery is gated on the connector being CONNECTED (§4.3). Tests used to pass
+    by riding the developer's real Slack profile; with the isolated state dir (conftest) each
+    test must connect its own."""
+    mgr.secrets.put(
+        "slack:default",
+        {"bot_token": "xoxb-test", "app_token": "xapp-test", "enabled": True},
+    )
+
+
 def test_dm_with_designated_session_delivers(tmp_path, monkeypatch):
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider())
+    _connect_slack(mgr)
     delivered: list[tuple[str, str]] = []
 
     async def fake_deliver(session_id, message, *, source=None):

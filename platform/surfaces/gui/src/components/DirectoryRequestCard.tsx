@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Item } from "../types";
-import { pickFolder } from "../tauri";
+import { chooseFolder } from "../tauri";
 import { Icon } from "./Icon";
 
 type DirReqItem = Extract<Item, { kind: "dirreq" }>;
@@ -18,7 +18,7 @@ export function DirectoryRequestCard({
   const [writable, setWritable] = useState(!!item.writable);
 
   const browse = async () => {
-    const picked = await pickFolder();
+    const picked = await chooseFolder();
     if (picked) setPath(picked);
   };
 

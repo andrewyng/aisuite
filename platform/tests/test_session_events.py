@@ -1,5 +1,7 @@
 """Per-session event bus: a background turn (channel delivery, self-wake, durable resume) streams
-its events to every socket viewing that session — delivery itself stays socket-independent."""
+its events to every socket viewing that session — delivery itself stays socket-independent.
+"""
+
 import asyncio
 
 from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
@@ -43,7 +45,9 @@ def _types(events):
 
 
 def test_deliver_broadcasts_turn_events(tmp_path):
-    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([_text("hello")]))
+    mgr = SessionManager(
+        workspace=tmp_path, provider=ScriptedProvider([_text("hello")])
+    )
     mgr.get_engine("S", agent="chat")  # materialize a durable, workspace-free session
     events, cb = _collector()
     mgr.register_session_client("S", cb)
@@ -52,7 +56,9 @@ def test_deliver_broadcasts_turn_events(tmp_path):
 
     types = _types(events)
     assert types[0] == "turn_start"
-    assert events[0]["data"]["input"] == "hi"  # the inbound message surfaces as a user item
+    assert (
+        events[0]["data"]["input"] == "hi"
+    )  # the inbound message surfaces as a user item
     assert "assistant_message" in types
     assert types[-1] == "turn_done"
 
@@ -71,7 +77,9 @@ def test_deliver_broadcasts_to_multiple_clients(tmp_path):
 
 
 def test_unregister_stops_delivery(tmp_path):
-    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([_text("a"), _text("b")]))
+    mgr = SessionManager(
+        workspace=tmp_path, provider=ScriptedProvider([_text("a"), _text("b")])
+    )
     mgr.get_engine("S", agent="chat")
     events, cb = _collector()
     mgr.register_session_client("S", cb)
@@ -121,4 +129,7 @@ def test_unrouted_endpoint(tmp_path):
     client = TestClient(create_app(mgr))
     items = client.get("/v1/unrouted").json()["items"]
     assert len(items) == 1
-    assert items[0]["source"] == "slack:D1" and items[0]["reason"] == "no DM session designated"
+    assert (
+        items[0]["source"] == "slack:D1"
+        and items[0]["reason"] == "no DM session designated"
+    )

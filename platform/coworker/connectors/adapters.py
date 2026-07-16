@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from typing import Any, Optional
 
 from .base import (
@@ -22,6 +23,11 @@ from .base import (
 from .senders import _send_slack, _send_slack_interactive, _send_telegram
 
 logger = logging.getLogger("coworker.connectors")
+
+# Slack encodes an @-mention in message text as `<@U0123>` (legacy: `<@U0123|name>`) — a token,
+# not the display name. Resolved at ingestion so every surface (parked cards, transcripts, the
+# channel buffer) shows "@name" instead of the raw id.
+_SLACK_MENTION_RE = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
 
 
 # -- pure mappers --------------------------------------------------------------
@@ -69,7 +75,14 @@ def slack_event_to_event(
         chat_type=chat_type,
         thread_id=event.get("thread_ts"),
     )
-    return MessageEvent(text=text, source=source, message_id=event.get("ts"))
+    # Mention detection runs on the RAW text (the `<@U…>` token form, legacy `<@U…|name>`
+    # included) — callers rewrite mentions to @display-name only after mapping.
+    mentions_me = bool(
+        bot_user_id and re.search(rf"<@{re.escape(bot_user_id)}(?:\|[^>]*)?>", text)
+    )
+    return MessageEvent(
+        text=text, source=source, message_id=event.get("ts"), mentions_me=mentions_me
+    )
 
 
 # -- adapters ------------------------------------------------------------------
@@ -125,13 +138,38 @@ class TelegramAdapter(BasePlatformAdapter):
 class SlackAdapter(BasePlatformAdapter):
     platform = "slack"
 
-    def __init__(self, bot_token: str, app_token: str) -> None:
+    # Watchdog cadence: how often to check the live Socket Mode connection and force a reconnect
+    # if it has silently died. `start_async()` sleeps forever, so a dead socket looks alive to us
+    # unless we poll the client's own is_connected(). Overridable for tests.
+    _WATCHDOG_INTERVAL = 20.0
+
+    def __init__(
+        self,
+        bot_token: str,
+        app_token: str,
+        *,
+        watchdog_interval: Optional[float] = None,
+        auto_reconnect: bool = True,
+    ) -> None:
         super().__init__()
         self.bot_token = bot_token
         self.app_token = app_token
         self._app = None
         self._socket = None
         self._task: Optional[asyncio.Task] = None
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self._closing = False
+        self._reconnects = (
+            0  # observable: how many times the watchdog revived the connection
+        )
+        self._watchdog_interval = (
+            watchdog_interval
+            if watchdog_interval is not None
+            else self._WATCHDOG_INTERVAL
+        )
+        # slack_sdk's own reconnect stays on in production (seamless on Slack's graceful cycling);
+        # tests turn it off so the watchdog is the sole, deterministic recovery path.
+        self._auto_reconnect = auto_reconnect
         self._bot_user_id: Optional[str] = None
         self._name_cache: dict[str, str] = (
             {}
@@ -182,6 +220,9 @@ class SlackAdapter(BasePlatformAdapter):
                     mapped.source.chat_name = await self._channel_name(
                         mapped.source.chat_id
                     )
+                # ...and rewrite <@U…> mention tokens in the text to @name ("@ocw hi", not
+                # "<@U0BDKMA4DFF> hi").
+                mapped.text = await self._resolve_mentions(mapped.text)
                 await self.handle_message(mapped)
 
         # Button clicks on interactive prompts (action_id `ocw_*`). Socket mode delivers these over
@@ -206,10 +247,49 @@ class SlackAdapter(BasePlatformAdapter):
                 )
             )
 
+        self._closing = False
         self._socket = AsyncSocketModeHandler(self._app, self.app_token)
+        self._socket.client.auto_reconnect_enabled = self._auto_reconnect
         self._task = asyncio.create_task(self._socket.start_async())
+        # Supervise the connection: start_async() sleeps forever even if the socket dies, so poll
+        # the client's real state and force a reconnect if it drops (the silent-stall fix).
+        self._watchdog_task = asyncio.create_task(self._watchdog())
         logger.info("slack adapter connected (socket mode) as %s", self._bot_user_id)
         return True
+
+    async def _watchdog(self) -> None:
+        """Reconnect the Socket Mode connection if it silently dies. slack_sdk maintains the socket
+        in background tasks and normally auto-reconnects, but it can give up after a transient
+        error during Slack's periodic connection cycling — leaving a dead socket that never
+        recovers. We poll is_connected() and re-open a fresh endpoint when it's down."""
+        # Let the initial connect settle before the first check.
+        while not self._closing:
+            try:
+                await asyncio.sleep(self._watchdog_interval)
+            except asyncio.CancelledError:
+                break
+            if self._closing or self._socket is None:
+                break
+            client = getattr(self._socket, "client", None)
+            try:
+                alive = bool(client and client.is_connected())
+            except Exception:
+                alive = False
+            if alive:
+                continue
+            logger.warning(
+                "slack socket mode connection down — reconnecting (watchdog)"
+            )
+            try:
+                await client.connect_to_new_endpoint(force=True)
+                self._reconnects += 1
+                logger.info(
+                    "slack socket mode reconnected (watchdog, #%d)", self._reconnects
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("slack watchdog reconnect failed — will retry")
 
     async def _display_name(self, uid: Optional[str]) -> Optional[str]:
         """Resolve a user id to a display name via users.info, cached. Best-effort: None on failure
@@ -233,6 +313,17 @@ class SlackAdapter(BasePlatformAdapter):
         if name:
             self._name_cache[uid] = name
         return name
+
+    async def _resolve_mentions(self, text: str) -> str:
+        """Rewrite `<@U…>` mention tokens to `@display-name` (cached users.info, same cache as
+        sender names). Best-effort: an id that won't resolve (missing scope, deleted user)
+        keeps its token."""
+        out = text
+        for uid in set(_SLACK_MENTION_RE.findall(text or "")):
+            name = await self._display_name(uid)
+            if name:
+                out = re.sub(rf"<@{re.escape(uid)}(?:\|[^>]*)?>", f"@{name}", out)
+        return out
 
     async def _channel_name(self, chat_id: Optional[str]) -> Optional[str]:
         """Resolve a channel/DM id to a display name via conversations.info, cached. Best-effort:
@@ -260,6 +351,10 @@ class SlackAdapter(BasePlatformAdapter):
         return await self._channel_name(chat_id)
 
     async def disconnect(self) -> None:
+        self._closing = True
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
         if self._socket is not None:
             try:
                 await self._socket.close_async()
@@ -298,10 +393,86 @@ class SlackAdapter(BasePlatformAdapter):
             logger.debug("slack chat_update failed", exc_info=True)
 
 
-def make_adapter(platform: str, profile: dict) -> Optional[BasePlatformAdapter]:
-    """Build the adapter for a connected platform from its SecretStore profile."""
+def _load_slack_teams(secrets) -> dict[str, dict]:
+    """Per-team bot tokens for managed relay, from `slack:team:<team_id>` profiles
+    (written by the managed OAuth install). Returns {team_id: {bot_token, bot_user_id}}.
+    """
+    teams: dict[str, dict] = {}
+    if secrets is None:
+        return teams
+    for entry in secrets.status():
+        prof = entry.get("profile", "")
+        if not prof.startswith("slack:team:"):
+            continue
+        team_id = prof[len("slack:team:") :]
+        data = secrets.get(prof) or {}
+        if data.get("bot_token"):
+            teams[team_id] = {
+                "bot_token": data["bot_token"],
+                "bot_user_id": data.get("bot_user_id"),
+            }
+    return teams
+
+
+def make_adapter(
+    platform: str,
+    profile: dict,
+    *,
+    secrets=None,
+    token_provider=None,
+    relay_url: Optional[str] = None,
+    relay_hub=None,
+    github_token_client=None,
+) -> Optional[BasePlatformAdapter]:
+    """Build the adapter for a connected platform from its SecretStore profile.
+
+    Slack supports two mutually-exclusive modes, the user's choice:
+    - `mode == "relay"` → managed cloud relay (`SlackRelayAdapter`): needs the
+      cloud sign-in `token_provider` + `relay_url`; per-team tokens come from
+      `slack:team:*` profiles. No manual tokens.
+    - otherwise → Socket Mode (`SlackAdapter`): manual bot + app tokens, one
+      workspace.
+
+    Relay adapters share ONE cloud socket: pass the same `relay_hub` to every
+    relay-mode platform (the caller owns it); without one, each adapter builds
+    its own (fine for a single relay platform).
+    """
     if platform == "telegram" and profile.get("bot_token"):
         return TelegramAdapter(profile["bot_token"])
-    if platform == "slack" and profile.get("bot_token") and profile.get("app_token"):
-        return SlackAdapter(profile["bot_token"], profile["app_token"])
+    if platform == "slack":
+        if profile.get("mode") == "relay":
+            if not (relay_url and token_provider):
+                logger.warning(
+                    "slack managed-relay configured but relay endpoint / sign-in unavailable "
+                    "— sign in and set cloud_relay_ws_url; skipping"
+                )
+                return None
+            from .relay_client import SlackRelayAdapter
+
+            return SlackRelayAdapter(
+                relay_url,
+                token_provider,
+                teams=_load_slack_teams(secrets),
+                hub=relay_hub,
+            )
+        if profile.get("bot_token") and profile.get("app_token"):
+            return SlackAdapter(profile["bot_token"], profile["app_token"])
+    if platform == "github" and profile.get("mode") == "relay":
+        if not (relay_url and token_provider):
+            logger.warning(
+                "github managed-relay configured but relay endpoint / sign-in "
+                "unavailable — sign in and set cloud_relay_ws_url; skipping"
+            )
+            return None
+        from .github_installs import list_installs
+        from .github_relay import GitHubRelayAdapter
+        from .relay_client import RelayHub
+
+        hub = relay_hub or RelayHub(relay_url, token_provider)
+        installs = (
+            {iid: prof for iid, prof in list_installs(secrets)} if secrets else {}
+        )
+        return GitHubRelayAdapter(
+            hub, installs=installs, token_client=github_token_client
+        )
     return None

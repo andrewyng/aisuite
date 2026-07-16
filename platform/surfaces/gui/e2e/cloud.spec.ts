@@ -1,64 +1,84 @@
-// Cloud sign-in + managed one-click connectors (Integrations ▸ Connectors).
-// Product invariant under test: manual token setup is always present; managed
+// Cloud sign-in (§26: the sidebar account row is the sign-in home) + managed one-click
+// connectors. Product invariant under test: manual token setup is always present; managed
 // one-click is an ADDITION that appears only when signed in.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByRole("button", { name: /Settings & more/i }).click();
-  await page.getByRole("button", { name: "Integrations", exact: true }).click();
-  await expect(page.getByTestId("cloud-account")).toBeVisible();
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-menu").getByRole("button", { name: "Connectors", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Connectors" })).toBeVisible();
 }
 
-test("signed out: account card offers sign-in; managed connector still connects manually", async ({
+async function signIn(page) {
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-sign-in").click();
+  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
+}
+
+test("signed out: the account row is the sign-in home; managed connector still connects manually", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const row = page.getByTestId("account-row");
+  await expect(row).toContainText("Not signed in");
+
+  // The menu leads with the sign-in CTA and always lists Inbox + Connectors.
+  await row.click();
+  const menu = page.getByTestId("account-menu");
+  await expect(menu).toContainText("one-click connections need OpenCoworker Cloud");
+  await expect(menu.getByTestId("account-sign-in")).toBeVisible();
+  await expect(menu.getByRole("button", { name: "Inbox" })).toBeVisible();
+  await menu.getByRole("button", { name: "Connectors", exact: true }).click();
+
+  // The managed-capable connector's add-modal shows the hint + manual fields, no
+  // one-click button while signed out.
+  await page.getByTestId("connector-gmail").getByRole("button", { name: "Connect" }).click();
+  const modal = page.getByTestId("add-connection-modal");
+  await expect(modal.getByTestId("managed-connect")).toContainText("Sign in to OpenCoworker Cloud");
+  await expect(modal.locator("input[type=password]")).toBeVisible(); // manual field rendered
+  await expect(modal.getByRole("button", { name: /one click/i })).toHaveCount(0);
+});
+
+test("signed in: account row shows the name; one-click appears; sign out from the menu", async ({
   page,
 }) => {
   await openConnectors(page);
+  await signIn(page);
 
-  const account = page.getByTestId("cloud-account");
-  await expect(account).toContainText("Manual token setup always works");
-  await expect(account.getByRole("button", { name: "Sign in" })).toBeVisible();
-
-  // open the managed-capable connector: hint + manual fields, no one-click button
-  const gmail = page.getByTestId("connector-gmail");
-  await gmail.getByRole("button", { name: "Connect" }).click();
-  const setup = page.getByTestId("managed-connect");
-  await expect(setup).toContainText("Sign in to OpenCoworker Cloud");
-  await expect(gmail.locator("input[type=password]")).toBeVisible(); // manual field rendered
-  await expect(page.getByRole("button", { name: /one click/i })).toHaveCount(0);
-});
-
-test("signed in: one-click connect appears, manual fields remain", async ({ page }) => {
-  await openConnectors(page);
-
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("cloud-account")).toContainText("rohit@opencoworker.app", {
-    timeout: 10_000,
-  });
-
-  const gmail = page.getByTestId("connector-gmail");
-  await gmail.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByRole("button", { name: /Connect Gmail with one click/i })).toBeVisible();
+  await page.getByTestId("connector-gmail").getByRole("button", { name: "Connect", exact: true }).click();
+  const modal = page.getByTestId("add-connection-modal");
+  await expect(modal.getByRole("button", { name: /Connect Gmail with one click/i })).toBeVisible();
   // the manual path must still be offered alongside
-  await expect(page.getByTestId("managed-connect")).toContainText("or connect manually");
+  await expect(modal.getByTestId("managed-connect")).toContainText("or connect manually");
+  await page.keyboard.press("Escape");
 
-  // sign out flips back without breaking the card
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(
-    page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }),
-  ).toBeVisible();
+  // The menu header carries the email; Sign out flips the row back.
+  await page.getByTestId("account-row").click();
+  const menu = page.getByTestId("account-menu");
+  await expect(menu).toContainText("rohit@opencoworker.app");
+  await menu.getByRole("button", { name: "Sign out" }).click();
+  await page.getByTestId("account-row").click(); // reopen → status refetch
+  await expect(page.getByTestId("account-row")).toContainText("Not signed in");
 });
 
-test("telemetry toggle: signed-in only, default on, opt-out round-trips", async ({ page }) => {
-  await openConnectors(page);
-  // Signed out: no toggle at all — nothing is sent, nothing to configure.
+test("telemetry toggle: lives in Settings, signed-in only, default on, opt-out round-trips", async ({
+  page,
+}) => {
+  // Signed out: Settings has no toggle at all — nothing is sent, nothing to configure.
+  await page.goto("/");
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-menu").getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
   await expect(page.getByTestId("telemetry-toggle")).toHaveCount(0);
 
-  await page.getByTestId("cloud-account").getByRole("button", { name: "Sign in" }).click();
+  await signIn(page);
+  await page.getByTestId("account-row").click();
+  await page.getByTestId("account-menu").getByRole("button", { name: "Settings" }).click();
   const toggle = page.getByTestId("telemetry-toggle");
   await expect(toggle).toBeChecked({ timeout: 10_000 }); // default-on when signed in
-  await expect(page.getByTestId("cloud-account")).toContainText("never your prompts");
+  await expect(page.getByText("never your prompts, files, or connector")).toBeVisible();
 
   await toggle.uncheck();
   await expect(toggle).not.toBeChecked(); // survives the status re-fetch (persisted)

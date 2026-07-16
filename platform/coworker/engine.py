@@ -21,6 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
+from .providers.errors import friendly_model_error
 from .tools import ToolRegistry
 
 
@@ -106,6 +107,9 @@ class TurnEngine:
         self._cancel = asyncio.Event()
         # Each pending steering message: (text, optional MessageSource sidecar dict).
         self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
+        # tool_call.id → the standing rule that auto-allowed it ("tool → target"), so the
+        # TOOL_FINISHED event can carry the note to the tool card (§25).
+        self._standing_notes: dict[str, str] = {}
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
@@ -201,10 +205,14 @@ class TurnEngine:
                     if chunk.turn is not None:
                         turn = chunk.turn
             except Exception as exc:  # provider failure
-                yield Event(
-                    EventType.ERROR,
-                    {"error": str(exc), "error_type": type(exc).__name__},
-                )
+                friendly = friendly_model_error(self.model, exc)
+                payload = {
+                    "error": friendly or str(exc),
+                    "error_type": type(exc).__name__,
+                }
+                if friendly:
+                    payload["raw"] = str(exc)
+                yield Event(EventType.ERROR, payload)
                 return
             if turn is None:
                 turn = AssistantTurn()
@@ -344,6 +352,8 @@ class TurnEngine:
         """Permission flow for one call (TOOL_PROPOSED is emitted by the caller). Yields
         its events, then True/False (allowed) last. Denied/unknown calls get their
         tool-error message appended here."""
+        from .permissions import standing_rule_candidate
+
         spec = self.registry.get(tool_call.name)
         metadata = spec.metadata if spec else None
 
@@ -353,6 +363,15 @@ class TurnEngine:
         allowed = decision.allowed
         reason = decision.reason
 
+        if allowed and decision.rule:
+            # A task-scoped standing rule auto-allowed this call: audit the exact rule
+            # (§25 invariant — every auto-allowed call cites its rule) and remember it so
+            # the tool card can say "allowed by standing rule".
+            self._standing_notes[tool_call.id] = decision.rule
+            self._audit(
+                tool_call, stage="auto_allowed", status="allowed", reason=reason
+            )
+
         if not allowed and decision.needs_user:
             yield Event(
                 EventType.PERMISSION_REQUIRED,
@@ -361,6 +380,15 @@ class TurnEngine:
                     "arguments": tool_call.arguments,
                     "reason": decision.reason,
                     "category": getattr(metadata, "category", ""),
+                    # The exact target a standing rule could pin, or None when the call
+                    # isn't eligible (no declared target arg / exec risk). Surfaces use it
+                    # to offer "Allow every time" on automation-run approval cards only.
+                    "standing_target": standing_rule_candidate(
+                        tool_call.name,
+                        tool_call.arguments,
+                        metadata,
+                        self.permissions.risk_overrides,
+                    ),
                 },
             )
             self._audit(tool_call, stage="approval_requested", reason=decision.reason)
@@ -431,7 +459,34 @@ class TurnEngine:
             return {"error": str(exc), "error_type": type(exc).__name__}, "error"
 
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
-        self.messages.append(_tool_result_message(tool_call, result))
+        # A `_display` key on a tool result is user-facing metadata the AGENT must
+        # never see (e.g. how many gmail hits the privacy filters hid — a count
+        # the model could probe around). Lift it onto the message as a sidecar
+        # (like `source`), stripped from every provider feed in
+        # `_outbound_messages` but persisted for the GUI's tool card.
+        display: Optional[dict[str, Any]] = None
+        if isinstance(result, dict) and "_display" in result:
+            display = result.get("_display") or None
+            result = {k: v for k, v in result.items() if k != "_display"}
+        message = _tool_result_message(tool_call, result)
+        if display:
+            message["_display"] = display
+        self.messages.append(message)
+        hidden = int((display or {}).get("hidden_by_filters") or 0)
+        stripped = int((display or {}).get("hidden_fields") or 0)
+        if hidden or stripped:
+            # The out-of-band trace the user CAN see: rule class + count, never content.
+            parts = []
+            if hidden:
+                parts.append(f"{hidden} result(s) hidden")
+            if stripped:
+                parts.append(f"{stripped} field value(s) stripped")
+            self._audit(
+                tool_call,
+                stage="filtered",
+                status="hidden",
+                reason=" · ".join(parts) + " by privacy filters",
+            )
         self._audit(
             tool_call,
             stage="finished",
@@ -439,12 +494,15 @@ class TurnEngine:
             result=result,
             result_preview=_preview(result),
         )
+        rule = self._standing_notes.pop(tool_call.id, "")
         return Event(
             EventType.TOOL_FINISHED,
             {
                 "name": tool_call.name,
                 "status": status,
                 "result_preview": _preview(result),
+                **({"display": display} if display else {}),
+                **({"standing_rule": rule} if rule else {}),
             },
         )
 
@@ -626,15 +684,22 @@ class TurnEngine:
     def _outbound_messages(self) -> list[dict[str, Any]]:
         """`self.messages` prepared for the provider. The SOLE provider feed (see `_astream`).
 
-        Every message is stripped of the display-only `source` sidecar (providers reject unknown
-        keys), unconditionally — whether or not a `<system-context>` block is added. When a context
+        Every message is stripped of the display-only sidecars — `source` and `_display` —
+        (providers reject unknown keys), unconditionally — whether or not a `<system-context>`
+        block is added. When a context
         provider yields a non-empty string, an ephemeral `<system-context>` block is appended to the
         last user message. Never mutates `self.messages`, so neither the strip nor the block is
         persisted/replayed.
         """
-        # Strip `source` from every message (copy only those that carry it; reuse the rest).
+        # Strip the display-only sidecars — `source` (connector cards) and `_display`
+        # (e.g. filter-hidden counts) — copying only messages that carry one.
+        _SIDECARS = ("source", "_display")
         out = [
-            {k: v for k, v in msg.items() if k != "source"} if "source" in msg else msg
+            (
+                {k: v for k, v in msg.items() if k not in _SIDECARS}
+                if any(s in msg for s in _SIDECARS)
+                else msg
+            )
             for msg in self.messages
         ]
         context = (

@@ -3,6 +3,10 @@
 
 export type IconName =
   | "sparkle"
+  | "logo"
+  | "sidebar"
+  | "sidebarRight"
+  | "signOut"
   | "chat"
   | "diamond"
   | "search"
@@ -35,6 +39,8 @@ export type IconName =
   | "fileCode"
   | "image"
   | "table"
+  | "mic"
+  | "stop"
   | "x";
 
 export function Icon({
@@ -65,6 +71,36 @@ export function Icon({
       return (
         <svg {...s} fill="currentColor" stroke="none">
           <path d="M12 2.4c.5 4.7 2.5 6.7 7.2 7.2-4.7.5-6.7 2.5-7.2 7.2-.5-4.7-2.5-6.7-7.2-7.2 4.7-.5 6.7-2.5 7.2-7.2z" />
+        </svg>
+      );
+    case "logo":
+      // The OpenCoworker mark — a 6-point star, matching the app + macOS tray icon.
+      return (
+        <svg {...s} fill="currentColor" stroke="none">
+          <path d="M12.00 1.80 L13.35 9.66 L20.83 6.90 L14.70 12.00 L20.83 17.10 L13.35 14.34 L12.00 22.20 L10.65 14.34 L3.17 17.10 L9.30 12.00 L3.17 6.90 L10.65 9.66 Z" />
+        </svg>
+      );
+    case "sidebar":
+      // Clean "sidebar panel" toggle — rounded rect + divider, no chevron (one glyph both states).
+      return (
+        <svg {...s}>
+          <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+          <path d="M9 4.5v15" />
+        </svg>
+      );
+    case "sidebarRight":
+      // Right-panel counterpart of "sidebar" — same rounded rect + divider, mirrored.
+      return (
+        <svg {...s}>
+          <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+          <path d="M15 4.5v15" />
+        </svg>
+      );
+    case "signOut":
+      return (
+        <svg {...s}>
+          <path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H9" />
+          <path d="M15 8l4 4-4 4M19 12H9" />
         </svg>
       );
     case "folder":
@@ -114,6 +150,19 @@ export function Icon({
           <path d="M4 10h16M10 10v9M4 14.5h16" />
         </svg>
       );
+    case "mic":
+      return (
+        <svg {...s}>
+          <rect x="8.5" y="3.5" width="7" height="11" rx="3.5" />
+          <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
+        </svg>
+      );
+    case "stop":
+      return (
+        <svg {...s} fill="currentColor" stroke="none">
+          <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+        </svg>
+      );
     case "x":
       return (
         <svg {...s}>
@@ -142,12 +191,13 @@ export function Icon({
         </svg>
       );
     case "sliders":
+      // Two rails, knob on each, rails broken around the knobs (owner pick 2026-07-11:
+      // the three-rail version read as heavier than the mocks' two-rail glyph).
       return (
         <svg {...s}>
-          <path d="M4 7h16M4 12h16M4 17h16" />
-          <circle cx="15.5" cy="7" r="2.4" style={{ fill: "var(--panel)" }} />
-          <circle cx="8.5" cy="12" r="2.4" style={{ fill: "var(--panel)" }} />
-          <circle cx="14" cy="17" r="2.4" style={{ fill: "var(--panel)" }} />
+          <path d="M4 8h10M18 8h2M4 16h2M10 16h10" />
+          <circle cx="16" cy="8" r="2" />
+          <circle cx="8" cy="16" r="2" />
         </svg>
       );
     case "gear":

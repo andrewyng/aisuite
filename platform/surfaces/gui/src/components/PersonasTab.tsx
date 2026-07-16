@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import {
   deletePersona,
   getPersonas,
+  getSessions,
   installPersona,
   updatePersona,
   type Persona,
   type PersonaConsent,
 } from "../api";
+import type { SessionInfo } from "../types";
 import { Icon } from "./Icon";
 
 // Personas management: enable a persona, choose whether it shows in the new-session picker,
@@ -23,7 +25,7 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0 disabled:opacity-40 disabled:hover:border-line";
 
-export function PersonasTab() {
+export function PersonasTab({ onOpenPersona }: { onOpenPersona?: (id: string) => void }) {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [mode, setMode] = useState<"git" | "dir">("git");
   const [src, setSrc] = useState("");
@@ -31,11 +33,21 @@ export function PersonasTab() {
   const [msg, setMsg] = useState<string | null>(null);
   const [consent, setConsent] = useState<PersonaConsent[] | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  // Disabling archives the persona's conversations (server-side), so when there are any we
+  // arm an inline confirm (same two-step idiom as delete) instead of flipping immediately.
+  const [confirmOff, setConfirmOff] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
 
   const reload = () => getPersonas().then(setPersonas).catch(() => {});
+  const reloadSessions = () => getSessions().then(setSessions).catch(() => {});
   useEffect(() => {
     reload();
+    reloadSessions();
   }, []);
+
+  // Real conversations the disable would archive (unarchived; run sessions are server-hidden).
+  const liveCount = (id: string) =>
+    sessions.filter((s) => s.agent === id && !s.archived).length;
 
   const toggle = async (
     id: string,
@@ -44,6 +56,12 @@ export function PersonasTab() {
     const r = await updatePersona(id, body);
     if (r.personas) setPersonas(r.personas);
     else reload();
+    if (body.enabled === false) reloadSessions(); // counts just changed
+  };
+
+  const requestDisable = (p: Persona) => {
+    if (liveCount(p.id) > 0) setConfirmOff(p.id);
+    else toggle(p.id, { enabled: false });
   };
 
   const remove = async (id: string) => {
@@ -85,7 +103,8 @@ export function PersonasTab() {
 
       <div className={CARD + " divide-y divide-line mb-6"}>
         {personas.map((p) => (
-          <div key={p.id} className="flex items-center gap-4 px-4 py-3">
+          <div key={p.id} className="px-4 py-3">
+            <div className="flex items-center gap-4">
             <div className="min-w-0 flex-1">
               <div className="text-[13.5px] font-medium flex items-center gap-1.5">
                 <span className="truncate">{p.name}</span>
@@ -98,7 +117,9 @@ export function PersonasTab() {
               <input
                 type="checkbox"
                 checked={p.enabled}
-                onChange={(e) => toggle(p.id, { enabled: e.target.checked })}
+                onChange={(e) =>
+                  e.target.checked ? toggle(p.id, { enabled: true }) : requestDisable(p)
+                }
               />
               Enabled
             </label>
@@ -118,6 +139,17 @@ export function PersonasTab() {
             >
               Set default
             </button>
+            {onOpenPersona && (
+              <button
+                className="text-faint hover:text-ink shrink-0 p-1"
+                title={`Configure ${p.name}`}
+                aria-label={`Configure ${p.name}`}
+                data-testid={`persona-configure-${p.id}`}
+                onClick={() => onOpenPersona(p.id)}
+              >
+                <Icon name="sliders" size={15} />
+              </button>
+            )}
             {!p.builtin &&
               (confirmDel === p.id ? (
                 <span className="flex items-center gap-1.5 shrink-0">
@@ -143,6 +175,32 @@ export function PersonasTab() {
                   <Icon name="trash" size={14} />
                 </button>
               ))}
+            </div>
+            {confirmOff === p.id && (
+              <div
+                className="mt-2 flex items-center gap-2.5 text-[12px] text-muted"
+                data-testid={`persona-disable-warning-${p.id}`}
+              >
+                <span className="min-w-0">
+                  Disabling archives its {liveCount(p.id)} conversation
+                  {liveCount(p.id) === 1 ? "" : "s"} — they stay available under “Show
+                  archived”.
+                </span>
+                <button
+                  className="text-[12px] px-2.5 py-1.5 rounded-lg bg-accent text-white shrink-0"
+                  data-testid={`persona-disable-confirm-${p.id}`}
+                  onClick={() => {
+                    setConfirmOff(null);
+                    toggle(p.id, { enabled: false });
+                  }}
+                >
+                  Disable
+                </button>
+                <button className={BTN_BORDERED} onClick={() => setConfirmOff(null)}>
+                  Keep enabled
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

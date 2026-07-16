@@ -47,6 +47,7 @@ class SessionSource:
     chat_name: Optional[str] = None  # channel/DM display name (resolved, §2.3)
     chat_type: str = "dm"  # "dm" | "group" | "channel"
     thread_id: Optional[str] = None
+    team_id: Optional[str] = None  # workspace id for managed-relay multi-workspace
 
     @property
     def target(self) -> str:
@@ -91,6 +92,9 @@ class MessageEvent:
     message_type: MessageType = MessageType.TEXT
     reply_to_message_id: Optional[str] = None
     raw: Any = None
+    # The bot itself was @-mentioned (UX-DECISIONS §31 mention router). Computed from the RAW
+    # platform text at mapping time — mention tokens are rewritten for display afterwards.
+    mentions_me: bool = False
 
     def tagged_text(self) -> str:
         """How the message enters the super-agent thread: source + reply handle + text.
