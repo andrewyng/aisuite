@@ -450,6 +450,19 @@ button.btn.danger { color: var(--accent); }
   background: transparent; color: var(--ink); min-height: 24px; max-height: 88px; overflow: hidden;
 }
 .composer textarea::placeholder { color: var(--faint); }
+.voice-wave-line { flex: 1; min-width: 28px; border-top: 1px dashed var(--line-strong); }
+.voice-wave-bars { height: 28px; display: inline-flex; align-items: center; gap: 2px; color: var(--accent); }
+.voice-wave-bars i {
+  display: block; width: 2px; max-height: 27px; min-height: 4px; border-radius: 2px;
+  background: currentColor; animation: voice-wave .7s ease-in-out infinite alternate;
+}
+.voice-wave-bars i:nth-child(2n) { animation-delay: -.28s; }
+.voice-wave-bars i:nth-child(3n) { animation-delay: -.49s; }
+.voice-wave-bars i:nth-child(5n) { animation-delay: -.13s; }
+@keyframes voice-wave {
+  from { transform: scaleY(.32); opacity: .55; }
+  to { transform: scaleY(1); opacity: 1; }
+}
 /* Quiet text trigger — the send button stays the composer's only loud element. inline-flex keeps
    the chevron glued to the label (the old inline pill let it wrap onto its own line). */
 .pill {

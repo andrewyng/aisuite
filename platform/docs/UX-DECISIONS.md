@@ -887,8 +887,61 @@ reading it; writes are where blast radius lives.
 - `↪ Open question (owner, parked):` platform-specific tools (`send_slack_message`) instead
   of the generic `send_message`? Revisit.
 
+## 37. Voice input is installed, checked, and tested in Settings before the composer enables it  *(Decided 2026-07-15 by owner → Built 2026-07-15; mocks: `ui-mocks/voice-input-settings.html`, `ui-mocks/voice-input-composer-states.html`)*
+
+Pressing a microphone is an intent to speak, not consent to begin a 142 MiB download. Voice input
+therefore has an explicit setup home and a visible readiness contract before it enters the composer.
+
+- **One setup surface:** Settings gains **Voice input** as a first-class section (not under Models —
+  provider/model selection and a local input capability are different mental models). It explains
+  that transcription stays on-device, names the installed engine/model, shows disk use, and owns
+  Download / Cancel / Repair / Delete / Test again. The composer never downloads a model.
+- **Honest state machine:** `unsupported → not installed → downloading → verifying → ready`, with
+  `needs microphone permission`, `test required`, and `error` as actionable substates. Download
+  progress shows transferred/total bytes; completion verifies the expected size + SHA-256 before
+  the partial file is promoted. A failed/interrupted download stays non-ready and can be restarted
+  (transfers begin from zero; a resumable Range request is a possible later refinement).
+- **Test before enablement:** after installation, Settings asks the user to record one short phrase,
+  displays the local transcript, and marks Voice input Ready only after a successful non-empty test.
+  The test is also where macOS/Windows microphone consent is requested. Readiness is invalidated if
+  the model disappears/fails verification or microphone permission is revoked; users can Test again.
+- **Composer contract:** until Ready, the mic is visually muted and exposes **“Configure Voice Input
+  in Settings”** on hover/focus. It remains keyboard-focusable (`aria-disabled`, not a dead native
+  disabled button); activation deep-links to Settings ▸ Voice input. Once Ready it is a normal
+  click-to-record / click-to-stop control and inserts an editable transcript — never auto-sends.
+- **Four composer states:** (1) **Ready at rest** — enabled mic in the normal control row; (2)
+  **Listening** — clicking the mic replaces the quiet middle controls with a live waveform, elapsed
+  time, and an unambiguous square Stop control; attachment stays available; (3) **Transcribing** —
+  a deliberately lightweight, often-fleeting state after Stop, with provisional text in the draft,
+  a busy mic treatment, and Send protected until finalization; (4) **Draft inserted** — the mic and
+  normal controls return, the transcript is ordinary editable composer text, and the user decides
+  whether to edit or send. The waveform is decorative (`aria-hidden`); state changes are announced
+  through one polite live region for assistive technology.
+- **Model control invariant still applies (§17/§22):** the four-state mock depicts an existing
+  conversation, so it intentionally has no model name/picker in the composer. The picker appears
+  only before the first turn; afterward the fixed model is a header fact, never a composer control.
+- **Hard compatibility gate = shipped binaries, not aspirational library support.** Initial support:
+  Apple Silicon Mac (M1+) on macOS 12+; x64 PC on Windows 10 22H2 or Windows 11. The native layer
+  reports OS + architecture and the Settings page shows the failed requirement in plain language.
+  Intel Mac and Windows ARM remain unsupported until the release pipeline produces and tests those
+  artifacts. RAM/core count are performance signals, not deterministic blocks: show **8 GB RAM and
+  4 CPU cores recommended** plus “transcription may be slower” when below them, then let the test be
+  the truth.
+- **Recovery and storage:** the card always shows installed size without exposing a noisy filesystem
+  path. Delete model reclaims the space and returns to Not installed; Repair re-downloads and
+  verifies; app upgrades do not silently replace a working model.
+- `↪ Supersedes the first STT cut:` the composer currently downloads `ggml-base.en.bin` on first mic
+  click. That behavior is deliberately removed; the reusable local STT library and editable-draft
+  behavior stay.
+
 ## Change log (requests, newest first)
 
+- **2026-07-15 (21)** — Owner: no download at the moment of use; put Voice input setup,
+  compatibility requirements, visible model progress, verification, and a microphone transcript
+  test in Settings; keep the composer mic muted with a Settings deep-link until ready → §37
+  (mocked in `ui-mocks/voice-input-settings.html` and `ui-mocks/voice-input-composer-states.html`;
+  built 2026-07-15). Owner follow-up added the four composer states from ready → listening waveform →
+  transcribing → editable draft.
 - **2026-07-14 (20)** — Owner ("make connector reads free" + the failed "post Hi to
   #all-opencoworker" repro): registry-kind-driven approvals + Slack channel-name resolution
   → §36.

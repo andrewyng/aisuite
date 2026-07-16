@@ -6,6 +6,24 @@
 export const isTauri = (): boolean =>
   typeof (globalThis as any).__TAURI__ !== "undefined";
 
+export type DictationStatus = {
+  recording: boolean;
+  model_installed: boolean;
+  model_verified: boolean;
+  test_passed: boolean;
+  download_in_progress: boolean;
+  model_name: string;
+  model_bytes: number;
+  supported: boolean;
+  device_summary: string;
+  compatibility_reason: string | null;
+};
+
+export type DictationDownloadProgress = {
+  downloaded_bytes: number;
+  total_bytes: number;
+};
+
 const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> => {
   const tauri = (globalThis as any).__TAURI__;
   if (!tauri?.core?.invoke) return null;
@@ -14,6 +32,12 @@ const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T
   } catch {
     return null;
   }
+};
+
+const invokeStrict = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+  const tauri = (globalThis as any).__TAURI__;
+  if (!tauri?.core?.invoke) throw new Error("This feature is available in the desktop app.");
+  return (await tauri.core.invoke(cmd, args)) as T;
 };
 
 /** Open the native macOS folder picker (Tauri only). Returns the chosen path, or null. */
@@ -42,6 +66,28 @@ export const setKeepAwake = (enabled: boolean) => invoke<boolean>("set_keep_awak
 
 /** Begin native window dragging from a custom title/header region. */
 export const startWindowDrag = () => invoke<boolean>("start_window_drag");
+
+// Local dictation is native-only. The browser build deliberately keeps this unavailable rather
+// than silently sending microphone audio to a server.
+export const getDictationStatus = () => invoke<DictationStatus>("get_dictation_status");
+export const startDictation = () => invokeStrict<DictationStatus>("start_dictation");
+export const stopDictation = () => invokeStrict<string>("stop_dictation");
+export const cancelDictation = () => invokeStrict<void>("cancel_dictation");
+export const downloadDictationModel = () => invokeStrict<DictationStatus>("download_dictation_model");
+export const cancelDictationModelDownload = () => invokeStrict<void>("cancel_dictation_model_download");
+export const verifyDictationModel = () => invokeStrict<DictationStatus>("verify_dictation_model");
+export const markDictationTestPassed = () => invokeStrict<DictationStatus>("mark_dictation_test_passed");
+export const deleteDictationModel = () => invokeStrict<DictationStatus>("delete_dictation_model");
+
+export async function listenDictationDownloadProgress(
+  handler: (progress: DictationDownloadProgress) => void,
+): Promise<() => void> {
+  const listen = (globalThis as any).__TAURI__?.event?.listen;
+  if (!listen) return () => {};
+  return (await listen("dictation-download-progress", (event: { payload: DictationDownloadProgress }) => {
+    handler(event.payload);
+  })) as () => void;
+}
 
 /** Best-effort open a URL in the user's browser. Uses the Tauri opener plugin if present, else
  * `window.open`. The caller should also render the raw URL so it stays copyable if both no-op

@@ -6,6 +6,8 @@
      a task needs them. -->
 <plist version="1.0">
 <dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>OpenCoworker records only while you use the composer microphone to turn your spoken prompt into editable text. Audio is transcribed locally and is not uploaded.</string>
   <key>NSDesktopFolderUsageDescription</key>
   <string>A task you run may need to read or save files on your Desktop. OpenCoworker never scans this folder on its own.</string>
   <key>NSDocumentsFolderUsageDescription</key>

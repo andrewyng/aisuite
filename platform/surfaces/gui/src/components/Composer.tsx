@@ -4,6 +4,14 @@ import { readFile } from "../attach";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
+import {
+  cancelDictation,
+  getDictationStatus,
+  isTauri,
+  startDictation,
+  stopDictation,
+  type DictationStatus,
+} from "../tauri";
 
 const PERMISSION_OPTIONS: Option[] = [
   { value: "discuss", label: "Discuss", description: "Chat and explore — no edits or commands" },
@@ -44,6 +52,7 @@ interface Props {
   // banner and routes sends to setup (preserving the draft) instead of dropping them.
   modelReady?: boolean;
   onConnectModel?: () => void;
+  onConfigureVoiceInput?: () => void;
   onSend: (text: string, attachments?: Attachment[]) => void;
   onInterrupt: () => void;
   onModeChange: (mode: string) => void;
@@ -70,6 +79,10 @@ export function Composer(props: Props) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [dictation, setDictation] = useState<DictationStatus | null>(null);
+  const [dictationBusy, setDictationBusy] = useState<string | null>(null);
+  const [dictationError, setDictationError] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -105,6 +118,53 @@ export function Composer(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.resetKey]);
 
+  // Dictation is intentionally native-only: the browser/dev build remains a local server client
+  // and never turns on the browser microphone or ships audio anywhere.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const refresh = (event?: Event) => {
+      const supplied = (event as CustomEvent<DictationStatus> | undefined)?.detail;
+      if (supplied) {
+        setDictation(supplied);
+        return;
+      }
+      void getDictationStatus().then((status) => status && setDictation(status));
+    };
+    refresh();
+    window.addEventListener("coworker:voice-input-changed", refresh);
+    return () => window.removeEventListener("coworker:voice-input-changed", refresh);
+  }, []);
+
+  useEffect(() => {
+    if (!dictation?.recording) {
+      setRecordingSeconds(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      setRecordingSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [dictation?.recording]);
+
+  useEffect(() => {
+    if (!dictation?.recording) return;
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      void cancelDictation()
+        .catch(() => undefined)
+        .finally(() => {
+          void getDictationStatus().then((status) => status && setDictation(status));
+        });
+    };
+    window.addEventListener("keydown", cancelOnEscape);
+    return () => window.removeEventListener("keydown", cancelOnEscape);
+  }, [dictation?.recording]);
+
+  const voiceReady = !!dictation?.supported && !!dictation?.model_verified && !!dictation?.test_passed;
+  const recordingTime = `${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`;
+
   const addFiles = async (files: FileList | File[]) => {
     const next = (await Promise.all(Array.from(files).map(readFile))).filter(Boolean) as Attachment[];
     if (next.length) setAttachments((a) => mergeAttachments(a, next));
@@ -123,7 +183,7 @@ export function Composer(props: Props) {
 
   const submit = () => {
     const t = text.trim();
-    if ((!t && attachments.length === 0) || props.running) return;
+    if ((!t && attachments.length === 0) || props.running || dictation?.recording || dictationBusy) return;
     // No model connected: keep the draft (don't drop it) and send the user to setup instead.
     if (needsModel) {
       props.onConnectModel?.();
@@ -152,6 +212,41 @@ export function Composer(props: Props) {
     }
   };
 
+  const toggleDictation = async () => {
+    if (!isTauri() || dictationBusy) return;
+    setDictationError(null);
+    try {
+      if (dictation?.recording) {
+        setDictationBusy("Transcribing…");
+        const transcript = await stopDictation();
+        if (transcript === null) throw new Error("Could not transcribe your recording.");
+        if (transcript.trim()) {
+          setText((draft) => (draft.trim() ? `${draft.trimEnd()} ${transcript.trim()}` : transcript.trim()));
+        }
+        setDictation(await getDictationStatus());
+        textareaRef.current?.focus();
+        return;
+      }
+
+      const status = dictation || (await getDictationStatus());
+      if (!status) throw new Error("Voice dictation is unavailable.");
+      if (!status.supported || !status.model_verified || !status.test_passed) {
+        props.onConfigureVoiceInput?.();
+        return;
+      }
+      setDictationBusy("Starting microphone…");
+      const recording = await startDictation();
+      if (!recording?.recording) throw new Error("Could not start the microphone.");
+      setDictation(recording);
+    } catch (error) {
+      setDictationError(error instanceof Error ? error.message : "Voice dictation is unavailable.");
+      const status = await getDictationStatus();
+      if (status) setDictation(status);
+    } finally {
+      setDictationBusy(null);
+    }
+  };
+
   const available = props.models && props.models.length ? props.models : MODEL_VALUES;
   const modelOptions: Option[] = Array.from(new Set([props.model, ...available])).map((m) => ({
     value: m,
@@ -168,6 +263,12 @@ export function Composer(props: Props) {
   return (
     <div className="composer-wrap px-6 pb-5 pt-4">
       {props.approvalSlot}
+
+      {dictationError && (
+        <div className="max-w-3xl mx-auto mb-2 px-1 text-[12px] text-red-600" role="alert">
+          {dictationError}
+        </div>
+      )}
 
       {/* Attachments preview — a strip ABOVE the input box (mock/Claude-style). */}
       {attachments.length > 0 && (
@@ -243,22 +344,58 @@ export function Composer(props: Props) {
             }}
           />
 
-          {/* Mode menu — the five permission options + the Unattended/send-to-Inbox toggle
-              folded in at the bottom (§22): "who approves, and when" is one mental model. */}
-          {props.workspace !== undefined && (
+          {/* Listening replaces the quiet middle controls with waveform + elapsed time (§37). */}
+          {dictation?.recording ? (
+            <div className="voice-wave-row flex-1 flex items-center gap-2 ml-1" aria-hidden="true">
+              <span className="voice-wave-line" />
+              <span className="voice-wave-bars">
+                {[8, 16, 11, 23, 14, 27, 18, 9, 21, 13, 25, 16, 10, 19].map((height, index) => (
+                  <i key={index} style={{ height }} />
+                ))}
+              </span>
+              <span className="text-[12px] text-muted tabular-nums">{recordingTime}</span>
+            </div>
+          ) : props.workspace !== undefined ? (
             <ModeMenu
               mode={props.mode}
               onModeChange={props.onModeChange}
               unattended={props.unattended}
               onUnattendedChange={props.onUnattendedChange}
             />
+          ) : null}
+
+          {isTauri() && (
+            <button
+              className={
+                iconBtn +
+                (dictation?.recording ? " bg-red-50 text-red-600 hover:bg-red-100" : "") +
+                (dictationBusy ? " opacity-60" : "") +
+                (!voiceReady && !dictation?.recording ? " opacity-40" : "")
+              }
+              onClick={() => void toggleDictation()}
+              disabled={!!dictationBusy}
+              title={
+                dictationBusy ||
+                (dictation?.recording
+                  ? "Stop recording and transcribe"
+                  : voiceReady
+                    ? "Start local voice dictation"
+                    : "Configure Voice Input in Settings")
+              }
+              aria-label={dictation?.recording ? "Stop dictation" : voiceReady ? "Start dictation" : "Configure Voice Input in Settings"}
+              aria-disabled={!voiceReady && !dictation?.recording}
+            >
+              <Icon name={dictation?.recording ? "stop" : "mic"} size={16} />
+            </button>
           )}
+
+          {dictationBusy === "Transcribing…" && <span className="text-[11.5px] text-accent">Transcribing…</span>}
 
           <span className="ml-auto" />
 
           {/* model — a quiet chip on a FRESH session only; once the session has history the
               fact moves up to the topbar subtitle (§17 expressed spatially). */}
-          {needsModel ? (
+          {!dictation?.recording && (needsModel ? (
             <button
               className="pill model-warn chip"
               onClick={() => props.onConnectModel?.()}
@@ -272,7 +409,7 @@ export function Composer(props: Props) {
             !props.modelLocked && (
               <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
             )
-          )}
+          ))}
 
           {/* send / stop */}
           {props.running ? (
@@ -283,12 +420,12 @@ export function Composer(props: Props) {
             <button
               className={
                 "w-7 h-7 rounded-full grid place-items-center shrink-0 transition-colors " +
-                (hasContent && props.connected
+                (hasContent && props.connected && !dictation?.recording && !dictationBusy
                   ? "bg-accent text-white hover:brightness-105"
                   : "bg-paper border border-line text-faint")
               }
               onClick={submit}
-              disabled={!props.connected}
+              disabled={!props.connected || !!dictation?.recording || !!dictationBusy}
               title={needsModel ? "Connect a model to send" : undefined}
               aria-label="Send"
             >
@@ -299,6 +436,9 @@ export function Composer(props: Props) {
           )}
         </div>
       </div>
+      <span className="sr-only" role="status" aria-live="polite">
+        {dictation?.recording ? `Listening, ${recordingTime}` : dictationBusy || ""}
+      </span>
     </div>
   );
 }

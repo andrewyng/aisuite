@@ -164,10 +164,10 @@ export function App() {
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
-  const [settingsTab, setSettingsTab] = useState<"appearance" | "files" | "models" | "personas">(
+  const [settingsTab, setSettingsTab] = useState<"appearance" | "files" | "models" | "voice" | "personas">(
     "appearance",
   );
-  const openSettings = (tab: "appearance" | "files" | "models" | "personas" = "appearance") => {
+  const openSettings = (tab: "appearance" | "files" | "models" | "voice" | "personas" = "appearance") => {
     setSettingsTab(tab);
     setSurface("settings");
   };
@@ -1271,6 +1271,7 @@ export function App() {
               connected={connected}
               modelReady={modelReady}
               onConnectModel={openModelSetup}
+              onConfigureVoiceInput={() => openSettings("voice")}
               onSend={send}
               onInterrupt={interrupt}
               onModeChange={changeMode}
