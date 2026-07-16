@@ -19,9 +19,18 @@
 #
 # SIGNING: set APPLE_SIGNING_IDENTITY to a "Developer ID Application: … (TEAMID)" identity and
 # `tauri build` signs the .app + the bundled sidecar with it. Left unset → UNSIGNED (first launch
-# needs right-click → Open). Either way this script does NOT notarize; to finish a public release:
-#   xcrun notarytool submit "<dmg>" --keychain-profile <profile> --wait   # profile via store-credentials
-#   xcrun stapler staple "<dmg>"
+# needs right-click → Open).
+#
+# NOTARIZATION (step 5, runs only when the identity is set): signs the .dmg CONTAINER, submits
+# to Apple's notary service, staples the ticket, and verifies with spctl. Signing alone is NOT
+# enough for public downloads — un-notarized apps get macOS's "Apple could not verify… Move to
+# Trash?" dialog. Auth is an App Store Connect API key via NOTARYTOOL_API_KEY_PATH /
+# NOTARYTOOL_API_KEY_ID / NOTARYTOOL_API_ISSUER_ID — exported, or in $OCW_NOTARY_ENV, or in
+# `.ocw-notary.env` one directory ABOVE the repo (shared by every clone/worktree on a machine,
+# never committed). Vars missing → the DMG is still produced, with a loud warning.
+#
+# LOCAL ITERATION: leave APPLE_SIGNING_IDENTITY unset for a fully unsigned dev build, or set
+# OCW_SKIP_NOTARIZE=1 to sign but skip the slow notary round-trip. Neither is distributable.
 #
 # Experimental (use-at-your-own-risk) connectors are EXCLUDED from this build by default —
 # the spec strips coworker.connectors.experimental. Self-builders can opt in with:
@@ -37,11 +46,11 @@ VERSION="$(node -p "require('$GUI/src-tauri/tauri.conf.json').version")"
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"   # e.g. aarch64-apple-darwin
 ARCH="${TRIPLE%%-*}"
 
-echo "==> [1/4] PyInstaller: bundling coworker-server ($TRIPLE)"
+echo "==> [1/5] PyInstaller: bundling coworker-server ($TRIPLE)"
 "$PLATFORM/.venv/bin/pyinstaller" --noconfirm --clean \
   --distpath "$HERE/dist" --workpath "$HERE/build" "$HERE/coworker-server.spec"
 
-echo "==> [2/4] staging externalBin"
+echo "==> [2/5] staging externalBin"
 mkdir -p "$GUI/src-tauri/binaries"
 # rm first: cp WRITES THROUGH a symlink at the destination. A dev-convenience symlink left in
 # this slot once routed the fresh binary into another worktree's venv, clobbering its console
@@ -50,10 +59,10 @@ rm -f "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
 cp "$HERE/dist/coworker-server" "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
 chmod +x "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
 
-echo "==> [3/4] tauri build (.app)"
+echo "==> [3/5] tauri build (.app)"
 ( cd "$GUI" && npm run tauri build -- --bundles app )
 
-echo "==> [4/4] hdiutil: wrapping into .dmg"
+echo "==> [4/5] hdiutil: wrapping into .dmg"
 BUNDLE="$GUI/src-tauri/target/release/bundle"
 STAGING="$(mktemp -d)"
 cp -R "$BUNDLE/macos/$APP.app" "$STAGING/"
@@ -128,6 +137,43 @@ if ! style_dmg; then
   hdiutil create -volname "$APP" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null
 fi
 rm -rf "$STAGING"
+
+if [ "${OCW_SKIP_NOTARIZE:-}" = "1" ] && [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+  # Local-iteration escape hatch: sign (seconds) but skip the notary round-trip
+  # (minutes). Locally built DMGs carry no quarantine flag, so Gatekeeper never
+  # prompts on this machine anyway. NEVER distribute a build made this way.
+  echo "==> [5/5] OCW_SKIP_NOTARIZE=1 — signing container, SKIPPING notarize/staple (do not distribute)"
+  codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG"
+elif [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+  echo "==> [5/5] release finishing: sign container → notarize → staple"
+  codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG"
+
+  REPO="$(cd "$PLATFORM/.." && pwd)"
+  NOTARY_ENV="${OCW_NOTARY_ENV:-$REPO/../.ocw-notary.env}"
+  if [ -z "${NOTARYTOOL_API_KEY_PATH:-}" ] && [ -f "$NOTARY_ENV" ]; then
+    set -a; # shellcheck disable=SC1090
+    source "$NOTARY_ENV"; set +a
+  fi
+  if [ -n "${NOTARYTOOL_API_KEY_PATH:-}" ] && [ -n "${NOTARYTOOL_API_KEY_ID:-}" ] \
+     && [ -n "${NOTARYTOOL_API_ISSUER_ID:-}" ]; then
+    xcrun notarytool submit "$DMG" \
+      --key "$NOTARYTOOL_API_KEY_PATH" \
+      --key-id "$NOTARYTOOL_API_KEY_ID" \
+      --issuer "$NOTARYTOOL_API_ISSUER_ID" \
+      --wait
+    xcrun stapler staple "$DMG"
+    # The same check Gatekeeper runs on download — fail the build rather than ship a
+    # DMG that greets users with the "Move to Trash" malware dialog.
+    spctl -a -t open --context context:primary-signature "$DMG"
+    echo "    Gatekeeper: accepted (notarized + stapled)"
+  else
+    echo "    WARNING: DMG is signed but NOT notarized — public downloads will see the"
+    echo "    'Move to Trash' dialog. Provide NOTARYTOOL_API_KEY_PATH/_KEY_ID/_ISSUER_ID"
+    echo "    (env, \$OCW_NOTARY_ENV, or $NOTARY_ENV)."
+  fi
+else
+  echo "    (unsigned dev build — set APPLE_SIGNING_IDENTITY for a distributable DMG)"
+fi
 
 echo ""
 echo "Done → $DMG"
