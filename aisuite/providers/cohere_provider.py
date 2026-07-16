@@ -125,7 +125,13 @@ class CohereMessageConverter:
             normalized_response.choices[0].message.content = (
                 response_data.message.content[0].text
             )
-            normalized_response.choices[0].finish_reason = "stop"
+            # Normalize Cohere's finish_reason to OpenAI's. MAX_TOKENS means the
+            # output was truncated by the token limit, which OpenAI reports as
+            # "length"; every other terminal reason maps to "stop".
+            if response_data.finish_reason == "MAX_TOKENS":
+                normalized_response.choices[0].finish_reason = "length"
+            else:
+                normalized_response.choices[0].finish_reason = "stop"
 
         return normalized_response
 
