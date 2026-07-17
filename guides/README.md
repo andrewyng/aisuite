@@ -7,12 +7,21 @@ Here are the instructions for:
 - [AWS](aws.md)
 - [Azure](azure.md) 
 - [Cohere](cohere.md)
+- [Gemini](gemini.md)
 - [Google](google.md)
 - [Groq](groq.md)
 - [Hugging Face](huggingface.md)
+- [Mistral](mistral.md)
 - [OpenAI](openai.md)
+- [Featherless](featherless.md)
 - [SambaNova](sambanova.md)
 - [xAI](xai.md)
+- [DeepSeek](deepseek.md)
+- [Eden AI](edenai.md)
+
+For locally hosted models using `Ollama` or `LM Studio`, follow these instructions:
+- [Ollama](ollama.md)
+- [LM Studio](lmstudio.md)
 
 Unless otherwise stated, these guides have not been endorsed by the providers. 
 
