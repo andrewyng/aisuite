@@ -58,7 +58,28 @@ echo "==> [2/5] staging sidecar resources"
 # stale onefile binary from pre-onedir builds.
 mkdir -p "$GUI/src-tauri/binaries"
 rm -rf "$GUI/src-tauri/binaries/sidecar" "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
-cp -R "$HERE/dist/coworker-server" "$GUI/src-tauri/binaries/sidecar"
+# -L (dereference): Tauri's resource bundler flattens symlinks into duplicate REAL files.
+# Python.framework's symlinks (Python -> Versions/Current/Python, …) therefore arrive in
+# the .app as standalone copies whose framework-context signatures don't validate outside
+# the bundle — notarization rejected them twice (submissions f73463f3, ca30027a,
+# 2026-07-16). Dereferencing at staging makes what we SIGN byte-identical to what tauri
+# COPIES, and every Mach-O below gets a plain file signature that stands alone.
+cp -RL "$HERE/dist/coworker-server" "$GUI/src-tauri/binaries/sidecar"
+if [ -n "$(find "$GUI/src-tauri/binaries/sidecar" -type l | head -1)" ]; then
+  echo "ERROR: symlinks survived sidecar staging — tauri would flatten them into unsigned copies" >&2
+  exit 1
+fi
+# Drop the pseudo-framework: after dereferencing, Python.framework is just a duplicate of
+# _internal/Python (which the PyInstaller bootloader actually loads — verified by running
+# the sidecar without it) plus an Info.plist. Any file living under a *.framework/ path
+# triggers codesign/notary bundle inference, which can NEVER validate this flattened
+# layout — three Invalid notarization verdicts (f73463f3, ca30027a, + one more) before
+# this removal. No .framework may ever ship inside the sidecar resources.
+rm -rf "$GUI/src-tauri/binaries/sidecar/_internal/Python.framework"
+if [ -n "$(find "$GUI/src-tauri/binaries/sidecar" -type d -name "*.framework" | head -1)" ]; then
+  echo "ERROR: a .framework appeared in the sidecar — it cannot pass notarization in this layout" >&2
+  exit 1
+fi
 chmod +x "$GUI/src-tauri/binaries/sidecar/coworker-server"
 
 # Sign the sidecar's Mach-O files BEFORE tauri build: `tauri build` signs the .app (sealing
@@ -68,17 +89,39 @@ chmod +x "$GUI/src-tauri/binaries/sidecar/coworker-server"
 # other Team IDs). externalBin used to get this from tauri itself.
 if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
   echo "    signing sidecar binaries"
-  find "$GUI/src-tauri/binaries/sidecar" -type f \
+  SIDECAR="$GUI/src-tauri/binaries/sidecar"
+  # Every Mach-O gets a plain FILE signature (no framework-bundle signing: the staged
+  # tree is fully dereferenced, so each file must validate standalone — that is exactly
+  # what the notary service checks). Entitlements only on the entrypoint
+  # (disable-library-validation: the bundled python.org dylibs carry another Team ID).
+  find "$SIDECAR" -type f ! -name "coworker-server" \
     ! -name "*.py" ! -name "*.pyc" ! -name "*.txt" ! -name "*.pem" ! -name "*.json" \
     -print0 | while IFS= read -r -d '' f; do
     file -b "$f" | grep -q "Mach-O" || continue
-    codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
-      --entitlements "$GUI/src-tauri/entitlements.plist" "$f"
+    codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp --options runtime "$f"
   done
+  codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
+    --entitlements "$GUI/src-tauri/entitlements.plist" "$SIDECAR/coworker-server"
 fi
 
 echo "==> [3/5] tauri build (.app)"
-( cd "$GUI" && npm run tauri build -- --bundles app )
+# Auto-update artifacts (.app.tar.gz + minisign .sig): produced only when the updater
+# signing key is available — from the env (CI secret TAURI_SIGNING_PRIVATE_KEY), or from
+# `.ocw-updater.env` one directory above the repo (same convention as the notary env).
+# Keyless builds skip the overlay entirely so dev/fork builds keep working; keyless
+# RELEASES would strand every install without auto-update, hence the loud warning.
+UPDATER_ENV="${OCW_UPDATER_ENV:-$PLATFORM/../../.ocw-updater.env}"
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -f "$UPDATER_ENV" ]; then
+  # shellcheck disable=SC1090
+  source "$UPDATER_ENV"
+fi
+UPDATER_OVERLAY=()
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+  UPDATER_OVERLAY=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+else
+  echo "    WARNING: no updater signing key — building WITHOUT auto-update artifacts (not releasable)."
+fi
+( cd "$GUI" && npm run tauri build -- --bundles app "${UPDATER_OVERLAY[@]}" )
 
 echo "==> [4/5] hdiutil: wrapping into .dmg"
 BUNDLE="$GUI/src-tauri/target/release/bundle"

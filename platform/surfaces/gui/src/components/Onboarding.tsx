@@ -215,22 +215,46 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                   </button>
                 );
               }
+              // The Test affordance lives IN the key field (owner call, DMG #28 walkthrough:
+              // the footer Test button sat too far from the thing being tested): a small
+              // right-edge button that flips to a green ✓ once the key verifies (or was
+              // already saved). Continue still auto-verifies — this is the optional check.
+              const testable = f.secret && f.key === (info?.fields || []).find((x) => x.secret)?.key;
               return (
                 <div key={f.key}>
                   <label className={label}>{f.label}</label>
-                  <input
-                    className={input}
-                    type={f.secret ? "password" : "text"}
-                    placeholder={
-                      f.secret && credentialed ? "••••••••  (key saved)" : f.placeholder
-                    }
-                    value={fields[f.key] || ""}
-                    data-testid={`ob-field-${f.key}`}
-                    onChange={(e) => {
-                      setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
-                      setVerify({ state: "idle" });
-                    }}
-                  />
+                  <div className="relative">
+                    <input
+                      className={input + (testable ? " pr-16" : "")}
+                      type={f.secret ? "password" : "text"}
+                      placeholder={
+                        f.secret && credentialed ? "••••••••  (key saved)" : f.placeholder
+                      }
+                      value={fields[f.key] || ""}
+                      data-testid={`ob-field-${f.key}`}
+                      onChange={(e) => {
+                        setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
+                        setVerify({ state: "idle" });
+                      }}
+                    />
+                    {testable && (
+                      <button
+                        className={
+                          "absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-[12px] disabled:opacity-40 " +
+                          (verified
+                            ? "text-ok bg-okSoft/60"
+                            : "text-accent hover:bg-accentSoft/60")
+                        }
+                        onClick={runTest}
+                        disabled={verify.state === "testing" || (!requiredFilled && !credentialed)}
+                        title={verified ? "Connected" : "Test this key"}
+                        aria-label={verified ? "Connected" : "Test this key"}
+                        data-testid="ob-test"
+                      >
+                        {verify.state === "testing" ? "…" : verified ? "✓" : "Test"}
+                      </button>
+                    )}
+                  </div>
                   {f.help && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
                 </div>
               );
@@ -275,19 +299,10 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                   </button>
                 </span>
               )}
+              {/* Test moved INTO the key field (owner call, DMG #28); Continue still
+                  auto-verifies before advancing. */}
               <button
-                className={
-                  "ml-auto px-4 py-2 rounded-full border text-[13px] disabled:opacity-40 " +
-                  (verified ? "border-ok/40 text-ok" : "border-line hover:bg-paper")
-                }
-                onClick={runTest}
-                disabled={verify.state === "testing"}
-                data-testid="ob-test"
-              >
-                {verify.state === "testing" ? "Testing…" : verified ? "✓ Connected" : "Test"}
-              </button>
-              <button
-                className="px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
                 disabled={!canContinue || verify.state === "testing"}
                 onClick={saveAndContinue}
                 data-testid="ob-continue"
@@ -323,9 +338,10 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
               <span className="block text-[13px] text-ink font-medium mb-0.5">
                 Secure by design
               </span>
-              OpenCoworker Cloud brokers the OAuth handshake — your tokens never leave this
-              Mac. Connect Slack, GitHub, HubSpot, Gmail and Calendar later with one click
-              each.
+              {/* Owner copy (DMG #28 walkthrough) — leads with the integration breadth. */}
+              Signing in handles OAuth and token management for 20+ integrations — Slack,
+              GitHub, HubSpot, Gmail, Calendar and more. Tokens stay local on your Mac. No
+              digging through dev consoles for API keys.
               {/* Sign-in is the one-click path, never the ONLY path (owner call 2026-07-12). */}
               <span className="block text-[11.5px] text-faint mt-3 pt-3 border-t border-line">
                 Prefer manual setup? Every tool also works with your own API keys from the

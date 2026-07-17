@@ -159,8 +159,8 @@ body {
    (and down to align with them in their lowered position — see traffic_light_position in lib.rs). */
 /* Desktop overlay: the whole top strip sits lower (center ~30) to line up with the lowered
    traffic lights — reveal/pin, the wordmark, and the topbar title all on that line. */
-.app.tauri-overlay .nav-reveal-btn { top: 16px; left: 84px; }
-.app.tauri-overlay .main-topbar { padding-top: 12px; }
+.app.tauri-overlay .nav-reveal-btn { top: 13px; left: 84px; }
+.app.tauri-overlay .main-topbar { padding-top: 9px; }
 /* The session topbar's collapsed-state cluster is INLINE (§22), so only the overlay build pads
    it — to clear the traffic lights. */
 .app.nav-collapsed.tauri-overlay .main-topbar { padding-left: 84px; }
@@ -992,11 +992,11 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
   top: 0;
   left: 0;
   right: 0;
-  /* Center the wordmark on the traffic lights' midline: the lights sit at (19,24) with 12px
-     buttons (lib.rs traffic_light_position), so their center is y=30 — 12px padding + 36px
-     content box puts our center there too. */
+  /* Sit the wordmark on the top strip's shared midline (a hair above the traffic lights'
+     y=30 center — owner-tuned on the DMG #28 walkthrough alongside the brand row and the
+     topbar cluster; keep all four -3px offsets in step). */
   height: 48px;
-  padding-top: 12px;
+  padding-top: 9px;
   z-index: 180;
   background: transparent;
   display: flex;
@@ -1010,7 +1010,7 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
    traffic lights float top-left, so shift the row RIGHT (not down) to clear them and keep it at
    the top — that puts the pin button just right of the lights, aligned with the reveal button.
    The row is a drag region (data-tauri-drag-region in Sidebar.tsx), so this strip moves the window. */
-.app.tauri-overlay .sidebar .brand { padding-top: 16px; padding-left: 84px; }
+.app.tauri-overlay .sidebar .brand { padding-top: 13px; padding-left: 84px; }
 
 /* ---- Onboarding wizard ----------------------------------------------------- */
 .ob-overlay {
