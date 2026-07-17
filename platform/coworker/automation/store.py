@@ -72,8 +72,7 @@ class TaskStore:
 
     def _init(self) -> None:
         with self._lock:
-            self._conn.executescript(
-                """
+            self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS scheduled_tasks (
                     id TEXT PRIMARY KEY,
                     enabled INTEGER NOT NULL DEFAULT 1,
@@ -87,8 +86,7 @@ class TaskStore:
                     data TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_runs_task ON task_runs(task_id, started_at DESC);
-                """
-            )
+                """)
             self._conn.commit()
 
     # -- tasks ------------------------------------------------------------------

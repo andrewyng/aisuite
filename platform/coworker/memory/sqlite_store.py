@@ -20,8 +20,7 @@ class SQLiteMemoryStore(MemoryStore):
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scope TEXT NOT NULL,
@@ -31,8 +30,7 @@ class SQLiteMemoryStore(MemoryStore):
                 session_id TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
-            """
-        )
+            """)
         self._conn.commit()
 
     def add(
