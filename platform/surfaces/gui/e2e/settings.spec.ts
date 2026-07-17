@@ -54,3 +54,34 @@ test("Models: provider picker shows key status; vendor endpoint prefills", async
   await expect(preview).toContainText("Included models");
   await expect(preview).toContainText("GLM-5.2 · Z AI");
 });
+
+// Token savings (owner ask, 2026-07-17): the card renders under Appearance with the PDF
+// fallback segmented control + attach thresholds, and edits POST through.
+test("Settings: Token savings card edits PDF fallback and thresholds", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+
+  const card = page.getByTestId("token-savings-card");
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Token savings")).toBeVisible();
+
+  // Fallback mode: fixture says "text"; switching marks "Send page images" active.
+  const seg = page.getByTestId("pdf-fallback");
+  await expect(seg.getByRole("button", { name: "Extract text" })).toHaveClass(/active/);
+  const [req] = await Promise.all([
+    page.waitForRequest((r) => r.url().endsWith("/v1/settings/pdf") && r.method() === "POST"),
+    seg.getByRole("button", { name: "Send page images" }).click(),
+  ]);
+  expect(req.postDataJSON()).toEqual({ pdf_fallback: "images" });
+  await expect(seg.getByRole("button", { name: "Send page images" })).toHaveClass(/active/);
+
+  // Thresholds: fixture starts at 2 pages / 10 MB; editing pages POSTs the clamped value.
+  await expect(card.getByTestId("pdf-max-pages")).toHaveValue("2");
+  await expect(card.getByTestId("pdf-max-mb")).toHaveValue("10");
+  const [req2] = await Promise.all([
+    page.waitForRequest((r) => r.url().endsWith("/v1/settings/pdf") && r.method() === "POST"),
+    card.getByTestId("pdf-max-pages").fill("30"),
+  ]);
+  expect(req2.postDataJSON()).toEqual({ pdf_max_pages: 30 });
+});

@@ -481,3 +481,48 @@ def test_anthropic_capabilities_parallel_tool_calls():
     caps = capabilities_for("anthropic:claude-sonnet-4-6")
     assert caps.tools and caps.vision and caps.streaming
     assert caps.parallel_tool_calls is True  # native provider folds results correctly
+
+
+def test_convert_pdf_file_part_to_document_block():
+    _, msgs = convert_messages(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "summarize"},
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": "report.pdf",
+                            "file_data": "data:application/pdf;base64,JVBERi0=",
+                        },
+                    },
+                ],
+            }
+        ]
+    )
+    doc = msgs[0]["content"][1]
+    assert doc == {
+        "type": "document",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": "JVBERi0=",
+        },
+        "title": "report.pdf",
+    }
+
+
+def test_convert_malformed_file_part_becomes_text_note():
+    _, msgs = convert_messages(
+        [
+            {
+                "role": "user",
+                "content": [{"type": "file", "file": {"file_data": "not-a-url"}}],
+            }
+        ]
+    )
+    assert msgs[0]["content"][0] == {
+        "type": "text",
+        "text": "[unsupported file attachment]",
+    }

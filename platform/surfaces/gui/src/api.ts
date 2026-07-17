@@ -588,6 +588,41 @@ export interface ModelSettings {
   sessions_peek?: number;
   // Curated-matrix display names ({full id → "GLM-5.2 · via Together"}); custom models absent.
   model_labels?: Record<string, string>;
+  // Token savings (PDF attachments): fallback for models without native PDF support,
+  // and attach-time thresholds. Optional so the GUI is robust to an older backend.
+  pdf_fallback?: "text" | "images";
+  pdf_max_pages?: number; // default 20, 1–100
+  pdf_max_mb?: number; // default 10, 1–10
+}
+
+export interface PdfSettings {
+  pdf_fallback: "text" | "images";
+  pdf_max_pages: number;
+  pdf_max_mb: number;
+}
+
+/** Persist the Token-savings PDF settings (fallback mode + attach thresholds). */
+export async function setPdfSettings(
+  patch: Partial<PdfSettings>,
+): Promise<{ ok: boolean; error?: string } & Partial<PdfSettings>> {
+  const res = await fetch(`${httpBase()}/v1/settings/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return res.json();
+}
+
+/** Local page/size probe for a PDF data URL — the composer's attach-time threshold check. */
+export async function inspectPdf(
+  dataUrl: string,
+): Promise<{ ok: boolean; pages?: number; bytes?: number; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/attachments/inspect-pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_url: dataUrl }),
+  });
+  return res.json();
 }
 
 /** Persist how many sessions a sidebar group shows before "Show more". */

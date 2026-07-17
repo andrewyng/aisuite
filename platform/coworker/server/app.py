@@ -1184,6 +1184,24 @@ def create_app(manager: SessionManager) -> FastAPI:
         # Sidebar: sessions shown per group before "Show more" (owner ask, 2026-07-03).
         return manager.set_sessions_peek((body or {}).get("sessions_peek", 5))
 
+    @app.post("/v1/settings/pdf")
+    def settings_set_pdf(body: dict) -> dict[str, Any]:
+        # Token savings (owner ask, 2026-07-17): fallback mode for models without native
+        # PDF support + attach-time page/size thresholds.
+        b = body or {}
+        return manager.set_pdf_settings(
+            fallback=b.get("pdf_fallback"),
+            max_pages=b.get("pdf_max_pages"),
+            max_mb=b.get("pdf_max_mb"),
+        )
+
+    @app.post("/v1/attachments/inspect-pdf")
+    def attachments_inspect_pdf(body: dict) -> dict[str, Any]:
+        # Attach-time page/size probe for the composer's threshold check. Local only.
+        from ..pdf_support import inspect
+
+        return inspect(str((body or {}).get("data_url", "")))
+
     # -- direct-message routing -------------------------------------------------
     @app.get("/v1/messaging/dm-route")
     def dm_route_get() -> dict[str, Any]:

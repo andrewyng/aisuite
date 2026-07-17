@@ -317,3 +317,48 @@ def test_streaming_emits_deltas(tmp_path):
     final = next(e for e in events if e.type == EventType.ASSISTANT_MESSAGE)
     assert final.data["text"] == "Hello, world"
     assert events[-1].type == EventType.TURN_END
+
+
+def _pdf_file_part():
+    import base64
+    import io
+
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    buf = io.BytesIO()
+    writer.write(buf)
+    url = "data:application/pdf;base64," + base64.b64encode(buf.getvalue()).decode()
+    return {"type": "file", "file": {"filename": "d.pdf", "file_data": url}}
+
+
+def test_outbound_adapts_pdf_for_non_pdf_models(tmp_path):
+    # ScriptedProvider reports default caps (pdf=False) → the file part must be
+    # replaced at send time while the stored history keeps the real document.
+    engine, _ = _engine(tmp_path, [_text_turn("ok")])
+    engine.messages.append(
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "read this"}, _pdf_file_part()],
+        }
+    )
+    parts = engine._outbound_messages()[-1]["content"]
+    assert all(p["type"] != "file" for p in parts)
+    assert "d.pdf" in parts[-1]["text"]
+    assert engine.messages[-1]["content"][1]["type"] == "file"  # history untouched
+
+
+def test_outbound_keeps_pdf_for_native_models(tmp_path):
+    class NativeProvider(ScriptedProvider):
+        def capabilities(self, model):
+            return ModelCapabilities(vision=True, pdf=True)
+
+    engine, _ = _engine(tmp_path, [_text_turn("ok")])
+    engine.provider = NativeProvider([_text_turn("ok")])
+    message = {
+        "role": "user",
+        "content": [{"type": "text", "text": "read this"}, _pdf_file_part()],
+    }
+    engine.messages.append(message)
+    assert engine._outbound_messages()[-1]["content"][1]["type"] == "file"

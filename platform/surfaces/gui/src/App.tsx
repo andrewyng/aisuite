@@ -1293,10 +1293,10 @@ export function App() {
               resetKey={sessionId}
               placeholder={
                 agent === "code"
-                  ? "Ask the coder to build, fix, or explain…  (drop or paste images)"
+                  ? "Ask the coder to build, fix, or explain…  (drop or paste files)"
                   : agent === "chat"
-                    ? "Ask anything…  (drop or paste images)"
-                    : "Ask the coworker…  (drop or paste images)"
+                    ? "Ask anything…  (drop or paste files)"
+                    : "Ask the coworker…  (drop or paste files)"
               }
               approvalSlot={
                 // Live inline cards are for ATTENDED sessions only; when Unattended the prompt is

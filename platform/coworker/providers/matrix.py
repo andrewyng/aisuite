@@ -25,8 +25,11 @@ from .base import ModelCapabilities
 _AGENTIC = ModelCapabilities(
     tools=True, vision=False, parallel_tool_calls=True, streaming=True
 )
+# The native three (OpenAI, Anthropic, Gemini) all take PDFs directly; every
+# OpenAI-compatible vendor and reseller in the matrix does not (their chat APIs have
+# no inline file part — checked 2026-07-17), so those fall back via pdf_support.py.
 _AGENTIC_VISION = ModelCapabilities(
-    tools=True, vision=True, parallel_tool_calls=True, streaming=True
+    tools=True, vision=True, pdf=True, parallel_tool_calls=True, streaming=True
 )
 
 
