@@ -44,10 +44,12 @@ fn free_port() -> u16 {
 
 /// Path to the server entrypoint. Resolution order:
 ///   1. `COWORKER_SERVER_BIN` env override.
-///   2. The bundled sidecar next to the app executable (production — Tauri externalBin drops
-///      `coworker-server[.exe]` next to the app binary: Contents/MacOS on macOS, the install
-///      dir on Windows).
-///   3. Dev fallback: the repo venv, relative to this crate (`src-tauri` → `platform/.venv`;
+///   2. The bundled onedir sidecar shipped via Tauri `resources` (production): the
+///      `sidecar/` folder lands in Contents/Resources on macOS and in the install dir
+///      (next to the app exe) on Windows.
+///   3. Legacy onefile slot: `coworker-server[.exe]` next to the app binary (pre-onedir
+///      builds used Tauri externalBin).
+///   4. Dev fallback: the repo venv, relative to this crate (`src-tauri` → `platform/.venv`;
 ///      `bin/` on POSIX, `Scripts\` on Windows).
 fn server_bin() -> PathBuf {
     if let Ok(p) = std::env::var("COWORKER_SERVER_BIN") {
@@ -60,9 +62,17 @@ fn server_bin() -> PathBuf {
     };
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let bundled = dir.join(exe_name);
-            if bundled.exists() {
-                return bundled;
+            // macOS: Contents/MacOS/<app> → Contents/Resources/sidecar/; Windows: resources
+            // unpack next to the exe, so <install>/sidecar/.
+            let mut candidates = vec![dir.join("sidecar").join(exe_name)];
+            if let Some(contents) = dir.parent() {
+                candidates.push(contents.join("Resources").join("sidecar").join(exe_name));
+            }
+            candidates.push(dir.join(exe_name)); // legacy onefile externalBin slot
+            for c in candidates {
+                if c.exists() {
+                    return c;
+                }
             }
         }
     }
@@ -563,6 +573,12 @@ pub fn run() {
                     .title("OpenCoworker")
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(980.0, 640.0)
+                    // Let the WEBVIEW receive OS file drags: Tauri's own drag-drop handler
+                    // otherwise intercepts them, so the composer's HTML5 onDrop (attach by
+                    // dragging a file in) never fired in the desktop shell — browser dev
+                    // worked, DMGs didn't. main.tsx guards against drops outside the
+                    // composer navigating the page.
+                    .disable_drag_drop_handler()
                     .initialization_script(&inject);
             #[cfg(target_os = "macos")]
             {

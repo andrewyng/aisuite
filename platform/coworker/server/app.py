@@ -869,10 +869,22 @@ def create_app(manager: SessionManager) -> FastAPI:
                 ),
                 status_code=400,
             )
-        # Sign-in restored GitHub installs from the broker's metadata rows —
-        # hot-add the gateway so the relay connects without a restart.
-        if result.get("restored_github_installs"):
-            await manager.refresh_gateway()
+
+        # Restore managed connections in the background: best-effort metadata work
+        # that must not hold the "Signed in" page (or the GUI's signed-in flip)
+        # hostage to another broker round trip. Restored GitHub installs hot-add
+        # the gateway so the relay connects without a restart.
+        async def _restore_connections() -> None:
+            try:
+                out = await asyncio.to_thread(
+                    lambda: cloud.sync_connections(manager.secrets, load_config())
+                )
+                if out.get("restored"):
+                    await manager.refresh_gateway()
+            except Exception:
+                pass  # sign-in stands; the user can still connect by hand
+
+        asyncio.get_running_loop().create_task(_restore_connections())
         return HTMLResponse(
             _browser_page(
                 "Signed in",

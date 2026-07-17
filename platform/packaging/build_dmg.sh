@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build the macOS desktop app + a drag-to-install .dmg.
 #
-#   1. PyInstaller-bundle the server into a standalone binary (no venv needed at runtime).
-#   2. Drop it into Tauri's externalBin slot (binaries/coworker-server-<triple>).
-#   3. `tauri build --bundles app` → OpenCoworker.app (the externalBin is copied in).
+#   1. PyInstaller-bundle the server into a standalone onedir folder (no venv at runtime).
+#   2. Stage it at binaries/sidecar/ for Tauri's `resources` slot (+ sign its Mach-Os).
+#   3. `tauri build --bundles app` → OpenCoworker.app (resources are copied in).
 #   4. Wrap the .app in a compressed .dmg via hdiutil (reliable + headless; Tauri's own
 #      bundle_dmg.sh uses Finder AppleScript and fails in non-interactive sessions).
 #
@@ -50,14 +50,32 @@ echo "==> [1/5] PyInstaller: bundling coworker-server ($TRIPLE)"
 "$PLATFORM/.venv/bin/pyinstaller" --noconfirm --clean \
   --distpath "$HERE/dist" --workpath "$HERE/build" "$HERE/coworker-server.spec"
 
-echo "==> [2/5] staging externalBin"
+echo "==> [2/5] staging sidecar resources"
+# Onedir bundle (exe + _internal/) ships via Tauri `resources` as Contents/Resources/sidecar/
+# — onefile's per-launch self-extraction cost 6-7s of boot splash. rm -rf first: cp WRITES
+# THROUGH a symlink at the destination (a dev-convenience symlink in the old externalBin slot
+# once clobbered another worktree's venv console script, caught 2026-07-11); also clears any
+# stale onefile binary from pre-onedir builds.
 mkdir -p "$GUI/src-tauri/binaries"
-# rm first: cp WRITES THROUGH a symlink at the destination. A dev-convenience symlink left in
-# this slot once routed the fresh binary into another worktree's venv, clobbering its console
-# script (caught 2026-07-11) — the bundle stayed correct only by accident.
-rm -f "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
-cp "$HERE/dist/coworker-server" "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
-chmod +x "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
+rm -rf "$GUI/src-tauri/binaries/sidecar" "$GUI/src-tauri/binaries/coworker-server-$TRIPLE"
+cp -R "$HERE/dist/coworker-server" "$GUI/src-tauri/binaries/sidecar"
+chmod +x "$GUI/src-tauri/binaries/sidecar/coworker-server"
+
+# Sign the sidecar's Mach-O files BEFORE tauri build: `tauri build` signs the .app (sealing
+# resources into its signature) but does NOT sign nested binaries inside resources — unsigned
+# Mach-Os there fail notarization. Hardened runtime + timestamp on every one, same identity,
+# entitlements on the executable (disable-library-validation: the bundled python dylibs carry
+# other Team IDs). externalBin used to get this from tauri itself.
+if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+  echo "    signing sidecar binaries"
+  find "$GUI/src-tauri/binaries/sidecar" -type f \
+    ! -name "*.py" ! -name "*.pyc" ! -name "*.txt" ! -name "*.pem" ! -name "*.json" \
+    -print0 | while IFS= read -r -d '' f; do
+    file -b "$f" | grep -q "Mach-O" || continue
+    codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
+      --entitlements "$GUI/src-tauri/entitlements.plist" "$f"
+  done
+fi
 
 echo "==> [3/5] tauri build (.app)"
 ( cd "$GUI" && npm run tauri build -- --bundles app )

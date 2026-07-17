@@ -10,6 +10,7 @@ import {
   INBOX_UNLOCK,
   PERSONAS_CHANGED,
   setNavLayout,
+  waitForCloudSignIn,
   type CloudStatus,
   type Persona,
   type RecentWorkspace,
@@ -1023,20 +1024,14 @@ export function Sidebar(props: Props) {
                       onClick={async () => {
                         setAppMenuOpen(false);
                         // Opens the system browser server-side; completion lands out-of-band,
-                        // so poll briefly (refocusing the window also refetches).
+                        // so poll until it flips (refocusing the window also refetches).
                         await cloudLogin().catch(() => {});
-                        let polls = 0;
-                        const t = setInterval(async () => {
-                          polls += 1;
-                          const s = await getCloudStatus().catch(() => null);
-                          if (s?.signed_in || polls > 60) {
-                            clearInterval(t);
-                            if (s) setCloud(s);
-                            // Other always-mounted consumers (Settings' telemetry card,
-                            // connector panes) refetch on this.
-                            if (s?.signed_in) announceCloudChanged();
-                          }
-                        }, 2000);
+                        waitForCloudSignIn((s) => {
+                          if (s) setCloud(s);
+                          // Other always-mounted consumers (Settings' telemetry card,
+                          // connector panes) refetch on this.
+                          if (s?.signed_in) announceCloudChanged();
+                        });
                       }}
                     >
                       <Icon name="plug" size={15} className="shrink-0" /> Sign in to OpenCoworker

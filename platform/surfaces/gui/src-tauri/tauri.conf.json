@@ -27,7 +27,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/coworker-server"],
+    "resources": { "binaries/sidecar": "sidecar" },
     "macOS": {
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "12.0"

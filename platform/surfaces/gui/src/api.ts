@@ -404,6 +404,34 @@ export async function cloudLogin(): Promise<{ ok: boolean }> {
   return res.json();
 }
 
+/** Poll cloud status until the browser sign-in lands (or the bound runs out).
+ *
+ * Fast 500ms polls for the first 20s — the moment the user finishes in the
+ * browser they're staring at the app waiting for it to flip, and a 2s interval
+ * reads as "sign-in is slow" (owner complaint, 2026-07-16) — then relaxes to 2s
+ * for the long tail (~2min total). Calls `onDone` with the signed-in status, or
+ * null when it timed out. Returns a cancel function (call on unmount). */
+export function waitForCloudSignIn(
+  onDone: (s: CloudStatus | null) => void,
+): () => void {
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let polls = 0;
+  const tick = async () => {
+    polls += 1;
+    const s = await getCloudStatus().catch(() => null);
+    if (cancelled) return;
+    if (s?.signed_in) return onDone(s);
+    if (polls >= 90) return onDone(null); // 40×500ms + 50×2s ≈ 2min
+    timer = setTimeout(tick, polls < 40 ? 500 : 2000);
+  };
+  timer = setTimeout(tick, 500);
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
+}
+
 export async function cloudLogout(): Promise<{ ok: boolean }> {
   const res = await fetch(`${httpBase()}/v1/cloud/logout`, { method: "POST" });
   return res.json();

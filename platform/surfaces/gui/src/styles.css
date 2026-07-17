@@ -992,7 +992,11 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
   top: 0;
   left: 0;
   right: 0;
-  height: 36px;
+  /* Center the wordmark on the traffic lights' midline: the lights sit at (19,24) with 12px
+     buttons (lib.rs traffic_light_position), so their center is y=30 — 12px padding + 36px
+     content box puts our center there too. */
+  height: 48px;
+  padding-top: 12px;
   z-index: 180;
   background: transparent;
   display: flex;
