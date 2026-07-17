@@ -82,9 +82,19 @@ Copy-Item -Recurse -Force $Src $Dst
 Write-Host "    -> $Dst"
 
 Write-Host "==> [3/3] tauri build (--bundles $Bundles)" -ForegroundColor Cyan
+# Auto-update artifacts (NSIS setup .exe + minisign .sig): produced only when the updater
+# signing key env is present (CI secret TAURI_SIGNING_PRIVATE_KEY). Keyless builds skip
+# the overlay so dev builds keep working; keyless RELEASES strand installs without
+# auto-update.
+$UpdaterArgs = @()
+if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+    $UpdaterArgs = @("--config", '{"bundle":{"createUpdaterArtifacts":true}}')
+} else {
+    Write-Host "    WARNING: no updater signing key - building WITHOUT auto-update artifacts (not releasable)." -ForegroundColor Yellow
+}
 Push-Location $Gui
 try {
-    & npm run tauri build -- --bundles $Bundles
+    & npm run tauri build -- --bundles $Bundles @UpdaterArgs
     if ($LASTEXITCODE -ne 0) { throw "tauri build failed (exit $LASTEXITCODE)" }
 }
 finally {

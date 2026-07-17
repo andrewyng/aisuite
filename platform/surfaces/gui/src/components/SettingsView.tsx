@@ -17,6 +17,8 @@ import {
   getAutostart,
   getDictationStatus,
   getKeepAwake,
+  checkForUpdate,
+  installUpdate,
   isTauri,
   listenDictationDownloadProgress,
   markDictationTestPassed,
@@ -442,7 +444,68 @@ function AppearanceSection() {
         </button>
         <div className={FIELD_HELP}>Replays the first-run setup: model, first automation, tips.</div>
       </div>
+
+      {/* Manual update check (desktop shell only; launch also checks automatically). */}
+      {desktop && <UpdateCard />}
     </section>
+  );
+}
+
+function UpdateCard() {
+  const [state, setState] = useState<"idle" | "checking" | "none" | "found" | "installing" | "error">("idle");
+  const [version, setVersion] = useState("");
+
+  const check = async () => {
+    setState("checking");
+    try {
+      const u = await checkForUpdate();
+      if (u) {
+        setVersion(u.version);
+        setState("found");
+      } else {
+        setState("none");
+      }
+    } catch {
+      setState("error");
+    }
+  };
+
+  const install = async () => {
+    setState("installing");
+    try {
+      await installUpdate(); // success restarts the app
+    } catch {
+      setState("error");
+    }
+  };
+
+  return (
+    <div className={CARD + " p-4 mt-4"}>
+      <div className={FIELD_LABEL + " mb-2"}>Updates</div>
+      {state === "found" ? (
+        <button className={BTN_BORDERED} onClick={install} data-testid="settings-update-install">
+          Update to v{version} and restart
+        </button>
+      ) : (
+        <button
+          className={BTN_BORDERED}
+          onClick={check}
+          disabled={state === "checking" || state === "installing"}
+          data-testid="settings-update-check"
+        >
+          {state === "checking" ? "Checking…" : "Check for updates"}
+        </button>
+      )}
+      <div className={FIELD_HELP}>
+        {state === "none"
+          ? "You're on the latest version."
+          : state === "error"
+            ? "Couldn't check right now — try again later."
+            : state === "installing"
+              ? "Downloading — OpenCoworker restarts by itself when it's ready."
+              : "Updates download from OpenCoworker's releases and install in place."}
+      </div>
+    </div>
   );
 }
 

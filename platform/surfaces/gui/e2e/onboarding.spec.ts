@@ -20,9 +20,10 @@ test("model step: configured provider fast-path; Continue verifies automatically
   await openOnboarding(page);
 
   // The configured provider (OpenAI in fixtures) is auto-picked: no re-typing a key. The
-  // success state lives ON the Test button (no separate status line), and OpenAI's optional
-  // endpoint hides behind the disclosure link even though it has no vendor default.
-  await expect(page.getByTestId("ob-test")).toHaveText("✓ Connected");
+  // Test affordance lives IN the key field (owner call, DMG #28) and reads ✓ when a key is
+  // already saved; OpenAI's optional endpoint hides behind the disclosure link even though
+  // it has no vendor default.
+  await expect(page.getByTestId("ob-test")).toHaveText("✓");
   await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
@@ -46,8 +47,11 @@ test("model step: configured provider fast-path; Continue verifies automatically
   await expect(page.getByTestId("ob-step-model")).toBeVisible();
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
-  // A good key: one click verifies and advances — no manual Test required.
+  // A good key: the in-field Test flips to a tick, and Continue advances (it verifies
+  // by itself too — Test stays optional).
   await page.getByTestId("ob-field-api_key").fill("zk-good");
+  await page.getByTestId("ob-test").click();
+  await expect(page.getByTestId("ob-test")).toHaveText("✓");
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 });

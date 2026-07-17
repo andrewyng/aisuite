@@ -41,6 +41,7 @@ import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
@@ -985,6 +986,8 @@ export function App() {
           <span /><span /><span />
         </div>
       )}
+      {/* Desktop-only auto-update prompt (checks once, 15s after boot; inert in browser). */}
+      <UpdateBanner />
       {/* When collapsed, a thin left-edge zone peeks the nav back as a floating overlay. */}
       {navCollapsed && (
         <div

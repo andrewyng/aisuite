@@ -461,12 +461,60 @@ fn delete_dictation_model(state: tauri::State<Arc<Dictation>>) -> Result<VoiceIn
     Ok(voice_input_status(&state))
 }
 
+/// Instantaneous mic loudness (0..1) while a dictation is recording — the composer polls
+/// this to draw a real input-driven waveform instead of decorative bars (owner catch,
+/// DMG #28 walkthrough).
+#[tauri::command]
+fn dictation_level(state: tauri::State<Arc<Dictation>>) -> f32 {
+    state.input_level()
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+// --- Auto-update (tauri-plugin-updater) -------------------------------------------
+// The GUI drives updates through these two commands (same invoke bridge as everything
+// else — no global plugin JS). Update artifacts are minisign-verified against the
+// pubkey in tauri.conf.json before anything is installed; the manifest lives at the
+// endpoints configured there (download.opencoworker.app → GitHub Releases).
+
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: String,
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|u| UpdateInfo {
+        version: u.version.clone(),
+        notes: u.body.clone().unwrap_or_default(),
+    }))
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Err("no update available".into());
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    // Windows never reaches here (the NSIS installer takes over and relaunches).
+    // macOS: the .app was swapped in place — restart into the new version. The tray
+    // Exit path's sidecar kill runs via RunEvent, so no orphaned coworker-server.
+    app.restart();
 }
 
 pub fn run() {
@@ -485,6 +533,7 @@ pub fn run() {
             show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -504,7 +553,10 @@ pub fn run() {
             cancel_dictation_model_download,
             verify_dictation_model,
             mark_dictation_test_passed,
-            delete_dictation_model
+            delete_dictation_model,
+            dictation_level,
+            check_for_update,
+            install_update
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).

@@ -67,6 +67,9 @@ pub struct Dictation {
     ready_marker_path: PathBuf,
     commands: Sender<Command>,
     recording: Arc<Mutex<bool>>,
+    // Live handle onto the in-flight recording's sample buffer (set by the capture worker
+    // for the duration of a session) so hosts can meter input loudness for UI feedback.
+    live: Arc<Mutex<Option<(Arc<Mutex<Vec<f32>>>, u32)>>>,
     download_in_progress: AtomicBool,
     cancel_download: AtomicBool,
 }
@@ -88,8 +91,10 @@ impl Dictation {
         // rather than unsafely forcing it through Tauri's Send + Sync application state.
         let (commands, receiver) = mpsc::channel();
         let recording = Arc::new(Mutex::new(false));
+        let live = Arc::new(Mutex::new(None));
         let worker_recording = recording.clone();
-        thread::spawn(move || capture_worker(receiver, worker_recording));
+        let worker_live = live.clone();
+        thread::spawn(move || capture_worker(receiver, worker_recording, worker_live));
         let model_path = model_dir.into().join(DEFAULT_MODEL_FILE);
         Self {
             verified_marker_path: model_path.with_extension("bin.verified"),
@@ -97,6 +102,7 @@ impl Dictation {
             model_path,
             commands,
             recording,
+            live,
             download_in_progress: AtomicBool::new(false),
             cancel_download: AtomicBool::new(false),
         }
@@ -296,6 +302,29 @@ impl Dictation {
         transcribe(&self.model_path, &resample_mono(&samples, sample_rate))
     }
 
+    /// Instantaneous input loudness of the in-flight recording, 0.0..=1.0 — RMS over the
+    /// most recent ~100ms, scaled so conversational speech spans most of the range. 0.0
+    /// while not recording. Cheap enough to poll at UI frame-ish rates.
+    pub fn input_level(&self) -> f32 {
+        let live = match self.live.lock() {
+            Ok(guard) => guard,
+            Err(_) => return 0.0,
+        };
+        let Some((samples, sample_rate)) = live.as_ref() else {
+            return 0.0;
+        };
+        let Ok(samples) = samples.lock() else {
+            return 0.0;
+        };
+        let window = (*sample_rate as usize / 10).max(1);
+        let tail = &samples[samples.len().saturating_sub(window)..];
+        if tail.is_empty() {
+            return 0.0;
+        }
+        let mean_square: f32 = tail.iter().map(|s| s * s).sum::<f32>() / tail.len() as f32;
+        (mean_square.sqrt() * 8.0).clamp(0.0, 1.0)
+    }
+
     /// Discards the current in-memory recording without retaining or transcribing it.
     pub fn cancel(&self) {
         let (reply, done) = mpsc::channel();
@@ -371,8 +400,17 @@ fn model_verification_marker_matches(model_path: &Path, marker_path: &Path) -> b
     hash_matches && marker_modified == model_modified_millis(model_path)
 }
 
-fn capture_worker(receiver: Receiver<Command>, recording_status: Arc<Mutex<bool>>) {
+fn capture_worker(
+    receiver: Receiver<Command>,
+    recording_status: Arc<Mutex<bool>>,
+    live: Arc<Mutex<Option<(Arc<Mutex<Vec<f32>>>, u32)>>>,
+) {
     let mut recording: Option<Recording> = None;
+    let set_live = |value: Option<(Arc<Mutex<Vec<f32>>>, u32)>| {
+        if let Ok(mut guard) = live.lock() {
+            *guard = value;
+        }
+    };
     for command in receiver {
         match command {
             Command::Start(reply) => {
@@ -382,6 +420,7 @@ fn capture_worker(receiver: Receiver<Command>, recording_status: Arc<Mutex<bool>
                 }
                 match start_recording() {
                     Ok(next) => {
+                        set_live(Some((next.samples.clone(), next.sample_rate)));
                         recording = Some(next);
                         if let Ok(mut active) = recording_status.lock() {
                             *active = true;
@@ -394,6 +433,7 @@ fn capture_worker(receiver: Receiver<Command>, recording_status: Arc<Mutex<bool>
                 }
             }
             Command::Stop(reply) => {
+                set_live(None);
                 let result = recording
                     .take()
                     .ok_or_else(|| "Dictation is not recording.".to_owned())
@@ -404,6 +444,7 @@ fn capture_worker(receiver: Receiver<Command>, recording_status: Arc<Mutex<bool>
                 let _ = reply.send(result);
             }
             Command::Cancel(reply) => {
+                set_live(None);
                 recording.take();
                 if let Ok(mut active) = recording_status.lock() {
                     *active = false;

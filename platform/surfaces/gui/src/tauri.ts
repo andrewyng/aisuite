@@ -70,6 +70,9 @@ export const startWindowDrag = () => invoke<boolean>("start_window_drag");
 // Local dictation is native-only. The browser build deliberately keeps this unavailable rather
 // than silently sending microphone audio to a server.
 export const getDictationStatus = () => invoke<DictationStatus>("get_dictation_status");
+/** Instantaneous mic loudness 0..1 while recording (0 otherwise) — drives the composer's
+ * live waveform. Cheap; poll at ~10Hz. */
+export const getDictationLevel = () => invoke<number>("dictation_level");
 export const startDictation = () => invokeStrict<DictationStatus>("start_dictation");
 export const stopDictation = () => invokeStrict<string>("stop_dictation");
 export const cancelDictation = () => invokeStrict<void>("cancel_dictation");
@@ -88,6 +91,18 @@ export async function listenDictationDownloadProgress(
     handler(event.payload);
   })) as () => void;
 }
+
+// --- Auto-update (desktop only; browser builds see null / throw) -----------------
+
+export type UpdateInfo = { version: string; notes: string };
+
+/** Ask the shell whether a newer release exists (verified manifest; see lib.rs).
+ * null = up to date, unreachable endpoint, or not the desktop app. */
+export const checkForUpdate = () => invoke<UpdateInfo | null>("check_for_update");
+
+/** Download + verify + install the update, then relaunch. Resolves only on failure paths
+ * (success restarts the process on macOS; Windows hands off to the installer). */
+export const installUpdate = () => invokeStrict<void>("install_update");
 
 /** Best-effort open a URL in the user's browser. Uses the Tauri opener plugin if present, else
  * `window.open`. The caller should also render the raw URL so it stays copyable if both no-op

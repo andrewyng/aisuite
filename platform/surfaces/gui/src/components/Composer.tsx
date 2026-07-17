@@ -6,6 +6,7 @@ import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
 import {
   cancelDictation,
+  getDictationLevel,
   getDictationStatus,
   isTauri,
   startDictation,
@@ -144,6 +145,23 @@ export function Composer(props: Props) {
     const timer = window.setInterval(() => {
       setRecordingSeconds(Math.floor((Date.now() - started) / 1000));
     }, 250);
+    return () => window.clearInterval(timer);
+  }, [dictation?.recording]);
+
+  // Live waveform: poll mic loudness at ~10Hz while recording; the bars scroll left so the
+  // trace reads as a real input meter (owner catch on DMG #28 — the first cut's bars were
+  // decorative constants and read as fake).
+  const [levels, setLevels] = useState<number[]>([]);
+  useEffect(() => {
+    if (!dictation?.recording) {
+      setLevels([]);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      getDictationLevel().then((level) => {
+        if (typeof level === "number") setLevels((cur) => [...cur.slice(-13), level]);
+      });
+    }, 100);
     return () => window.clearInterval(timer);
   }, [dictation?.recording]);
 
@@ -344,14 +362,16 @@ export function Composer(props: Props) {
             }}
           />
 
-          {/* Listening replaces the quiet middle controls with waveform + elapsed time (§37). */}
+          {/* Listening replaces the quiet middle controls with a LIVE waveform (mic RMS,
+              polled ~10Hz, scrolling left) + elapsed time (§37). */}
           {dictation?.recording ? (
             <div className="voice-wave-row flex-1 flex items-center gap-2 ml-1" aria-hidden="true">
               <span className="voice-wave-line" />
               <span className="voice-wave-bars">
-                {[8, 16, 11, 23, 14, 27, 18, 9, 21, 13, 25, 16, 10, 19].map((height, index) => (
-                  <i key={index} style={{ height }} />
-                ))}
+                {Array.from({ length: 14 }, (_, index) => {
+                  const level = levels[levels.length - 14 + index] ?? 0;
+                  return <i key={index} style={{ height: Math.round(4 + level * 24) }} />;
+                })}
               </span>
               <span className="text-[12px] text-muted tabular-nums">{recordingTime}</span>
             </div>
@@ -364,6 +384,29 @@ export function Composer(props: Props) {
             />
           ) : null}
 
+          {dictationBusy === "Transcribing…" && <span className="text-[11.5px] text-accent">Transcribing…</span>}
+
+          <span className="ml-auto" />
+
+          {/* model — a quiet chip on a FRESH session only; once the session has history the
+              fact moves up to the topbar subtitle (§17 expressed spatially). */}
+          {!dictation?.recording && (needsModel ? (
+            <button
+              className="pill model-warn chip"
+              onClick={() => props.onConnectModel?.()}
+              title="Connect a model"
+              aria-label="No model connected — connect a model"
+            >
+              <span className="pill-label">No model</span>
+              <span className="model-warn-ico" aria-hidden>⚠</span>
+            </button>
+          ) : (
+            !props.modelLocked && (
+              <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
+            )
+          ))}
+
+          {/* mic — immediately before send (owner call, DMG #28 walkthrough) */}
           {isTauri() && (
             <button
               className={
@@ -388,28 +431,6 @@ export function Composer(props: Props) {
               <Icon name={dictation?.recording ? "stop" : "mic"} size={16} />
             </button>
           )}
-
-          {dictationBusy === "Transcribing…" && <span className="text-[11.5px] text-accent">Transcribing…</span>}
-
-          <span className="ml-auto" />
-
-          {/* model — a quiet chip on a FRESH session only; once the session has history the
-              fact moves up to the topbar subtitle (§17 expressed spatially). */}
-          {!dictation?.recording && (needsModel ? (
-            <button
-              className="pill model-warn chip"
-              onClick={() => props.onConnectModel?.()}
-              title="Connect a model"
-              aria-label="No model connected — connect a model"
-            >
-              <span className="pill-label">No model</span>
-              <span className="model-warn-ico" aria-hidden>⚠</span>
-            </button>
-          ) : (
-            !props.modelLocked && (
-              <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
-            )
-          ))}
 
           {/* send / stop */}
           {props.running ? (
