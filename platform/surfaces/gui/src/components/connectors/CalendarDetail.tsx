@@ -50,7 +50,7 @@ export function CalendarDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
           data-testid="add-account-btn"
           onClick={addAccount}
           disabled={busy || !cloud?.signed_in}
-          title={cloud?.signed_in ? "" : "Sign in to OpenCoworker Cloud first"}
+          title={cloud?.signed_in ? "" : "Sign in to OpenWorker Cloud first"}
         >
           {busy ? "Check your browser…" : "＋ Add account"}
         </button>

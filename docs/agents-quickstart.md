@@ -135,5 +135,5 @@ See [`examples/mcp_tools_example.ipynb`](../examples/mcp_tools_example.ipynb) fo
 
 ## Going further
 
-- Want a ready-made desktop AI coworker instead of building your own? See the [OpenCoworker quickstart](opencoworker-quickstart.md).
-- OpenCoworker's source under [`platform/`](../platform/) is a working reference for building a full agent harness with aisuite.
+- Want a ready-made desktop AI coworker instead of building your own? See the [OpenWorker quickstart](openworker-quickstart.md).
+- OpenWorker's source under [`platform/`](../platform/) is a working reference for building a full agent harness with aisuite.

@@ -361,7 +361,7 @@ export function ModelsTab() {
       ) : (
         <div className={CARD + " p-4"}>
           <p className="text-[12.5px] text-muted mb-4 leading-relaxed">
-            Run models locally with <code>ollama serve</code>. OpenCoworker uses Ollama's
+            Run models locally with <code>ollama serve</code>. OpenWorker uses Ollama's
             OpenAI-compatible API, so tools work. No API key needed.
           </p>
           <label className="block mb-4">
@@ -818,7 +818,7 @@ export function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () =
     );
   return (
     <div className="border-t border-line px-3.5 py-3">
-      <div className={SEC_H + " mb-2"}>Tools exposed to OpenCoworker</div>
+      <div className={SEC_H + " mb-2"}>Tools exposed to OpenWorker</div>
       <div className="space-y-1.5">
         {c.tools.map((tool) => (
           <label

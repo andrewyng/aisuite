@@ -20,7 +20,7 @@ const SETTINGS = {
   experimental_connectors: false,
   surfaces: { cowork: true, chat: false, code: true },
   nav_layout: "grouped",
-  scratch_base: "~/OpenCoworker",
+  scratch_base: "~/OpenWorker",
   secrets_path: "/Users/test/.config/coworker/secrets.json",
   sessions_peek: 5,
   // Token savings (PDF attachments): 2-page limit keeps the composer threshold test's
@@ -37,7 +37,7 @@ const SETTINGS = {
 
 const PERSONAS = {
   personas: [
-    { id: "cowork", name: "OpenCoworker", icon: "cowork", tagline: "Produce a deliverable — research, analysis, scripts", needs_workspace: true, builtin: true, family: "knowledge", workspace: "deliverable", tools: ["files", "search"], enabled: true, surfaced: true, default: true },
+    { id: "cowork", name: "OpenWorker", icon: "cowork", tagline: "Produce a deliverable — research, analysis, scripts", needs_workspace: true, builtin: true, family: "knowledge", workspace: "deliverable", tools: ["files", "search"], enabled: true, surfaced: true, default: true },
     { id: "code", name: "Code", icon: "code", tagline: "Work in a codebase — files, git, shell", needs_workspace: true, builtin: true, family: "code", workspace: "git", tools: ["code_files", "git"], enabled: true, surfaced: true, default: false },
     { id: "chat", name: "Chat", icon: "chat", tagline: "Quick questions — no workspace", needs_workspace: false, builtin: true, family: "knowledge", workspace: "none", tools: [], enabled: true, surfaced: false, default: false },
     { id: "ops", name: "Ops Coworker", icon: "wrench", tagline: "Operate and investigate — runbooks, logs, infrastructure", needs_workspace: true, builtin: true, family: "knowledge", workspace: "deliverable", tools: ["files", "shell"], enabled: true, surfaced: true, default: false },
@@ -51,7 +51,7 @@ const PERSONAS = {
 const PINNED_SESSION = {
   session_id: "pinned-cowork-1",
   title: "Draft the launch note",
-  workspace: "/Users/test/OpenCoworker/launch-note",
+  workspace: "/Users/test/OpenWorker/launch-note",
   agent: "cowork",
   model: "anthropic:claude-opus-4-8",
   mode: "interactive",
@@ -88,7 +88,7 @@ const EXTRA_SESSIONS = Array.from({ length: 7 }, (_, i) => ({
 const OPS_SESSION = {
   session_id: "ops-1",
   title: "Ops triage",
-  workspace: "/Users/test/OpenCoworker/ops-triage",
+  workspace: "/Users/test/OpenWorker/ops-triage",
   agent: "ops",
   model: "anthropic:claude-opus-4-8",
   mode: "interactive",
@@ -195,7 +195,7 @@ const GALLERY_PERSONAS = [
     description: "A sales-focused coworker.",
     family: "knowledge",
     workspace: "deliverable",
-    publisher: "OpenCoworker",
+    publisher: "OpenWorker",
     recommended_connectors: ["hubspot", "gmail"],
     risk_summary: "Declarative manifest; no executable code.",
     featured: true,
@@ -209,7 +209,7 @@ const GALLERY_PERSONAS = [
     description: "A recruiting coworker.",
     family: "knowledge",
     workspace: "deliverable",
-    publisher: "OpenCoworker",
+    publisher: "OpenWorker",
     recommended_connectors: ["gmail"],
     risk_summary: "Declarative manifest; no executable code.",
     featured: false,
@@ -220,7 +220,7 @@ const GALLERY_PERSONAS = [
 // `default_connections` as arrays, so these must be present (not the catch-all {}).
 const PERSONA_DETAIL = {
   id: "cowork",
-  name: "OpenCoworker",
+  name: "OpenWorker",
   icon: "cowork",
   tagline: "Produce a deliverable — research, analysis, scripts",
   description: "",
@@ -283,7 +283,7 @@ const AUTOMATION_RUNS = [
   },
 ];
 
-const PRIMARY_ROOT = { path: "/Users/test/OpenCoworker/launch-note", writable: true, label: "scratch", primary: true, exists: true };
+const PRIMARY_ROOT = { path: "/Users/test/OpenWorker/launch-note", writable: true, label: "scratch", primary: true, exists: true };
 const baseName = (p: string) => p.split("/").filter(Boolean).pop() || p;
 
 const PROVIDERS = [
@@ -956,7 +956,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
       });
     if (p.endsWith("/v1/cloud/status")) return json({ ...CLOUD_STATE });
     if (p.endsWith("/v1/cloud/login") && m === "POST") {
-      Object.assign(CLOUD_STATE, { signed_in: true, account: "rohit@opencoworker.app", user_id: "usr_e2e" });
+      Object.assign(CLOUD_STATE, { signed_in: true, account: "rohit@openworker.com", user_id: "usr_e2e" });
       return json({ ok: true });
     }
     if (p.endsWith("/v1/cloud/telemetry") && m === "POST") {

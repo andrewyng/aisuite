@@ -242,7 +242,7 @@ class SessionManager:
             out.append({"path": path, "name": p.name, "exists": p.is_dir()})
         return out
 
-    DEFAULT_SCRATCH_BASE = "~/OpenCoworker"
+    DEFAULT_SCRATCH_BASE = "~/OpenWorker"
 
     def scratch_base(self) -> Path:
         """Common area for per-conversation scratch directories. Configurable via prefs."""
@@ -1638,7 +1638,7 @@ class SessionManager:
 
     def set_scratch_base(self, path: str) -> dict[str, Any]:
         """Set + persist the common area where each Cowork conversation's scratch directory is
-        created (default ~/OpenCoworker). The raw value is stored so the UI shows it as entered;
+        created (default ~/OpenWorker). The raw value is stored so the UI shows it as entered;
         new conversations use it immediately (existing ones keep their provisioned dir).
         """
         path = (path or "").strip()

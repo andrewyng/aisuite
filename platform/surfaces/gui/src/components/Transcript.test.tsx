@@ -15,7 +15,7 @@ const TURN: Item[] = [
   { kind: "tool", id: "t1", name: "read_file", args: { path: "docs/runbook.md" }, status: "ok" },
   { kind: "approval", name: "send_message", args: { target: "slack:T1/C9" }, reason: "", resolved: "once" },
   { kind: "tool", id: "t2", name: "send_message", args: { target: "slack:T1/C9", text: "hi" }, status: "ok", preview: '{"ok": true}' },
-  { kind: "assistant", text: "Posted to #all-opencoworker." },
+  { kind: "assistant", text: "Posted to #all-openworker." },
 ];
 
 describe("TurnGroup (Transcript §33)", () => {
@@ -29,7 +29,7 @@ describe("TurnGroup (Transcript §33)", () => {
     expect(screen.queryByText(/Sent a Slack message/)).toBeNull();
 
     // The final answer is a normal bubble OUTSIDE the disclosure, visible while collapsed.
-    expect(screen.getByText("Posted to #all-opencoworker.")).toBeTruthy();
+    expect(screen.getByText("Posted to #all-openworker.")).toBeTruthy();
 
     // Expand → narration renders quiet inside; steps are English lines, not raw args;
     // the approval is a chip on the send_message row, not a separate box.

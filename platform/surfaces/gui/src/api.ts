@@ -372,7 +372,7 @@ export interface Connector {
   installations?: GithubInstallation[]; // GitHub only: App installations (managed relay)
 }
 
-// --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
+// --- OpenWorker Cloud (optional sign-in; manual token paste always works) ---
 
 export interface CloudStatus {
   signed_in: boolean;

@@ -1,7 +1,7 @@
 [package]
 name = "coworker-desktop"
 version = "0.1.0"
-description = "OpenCoworker desktop shell"
+description = "OpenWorker desktop shell"
 edition = "2021"
 rust-version = "1.77"
 

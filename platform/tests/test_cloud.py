@@ -1,4 +1,4 @@
-"""OpenCoworker Cloud integration: sign-in, managed connect callback, refresh.
+"""OpenWorker Cloud integration: sign-in, managed connect callback, refresh.
 
 Everything is offline: Auth0 and the cloud broker are stubbed at the httpx
 boundary. The invariants under test are the product promises — manual paste

@@ -253,7 +253,7 @@ function VoiceInputSection() {
       />
 
       {!desktop ? (
-        <div className={CARD + " p-4 text-[13px] text-muted"}>Voice Input setup is available in the OpenCoworker desktop app.</div>
+        <div className={CARD + " p-4 text-[13px] text-muted"}>Voice Input setup is available in the OpenWorker desktop app.</div>
       ) : (
         <div className="space-y-4">
           <div className="rounded-xl border border-green-200 bg-green-50/70 px-4 py-3 text-[12.5px] text-green-800">
@@ -361,7 +361,7 @@ function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => vo
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-medium">Browse the Persona Gallery</span>
           <span className="block text-[12px] text-muted">
-            Curated coworkers from the OpenCoworker team — see what each can do before installing.
+            Curated coworkers from the OpenWorker team — see what each can do before installing.
           </span>
         </span>
         <span className="text-[12.5px] text-accent shrink-0">Open →</span>
@@ -399,7 +399,7 @@ function AppearanceSection() {
 
   return (
     <section>
-      <PanelHead title="Appearance" sub="How OpenCoworker looks and behaves on this machine." />
+      <PanelHead title="Appearance" sub="How OpenWorker looks and behaves on this machine." />
 
       <div className={CARD + " p-4 mb-4"}>
         <div className={FIELD_LABEL}>Theme</div>
@@ -426,7 +426,7 @@ function AppearanceSection() {
             <input type="checkbox" className="mt-0.5" checked={autostart} onChange={(e) => toggleAuto(e.target.checked)} />
             <span>
               <span className="block text-[13px] text-ink">Open at login</span>
-              <span className="block text-[12px] text-muted">Launch OpenCoworker automatically when you sign in.</span>
+              <span className="block text-[12px] text-muted">Launch OpenWorker automatically when you sign in.</span>
             </span>
           </label>
           <label className="flex items-start gap-3 py-2">
@@ -506,8 +506,8 @@ function UpdateCard() {
           : state === "error"
             ? "Couldn't check right now — try again later."
             : state === "installing"
-              ? "Downloading — OpenCoworker restarts by itself when it's ready."
-              : "Updates download from OpenCoworker's releases and install in place."}
+              ? "Downloading — OpenWorker restarts by itself when it's ready."
+              : "Updates download from OpenWorker's releases and install in place."}
       </div>
     </div>
   );
@@ -543,7 +543,7 @@ function TelemetryCard() {
           }}
         />
         <span>
-          <span className="block text-[13px] text-ink">Help improve OpenCoworker</span>
+          <span className="block text-[13px] text-ink">Help improve OpenWorker</span>
           <span className="block text-[12px] text-muted">
             Which coworker type was started and when; never your prompts, files, or connector
             data. Signed-out installs send nothing regardless.
@@ -721,7 +721,7 @@ function FilesSection() {
     <section>
       <PanelHead
         title="Files"
-        sub="Where OpenCoworker keeps the per-conversation scratch folders it saves files into by default."
+        sub="Where OpenWorker keeps the per-conversation scratch folders it saves files into by default."
       />
       <div className={CARD + " p-4"}>
         <div className={FIELD_LABEL}>Scratch location</div>
@@ -729,7 +729,7 @@ function FilesSection() {
           <input
             className={INPUT}
             type="text"
-            placeholder="~/OpenCoworker"
+            placeholder="~/OpenWorker"
             value={scratchDraft}
             spellCheck={false}
             autoComplete="off"

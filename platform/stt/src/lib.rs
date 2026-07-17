@@ -24,7 +24,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-/// A reasonably fast English model for short OpenCoworker prompts (~142 MB).
+/// A reasonably fast English model for short OpenWorker prompts (~142 MB).
 pub const DEFAULT_MODEL_FILE: &str = "ggml-base.en.bin";
 pub const DEFAULT_MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
