@@ -1072,7 +1072,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         validate=_validate_google_drive,
         available=True,
         managed=True,
-        account_field="account_id",
+        # Key each connected account by its Google email (the broker's `account`
+        # field) so multiple Drive accounts list the same way Gmail's do, rather
+        # than by the opaque `sub` that account_field="account_id" would use.
+        account_field="@identity",
     ),
     ConnectorDescriptor(
         name="canva",

@@ -1211,6 +1211,42 @@ def test_managed_callback_profile_keys_by_account_id(tmp_path):
     assert rows[0]["name"] == "Rohit's Workspace" and rows[0]["default"]
 
 
+def test_google_drive_multi_account_keys_by_email(tmp_path):
+    """Managed Drive must add multiple accounts keyed by email — the same way
+    Gmail does — not by the opaque Google `sub`. The broker sends both `account`
+    (email) and `account_id` (sub); account_field="@identity" makes the email win."""
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    p1 = managed_profile_from_callback(
+        {
+            "access_token": "t1",
+            "account": "rohit@opencoworker.app",
+            "account_id": "114835900000000000001",  # Google sub — must NOT be the key
+            "provider": "google",
+            "connection_id": "c1",
+        }
+    )
+    managed_connect_connector(secrets, "google_drive", p1)
+    p2 = managed_profile_from_callback(
+        {
+            "access_token": "t2",
+            "account": "work@acme.com",
+            "account_id": "114835900000000000002",
+            "provider": "google",
+        }
+    )
+    managed_connect_connector(secrets, "google_drive", p2)
+
+    ids = [a for a, _ in accounts.list_accounts(secrets, "google_drive")]
+    assert ids == ["rohit@opencoworker.app", "work@acme.com"], ids
+    # The default resolves to the first email, and the account param selects the other.
+    _, _, prof = accounts.resolve(secrets, "google_drive", "work@acme.com")
+    assert prof["access_token"] == "t2"
+
+
 def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):
     """Two PostHog projects connected → the account param routes the call; the
     default pointer serves bare calls; unknown accounts fail closed."""
