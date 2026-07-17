@@ -23,6 +23,11 @@ const SETTINGS = {
   scratch_base: "~/OpenCoworker",
   secrets_path: "/Users/test/.config/coworker/secrets.json",
   sessions_peek: 5,
+  // Token savings (PDF attachments): 2-page limit keeps the composer threshold test's
+  // fixture PDF small; the real default is 20.
+  pdf_fallback: "text",
+  pdf_max_pages: 2,
+  pdf_max_mb: 10,
   // Curated-matrix display names (subset — mirrors /v1/settings.model_labels).
   model_labels: {
     "anthropic:claude-opus-4-8": "Claude Opus 4.8 · Anthropic",
@@ -652,6 +657,22 @@ export async function mockApi(page: import("@playwright/test").Page) {
 
     if (p.endsWith("/v1/health")) return json(HEALTH);
     if (p.endsWith("/v1/settings")) return json(SETTINGS);
+    if (p.endsWith("/v1/settings/pdf") && m === "POST") {
+      Object.assign(SETTINGS, req.postDataJSON());
+      return json({
+        ok: true,
+        pdf_fallback: SETTINGS.pdf_fallback,
+        pdf_max_pages: SETTINGS.pdf_max_pages,
+        pdf_max_mb: SETTINGS.pdf_max_mb,
+      });
+    }
+    if (p.endsWith("/v1/attachments/inspect-pdf") && m === "POST") {
+      // Page count for the composer threshold check: the tests encode it in the PDF body
+      // as "%%pages=N" (the mock doesn't parse real PDFs).
+      const data = String(req.postDataJSON()?.data_url || "");
+      const match = /%%pages=(\d+)/.exec(atob(data.split(",")[1] || "") || "");
+      return json({ ok: true, pages: match ? Number(match[1]) : 1, bytes: data.length });
+    }
     if (p.endsWith("/v1/workspaces/recent")) return json({ workspaces: [] });
     if (p.endsWith("/v1/workspaces/pick") && m === "POST") {
       return json({ ok: true, path: "/tmp/picked-folder" });

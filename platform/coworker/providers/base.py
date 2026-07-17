@@ -41,6 +41,9 @@ class ModelCapabilities:
 
     tools: bool = True
     vision: bool = False
+    # Native PDF ingestion (OpenAI `file` part / Anthropic document / Gemini inline_data).
+    # Models without it get a local fallback: text extraction or page images (pdf_support.py).
+    pdf: bool = False
     parallel_tool_calls: bool = True
     streaming: bool = True
 

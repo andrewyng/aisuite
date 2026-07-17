@@ -52,7 +52,8 @@ class ConversationStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript("""
+        self._conn.executescript(
+            """
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY, workspace TEXT, model TEXT, mode TEXT,
                 title TEXT, agent TEXT DEFAULT 'code', n_msgs INTEGER DEFAULT 0, messages TEXT,
@@ -63,7 +64,8 @@ class ConversationStore:
             CREATE TABLE IF NOT EXISTS workspaces (
                 path TEXT PRIMARY KEY, last_used TEXT DEFAULT CURRENT_TIMESTAMP
             );
-            """)
+            """
+        )
         for ddl in (
             "ALTER TABLE sessions ADD COLUMN title TEXT",
             "ALTER TABLE sessions ADD COLUMN n_msgs INTEGER DEFAULT 0",

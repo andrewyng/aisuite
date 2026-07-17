@@ -144,6 +144,11 @@ class SessionManager:
         self._prefs = self._load_prefs()
         if self._prefs.get("default_model"):
             self.model = self._prefs["default_model"]
+        # Seed the PDF-fallback module global from prefs so engines see the user's
+        # choice from the first turn (set_pdf_settings keeps it in sync after).
+        from ..pdf_support import set_fallback_mode
+
+        set_fallback_mode(self.pdf_settings()["pdf_fallback"])
         # Per-session live-view registry: every socket open on a session id gets the turn's events,
         # whoever drives the turn (foreground user_message, channel delivery, self-wake, resume).
         # Delivery itself is socket-independent — this only governs *live visibility*.
@@ -1498,6 +1503,7 @@ class SessionManager:
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
             # hardcoded POSIX one (Windows -> %APPDATA%\coworker, macOS/Linux -> ~/.config).
             "secrets_path": str(self.secrets.path),
+            **self.pdf_settings(),
         }
 
     def _surfaces(self) -> dict[str, bool]:
@@ -1549,6 +1555,57 @@ class SessionManager:
             return {"ok": False, "error": "sessions_peek must be a number"}
         self._save_prefs()
         return {"ok": True, "sessions_peek": self.sessions_peek()}
+
+    # -- PDF attachments / token savings (owner ask, 2026-07-17) ----------------
+    DEFAULT_PDF_MAX_PAGES = 20
+    DEFAULT_PDF_MAX_MB = 10
+
+    def pdf_settings(self) -> dict[str, Any]:
+        """Fallback mode for models without native PDF support + the attach-time
+        thresholds (Settings → Token savings: big PDFs quietly eat tokens)."""
+        from ..pdf_support import FALLBACK_MODES
+
+        mode = self._prefs.get("pdf_fallback")
+        try:
+            pages = int(self._prefs.get("pdf_max_pages", self.DEFAULT_PDF_MAX_PAGES))
+        except (TypeError, ValueError):
+            pages = self.DEFAULT_PDF_MAX_PAGES
+        try:
+            mb = int(self._prefs.get("pdf_max_mb", self.DEFAULT_PDF_MAX_MB))
+        except (TypeError, ValueError):
+            mb = self.DEFAULT_PDF_MAX_MB
+        return {
+            "pdf_fallback": mode if mode in FALLBACK_MODES else "text",
+            "pdf_max_pages": max(1, min(pages, 100)),
+            "pdf_max_mb": max(1, min(mb, 10)),
+        }
+
+    def set_pdf_settings(
+        self,
+        fallback: Any = None,
+        max_pages: Any = None,
+        max_mb: Any = None,
+    ) -> dict[str, Any]:
+        from ..pdf_support import FALLBACK_MODES, set_fallback_mode
+
+        if fallback is not None:
+            if fallback not in FALLBACK_MODES:
+                return {"ok": False, "error": "pdf_fallback must be 'text' or 'images'"}
+            self._prefs["pdf_fallback"] = fallback
+        for key, value, ceiling in (
+            ("pdf_max_pages", max_pages, 100),
+            ("pdf_max_mb", max_mb, 10),
+        ):
+            if value is None:
+                continue
+            try:
+                self._prefs[key] = max(1, min(int(value), ceiling))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": f"{key} must be a number"}
+        self._save_prefs()
+        settings = self.pdf_settings()
+        set_fallback_mode(settings["pdf_fallback"])  # engines read the module global
+        return {"ok": True, **settings}
 
     def set_model_key(self, api_key: str) -> dict[str, Any]:
         """Persist the model API key to the SecretStore (0600). The new provider client is

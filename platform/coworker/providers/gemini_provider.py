@@ -73,6 +73,10 @@ _DATA_URL_RE = re.compile(
     r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL
 )
 
+_PDF_DATA_URL_RE = re.compile(
+    r"^data:application/pdf;base64,(.+)$", re.IGNORECASE | re.DOTALL
+)
+
 
 def resolve_api_key(secrets: Any = None) -> Optional[str]:
     """Resolve the Gemini API key: env `GEMINI_API_KEY` (then `GOOGLE_API_KEY`, the SDK's own
@@ -99,6 +103,15 @@ def _image_part(url: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def _pdf_part(part: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """An OpenAI `file` part (PDF data URL, attachments.py) → a Gemini inline_data part."""
+    file = part.get("file") or {}
+    match = _PDF_DATA_URL_RE.match(file.get("file_data") or "")
+    if match:
+        return {"inline_data": {"mime_type": "application/pdf", "data": match.group(1)}}
+    return None
+
+
 def _user_parts(content: Any) -> list[dict[str, Any]]:
     """User content (str or OpenAI parts list) → Gemini parts."""
     if isinstance(content, str):
@@ -114,6 +127,9 @@ def _user_parts(content: Any) -> list[dict[str, Any]]:
             url = (part.get("image_url") or {}).get("url") or ""
             image = _image_part(url)
             parts.append(image if image else {"text": "[unsupported image attachment]"})
+        elif kind == "file":
+            pdf = _pdf_part(part)
+            parts.append(pdf if pdf else {"text": "[unsupported file attachment]"})
     return parts
 
 

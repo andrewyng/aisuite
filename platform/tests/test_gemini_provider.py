@@ -479,3 +479,25 @@ def test_gemini_capabilities_parallel_tool_calls():
     caps = capabilities_for("gemini:gemini-2.5-flash")
     assert caps.tools and caps.vision and caps.streaming
     assert caps.parallel_tool_calls is True  # native provider folds results correctly
+
+
+def test_convert_pdf_file_part_to_inline_data():
+    from coworker.providers.gemini_provider import _user_parts
+
+    parts = _user_parts(
+        [
+            {"type": "text", "text": "summarize"},
+            {
+                "type": "file",
+                "file": {
+                    "filename": "report.pdf",
+                    "file_data": "data:application/pdf;base64,JVBERi0=",
+                },
+            },
+            {"type": "file", "file": {"file_data": "not-a-url"}},
+        ]
+    )
+    assert parts[1] == {
+        "inline_data": {"mime_type": "application/pdf", "data": "JVBERi0="}
+    }
+    assert parts[2] == {"text": "[unsupported file attachment]"}

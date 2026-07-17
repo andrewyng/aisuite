@@ -54,6 +54,10 @@ _DATA_URL_RE = re.compile(
     r"^data:(image/[a-z0-9.+-]+);base64,(.+)$", re.IGNORECASE | re.DOTALL
 )
 
+_PDF_DATA_URL_RE = re.compile(
+    r"^data:application/pdf;base64,(.+)$", re.IGNORECASE | re.DOTALL
+)
+
 
 def resolve_api_key(secrets: Any = None) -> Optional[str]:
     """Resolve the Anthropic API key: env `ANTHROPIC_API_KEY` first, else the SecretStore
@@ -102,6 +106,26 @@ def _image_block(url: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def _document_block(part: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """An OpenAI `file` part (PDF data URL, attachments.py) → an Anthropic document block."""
+    file = part.get("file") or {}
+    match = _PDF_DATA_URL_RE.match(file.get("file_data") or "")
+    if not match:
+        return None
+    block: dict[str, Any] = {
+        "type": "document",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": match.group(1),
+        },
+    }
+    name = file.get("filename")
+    if name:
+        block["title"] = str(name)
+    return block
+
+
 def _user_blocks(content: Any) -> list[dict[str, Any]]:
     """User content (str or OpenAI parts list) → Anthropic content blocks."""
     if isinstance(content, str):
@@ -120,6 +144,13 @@ def _user_blocks(content: Any) -> list[dict[str, Any]]:
                 block
                 if block
                 else {"type": "text", "text": "[unsupported image attachment]"}
+            )
+        elif kind == "file":
+            block = _document_block(part)
+            blocks.append(
+                block
+                if block
+                else {"type": "text", "text": "[unsupported file attachment]"}
             )
     return blocks
 
