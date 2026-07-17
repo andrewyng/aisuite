@@ -9,6 +9,7 @@ Here are the instructions for:
 - [Cohere](cohere.md)
 - [Gemini](gemini.md)
 - [Google](google.md)
+- [Groq](groq.md)
 - [Hugging Face](huggingface.md)
 - [Mistral](mistral.md)
 - [OpenAI](openai.md)
