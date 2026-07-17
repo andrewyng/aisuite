@@ -2,6 +2,15 @@ import os
 import httpx
 from aisuite.provider import Provider, LLMError
 from aisuite.framework import ChatCompletionResponse
+from aisuite.providers.message_converter import OpenAICompliantMessageConverter
+
+
+class XaiMessageConverter(OpenAICompliantMessageConverter):
+    """
+    xAI-specific message converter if needed
+    """
+
+    pass
 
 
 class XaiProvider(Provider):
@@ -24,11 +33,15 @@ class XaiProvider(Provider):
 
         # Optionally set a custom timeout (default to 30s)
         self.timeout = config.get("timeout", 30)
+        self.transformer = XaiMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
         """
         Makes a request to the xAI chat completions endpoint using httpx.
         """
+        # Transform messages using converter
+        transformed_messages = self.transformer.convert_request(messages)
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -36,7 +49,7 @@ class XaiProvider(Provider):
 
         data = {
             "model": model,
-            "messages": messages,
+            "messages": transformed_messages,
             **kwargs,  # Pass any additional arguments to the API
         }
 
@@ -46,20 +59,8 @@ class XaiProvider(Provider):
                 self.BASE_URL, json=data, headers=headers, timeout=self.timeout
             )
             response.raise_for_status()
+            return self.transformer.convert_response(response.json())
         except httpx.HTTPStatusError as http_err:
             raise LLMError(f"xAI request failed: {http_err}")
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
-
-        # Return the normalized response
-        return self._normalize_response(response.json())
-
-    def _normalize_response(self, response_data):
-        """
-        Normalize the response to a common format (ChatCompletionResponse).
-        """
-        normalized_response = ChatCompletionResponse()
-        normalized_response.choices[0].message.content = response_data["choices"][0][
-            "message"
-        ]["content"]
-        return normalized_response

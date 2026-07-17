@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Market Movers - November 10, 2025</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #111832;
+      --text: #e8eefc;
+      --muted: #9fb2d9;
+      --accent: #3b82f6;
+      --positive: #16a34a;
+      --border: #1f2a4d;
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: linear-gradient(180deg, #0b1020 0%, #0a0f1d 100%);
+      color: var(--text);
+    }
+    .container {
+      max-width: 1100px;
+      margin: 48px auto;
+      padding: 0 20px;
+    }
+    header h1 {
+      margin: 0 0 8px 0;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+    }
+    header p { margin: 0; color: var(--muted); }
+
+    .card {
+      margin-top: 24px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+    thead th {
+      text-align: left;
+      font-size: 12px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 16px 18px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+    .ticker {
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: .3px;
+    }
+    .company { color: var(--muted); }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+      background: rgba(22,163,74,.12);
+      color: var(--positive);
+      border: 1px solid rgba(22,163,74,.35);
+      box-shadow: inset 0 0 0 1px rgba(22,163,74,.15);
+    }
+    .price { font-variant-numeric: tabular-nums; }
+
+    .footer {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 16px 18px;
+      background: rgba(255,255,255,0.02);
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      background: rgba(59,130,246,.12);
+      border: 1px solid rgba(59,130,246,.35);
+      color: #cde1ff;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+    a { color: #93c5fd; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @media (max-width: 640px){
+      header h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Stock Market Movers - November 10, 2025</h1>
+      <p>Top gainers snapshot, styled for a professional financial look.</p>
+    </header>
+
+    <section class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Company</th>
+              <th>Price (USD)</th>
+              <th>% Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="ticker">GLTO</td>
+              <td class="company">Galecto, Inc.</td>
+              <td class="price">17.25</td>
+              <td><span class="chip">+248.49%</span></td>
+            </tr>
+            <tr>
+              <td class="ticker">COGT</td>
+              <td class="company">Cogent Biosciences, Inc.</td>
+              <td class="price">32.46</td>
+              <td><span class="chip">+119.03%</span></td>
+            </tr>
+            <tr>
+              <td class="ticker">NVTS</td>
+              <td class="company">Navitas Semiconductor Corporation</td>
+              <td class="price">9.60</td>
+              <td><span class="chip">+22.45%</span></td>
+            </tr>
+            <tr>
+              <td class="ticker">XPEV</td>
+              <td class="company">XPeng Inc.</td>
+              <td class="price">26.04</td>
+              <td><span class="chip">+16.15%</span></td>
+            </tr>
+            <tr>
+              <td class="ticker">SEDG</td>
+              <td class="company">SolarEdge Technologies, Inc.</td>
+              <td class="price">45.38</td>
+              <td><span class="chip">+13.45%</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="footer">
+        <span class="badge">As of Nov 10, 2025</span>
+        <span>Source: <a href="https://finance.yahoo.com/markets/stocks/gainers/" target="_blank" rel="noopener">Yahoo Finance — Top Gainers</a></span>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
