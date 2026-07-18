@@ -153,8 +153,7 @@ print("\n" + "=" * 70)
 print("Example 5: When to Use Config Dict vs MCPClient")
 print("=" * 70)
 
-print(
-    """
+print("""
 Use Config Dict When:
 ✓ Quick prototypes and simple scripts
 ✓ One-off tool usage
@@ -170,8 +169,7 @@ Use Explicit MCPClient When:
 ✓ Want to manually manage resources
 
 Example of explicit MCPClient:
-"""
-)
+""")
 
 from aisuite.mcp import MCPClient
 

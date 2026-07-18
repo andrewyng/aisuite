@@ -1,9 +1,11 @@
 from unittest.mock import Mock, patch
 import io
+from types import SimpleNamespace
 
 import pytest
 
 from aisuite import Client
+from aisuite.framework.message import ChatCompletionMessageToolCall, Function, Message
 from aisuite.framework.message import TranscriptionResult
 from aisuite.provider import ASRError
 
@@ -48,67 +50,88 @@ def provider_configs():
     }
 
 
+def test_default_provider_configs_are_not_shared_between_clients():
+    client_a = Client()
+    client_b = Client()
+
+    client_a.configure({"openai": {"api_key": "client-a-key"}})
+
+    assert client_a.provider_configs == {"openai": {"api_key": "client-a-key"}}
+    assert client_b.provider_configs == {}
+
+
+def test_provider_configs_are_copied_on_init():
+    provider_configs = {"openai": {"api_key": "original"}}
+    openai_config = provider_configs["openai"]
+
+    client = Client(provider_configs)
+
+    assert client.provider_configs["openai"] is not openai_config
+
+    provider_configs["openai"]["api_key"] = "mutated"
+    provider_configs["anthropic"] = {"api_key": "new"}
+
+    assert client.provider_configs == {"openai": {"api_key": "original"}}
+
+
+def test_provider_configs_are_copied_on_configure():
+    provider_configs = {"openai": {"api_key": "original"}}
+    openai_config = provider_configs["openai"]
+    client = Client()
+
+    client.configure(provider_configs)
+
+    assert client.provider_configs["openai"] is not openai_config
+
+    provider_configs["openai"]["api_key"] = "mutated"
+    provider_configs["anthropic"] = {"api_key": "new"}
+
+    assert client.provider_configs == {"openai": {"api_key": "original"}}
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
+def test_provider_initialization_uses_config_copy(mock_create_provider):
+    provider = Mock()
+    provider.chat_completions_create.return_value = "response"
+
+    def create_provider(provider_key, config):
+        config["api_key"] = "mutated-by-factory"
+        return provider
+
+    mock_create_provider.side_effect = create_provider
+    client = Client({"openai": {"api_key": "original"}})
+
+    response = client.chat.completions.create(
+        model="openai:gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}],
+    )
+
+    assert response == "response"
+    assert client.provider_configs == {"openai": {"api_key": "original"}}
+
+
 @pytest.mark.parametrize(
-    argnames=("patch_target", "provider", "model"),
+    argnames=("provider", "model"),
     argvalues=[
-        (
-            "aisuite.providers.openai_provider.OpenaiProvider.chat_completions_create",
-            "openai",
-            "gpt-4o",
-        ),
-        (
-            "aisuite.providers.mistral_provider.MistralProvider.chat_completions_create",
-            "mistral",
-            "mistral-model",
-        ),
-        (
-            "aisuite.providers.groq_provider.GroqProvider.chat_completions_create",
-            "groq",
-            "groq-model",
-        ),
-        (
-            "aisuite.providers.aws_provider.AwsProvider.chat_completions_create",
-            "aws",
-            "claude-v3",
-        ),
-        (
-            "aisuite.providers.azure_provider.AzureProvider.chat_completions_create",
-            "azure",
-            "azure-model",
-        ),
-        (
-            "aisuite.providers.anthropic_provider.AnthropicProvider.chat_completions_create",
-            "anthropic",
-            "anthropic-model",
-        ),
-        (
-            "aisuite.providers.google_provider.GoogleProvider.chat_completions_create",
-            "google",
-            "google-model",
-        ),
-        (
-            "aisuite.providers.fireworks_provider.FireworksProvider.chat_completions_create",
-            "fireworks",
-            "fireworks-model",
-        ),
-        (
-            "aisuite.providers.nebius_provider.NebiusProvider.chat_completions_create",
-            "nebius",
-            "nebius-model",
-        ),
-        (
-            "aisuite.providers.inception_provider.InceptionProvider.chat_completions_create",
-            "inception",
-            "mercury",
-        ),
+        ("openai", "gpt-4o"),
+        ("mistral", "mistral-model"),
+        ("groq", "groq-model"),
+        ("aws", "claude-v3"),
+        ("azure", "azure-model"),
+        ("anthropic", "anthropic-model"),
+        ("google", "google-model"),
+        ("fireworks", "fireworks-model"),
+        ("nebius", "nebius-model"),
+        ("inception", "mercury"),
     ],
 )
-def test_client_chat_completions(
-    provider_configs: dict, patch_target: str, provider: str, model: str
-):
-    expected_response = f"{patch_target}_{provider}_{model}"
-    with patch(patch_target) as mock_provider:
-        mock_provider.return_value = expected_response
+def test_client_chat_completions(provider_configs: dict, provider: str, model: str):
+    expected_response = f"{provider}_{model}"
+    mock_provider = Mock()
+    mock_provider.chat_completions_create.return_value = expected_response
+
+    with patch("aisuite.provider.ProviderFactory.create_provider") as create_provider:
+        create_provider.return_value = mock_provider
         client = Client()
         client.configure(provider_configs)
         messages = [
@@ -119,6 +142,10 @@ def test_client_chat_completions(
         model_str = f"{provider}:{model}"
         model_response = client.chat.completions.create(model_str, messages=messages)
         assert model_response == expected_response
+        create_provider.assert_called_once_with(
+            provider, provider_configs.get(provider, {})
+        )
+        mock_provider.chat_completions_create.assert_called_once_with(model, messages)
 
 
 def test_invalid_provider_in_client_config():
@@ -143,15 +170,7 @@ def test_invalid_provider_in_client_config():
         client.chat.completions.create("invalid_provider:some-model", messages=messages)
 
 
-def test_invalid_model_format_in_create(monkeypatch):
-    from aisuite.providers.openai_provider import OpenaiProvider
-
-    monkeypatch.setattr(
-        target=OpenaiProvider,
-        name="chat_completions_create",
-        value=Mock(),
-    )
-
+def test_invalid_model_format_in_create():
     # Valid provider configurations
     provider_configs = {
         "openai": {"api_key": "test_openai_api_key"},
@@ -174,6 +193,143 @@ def test_invalid_model_format_in_create(monkeypatch):
         ValueError, match=r"Invalid model format. Expected 'provider:model'"
     ):
         client.chat.completions.create(invalid_model, messages=messages)
+
+
+def _chat_response(content=None, tool_calls=None):
+    message = Message(role="assistant", content=content, tool_calls=tool_calls)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+def _tool_call(name, arguments, call_id="call_1"):
+    return ChatCompletionMessageToolCall(
+        id=call_id,
+        type="function",
+        function=Function(name=name, arguments=arguments),
+    )
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
+def test_chat_completions_executes_tools_until_final_response(mock_create_provider):
+    provider = Mock()
+    provider.chat_completions_create.side_effect = [
+        _chat_response(
+            tool_calls=[
+                _tool_call(
+                    "get_weather",
+                    '{"location": "San Francisco"}',
+                )
+            ]
+        ),
+        _chat_response(content="It is sunny in San Francisco."),
+    ]
+    mock_create_provider.return_value = provider
+
+    def get_weather(location: str):
+        """Get the weather for a location."""
+        return {"location": location, "condition": "sunny"}
+
+    client = Client()
+    response = client.chat.completions.create(
+        model="openai:gpt-4o",
+        messages=[{"role": "user", "content": "What is the weather?"}],
+        tools=[get_weather],
+        max_turns=2,
+    )
+
+    assert response.choices[0].message.content == "It is sunny in San Francisco."
+    assert len(response.intermediate_responses) == 1
+    assert len(response.choices[0].intermediate_messages) == 3
+
+    second_call_messages = provider.chat_completions_create.call_args_list[1].args[1]
+    assert second_call_messages[-1] == {
+        "role": "tool",
+        "name": "get_weather",
+        "content": '{"location": "San Francisco", "condition": "sunny"}',
+        "tool_call_id": "call_1",
+    }
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
+def test_ollama_model_runs_full_tool_loop(mock_create_provider):
+    """End-to-end: an ollama:<model> drives a real tool-execution turn.
+
+    Exercises the real OllamaProvider (request conversion + OpenAI passthrough)
+    with only its underlying OpenAI client mocked, proving tool calls survive.
+    """
+    from aisuite.providers.ollama_provider import OllamaProvider
+
+    provider = OllamaProvider()
+    provider.client.chat.completions.create = Mock(
+        side_effect=[
+            _chat_response(
+                tool_calls=[_tool_call("get_weather", '{"location": "San Francisco"}')]
+            ),
+            _chat_response(content="It is sunny in San Francisco."),
+        ]
+    )
+    mock_create_provider.return_value = provider
+
+    def get_weather(location: str):
+        """Get the weather for a location."""
+        return {"location": location, "condition": "sunny"}
+
+    client = Client()
+    response = client.chat.completions.create(
+        model="ollama:llama3.1",
+        messages=[{"role": "user", "content": "What is the weather?"}],
+        tools=[get_weather],
+        max_turns=2,
+    )
+
+    assert response.choices[0].message.content == "It is sunny in San Francisco."
+    # Two model calls: the tool-call turn and the final answer.
+    assert provider.client.chat.completions.create.call_count == 2
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
+def test_chat_completions_returns_last_response_when_max_turns_reached(
+    mock_create_provider,
+):
+    provider = Mock()
+    provider.chat_completions_create.return_value = _chat_response(
+        tool_calls=[_tool_call("echo", '{"value": "hello"}')]
+    )
+    mock_create_provider.return_value = provider
+
+    def echo(value: str):
+        """Echo a value."""
+        return value
+
+    client = Client()
+    response = client.chat.completions.create(
+        model="openai:gpt-4o",
+        messages=[{"role": "user", "content": "Echo hello forever"}],
+        tools=[echo],
+        max_turns=1,
+    )
+
+    assert provider.chat_completions_create.call_count == 1
+    assert response.choices[0].message.tool_calls[0].function.name == "echo"
+    assert response.intermediate_responses == []
+    assert len(response.choices[0].intermediate_messages) == 2
+
+
+@patch("aisuite.provider.ProviderFactory.create_provider")
+def test_chat_completions_extracts_thinking_content(mock_create_provider):
+    provider = Mock()
+    provider.chat_completions_create.return_value = _chat_response(
+        content="<think>private reasoning</think>\nFinal answer"
+    )
+    mock_create_provider.return_value = provider
+
+    client = Client()
+    response = client.chat.completions.create(
+        model="openai:gpt-4o",
+        messages=[{"role": "user", "content": "Answer"}],
+    )
+
+    assert response.choices[0].message.reasoning_content == "private reasoning"
+    assert response.choices[0].message.content == "Final answer"
 
 
 class TestClientASR:

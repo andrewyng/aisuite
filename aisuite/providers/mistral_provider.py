@@ -6,7 +6,6 @@ from aisuite.framework import ChatCompletionResponse
 from aisuite.provider import Provider, LLMError
 from aisuite.providers.message_converter import OpenAICompliantMessageConverter
 
-
 # Implementation of Mistral provider.
 # Mistral's message format is the same as OpenAI's. Just different class names,
 # but fully cross-compatible.

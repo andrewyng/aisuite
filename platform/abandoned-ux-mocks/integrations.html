@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Integrations Mock</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              app: "#eef3f1",
+              ink: "#17211f",
+              muted: "#65736f",
+              faint: "#8b9793",
+              line: "#dce3df",
+              panel: "#f7faf8",
+              brand: "#146c5d",
+              blue: "#3f6fdd",
+              warning: "#b7791f"
+            },
+            boxShadow: {
+              soft: "0 18px 50px rgba(20, 31, 28, 0.10)",
+              panel: "0 8px 24px rgba(20, 31, 28, 0.07)"
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="bg-app text-ink antialiased">
+    <div class="flex min-h-screen">
+      <aside class="hidden w-72 shrink-0 border-r border-line bg-white/80 px-4 py-4 lg:block">
+        <div class="flex items-center gap-3 px-2 py-2">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-sm font-semibold text-white">OC</div>
+          <div>
+            <div class="text-sm font-semibold">OpenCoworker</div>
+            <div class="text-xs text-muted">Admin workspace</div>
+          </div>
+        </div>
+
+        <nav class="mt-7 space-y-1">
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel" href="./session-view.html">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /></svg>
+            Sessions
+          </a>
+          <a class="flex items-center gap-3 rounded-lg bg-[#e9f2ef] px-3 py-2 text-sm font-medium text-brand" href="#">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3" /><path d="M12 2v5M12 17v5M2 12h5M17 12h5M4.22 4.22l3.54 3.54M16.24 16.24l3.54 3.54M4.22 19.78l3.54-3.54M16.24 7.76l3.54-3.54" /></svg>
+            Integrations
+          </a>
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel" href="#">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z" /><path d="M8 9h8M8 13h5" /></svg>
+            Inbox
+          </a>
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel" href="#">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l3 3" /><circle cx="12" cy="12" r="9" /></svg>
+            Automations
+          </a>
+        </nav>
+      </aside>
+
+      <main class="min-w-0 flex-1">
+        <header class="border-b border-line bg-white/75 px-6 py-5 backdrop-blur">
+          <div class="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div class="mb-2 inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-muted">
+                <span class="h-2 w-2 rounded-full bg-brand"></span>
+                5 connected apps · 2 routes need attention
+              </div>
+              <h1 class="text-2xl font-semibold tracking-normal">Integrations</h1>
+              <p class="mt-2 max-w-2xl text-sm leading-6 text-muted">
+                Connect apps, decide where messages route, and control what each session can listen to or act on.
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button class="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-muted shadow-sm hover:text-ink">Test all routes</button>
+              <button class="rounded-lg bg-ink px-3 py-2 text-sm font-medium text-white shadow-sm">Connect app</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="mx-auto grid max-w-7xl gap-6 px-6 py-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <aside class="hidden xl:block">
+            <div class="sticky top-6 rounded-xl border border-line bg-white p-2 shadow-panel">
+              <a href="#overview" class="block rounded-lg bg-panel px-3 py-2 text-sm font-medium text-ink">Overview</a>
+              <a href="#apps" class="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Connected apps</a>
+              <a href="#routing" class="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Message routing</a>
+              <a href="#sessions" class="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Session subscriptions</a>
+              <a href="#platform" class="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Platform extensions</a>
+              <a href="#unrouted" class="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-panel">Unrouted events</a>
+            </div>
+          </aside>
+
+          <section class="min-w-0 space-y-6">
+            <section id="overview" class="grid gap-4 md:grid-cols-3">
+              <div class="rounded-xl border border-line bg-white p-5 shadow-panel">
+                <div class="text-sm font-medium text-muted">Inbound health</div>
+                <div class="mt-3 flex items-end gap-2">
+                  <div class="text-3xl font-semibold">Live</div>
+                  <div class="pb-1 text-sm text-brand">Slack socket connected</div>
+                </div>
+                <div class="mt-4 h-2 rounded-full bg-panel"><div class="h-2 w-[86%] rounded-full bg-brand"></div></div>
+              </div>
+              <div class="rounded-xl border border-line bg-white p-5 shadow-panel">
+                <div class="text-sm font-medium text-muted">Routed today</div>
+                <div class="mt-3 text-3xl font-semibold">42</div>
+                <div class="mt-4 text-sm text-muted">31 channel events · 8 approvals · 3 DMs</div>
+              </div>
+              <div class="rounded-xl border border-[#f0d9a7] bg-[#fffaf0] p-5 shadow-panel">
+                <div class="text-sm font-medium text-warning">Needs setup</div>
+                <div class="mt-3 text-3xl font-semibold">2</div>
+                <div class="mt-4 text-sm text-[#8a5b00]">DM fallback and HubSpot write permissions are incomplete.</div>
+              </div>
+            </section>
+
+            <section id="apps" class="rounded-xl border border-line bg-white shadow-panel">
+              <div class="flex flex-col gap-3 border-b border-line px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 class="text-base font-semibold">Connected apps</h2>
+                  <p class="mt-1 text-sm text-muted">Apps agents can read from, write to, or receive messages from.</p>
+                </div>
+                <div class="flex gap-2">
+                  <button class="rounded-lg border border-line px-3 py-2 text-sm font-medium text-muted">Filter</button>
+                  <button class="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white">Add connector</button>
+                </div>
+              </div>
+
+              <div class="grid gap-3 p-5 lg:grid-cols-2">
+                <article class="rounded-xl border border-line bg-white p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <div class="relative h-10 w-10 shrink-0 rounded-lg bg-white">
+                        <span class="absolute left-[18px] top-1 h-5 w-2.5 rounded bg-[#36c5f0]"></span>
+                        <span class="absolute bottom-1 left-[18px] h-5 w-2.5 rounded bg-[#2eb67d]"></span>
+                        <span class="absolute left-1 top-[18px] h-2.5 w-5 rounded bg-[#e01e5a]"></span>
+                        <span class="absolute right-1 top-[18px] h-2.5 w-5 rounded bg-[#ecb22e]"></span>
+                      </div>
+                      <div>
+                        <div class="font-semibold">Slack</div>
+                        <div class="text-sm text-muted">deeplearning.ai / ocw</div>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-[#e9f7f1] px-2.5 py-1 text-xs font-medium text-brand">Connected</span>
+                  </div>
+                  <div class="mt-4 grid grid-cols-3 gap-2 text-xs">
+                    <div class="rounded-lg bg-panel px-3 py-2"><div class="font-medium">Inbound</div><div class="mt-1 text-muted">Socket Mode</div></div>
+                    <div class="rounded-lg bg-panel px-3 py-2"><div class="font-medium">Approvals</div><div class="mt-1 text-muted">Buttons</div></div>
+                    <div class="rounded-lg bg-panel px-3 py-2"><div class="font-medium">Allowed</div><div class="mt-1 text-muted">1 user</div></div>
+                  </div>
+                </article>
+
+                <article class="rounded-xl border border-line bg-white p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-[#dbeafe] text-sm font-bold text-blue">SF</div>
+                      <div>
+                        <div class="font-semibold">Salesforce</div>
+                        <div class="text-sm text-muted">CRM records and tasks</div>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-[#e9f7f1] px-2.5 py-1 text-xs font-medium text-brand">Connected</span>
+                  </div>
+                  <div class="mt-4 text-sm text-muted">Read accounts, opportunities, cases. Writes require approval.</div>
+                </article>
+
+                <article class="rounded-xl border border-line bg-white p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-[#fff1d6] text-sm font-bold text-[#9a5b00]">HS</div>
+                      <div>
+                        <div class="font-semibold">HubSpot</div>
+                        <div class="text-sm text-muted">Company and contact context</div>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-[#fff7df] px-2.5 py-1 text-xs font-medium text-[#8a5b00]">Needs scope</span>
+                  </div>
+                  <div class="mt-4 text-sm text-muted">Read enabled. Write access is missing for note creation.</div>
+                </article>
+
+                <article class="rounded-xl border border-dashed border-line bg-panel p-4">
+                  <div class="flex h-full min-h-28 flex-col items-center justify-center text-center">
+                    <div class="text-sm font-semibold">Connect another app</div>
+                    <div class="mt-1 max-w-xs text-sm text-muted">Jira, Zendesk, Gmail, Linear, Notion, Discord, and more.</div>
+                    <button class="mt-4 rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-muted">Browse catalog</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section id="routing" class="rounded-xl border border-line bg-white shadow-panel">
+              <div class="border-b border-line px-5 py-4">
+                <h2 class="text-base font-semibold">Message routing</h2>
+                <p class="mt-1 text-sm text-muted">Separate incoming messages, agent approvals, and dead-letter handling.</p>
+              </div>
+              <div class="grid gap-4 p-5 lg:grid-cols-3">
+                <div class="rounded-xl border border-line p-4">
+                  <div class="mb-3 flex items-center justify-between">
+                    <div class="font-semibold">Direct messages</div>
+                    <span class="rounded-full bg-[#fff7df] px-2 py-0.5 text-xs font-medium text-[#8a5b00]">Unset</span>
+                  </div>
+                  <p class="text-sm leading-6 text-muted">DMs to the bot are parked until you choose a default session.</p>
+                  <select class="mt-4 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm">
+                    <option>No session - park DMs</option>
+                    <option>Monitor launch feedback</option>
+                    <option>Support triage</option>
+                  </select>
+                </div>
+
+                <div class="rounded-xl border border-line p-4">
+                  <div class="mb-3 flex items-center justify-between">
+                    <div class="font-semibold">Unattended approvals</div>
+                    <span class="rounded-full bg-[#e9f7f1] px-2 py-0.5 text-xs font-medium text-brand">Slack</span>
+                  </div>
+                  <p class="text-sm leading-6 text-muted">Approvals and option questions post as interactive Slack cards.</p>
+                  <div class="mt-4 rounded-lg bg-panel px-3 py-2 text-sm font-medium">#agent-approvals</div>
+                </div>
+
+                <div class="rounded-xl border border-line p-4">
+                  <div class="mb-3 flex items-center justify-between">
+                    <div class="font-semibold">Unrouted events</div>
+                    <span class="rounded-full bg-panel px-2 py-0.5 text-xs font-medium text-muted">3 pending</span>
+                  </div>
+                  <p class="text-sm leading-6 text-muted">Messages that could not be routed stay visible for triage.</p>
+                  <button class="mt-4 rounded-lg border border-line px-3 py-2 text-sm font-medium text-muted">Review queue</button>
+                </div>
+              </div>
+            </section>
+
+            <section id="sessions" class="rounded-xl border border-line bg-white shadow-panel">
+              <div class="flex flex-col gap-3 border-b border-line px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 class="text-base font-semibold">Session subscriptions</h2>
+                  <p class="mt-1 text-sm text-muted">Which agents listen to which external channels and records.</p>
+                </div>
+                <button class="rounded-lg bg-ink px-3 py-2 text-sm font-medium text-white">Add subscription</button>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-[760px] text-left text-sm">
+                  <thead class="border-b border-line bg-panel text-xs uppercase tracking-wide text-faint">
+                    <tr>
+                      <th class="px-5 py-3 font-semibold">Session</th>
+                      <th class="px-5 py-3 font-semibold">Source</th>
+                      <th class="px-5 py-3 font-semibold">Filter</th>
+                      <th class="px-5 py-3 font-semibold">Last event</th>
+                      <th class="px-5 py-3 font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-line">
+                    <tr>
+                      <td class="px-5 py-4">
+                        <div class="font-medium">Monitor launch feedback</div>
+                        <div class="text-xs text-muted">Cowork · unattended</div>
+                      </td>
+                      <td class="px-5 py-4">
+                        <div class="font-medium">Slack #customer-launch</div>
+                        <div class="text-xs text-muted" title="slack:C0BD7KZ1AH5">C0BD7KZ1AH5</div>
+                      </td>
+                      <td class="px-5 py-4"><span class="rounded-full bg-panel px-2.5 py-1 text-xs font-medium">All messages</span></td>
+                      <td class="px-5 py-4 text-muted">2 min ago</td>
+                      <td class="px-5 py-4"><button class="text-sm font-medium text-brand">Manage</button></td>
+                    </tr>
+                    <tr>
+                      <td class="px-5 py-4">
+                        <div class="font-medium">Enterprise support triage</div>
+                        <div class="text-xs text-muted">Ops persona</div>
+                      </td>
+                      <td class="px-5 py-4">
+                        <div class="font-medium">Salesforce Enterprise Queue</div>
+                        <div class="text-xs text-muted">cases:priority-high</div>
+                      </td>
+                      <td class="px-5 py-4"><span class="rounded-full bg-panel px-2.5 py-1 text-xs font-medium">New cases</span></td>
+                      <td class="px-5 py-4 text-muted">18 min ago</td>
+                      <td class="px-5 py-4"><button class="text-sm font-medium text-brand">Manage</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="platform" class="grid gap-4 lg:grid-cols-2">
+              <div class="rounded-xl border border-line bg-white shadow-panel">
+                <div class="border-b border-line px-5 py-4">
+                  <h2 class="text-base font-semibold">MCP servers</h2>
+                  <p class="mt-1 text-sm text-muted">Local and remote tool servers available to sessions.</p>
+                </div>
+                <div class="space-y-3 p-5">
+                  <div class="flex items-center justify-between rounded-xl border border-line p-3">
+                    <div>
+                      <div class="font-medium">filesystem</div>
+                      <div class="text-sm text-muted">Local files · 8 tools</div>
+                    </div>
+                    <span class="rounded-full bg-[#e9f7f1] px-2 py-0.5 text-xs font-medium text-brand">Healthy</span>
+                  </div>
+                  <div class="flex items-center justify-between rounded-xl border border-line p-3">
+                    <div>
+                      <div class="font-medium">browser</div>
+                      <div class="text-sm text-muted">Playwright · 11 tools</div>
+                    </div>
+                    <span class="rounded-full bg-[#e9f7f1] px-2 py-0.5 text-xs font-medium text-brand">Healthy</span>
+                  </div>
+                </div>
+              </div>
+
+              <div id="unrouted" class="rounded-xl border border-line bg-white shadow-panel">
+                <div class="border-b border-line px-5 py-4">
+                  <h2 class="text-base font-semibold">Unrouted and failed messages</h2>
+                  <p class="mt-1 text-sm text-muted">A focused queue instead of burying these at the bottom.</p>
+                </div>
+                <div class="space-y-3 p-5">
+                  <div class="rounded-xl border border-[#f0d9a7] bg-[#fffaf0] p-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="font-medium">Slack DM from Maya Chen</div>
+                      <span class="text-xs text-[#8a5b00]">No DM route</span>
+                    </div>
+                    <p class="mt-2 text-sm text-muted">Can you check the Acme blocker?</p>
+                    <div class="mt-3 flex gap-2">
+                      <button class="rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-white">Route to session</button>
+                      <button class="rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted">Dismiss</button>
+                    </div>
+                  </div>
+                  <div class="rounded-xl border border-line p-3">
+                    <div class="font-medium">HubSpot action failed</div>
+                    <p class="mt-2 text-sm text-muted">Missing scope for note creation.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

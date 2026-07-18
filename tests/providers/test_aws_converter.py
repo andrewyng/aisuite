@@ -95,7 +95,7 @@ class TestBedrockMessageConverter(unittest.TestCase):
                     ],
                 }
             },
-            "stopReason": "complete",
+            "stopReason": "end_turn",
         }
 
         normalized_response = self.converter.convert_response(response)
@@ -106,6 +106,26 @@ class TestBedrockMessageConverter(unittest.TestCase):
             normalized_response.choices[0].message.content,
             "The most popular song on WZPZ is Elemental Hotel by 8 Storey Hike.",
         )
+
+    def test_convert_response_stop_sequence(self):
+        response = {
+            "output": {"message": {"role": "assistant", "content": [{"text": "hi"}]}},
+            "stopReason": "stop_sequence",
+        }
+
+        normalized_response = self.converter.convert_response(response)
+
+        self.assertEqual(normalized_response.choices[0].finish_reason, "stop")
+
+    def test_convert_response_max_tokens(self):
+        response = {
+            "output": {"message": {"role": "assistant", "content": [{"text": "hi"}]}},
+            "stopReason": "max_tokens",
+        }
+
+        normalized_response = self.converter.convert_response(response)
+
+        self.assertEqual(normalized_response.choices[0].finish_reason, "length")
 
 
 if __name__ == "__main__":

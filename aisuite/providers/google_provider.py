@@ -22,7 +22,6 @@ from aisuite.framework.message import (
 )
 from aisuite.provider import Provider, ASRError, Audio
 
-
 DEFAULT_TEMPERATURE = 0.7
 ENABLE_DEBUG_MESSAGES = False
 

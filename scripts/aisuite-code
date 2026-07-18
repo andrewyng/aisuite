@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../cli/py/aisuite-code-cli" && pwd)"
+cd "$CLI_DIR"
+exec python3 -m poetry run aisuite-code "$@"

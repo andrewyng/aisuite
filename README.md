@@ -1,70 +1,79 @@
+> ![NEW](https://img.shields.io/badge/%E2%9C%A8_NEW-8250df?style=for-the-badge)
+> ## OpenWorker
+> **An AI agent that lives on your desktop, built on aisuite.**
+>
+> OpenWorker is a desktop AI agent that can not only chat, but also do deep research and carry out tasks for
+> you on your computer. It can read files (with permission) to gain context, read/send messages (slack, email, etc.),
+> and create real deliverables like PDF reports, documents, spreadsheets. It also supports scheduled automations,
+> such as providing you a daily news summary. 
+>
+> Requires bringing your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama. Your data stays on your machine.
+>
+> [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-macos-arm64.dmg)
+> <sub>&nbsp;&nbsp;macOS 13+ (Apple Silicon)</sub> &nbsp;&nbsp;
+> 
+> [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-windows-setup.exe)
+> <sub>&nbsp;&nbsp;Windows 10/11 (x64) &nbsp;·&nbsp; </sub>
+>
+> [**Quickstart:**](docs/openworker-quickstart.md) — install, connect a model, first tasks, automations.
+> 
+> Its source lives in this repository under `platform/` — a working reference for building your own agent harness on aisuite.
+
+<br>
+
 #  aisuite
 
 [![PyPI](https://img.shields.io/pypi/v/aisuite)](https://pypi.org/project/aisuite/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-`aisuite` is a lightweight Python library that provides a **unified API for working with multiple Generative AI providers**.  
-It offers a consistent interface for models from *OpenAI, Anthropic, Google, Hugging Face, AWS, Cohere, Mistral, Ollama*, and others—abstracting away SDK differences, authentication details, and parameter variations.  
-Its design is modeled after OpenAI’s API style, making it instantly familiar and easy to adopt.
+`aisuite` is a lightweight Python library for building with LLMs, in two layers: a unified **Chat Completions API** across providers, and an **Agents API** with tools and toolkits on top. This repo is also home to **OpenWorker**, a desktop AI coworker built using aisuite:
 
-`aisuite` lets developers build and **run LLM-based or agentic applications across providers** with minimal setup.  
-While it’s not a full-blown agents framework, it includes simple abstractions for creating standalone, lightweight agents.  
-It’s designed for low learning curve — so you can focus on building AI systems, not integrating APIs.
+```text
+┌───────────────────────────────────────────────┐
+│                 OpenWorker                  │   agent harness for doing everyday tasks
+├───────────────────────────────────────────────┤
+│        Agents API  ·  Toolkits  ·  MCP        │   build agents across multiple LLMs
+├───────────────────────────────────────────────┤
+│             Chat Completions API              │   one API across multiple LLM providers
+├────────┬───────────┬────────┬────────┬────────┤
+│ OpenAI │ Anthropic │ Google │ Ollama │ Others │
+└────────┴───────────┴────────┴────────┴────────┘
+```
 
----
-
-## Key Features
-
-`aisuite` is designed to eliminate the complexity of working with multiple LLM providers while keeping your code simple and portable. Whether you're building a chatbot, an agentic application, or experimenting with different models, `aisuite` provides the abstractions you need without getting in your way.
-
-* **Unified API for multiple model providers** – Write your code once and run it with any supported provider. Switch between OpenAI, Anthropic, Google, and others with a single parameter change.
-* **Easy agentic app or agent creation** – Build multi-turn agentic applications using a single parameter `max_turns`. No need to manually manage tool execution loops.
-* **Pass Tool calls easily** – Pass real Python functions instead of JSON specs; aisuite handles schema generation and execution automatically.
-* **MCP tools** – Connect to MCP-based tools without writing boilerplate; aisuite handles connection, schema and execution seamlessly.
-* **Modular and extensible provider architecture** – Add support for new providers with minimal code. The plugin-style architecture makes extensions straightforward.
+* **[Chat Completions API](#chat-completions)** — a unified, OpenAI-style interface for *OpenAI, Anthropic, Google, Mistral, Hugging Face, AWS, Cohere, Ollama, OpenRouter, Requesty*, and more. Swap providers by changing one string.
+* **[Agents API · Toolkits · MCP](#agents)** — give models real Python functions as tools, run multi-turn loops, attach ready-made toolkits (files, git, shell) or any MCP server, and govern it all with tool policies.
+* **[OpenWorker](docs/openworker-quickstart.md)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks.
 
 ---
 
 ## Installation
 
-You can install just the base `aisuite` package, or install a provider's package along with `aisuite`.
+### The aisuite library (Python)
 
-Install just the base package without any provider SDKs:
-
-```shell
-pip install aisuite
-```
-
-Install aisuite with a specific provider (e.g., Anthropic):
+Install the base package, or include the SDKs of the providers you plan to use:
 
 ```shell
-pip install 'aisuite[anthropic]'
+pip install aisuite               # base package, no provider SDKs
+pip install 'aisuite[anthropic]'  # with a specific provider's SDK
+pip install 'aisuite[all]'        # with all provider SDKs
 ```
 
-Install aisuite with all provider libraries:
+You'll also need API keys for the providers you call — the [Chat Completions quickstart](docs/chat-completions-quickstart.md) covers key setup and your first calls.
 
-```shell
-pip install 'aisuite[all]'
-```
+### The OpenWorker app (desktop)
 
-## Setup
+Download the installer and bring your own API key (or run local models with Ollama):
 
-To get started, you will need API Keys for the providers you intend to use. You'll need to
-install the provider-specific library either separately or when installing aisuite.
+[**⬇ macOS (Apple Silicon)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-macos-arm64.dmg) &nbsp;·&nbsp; [**⬇ Windows 10/11 (x64)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-windows-setup.exe) &nbsp;·&nbsp; [OpenWorker quickstart](docs/openworker-quickstart.md)
 
-The API Keys can be set as environment variables, or can be passed as config to the aisuite Client constructor.
-You can use tools like [`python-dotenv`](https://pypi.org/project/python-dotenv/) or [`direnv`](https://direnv.net/) to set the environment variables manually. Please take a look at the `examples` folder to see usage.
+---
 
-Here is a short example of using `aisuite` to generate chat completion responses from gpt-4o and claude-3-5-sonnet.
+<a id="chat-completions"></a>
+## Chat Completions — one API across providers
 
-Set the API keys.
+The chat API provides a high-level abstraction for model interactions. It supports all core parameters (`temperature`, `max_tokens`, `tools`, etc.) in a provider-agnostic way, and standardizes request and response structures so you can focus on logic rather than SDK differences.
 
-```shell
-export OPENAI_API_KEY="your-openai-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-```
-
-Use the python client.
+Model names use the format `<provider>:<model-name>`; aisuite routes the call to the right provider with the right parameters:
 
 ```python
 import aisuite as ai
@@ -84,98 +93,34 @@ for model in models:
         temperature=0.75
     )
     print(response.choices[0].message.content)
-
 ```
 
-Note that the model name in the create() call uses the format - `<provider>:<model-name>`.
-`aisuite` will call the appropriate provider with the right parameters based on the provider value.
-For a list of provider values, you can look at the directory - `aisuite/providers/`. The list of supported providers are of the format - `<provider>_provider.py` in that directory. We welcome providers to add support to this library by adding an implementation file in this directory. Please see section below for how to contribute.
+**→ Quickstart:** [docs/chat-completions-quickstart.md](docs/chat-completions-quickstart.md) — install, key setup, local models, and more examples.
 
-For more examples, check out the `examples` directory where you will find several notebooks that you can run to experiment with the interface.
+### Streaming
 
----
-
-## Chat Completions
-
-The chat API provides a high-level abstraction for model interactions. It supports all core parameters (`temperature`, `max_tokens`, `tools`, etc.) in a provider-agnostic way.
+Pass `stream=True` to get an iterator of OpenAI-shaped chunks from any supporting provider (OpenAI, Anthropic, Ollama, and OpenAI-compatible endpoints) — the same loop works across all of them:
 
 ```python
-response = client.chat.completions.create(
-    model="google:gemini-pro",
-    messages=[{"role": "user", "content": "Summarize this paragraph."}],
-)
-print(response.choices[0].message.content)
+for chunk in client.chat.completions.create(model=model, messages=messages, stream=True):
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
 
-`aisuite` standardizes request and response structures so you can focus on logic rather than SDK differences.
+The async variant is `await client.chat.completions.acreate(..., stream=True)`, iterated with `async for`. Tool calls stream too: schema dicts and callables are passed to the model as usual, and the chunks carry incremental `delta.tool_calls` fragments for you to assemble and execute (streaming is manual tool calling — it can't be combined with `max_turns`).
 
 ---
 
-## Tool Calling & Agentic apps
+<a id="agents"></a>
+## Agents — give models real tools
 
-`aisuite` provides a simple abstraction for tool/function calling that works across supported providers. This is in addition to the regular abstraction of passing JSON spec of the tool to the `tools` parameter. The tool calling abstraction makes it easy to use tools with different LLMs without changing your code.
+aisuite turns tool calling into a one-liner: pass plain Python functions and it generates the schemas, executes the calls, and feeds results back to the model.
 
-There are two ways to use tools with `aisuite`:
-
-### 1. Manual Tool Handling
-
-This is the default behavior when `max_turns` is not specified. In this mode, you have full control over the tool execution flow. You pass tools using the standard OpenAI JSON schema format, and `aisuite` returns the LLM's tool call requests in the response. You're then responsible for executing the tools, processing results, and sending them back to the model in subsequent requests.
-
-This approach is useful when you need:
-- Fine-grained control over tool execution logic
-- Custom error handling or validation before executing tools
-- The ability to selectively execute or skip certain tool calls
-- Integration with existing tool execution pipelines
-
-You can pass tools in the OpenAI tool format:
+### Tool calling with `max_turns`
 
 ```python
 def will_it_rain(location: str, time_of_day: str):
     """Check if it will rain in a location at a given time today.
-    
-    Args:
-        location (str): Name of the city
-        time_of_day (str): Time of the day in HH:MM format.
-    """
-    return "YES"
 
-tools = [{
-    "type": "function",
-    "function": {
-        "name": "will_it_rain",
-        "description": "Check if it will rain in a location at a given time today",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "location": {
-                    "type": "string",
-                    "description": "Name of the city"
-                },
-                "time_of_day": {
-                    "type": "string",
-                    "description": "Time of the day in HH:MM format."
-                }
-            },
-            "required": ["location", "time_of_day"]
-        }
-    }
-}]
-
-response = client.chat.completions.create(
-    model="openai:gpt-4o",
-    messages=messages,
-    tools=tools
-)
-```
-
-### 2. Automatic Tool Execution
-
-When `max_turns` is specified, you can pass a list of callable Python functions as the `tools` parameter. `aisuite` will automatically handle the tool calling flow:
-
-```python
-def will_it_rain(location: str, time_of_day: str):
-    """Check if it will rain in a location at a given time today.
-    
     Args:
         location (str): Name of the city
         time_of_day (str): Time of the day in HH:MM format.
@@ -183,55 +128,53 @@ def will_it_rain(location: str, time_of_day: str):
     return "YES"
 
 client = ai.Client()
-messages = [{
-    "role": "user",
-    "content": "I live in San Francisco. Can you check for weather "
-               "and plan an outdoor picnic for me at 2pm?"
-}]
-
-# Automatic tool execution with max_turns
 response = client.chat.completions.create(
     model="openai:gpt-4o",
-    messages=messages,
+    messages=[{
+        "role": "user",
+        "content": "I live in San Francisco. Can you check for weather "
+                   "and plan an outdoor picnic for me at 2pm?"
+    }],
     tools=[will_it_rain],
     max_turns=2  # Maximum number of back-and-forth tool calls
 )
 print(response.choices[0].message.content)
 ```
 
-When `max_turns` is specified, `aisuite` will:
-1. Send your message to the LLM
-2. Execute any tool calls the LLM requests
-3. Send the tool results back to the LLM
-4. Repeat until the conversation is complete or max_turns is reached
+With `max_turns` set, aisuite sends your message, executes any tool calls the model requests, returns the results to the model, and repeats until the conversation completes. `response.choices[0].intermediate_messages` carries the full tool interaction history if you want to continue the conversation.
 
-In addition to `response.choices[0].message`, there is an additional field `response.choices[0].intermediate_messages` which contains the list of all messages including tool interactions used. This can be used to continue the conversation with the model.
-For more detailed examples of tool calling, check out the `examples/tool_calling_abstraction.ipynb` notebook.
+Prefer full manual control? Omit `max_turns` and pass OpenAI-format JSON tool specs — aisuite returns the model's tool-call requests and you run the loop yourself. See `examples/tool_calling_abstraction.ipynb` for both styles.
 
-### Model Context Protocol (MCP) Integration
+### The Agents API
 
-`aisuite` natively supports **MCP**, a standard protocol that allows LLMs to securely call external tools and access data. You can connect to MCP servers—such as a filesystem or database—and expose their tools directly to your model.
-Read more about MCP here - https://modelcontextprotocol.io/docs/getting-started/intro
-
-Install aisuite with MCP support:
-
-```shell
-pip install 'aisuite[mcp]'
-```
-
-You'll also need an MCP server. For example, to use the filesystem server:
-
-```shell
-npm install -g @modelcontextprotocol/server-filesystem
-```
-
-There are two ways to use MCP tools with aisuite:
-
-#### Option 1: Config Dict Format (Recommended for Simple Use Cases)
+For longer-running, structured work there is a first-class Agents API: declare an agent once, run it with a `Runner`, and attach **toolkits** — prebuilt, sandboxed tool families for files, git, and shell:
 
 ```python
 import aisuite as ai
+from aisuite import Agent, Runner
 
+agent = Agent(
+    name="repo-helper",
+    model="anthropic:claude-sonnet-4-6",
+    instructions="You are a careful repo assistant. Use your tools to answer from the code.",
+    tools=[*ai.toolkits.files(root="."), *ai.toolkits.git(root=".")],
+)
+
+result = Runner.run(agent, "What changed in the last commit? Summarize in 3 bullets.")
+print(result.final_output)
+```
+
+The Agents API also gives you the pieces a production harness needs:
+
+* **Tool policies** — `RequireApprovalPolicy`, allow/deny lists, or your own callable deciding which tool calls run.
+* **State stores** — persist and resume runs (in-memory, file, or Postgres) and continue conversations across processes.
+* **Artifacts & tracing** — capture what an agent produced and every step it took along the way.
+
+### MCP tools
+
+aisuite natively supports the [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro), so any MCP server's tools can be handed to a model without boilerplate (`pip install 'aisuite[mcp]'`):
+
+```python
 client = ai.Client()
 response = client.chat.completions.create(
     model="openai:gpt-4o",
@@ -244,37 +187,12 @@ response = client.chat.completions.create(
     }],
     max_turns=3
 )
-
 print(response.choices[0].message.content)
 ```
 
-#### Option 2: Explicit MCPClient (Recommended for Advanced Use Cases)
+For reusable connections, security filters, and tool prefixing, use the explicit `MCPClient`.
 
-```python
-import aisuite as ai
-from aisuite.mcp import MCPClient
-
-# Create MCP client once, reuse across requests
-mcp = MCPClient(
-    command="npx",
-    args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/directory"]
-)
-
-# Use with aisuite
-client = ai.Client()
-response = client.chat.completions.create(
-    model="openai:gpt-4o",
-    messages=[{"role": "user", "content": "List the files"}],
-    tools=mcp.get_callable_tools(),
-    max_turns=3
-)
-
-print(response.choices[0].message.content)
-mcp.close()  # Clean up
-```
-
-For detailed usage (security filters, tool prefixing, and `MCPClient` management), see [docs/mcp-tools.md](docs/mcp-tools.md).
-For detailed examples, see `examples/mcp_tools_example.ipynb`.
+**→ Quickstart:** [docs/agents-quickstart.md](docs/agents-quickstart.md) — manual tool handling, the full Agents API, policies, state stores, and MCP in depth.
 
 ---
 
