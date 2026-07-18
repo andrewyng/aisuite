@@ -326,6 +326,75 @@ def _validate_whatsapp(creds: dict) -> ValidationResult:
     )
 
 
+def _validate_clickup(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.clickup.com/api/v2/user",
+        headers={"Authorization": creds.get("api_token", "")},
+        identity=lambda d: d["user"]["username"],
+    )
+
+
+def _validate_close(creds: dict) -> ValidationResult:
+    import base64 as _b64
+
+    # Close authenticates with HTTP basic auth: the API key is the username, blank password.
+    pair = f"{creds.get('api_key', '')}:"
+    return _validate_whoami(
+        "GET",
+        "https://api.close.com/api/v1/me/",
+        headers={"Authorization": "Basic " + _b64.b64encode(pair.encode()).decode()},
+        identity=lambda d: d["email"],
+    )
+
+
+def _validate_figma(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.figma.com/v1/me",
+        headers={"X-Figma-Token": creds.get("access_token", "")},
+        identity=lambda d: d["email"],
+    )
+
+
+def _validate_google_drive(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://www.googleapis.com/drive/v3/about?fields=user",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d["user"]["emailAddress"],
+    )
+
+
+def _validate_docusign(creds: dict) -> ValidationResult:
+    # userinfo also carries accounts[] (account_id + base_uri); the tool layer
+    # re-fetches and caches those on first use, so validation only needs identity.
+    return _validate_whoami(
+        "GET",
+        "https://account.docusign.com/oauth/userinfo",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d["email"],
+    )
+
+
+def _validate_canva(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://api.canva.com/rest/v1/users/me/profile",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d["profile"]["display_name"],
+    )
+
+
+def _validate_outlook(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://graph.microsoft.com/v1.0/me",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d.get("mail") or d["userPrincipalName"],
+    )
+
+
 _ALLOWED_FIELD = Field(
     key="allowed_users",
     label="Allowed user IDs",
@@ -462,6 +531,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search, summarize, draft, and send email.",
         auth="oauth",
         two_way=False,
+        brand_color="#ea4335",
+        logo="gmail",
         fields=[
             Field(
                 "access_token",
@@ -551,6 +622,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search, summarize, draft, and send Microsoft 365 email.",
         auth="oauth",
         two_way=False,
+        brand_color="#0078d4",
+        logo="outlook",
         fields=[
             Field(
                 "access_token",
@@ -560,10 +633,15 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Use a Microsoft Graph OAuth access token with Mail and Calendar scopes.",
-            "Paste the access token below. Managed sign-in will replace this manual step later.",
+            "One click connects via OpenWorker Cloud (recommended).",
+            "Manual: paste a Microsoft Graph access token with Mail and Calendar scopes.",
         ],
+        validate=_validate_outlook,
         available=True,
+        managed=True,
+        # Key each connected mailbox by its email (the broker's `account` field,
+        # from the Microsoft id_token) — same multi-account shape as Gmail/Drive.
+        account_field="@identity",
     ),
     ConnectorDescriptor(
         name="jira",
@@ -572,6 +650,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search, summarize, create, and update issues.",
         auth="api_token",
         two_way=False,
+        brand_color="#0052cc",
+        logo="jira",
         fields=[
             Field(
                 "base_url",
@@ -595,6 +675,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search spaces, read pages, and draft documentation.",
         auth="api_token",
         two_way=False,
+        brand_color="#172b4d",
+        logo="confluence",
         fields=[
             Field(
                 "base_url",
@@ -618,6 +700,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search tickets, summarize customer context, and draft replies.",
         auth="api_token",
         two_way=False,
+        brand_color="#03363d",
+        logo="zendesk",
         fields=[
             Field(
                 "subdomain",
@@ -641,6 +725,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search, read, and create Linear issues.",
         auth="api_token",
         two_way=False,
+        brand_color="#5e6ad2",
+        logo="linear",
         fields=[
             Field(
                 "api_key",
@@ -663,6 +749,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Work with issues and merge requests on GitLab.com or self-hosted.",
         auth="token",
         two_way=False,
+        brand_color="#fc6d26",
+        logo="gitlab",
         fields=[
             Field(
                 "base_url",
@@ -692,6 +780,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Read channels and send messages through a Discord bot.",
         auth="bot_token",
         two_way=False,
+        brand_color="#5865f2",
+        logo="discord",
         fields=[
             Field(
                 "bot_token",
@@ -714,6 +804,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Read-only access to customers, charges, and invoices.",
         auth="api_token",
         two_way=False,
+        brand_color="#635bff",
+        logo="stripe",
         fields=[
             Field(
                 "api_key",
@@ -735,6 +827,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search tasks, read details, and create tasks.",
         auth="token",
         two_way=False,
+        brand_color="#f06a6a",
+        logo="asana",
         fields=[
             Field(
                 "token",
@@ -782,6 +876,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search, browse, and read files in Dropbox.",
         auth="oauth",
         two_way=False,
+        brand_color="#0061ff",
+        logo="dropbox",
         fields=[
             Field(
                 "access_token",
@@ -803,6 +899,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Search, browse, and read files in Box.",
         auth="oauth",
         two_way=False,
+        brand_color="#0061d5",
+        logo="box",
         fields=[
             Field(
                 "access_token",
@@ -824,6 +922,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Send WhatsApp messages through Meta's official Cloud API (outbound only).",
         auth="token",
         two_way=False,
+        brand_color="#25d366",
+        logo="whatsapp",
         fields=[
             Field(
                 "access_token",
@@ -852,6 +952,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         blurb="Read-only access to customers, invoices, and financial reports.",
         auth="oauth",
         two_way=False,
+        brand_color="#2ca01c",
+        logo="quickbooks",
         fields=[
             Field(
                 "access_token",
@@ -912,6 +1014,184 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         logo="salesforce",
     ),
     ConnectorDescriptor(
+        name="docusign",
+        title="Docusign",
+        icon="✍",
+        blurb="Track agreements, check envelope status, and send documents for signature.",
+        auth="oauth",
+        two_way=False,
+        brand_color="#4c00ff",
+        logo="docusign",
+        fields=[
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Access token from a Docusign app (JWT or authorization-code grant).",
+            ),
+        ],
+        instructions=[
+            "Create an app in the Docusign developer console and complete an OAuth grant.",
+            "Paste the access token below; the account and API base are discovered automatically.",
+        ],
+        validate=_validate_docusign,
+        available=True,
+    ),
+    ConnectorDescriptor(
+        name="clickup",
+        title="ClickUp",
+        icon="⌃",
+        blurb="Search tasks and docs; create and update items.",
+        auth="api_token",
+        two_way=False,
+        brand_color="#7b68ee",
+        logo="clickup",
+        fields=[
+            Field(
+                "api_token",
+                "Personal API token",
+                secret=True,
+                help="ClickUp → Settings → Apps → API Token.",
+                placeholder="pk_…",
+            ),
+        ],
+        instructions=[
+            "In ClickUp, open Settings → Apps and generate a personal API token.",
+            "Paste it below.",
+        ],
+        validate=_validate_clickup,
+        available=True,
+    ),
+    ConnectorDescriptor(
+        name="google_drive",
+        title="Google Drive",
+        icon="◬",
+        blurb="Search, browse, and read files in Google Drive.",
+        auth="oauth",
+        two_way=False,
+        brand_color="#4285f4",
+        logo="google_drive",
+        fields=[
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Google OAuth token with Drive read scopes.",
+            ),
+        ],
+        instructions=[
+            "One click connects via OpenCoworker Cloud (recommended).",
+            "Manual: use a Google OAuth access token with Drive readonly scope.",
+        ],
+        validate=_validate_google_drive,
+        available=True,
+        managed=True,
+        # Key each connected account by its Google email (the broker's `account`
+        # field) so multiple Drive accounts list the same way Gmail's do, rather
+        # than by the opaque `sub` that account_field="account_id" would use.
+        account_field="@identity",
+    ),
+    ConnectorDescriptor(
+        name="canva",
+        title="Canva",
+        icon="◠",
+        blurb="Browse, create, and export designs.",
+        auth="oauth",
+        two_way=False,
+        brand_color="#00c4cc",
+        logo="canva",
+        fields=[
+            Field(
+                "access_token",
+                "OAuth access token",
+                secret=True,
+                help="Access token from a Canva Connect integration.",
+            ),
+        ],
+        instructions=[
+            "Create a Connect integration at canva.com/developers and complete an OAuth grant.",
+            "Paste the access token below.",
+        ],
+        validate=_validate_canva,
+        available=True,
+    ),
+    ConnectorDescriptor(
+        name="figma",
+        title="Figma",
+        icon="◐",
+        blurb="Read design files and comments; export assets.",
+        auth="api_token",
+        two_way=False,
+        brand_color="#f24e1e",
+        logo="figma",
+        fields=[
+            Field(
+                "access_token",
+                "Personal access token",
+                secret=True,
+                help="Figma → Settings → Security → Personal access tokens.",
+                placeholder="figd_…",
+            ),
+        ],
+        instructions=[
+            "In Figma, open Settings → Security and generate a personal access token.",
+            "Paste it below.",
+        ],
+        validate=_validate_figma,
+        available=True,
+    ),
+    ConnectorDescriptor(
+        name="descript",
+        title="Descript",
+        icon="≣",
+        blurb="Read and edit audio and video projects through their transcripts.",
+        auth="none",
+        two_way=False,
+        fields=[],
+        instructions=[],
+        available=False,
+        brand_color="#0062ff",
+        logo="descript",
+    ),
+    ConnectorDescriptor(
+        name="clay",
+        title="Clay",
+        icon="⌒",
+        blurb="Enrich people and companies; run outbound research workflows.",
+        auth="none",
+        two_way=False,
+        fields=[],
+        instructions=[],
+        available=False,
+        brand_color="#1f2328",
+        logo="clay",
+    ),
+    ConnectorDescriptor(
+        name="close",
+        title="Close",
+        icon="❋",
+        blurb="Read and update leads, contacts, and opportunities in the CRM.",
+        auth="api_token",
+        two_way=False,
+        brand_color="#276392",
+        logo="close",
+        fields=[
+            Field(
+                "api_key",
+                "API key",
+                secret=True,
+                help="Close → Settings → Developer → API Keys.",
+                placeholder="api_…",
+            ),
+        ],
+        instructions=[
+            "In Close, open Settings → Developer → API Keys and create a key.",
+            "Paste it below.",
+        ],
+        validate=_validate_close,
+        available=True,
+    ),
+    ConnectorDescriptor(
         name="notion",
         title="Notion",
         icon="◰",
@@ -935,6 +1215,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_notion,
         brand_color="#1f2328",
+        logo="notion",
         managed=True,
         # Managed profiles key by the workspace id the broker sends
         # (account_id); a manual integration token falls back to the
@@ -962,6 +1243,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_attio,
         brand_color="#2d7ff9",
+        logo="attio",
         managed=True,
         account_field="account_id",
     ),
@@ -1000,6 +1282,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_posthog,
         brand_color="#f54e00",
+        logo="posthog",
         account_field="project_id",
     ),
     ConnectorDescriptor(
@@ -1024,6 +1307,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_mixpanel,
         brand_color="#7856ff",
+        logo="mixpanel",
         account_field="project_id",
     ),
     ConnectorDescriptor(
@@ -1045,6 +1329,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_amplitude,
         brand_color="#1e61f0",
+        logo="amplitude",
         account_field="@identity",
     ),
     ConnectorDescriptor(
@@ -1072,6 +1357,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_apollo,
         brand_color="#fbbf24",
+        logo="apollo",
         account_field="@identity",
     ),
     ConnectorDescriptor(
@@ -1091,6 +1377,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_hunter,
         brand_color="#fa5320",
+        logo="hunter",
         account_field="@identity",
     ),
     ConnectorDescriptor(

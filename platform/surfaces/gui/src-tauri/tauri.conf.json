@@ -29,7 +29,8 @@
     ],
     "externalBin": ["binaries/coworker-server"],
     "macOS": {
-      "entitlements": "entitlements.plist"
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "12.0"
     },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },

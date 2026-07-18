@@ -688,6 +688,19 @@ _NEW_CONNECTORS = {
     "hunter": {"api_key": "hun_x"},
     "notion": {"access_token": "ntn_x"},
     "attio": {"access_token": "attio_x"},
+    # Batch 3.
+    "clickup": {"api_token": "pk_x"},
+    "close": {"api_key": "api_close_x"},
+    "figma": {"access_token": "figd_x"},
+    "google_drive": {"access_token": "ya29.x"},
+    # account_id/base_uri pre-cached so routing tests skip userinfo discovery
+    # (discovery itself is covered by test_docusign_account_discovery_caches).
+    "docusign": {
+        "access_token": "ds_x",
+        "account_id": "acc-1",
+        "base_uri": "https://demo.docusign.net",
+    },
+    "canva": {"access_token": "cnv_x"},
 }
 
 
@@ -708,6 +721,9 @@ def test_new_connector_descriptors_listed(tmp_path):
     assert all(t["kind"] == "read" for t in by_name["dropbox"]["tools"])
     assert all(t["kind"] == "read" for t in by_name["box"]["tools"])
     assert all(t["kind"] == "read" for t in by_name["quickbooks"]["tools"])
+    # google_drive (scope discipline) and canva (exports are renders) too
+    assert all(t["kind"] == "read" for t in by_name["google_drive"]["tools"])
+    assert all(t["kind"] == "read" for t in by_name["canva"]["tools"])
 
 
 def test_new_connectors_connect_and_gate_tools(tmp_path):
@@ -753,6 +769,12 @@ def test_new_tools_error_when_not_connected(tmp_path):
     assert "not connected" in tools["dropbox_list_folder"]()["error"]
     assert "not connected" in tools["box_read_file"]("1")["error"]
     assert "not connected" in tools["quickbooks_query"]("SELECT * FROM Bill")["error"]
+    assert "not connected" in tools["clickup_list_teams"]()["error"]
+    assert "not connected" in tools["close_search_leads"]("acme")["error"]
+    assert "not connected" in tools["figma_get_file"]("KEY1")["error"]
+    assert "not connected" in tools["drive_search_files"]("plan")["error"]
+    assert "not connected" in tools["docusign_list_envelopes"]()["error"]
+    assert "not connected" in tools["canva_list_designs"]()["error"]
 
 
 def _connected_tools(tmp_path, monkeypatch, calls):
@@ -771,6 +793,7 @@ def _connected_tools(tmp_path, monkeypatch, calls):
                 "headers": headers or {},
                 "params": params,
                 "json": json,
+                "auth": auth,
             }
         )
         return {"ok": True, "data": {}}
@@ -946,6 +969,185 @@ def test_batch2_tools_request_routing(tmp_path, monkeypatch):
     assert calls[-1]["json"]["data"]["format"] == "plaintext"
 
 
+def test_batch3_tools_request_routing(tmp_path, monkeypatch):
+    calls = []
+    tools = _connected_tools(tmp_path, monkeypatch, calls)
+
+    # ClickUp: raw personal token in Authorization (no Bearer).
+    tools["clickup_list_teams"]()
+    assert calls[-1]["url"] == "https://api.clickup.com/api/v2/team"
+    assert calls[-1]["headers"]["Authorization"] == "pk_x"
+
+    tools["clickup_list_tasks"]("l-9", include_closed=True)
+    assert calls[-1]["url"] == "https://api.clickup.com/api/v2/list/l-9/task"
+    assert calls[-1]["params"]["include_closed"] == "true"
+
+    tools["clickup_create_task"]("l-9", "Ship logos", "brand marks")
+    assert calls[-1]["method"] == "POST"
+    assert calls[-1]["json"] == {"name": "Ship logos", "description": "brand marks"}
+
+    tools["clickup_update_task"]("t-1", status="done")
+    assert calls[-1]["method"] == "PUT"
+    assert calls[-1]["json"] == {"status": "done"}
+    assert "nothing to update" in tools["clickup_update_task"]("t-1")["error"]
+
+    tools["clickup_add_comment"]("t-1", "on it")
+    assert calls[-1]["url"].endswith("/task/t-1/comment")
+    assert calls[-1]["json"] == {"comment_text": "on it"}
+
+    # Close: basic auth (key as username, blank password).
+    tools["close_search_leads"]("status:potential acme", max_results=5)
+    assert calls[-1]["url"] == "https://api.close.com/api/v1/lead/"
+    assert calls[-1]["auth"] == ("api_close_x", "")
+    assert calls[-1]["params"] == {"query": "status:potential acme", "_limit": 5}
+
+    tools["close_get_lead"]("lead_1")
+    assert calls[-1]["url"] == "https://api.close.com/api/v1/lead/lead_1/"
+
+    tools["close_list_opportunities"](lead_id="lead_1")
+    assert calls[-1]["params"]["lead_id"] == "lead_1"
+
+    tools["close_create_lead"]("Acme", contact_name="Ada", contact_email="a@acme.io")
+    assert calls[-1]["json"]["contacts"] == [
+        {"name": "Ada", "emails": [{"email": "a@acme.io"}]}
+    ]
+
+    tools["close_update_opportunity"]("opp_1", status_id="stat_won")
+    assert calls[-1]["url"].endswith("/opportunity/opp_1/")
+    assert "nothing to update" in tools["close_update_opportunity"]("opp_1")["error"]
+
+    tools["close_log_note"]("lead_1", "call went well")
+    assert calls[-1]["url"] == "https://api.close.com/api/v1/activity/note/"
+
+    # Figma: PAT in X-Figma-Token.
+    tools["figma_get_comments"]("KEY1")
+    assert calls[-1]["url"] == "https://api.figma.com/v1/files/KEY1/comments"
+    assert calls[-1]["headers"]["X-Figma-Token"] == "figd_x"
+
+    tools["figma_post_comment"]("KEY1", "looks good", reply_to="c9")
+    assert calls[-1]["json"] == {"message": "looks good", "comment_id": "c9"}
+
+    tools["figma_export_images"]("KEY1", "1:2,1:3", format="svg")
+    assert calls[-1]["url"] == "https://api.figma.com/v1/images/KEY1"
+    assert calls[-1]["params"]["ids"] == "1:2,1:3"
+
+    # Drive: bearer token; quotes escaped into the q expression.
+    tools["drive_search_files"]("Q3 plan's", max_results=5)
+    assert calls[-1]["url"] == "https://www.googleapis.com/drive/v3/files"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer ya29.x"
+    assert "Q3 plan\\'s" in calls[-1]["params"]["q"]
+    assert "trashed=false" in calls[-1]["params"]["q"]
+
+    tools["drive_list_folder"]()
+    assert calls[-1]["params"]["q"] == "'root' in parents and trashed=false"
+
+    # Docusign: cached account routes straight to the account's base_uri.
+    tools["docusign_list_envelopes"](status="completed", since_days=7)
+    assert calls[-1]["url"] == (
+        "https://demo.docusign.net/restapi/v2.1/accounts/acc-1/envelopes"
+    )
+    assert calls[-1]["params"]["status"] == "completed"
+
+    tools["docusign_get_envelope"]("env-1")
+    assert calls[-1]["url"].endswith("/envelopes/env-1")
+    assert calls[-1]["params"] == {"include": "recipients"}
+
+    tools["docusign_send_from_template"]("tpl-1", "a@b.co", "Ada", subject="NDA")
+    assert calls[-1]["json"]["templateRoles"] == [
+        {"email": "a@b.co", "name": "Ada", "roleName": "Signer"}
+    ]
+    assert calls[-1]["json"]["status"] == "sent"
+
+    # Canva: bearer token; export is a job POST.
+    tools["canva_list_designs"]("deck", max_results=5)
+    assert calls[-1]["url"] == "https://api.canva.com/rest/v1/designs"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer cnv_x"
+    assert calls[-1]["params"] == {"limit": 5, "query": "deck"}
+
+    tools["canva_export_design"]("d1", format="png")
+    assert calls[-1]["url"] == "https://api.canva.com/rest/v1/exports"
+    assert calls[-1]["json"] == {"design_id": "d1", "format": {"type": "png"}}
+
+    tools["canva_get_export"]("exp1")
+    assert calls[-1]["url"] == "https://api.canva.com/rest/v1/exports/exp1"
+
+
+def test_docusign_account_discovery_caches(tmp_path, monkeypatch):
+    import coworker.connectors.integration_tools as it
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put("docusign:default", {"access_token": "ds_x", "enabled": True})
+    calls = []
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append(url)
+        if url.endswith("/oauth/userinfo"):
+            return {
+                "ok": True,
+                "data": {
+                    "accounts": [
+                        {
+                            "account_id": "other",
+                            "base_uri": "https://x",
+                            "is_default": False,
+                        },
+                        {
+                            "account_id": "acc-9",
+                            "base_uri": "https://eu.docusign.net",
+                            "is_default": True,
+                        },
+                    ]
+                },
+            }
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+
+    tools["docusign_list_templates"]()
+    assert calls[0] == "https://account.docusign.com/oauth/userinfo"
+    assert calls[1] == "https://eu.docusign.net/restapi/v2.1/accounts/acc-9/templates"
+    # Discovery result is cached on the profile — no second userinfo round-trip.
+    assert secrets.get("docusign:default")["account_id"] == "acc-9"
+    tools["docusign_list_envelopes"]()
+    assert not any(u.endswith("/oauth/userinfo") for u in calls[2:])
+
+
+def test_drive_read_file_exports_google_docs(tmp_path, monkeypatch):
+    import coworker.connectors.integration_tools as it
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put("google_drive:default", {"access_token": "ya29.x", "enabled": True})
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        if url.endswith("/export"):
+            return {"ok": True, "data": "Doc body text"}
+        return {
+            "ok": True,
+            "data": {
+                "id": "f1",
+                "name": "Plan",
+                "mimeType": "application/vnd.google-apps.document",
+            },
+        }
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    out = tools["drive_read_file"]("f1")
+    assert out["ok"] is True and out["content"] == "Doc body text"
+
+    # Native Google types with no text export refuse instead of dumping binary.
+    def fake_request_drawing(method, url, **kw):
+        return {
+            "ok": True,
+            "data": {"mimeType": "application/vnd.google-apps.drawing"},
+        }
+
+    monkeypatch.setattr(it, "_request", fake_request_drawing)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    assert "cannot read" in tools["drive_read_file"]("f2")["error"]
+
+
 def test_notion_read_page_flattens_blocks(tmp_path, monkeypatch):
     import coworker.connectors.integration_tools as it
     from coworker.connectors import accounts
@@ -1007,6 +1209,79 @@ def test_managed_callback_profile_keys_by_account_id(tmp_path):
     # display names survive; default stays the first workspace
     rows = accounts.account_rows(secrets, "notion")
     assert rows[0]["name"] == "Rohit's Workspace" and rows[0]["default"]
+
+
+def test_google_drive_multi_account_keys_by_email(tmp_path):
+    """Managed Drive must add multiple accounts keyed by email — the same way
+    Gmail does — not by the opaque Google `sub`. The broker sends both `account`
+    (email) and `account_id` (sub); account_field="@identity" makes the email win."""
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    p1 = managed_profile_from_callback(
+        {
+            "access_token": "t1",
+            "account": "rohit@opencoworker.app",
+            "account_id": "114835900000000000001",  # Google sub — must NOT be the key
+            "provider": "google",
+            "connection_id": "c1",
+        }
+    )
+    managed_connect_connector(secrets, "google_drive", p1)
+    p2 = managed_profile_from_callback(
+        {
+            "access_token": "t2",
+            "account": "work@acme.com",
+            "account_id": "114835900000000000002",
+            "provider": "google",
+        }
+    )
+    managed_connect_connector(secrets, "google_drive", p2)
+
+    ids = [a for a, _ in accounts.list_accounts(secrets, "google_drive")]
+    assert ids == ["rohit@opencoworker.app", "work@acme.com"], ids
+    # The default resolves to the first email, and the account param selects the other.
+    _, _, prof = accounts.resolve(secrets, "google_drive", "work@acme.com")
+    assert prof["access_token"] == "t2"
+
+
+def test_outlook_managed_multi_account_keys_by_email(tmp_path, monkeypatch):
+    """Managed Outlook mirrors Gmail/Drive: broker `account` (email from the
+    Microsoft id_token) keys each mailbox; tools take an account param."""
+    import coworker.connectors.integration_tools as it
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    for email, tok in (("rohit@openworker.com", "g1"), ("ops@acme.com", "g2")):
+        managed_connect_connector(
+            secrets,
+            "outlook",
+            managed_profile_from_callback(
+                {"access_token": tok, "account": email, "provider": "microsoft"}
+            ),
+        )
+    ids = [a for a, _ in accounts.list_accounts(secrets, "outlook")]
+    assert ids == ["ops@acme.com", "rohit@openworker.com"], ids
+
+    calls = []
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"url": url, "headers": headers or {}})
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    out = tools["outlook_search_messages"]("q", account="ops@acme.com")
+    assert out["account"] == "ops@acme.com"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer g2"
+    # default account = first connected (rohit@ was added first)
+    out = tools["outlook_list_events"]()
+    assert out["account"] == "rohit@openworker.com"
+    assert calls[-1]["url"] == "https://graph.microsoft.com/v1.0/me/events"
 
 
 def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):
@@ -1097,9 +1372,25 @@ def test_new_write_tools_require_approval(tmp_path, monkeypatch):
         "whatsapp_send_template",
         "notion_create_page",
         "attio_create_note",
+        "clickup_create_task",
+        "clickup_update_task",
+        "clickup_add_comment",
+        "close_create_lead",
+        "close_update_opportunity",
+        "close_log_note",
+        "figma_post_comment",
+        "docusign_send_from_template",
     ):
         assert tools[name].__aisuite_tool_metadata__.requires_approval is True, name
-    for name in ("stripe_search_customers", "dropbox_read_file", "box_search"):
+    for name in (
+        "stripe_search_customers",
+        "dropbox_read_file",
+        "box_search",
+        "drive_read_file",
+        "figma_export_images",
+        "docusign_list_envelopes",
+        "canva_export_design",
+    ):
         assert tools[name].__aisuite_tool_metadata__.requires_approval is False, name
 
 
@@ -1150,6 +1441,12 @@ def test_new_connector_validators_wired():
         "box",
         "quickbooks",
         "whatsapp",
+        "clickup",
+        "close",
+        "figma",
+        "google_drive",
+        "docusign",
+        "canva",
     ):
         assert get_descriptor(name).validate is not None, name
     # stripe restricted-key permissions vary, so it has no whoami validator

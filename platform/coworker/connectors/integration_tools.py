@@ -1306,19 +1306,24 @@ def make_integration_tools(
     )
 
     def outlook_search_messages(
-        query: str = "", max_results: int = 10
+        query: str = "", max_results: int = 10, account: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
         params = {"$top": max(1, min(int(max_results or 10), 20))}
         if query:
             params["$search"] = f'"{query}"'
-        return _request(
-            "GET",
-            "https://graph.microsoft.com/v1.0/me/messages",
-            headers=_graph_headers(profile["access_token"]),
-            params=params,
+        return _acct_result(
+            aid,
+            _request(
+                "GET",
+                "https://graph.microsoft.com/v1.0/me/messages",
+                headers=_graph_headers(profile["access_token"]),
+                params=params,
+            ),
         )
 
     outlook_search_messages.__name__ = "outlook_search_messages"
@@ -1328,15 +1333,23 @@ def make_integration_tools(
             _schema(
                 "outlook_search_messages",
                 "Search or list Outlook messages through Microsoft Graph.",
-                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
                 [],
             ),
             caps=["outlook", "read"],
         )
     )
 
-    def outlook_send_mail(to: str, subject: str, body: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+    def outlook_send_mail(
+        to: str, subject: str, body: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
         payload = {
@@ -1346,11 +1359,14 @@ def make_integration_tools(
                 "toRecipients": [{"emailAddress": {"address": to}}],
             }
         }
-        return _request(
-            "POST",
-            "https://graph.microsoft.com/v1.0/me/sendMail",
-            headers=_graph_headers(profile["access_token"]),
-            json=payload,
+        return _acct_result(
+            aid,
+            _request(
+                "POST",
+                "https://graph.microsoft.com/v1.0/me/sendMail",
+                headers=_graph_headers(profile["access_token"]),
+                json=payload,
+            ),
         )
 
     outlook_send_mail.__name__ = "outlook_send_mail"
@@ -1364,6 +1380,7 @@ def make_integration_tools(
                     "to": {"type": "string"},
                     "subject": {"type": "string"},
                     "body": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
                 },
                 ["to", "subject", "body"],
             ),
@@ -1372,15 +1389,20 @@ def make_integration_tools(
         )
     )
 
-    def outlook_list_events(max_results: int = 10) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+    def outlook_list_events(max_results: int = 10, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
-        return _request(
-            "GET",
-            "https://graph.microsoft.com/v1.0/me/events",
-            headers=_graph_headers(profile["access_token"]),
-            params={"$top": max(1, min(int(max_results or 10), 20))},
+        return _acct_result(
+            aid,
+            _request(
+                "GET",
+                "https://graph.microsoft.com/v1.0/me/events",
+                headers=_graph_headers(profile["access_token"]),
+                params={"$top": max(1, min(int(max_results or 10), 20))},
+            ),
         )
 
     outlook_list_events.__name__ = "outlook_list_events"
@@ -1390,7 +1412,7 @@ def make_integration_tools(
             _schema(
                 "outlook_list_events",
                 "List Outlook calendar events through Microsoft Graph.",
-                {"max_results": {"type": "integer"}},
+                {"max_results": {"type": "integer"}, "account": _GEN_ACCOUNT_PROP},
                 [],
             ),
             caps=["outlook", "read"],
@@ -1398,9 +1420,16 @@ def make_integration_tools(
     )
 
     def outlook_create_event(
-        subject: str, start: str, end: str, timezone: str = "UTC", body: str = ""
+        subject: str,
+        start: str,
+        end: str,
+        timezone: str = "UTC",
+        body: str = "",
+        account: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
         payload = {
@@ -1409,11 +1438,14 @@ def make_integration_tools(
             "start": {"dateTime": start, "timeZone": timezone},
             "end": {"dateTime": end, "timeZone": timezone},
         }
-        return _request(
-            "POST",
-            "https://graph.microsoft.com/v1.0/me/events",
-            headers=_graph_headers(profile["access_token"]),
-            json=payload,
+        return _acct_result(
+            aid,
+            _request(
+                "POST",
+                "https://graph.microsoft.com/v1.0/me/events",
+                headers=_graph_headers(profile["access_token"]),
+                json=payload,
+            ),
         )
 
     outlook_create_event.__name__ = "outlook_create_event"
@@ -1429,6 +1461,7 @@ def make_integration_tools(
                     "end": {"type": "string"},
                     "timezone": {"type": "string"},
                     "body": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
                 },
                 ["subject", "start", "end"],
             ),
@@ -3650,6 +3683,1025 @@ def make_integration_tools(
                 ["email"],
             ),
             caps=["hunter", "read"],
+        )
+    )
+
+    # --- ClickUp ------------------------------------------------------------
+
+    _CLICKUP = "https://api.clickup.com/api/v2"
+
+    def clickup_list_teams() -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "GET", f"{_CLICKUP}/team", headers={"Authorization": profile["api_token"]}
+        )
+
+    clickup_list_teams.__name__ = "clickup_list_teams"
+    tools.append(
+        _attach(
+            clickup_list_teams,
+            _schema(
+                "clickup_list_teams",
+                "List ClickUp workspaces (team ids are needed to browse spaces).",
+                {},
+                [],
+            ),
+            caps=["clickup", "read"],
+        )
+    )
+
+    def clickup_list_spaces(team_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CLICKUP}/team/{quote(team_id)}/space",
+            headers={"Authorization": profile["api_token"]},
+        )
+
+    clickup_list_spaces.__name__ = "clickup_list_spaces"
+    tools.append(
+        _attach(
+            clickup_list_spaces,
+            _schema(
+                "clickup_list_spaces",
+                "List spaces in a ClickUp workspace.",
+                {"team_id": {"type": "string"}},
+                ["team_id"],
+            ),
+            caps=["clickup", "read"],
+        )
+    )
+
+    def clickup_list_lists(space_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CLICKUP}/space/{quote(space_id)}/list",
+            headers={"Authorization": profile["api_token"]},
+        )
+
+    clickup_list_lists.__name__ = "clickup_list_lists"
+    tools.append(
+        _attach(
+            clickup_list_lists,
+            _schema(
+                "clickup_list_lists",
+                "List folderless lists in a ClickUp space (list ids hold the tasks).",
+                {"space_id": {"type": "string"}},
+                ["space_id"],
+            ),
+            caps=["clickup", "read"],
+        )
+    )
+
+    def clickup_list_tasks(
+        list_id: str, include_closed: bool = False, max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CLICKUP}/list/{quote(list_id)}/task",
+            headers={"Authorization": profile["api_token"]},
+            params={
+                "include_closed": str(bool(include_closed)).lower(),
+                "page": 0,
+            },
+        )
+
+    clickup_list_tasks.__name__ = "clickup_list_tasks"
+    tools.append(
+        _attach(
+            clickup_list_tasks,
+            _schema(
+                "clickup_list_tasks",
+                "List tasks in a ClickUp list.",
+                {
+                    "list_id": {"type": "string"},
+                    "include_closed": {"type": "boolean"},
+                    "max_results": {"type": "integer"},
+                },
+                ["list_id"],
+            ),
+            caps=["clickup", "read"],
+        )
+    )
+
+    def clickup_get_task(task_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CLICKUP}/task/{quote(task_id)}",
+            headers={"Authorization": profile["api_token"]},
+            params={"include_subtasks": "true"},
+        )
+
+    clickup_get_task.__name__ = "clickup_get_task"
+    tools.append(
+        _attach(
+            clickup_get_task,
+            _schema(
+                "clickup_get_task",
+                "Read a ClickUp task (with subtasks) by id.",
+                {"task_id": {"type": "string"}},
+                ["task_id"],
+            ),
+            caps=["clickup", "read"],
+        )
+    )
+
+    def clickup_create_task(
+        list_id: str, name: str, description: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            f"{_CLICKUP}/list/{quote(list_id)}/task",
+            headers={"Authorization": profile["api_token"]},
+            json={"name": name, "description": description},
+        )
+
+    clickup_create_task.__name__ = "clickup_create_task"
+    tools.append(
+        _attach(
+            clickup_create_task,
+            _schema(
+                "clickup_create_task",
+                "Create a ClickUp task in a list. Requires user approval.",
+                {
+                    "list_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                ["list_id", "name"],
+            ),
+            approval=True,
+            caps=["clickup", "write"],
+        )
+    )
+
+    def clickup_update_task(
+        task_id: str, name: str = "", description: str = "", status: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        body: dict[str, Any] = {}
+        if name:
+            body["name"] = name
+        if description:
+            body["description"] = description
+        if status:
+            body["status"] = status
+        if not body:
+            return {"error": "nothing to update: pass name, description, or status"}
+        return _request(
+            "PUT",
+            f"{_CLICKUP}/task/{quote(task_id)}",
+            headers={"Authorization": profile["api_token"]},
+            json=body,
+        )
+
+    clickup_update_task.__name__ = "clickup_update_task"
+    tools.append(
+        _attach(
+            clickup_update_task,
+            _schema(
+                "clickup_update_task",
+                "Update a ClickUp task's name, description, or status. Requires user approval.",
+                {
+                    "task_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "status": {"type": "string"},
+                },
+                ["task_id"],
+            ),
+            approval=True,
+            caps=["clickup", "write"],
+        )
+    )
+
+    def clickup_add_comment(task_id: str, text: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "clickup", "api_token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            f"{_CLICKUP}/task/{quote(task_id)}/comment",
+            headers={"Authorization": profile["api_token"]},
+            json={"comment_text": text},
+        )
+
+    clickup_add_comment.__name__ = "clickup_add_comment"
+    tools.append(
+        _attach(
+            clickup_add_comment,
+            _schema(
+                "clickup_add_comment",
+                "Comment on a ClickUp task. Requires user approval.",
+                {"task_id": {"type": "string"}, "text": {"type": "string"}},
+                ["task_id", "text"],
+            ),
+            approval=True,
+            caps=["clickup", "write"],
+        )
+    )
+
+    # --- Close --------------------------------------------------------------
+
+    _CLOSE = "https://api.close.com/api/v1"
+
+    def _close_auth(profile: dict[str, Any]) -> tuple[str, str]:
+        # HTTP basic: API key as username, blank password.
+        return (str(profile.get("api_key", "")), "")
+
+    def close_search_leads(query: str, max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "close", "api_key")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CLOSE}/lead/",
+            auth=_close_auth(profile),
+            params={"query": query, "_limit": _clamp(max_results)},
+        )
+
+    close_search_leads.__name__ = "close_search_leads"
+    tools.append(
+        _attach(
+            close_search_leads,
+            _schema(
+                "close_search_leads",
+                'Search Close leads (supports Close\'s search syntax, e.g. "status:potential acme").',
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["query"],
+            ),
+            caps=["close", "read"],
+        )
+    )
+
+    def close_get_lead(lead_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "close", "api_key")
+        if err:
+            return err
+        return _request(
+            "GET", f"{_CLOSE}/lead/{quote(lead_id)}/", auth=_close_auth(profile)
+        )
+
+    close_get_lead.__name__ = "close_get_lead"
+    tools.append(
+        _attach(
+            close_get_lead,
+            _schema(
+                "close_get_lead",
+                "Read a Close lead (contacts, opportunities, addresses) by id.",
+                {"lead_id": {"type": "string"}},
+                ["lead_id"],
+            ),
+            caps=["close", "read"],
+        )
+    )
+
+    def close_list_opportunities(
+        lead_id: str = "", max_results: int = 10
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "close", "api_key")
+        if err:
+            return err
+        params: dict[str, Any] = {"_limit": _clamp(max_results)}
+        if lead_id:
+            params["lead_id"] = lead_id
+        return _request(
+            "GET", f"{_CLOSE}/opportunity/", auth=_close_auth(profile), params=params
+        )
+
+    close_list_opportunities.__name__ = "close_list_opportunities"
+    tools.append(
+        _attach(
+            close_list_opportunities,
+            _schema(
+                "close_list_opportunities",
+                "List Close opportunities, optionally for one lead.",
+                {"lead_id": {"type": "string"}, "max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["close", "read"],
+        )
+    )
+
+    def close_create_lead(
+        name: str, contact_name: str = "", contact_email: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "close", "api_key")
+        if err:
+            return err
+        body: dict[str, Any] = {"name": name}
+        if contact_name or contact_email:
+            contact: dict[str, Any] = {"name": contact_name}
+            if contact_email:
+                contact["emails"] = [{"email": contact_email}]
+            body["contacts"] = [contact]
+        return _request("POST", f"{_CLOSE}/lead/", auth=_close_auth(profile), json=body)
+
+    close_create_lead.__name__ = "close_create_lead"
+    tools.append(
+        _attach(
+            close_create_lead,
+            _schema(
+                "close_create_lead",
+                "Create a Close lead (company), optionally with one contact. Requires user approval.",
+                {
+                    "name": {"type": "string"},
+                    "contact_name": {"type": "string"},
+                    "contact_email": {"type": "string"},
+                },
+                ["name"],
+            ),
+            approval=True,
+            caps=["close", "write"],
+        )
+    )
+
+    def close_update_opportunity(
+        opportunity_id: str, status_id: str = "", note: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "close", "api_key")
+        if err:
+            return err
+        body: dict[str, Any] = {}
+        if status_id:
+            body["status_id"] = status_id
+        if note:
+            body["note"] = note
+        if not body:
+            return {"error": "nothing to update: pass status_id or note"}
+        return _request(
+            "PUT",
+            f"{_CLOSE}/opportunity/{quote(opportunity_id)}/",
+            auth=_close_auth(profile),
+            json=body,
+        )
+
+    close_update_opportunity.__name__ = "close_update_opportunity"
+    tools.append(
+        _attach(
+            close_update_opportunity,
+            _schema(
+                "close_update_opportunity",
+                "Update a Close opportunity's status or note. Requires user approval.",
+                {
+                    "opportunity_id": {"type": "string"},
+                    "status_id": {"type": "string"},
+                    "note": {"type": "string"},
+                },
+                ["opportunity_id"],
+            ),
+            approval=True,
+            caps=["close", "write"],
+        )
+    )
+
+    def close_log_note(lead_id: str, note: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "close", "api_key")
+        if err:
+            return err
+        return _request(
+            "POST",
+            f"{_CLOSE}/activity/note/",
+            auth=_close_auth(profile),
+            json={"lead_id": lead_id, "note": note},
+        )
+
+    close_log_note.__name__ = "close_log_note"
+    tools.append(
+        _attach(
+            close_log_note,
+            _schema(
+                "close_log_note",
+                "Log a note on a Close lead's timeline. Requires user approval.",
+                {"lead_id": {"type": "string"}, "note": {"type": "string"}},
+                ["lead_id", "note"],
+            ),
+            approval=True,
+            caps=["close", "write"],
+        )
+    )
+
+    # --- Figma --------------------------------------------------------------
+
+    _FIGMA = "https://api.figma.com/v1"
+
+    def _figma_headers(profile: dict[str, Any]) -> dict[str, str]:
+        return {"X-Figma-Token": str(profile.get("access_token", ""))}
+
+    def _figma_summarize(node: dict[str, Any], depth: int) -> dict[str, Any]:
+        out = {
+            "id": node.get("id"),
+            "name": node.get("name"),
+            "type": node.get("type"),
+        }
+        children = node.get("children") or []
+        if depth > 0 and children:
+            out["children"] = [_figma_summarize(c, depth - 1) for c in children]
+        elif children:
+            out["child_count"] = len(children)
+        return out
+
+    def figma_get_file(file_key: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "figma", "access_token")
+        if err:
+            return err
+        result = _request(
+            "GET",
+            f"{_FIGMA}/files/{quote(file_key)}",
+            headers=_figma_headers(profile),
+            params={"depth": 2},
+        )
+        if not result.get("ok"):
+            return result
+        data = result.get("data") or {}
+        # The raw file tree is enormous — return pages + top-level frames only.
+        doc = data.get("document") or {}
+        return {
+            "ok": True,
+            "name": data.get("name"),
+            "last_modified": data.get("lastModified"),
+            "pages": [_figma_summarize(p, 1) for p in (doc.get("children") or [])],
+        }
+
+    figma_get_file.__name__ = "figma_get_file"
+    tools.append(
+        _attach(
+            figma_get_file,
+            _schema(
+                "figma_get_file",
+                "Read a Figma file's pages and top-level frames (file key is in the URL).",
+                {"file_key": {"type": "string"}},
+                ["file_key"],
+            ),
+            caps=["figma", "read"],
+        )
+    )
+
+    def figma_get_comments(file_key: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "figma", "access_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_FIGMA}/files/{quote(file_key)}/comments",
+            headers=_figma_headers(profile),
+        )
+
+    figma_get_comments.__name__ = "figma_get_comments"
+    tools.append(
+        _attach(
+            figma_get_comments,
+            _schema(
+                "figma_get_comments",
+                "List comments on a Figma file.",
+                {"file_key": {"type": "string"}},
+                ["file_key"],
+            ),
+            caps=["figma", "read"],
+        )
+    )
+
+    def figma_post_comment(
+        file_key: str, message: str, reply_to: str = ""
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "figma", "access_token")
+        if err:
+            return err
+        body: dict[str, Any] = {"message": message}
+        if reply_to:
+            body["comment_id"] = reply_to
+        return _request(
+            "POST",
+            f"{_FIGMA}/files/{quote(file_key)}/comments",
+            headers=_figma_headers(profile),
+            json=body,
+        )
+
+    figma_post_comment.__name__ = "figma_post_comment"
+    tools.append(
+        _attach(
+            figma_post_comment,
+            _schema(
+                "figma_post_comment",
+                "Comment on a Figma file (optionally replying to a comment). Requires user approval.",
+                {
+                    "file_key": {"type": "string"},
+                    "message": {"type": "string"},
+                    "reply_to": {"type": "string"},
+                },
+                ["file_key", "message"],
+            ),
+            approval=True,
+            caps=["figma", "write"],
+        )
+    )
+
+    def figma_export_images(
+        file_key: str, node_ids: str, format: str = "png", scale: int = 2
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "figma", "access_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_FIGMA}/images/{quote(file_key)}",
+            headers=_figma_headers(profile),
+            params={"ids": node_ids, "format": format, "scale": scale},
+        )
+
+    figma_export_images.__name__ = "figma_export_images"
+    tools.append(
+        _attach(
+            figma_export_images,
+            _schema(
+                "figma_export_images",
+                "Render Figma nodes to image URLs (node ids comma-separated; png/svg/pdf).",
+                {
+                    "file_key": {"type": "string"},
+                    "node_ids": {"type": "string"},
+                    "format": {"type": "string"},
+                    "scale": {"type": "integer"},
+                },
+                ["file_key", "node_ids"],
+            ),
+            caps=["figma", "read"],
+        )
+    )
+
+    # --- Google Drive (read-only; deliberately no write scope) ---------------
+
+    _DRIVE = "https://www.googleapis.com/drive/v3"
+    _DRIVE_FIELDS = "files(id,name,mimeType,modifiedTime,size,webViewLink)"
+    # Google-native types export to text; everything else downloads as-is.
+    _DRIVE_EXPORTS = {
+        "application/vnd.google-apps.document": "text/plain",
+        "application/vnd.google-apps.spreadsheet": "text/csv",
+        "application/vnd.google-apps.presentation": "text/plain",
+    }
+
+    def _drive_quote(term: str) -> str:
+        return term.replace("\\", "\\\\").replace("'", "\\'")
+
+    def drive_search_files(
+        query: str, max_results: int = 10, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "google_drive", account, "access_token"
+        )
+        if err:
+            return err
+        q = _drive_quote(query)
+        return _acct_result(
+            aid,
+            _request(
+                "GET",
+                f"{_DRIVE}/files",
+                headers=_google_headers(profile["access_token"]),
+                params={
+                    "q": f"(name contains '{q}' or fullText contains '{q}') and trashed=false",
+                    "pageSize": _clamp(max_results),
+                    "fields": _DRIVE_FIELDS,
+                },
+            ),
+        )
+
+    drive_search_files.__name__ = "drive_search_files"
+    tools.append(
+        _attach(
+            drive_search_files,
+            _schema(
+                "drive_search_files",
+                "Search Google Drive files by name or content.",
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["query"],
+            ),
+            caps=["google_drive", "read"],
+        )
+    )
+
+    def drive_list_folder(
+        folder_id: str = "root", max_results: int = 20, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "google_drive", account, "access_token"
+        )
+        if err:
+            return err
+        return _acct_result(
+            aid,
+            _request(
+                "GET",
+                f"{_DRIVE}/files",
+                headers=_google_headers(profile["access_token"]),
+                params={
+                    "q": f"'{_drive_quote(folder_id)}' in parents and trashed=false",
+                    "pageSize": _clamp(max_results, default=20, ceiling=50),
+                    "fields": _DRIVE_FIELDS,
+                },
+            ),
+        )
+
+    drive_list_folder.__name__ = "drive_list_folder"
+    tools.append(
+        _attach(
+            drive_list_folder,
+            _schema(
+                "drive_list_folder",
+                "List a Google Drive folder's contents ('root' for My Drive).",
+                {
+                    "folder_id": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                [],
+            ),
+            caps=["google_drive", "read"],
+        )
+    )
+
+    def drive_read_file(
+        file_id: str, max_chars: int = 20000, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "google_drive", account, "access_token"
+        )
+        if err:
+            return err
+        headers = _google_headers(profile["access_token"])
+        meta = _request(
+            "GET",
+            f"{_DRIVE}/files/{quote(file_id)}",
+            headers=headers,
+            params={"fields": "id,name,mimeType,size"},
+        )
+        if not meta.get("ok"):
+            return _acct_result(aid, meta)
+        info = meta.get("data") or {}
+        mime = str(info.get("mimeType", ""))
+        export_mime = _DRIVE_EXPORTS.get(mime)
+        if export_mime:
+            body = _request(
+                "GET",
+                f"{_DRIVE}/files/{quote(file_id)}/export",
+                headers=headers,
+                params={"mimeType": export_mime},
+            )
+        elif mime.startswith("application/vnd.google-apps"):
+            return _acct_result(
+                aid, {"error": f"cannot read {mime} as text", "file": info}
+            )
+        else:
+            body = _request(
+                "GET",
+                f"{_DRIVE}/files/{quote(file_id)}",
+                headers=headers,
+                params={"alt": "media"},
+            )
+        if not body.get("ok"):
+            return _acct_result(aid, body)
+        text = body.get("data")
+        if not isinstance(text, str):
+            text = json.dumps(text)
+        return _acct_result(
+            aid,
+            {
+                "ok": True,
+                "file": info,
+                "content": text[: max(1, int(max_chars))],
+                "truncated": len(text) > max_chars,
+            },
+        )
+
+    drive_read_file.__name__ = "drive_read_file"
+    tools.append(
+        _attach(
+            drive_read_file,
+            _schema(
+                "drive_read_file",
+                "Read a Drive file as text (Docs/Sheets/Slides export; other text files download).",
+                {
+                    "file_id": {"type": "string"},
+                    "max_chars": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["file_id"],
+            ),
+            caps=["google_drive", "read"],
+        )
+    )
+
+    # --- Docusign -----------------------------------------------------------
+
+    def _docusign_ctx(
+        profile: dict[str, Any],
+    ) -> tuple[Optional[dict[str, Any]], Optional[dict[str, str]]]:
+        """Return {token, base} — discovering and caching account_id + base_uri
+        from the OAuth userinfo endpoint on first use."""
+        token = str(profile.get("access_token", ""))
+        account_id = profile.get("account_id")
+        base_uri = profile.get("base_uri")
+        if not (account_id and base_uri):
+            info = _request(
+                "GET",
+                "https://account.docusign.com/oauth/userinfo",
+                headers=_bearer_headers(token),
+            )
+            if not info.get("ok"):
+                return None, {
+                    "error": "docusign account discovery failed",
+                    "details": str(info.get("details") or info.get("error")),
+                }
+            accounts = (info.get("data") or {}).get("accounts") or []
+            chosen = next(
+                (a for a in accounts if a.get("is_default")),
+                accounts[0] if accounts else None,
+            )
+            if not chosen:
+                return None, {"error": "docusign token has no accounts"}
+            account_id = chosen.get("account_id")
+            base_uri = chosen.get("base_uri")
+            secrets.put(
+                "docusign:default",
+                {**profile, "account_id": account_id, "base_uri": base_uri},
+            )
+        return {
+            "token": token,
+            "base": f"{str(base_uri).rstrip('/')}/restapi/v2.1/accounts/{account_id}",
+        }, None
+
+    def docusign_list_envelopes(
+        status: str = "", since_days: int = 30
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "docusign", "access_token")
+        if err:
+            return err
+        ctx, err = _docusign_ctx(profile)
+        if err:
+            return err
+        from datetime import datetime, timedelta, timezone
+
+        params: dict[str, Any] = {
+            "from_date": (
+                datetime.now(timezone.utc) - timedelta(days=max(1, int(since_days)))
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        }
+        if status:
+            params["status"] = status
+        return _request(
+            "GET",
+            f"{ctx['base']}/envelopes",
+            headers=_bearer_headers(ctx["token"]),
+            params=params,
+        )
+
+    docusign_list_envelopes.__name__ = "docusign_list_envelopes"
+    tools.append(
+        _attach(
+            docusign_list_envelopes,
+            _schema(
+                "docusign_list_envelopes",
+                "List recent Docusign envelopes, optionally by status (sent/delivered/completed/declined/voided).",
+                {"status": {"type": "string"}, "since_days": {"type": "integer"}},
+                [],
+            ),
+            caps=["docusign", "read"],
+        )
+    )
+
+    def docusign_get_envelope(envelope_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "docusign", "access_token")
+        if err:
+            return err
+        ctx, err = _docusign_ctx(profile)
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{ctx['base']}/envelopes/{quote(envelope_id)}",
+            headers=_bearer_headers(ctx["token"]),
+            params={"include": "recipients"},
+        )
+
+    docusign_get_envelope.__name__ = "docusign_get_envelope"
+    tools.append(
+        _attach(
+            docusign_get_envelope,
+            _schema(
+                "docusign_get_envelope",
+                "Read a Docusign envelope's status and per-signer progress.",
+                {"envelope_id": {"type": "string"}},
+                ["envelope_id"],
+            ),
+            caps=["docusign", "read"],
+        )
+    )
+
+    def docusign_list_templates(max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "docusign", "access_token")
+        if err:
+            return err
+        ctx, err = _docusign_ctx(profile)
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{ctx['base']}/templates",
+            headers=_bearer_headers(ctx["token"]),
+            params={"count": _clamp(max_results)},
+        )
+
+    docusign_list_templates.__name__ = "docusign_list_templates"
+    tools.append(
+        _attach(
+            docusign_list_templates,
+            _schema(
+                "docusign_list_templates",
+                "List Docusign templates (template ids are needed to send).",
+                {"max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["docusign", "read"],
+        )
+    )
+
+    def docusign_send_from_template(
+        template_id: str,
+        recipient_email: str,
+        recipient_name: str,
+        role_name: str = "Signer",
+        subject: str = "",
+    ) -> dict[str, Any]:
+        profile, err = _profile(secrets, "docusign", "access_token")
+        if err:
+            return err
+        ctx, err = _docusign_ctx(profile)
+        if err:
+            return err
+        body: dict[str, Any] = {
+            "templateId": template_id,
+            "templateRoles": [
+                {
+                    "email": recipient_email,
+                    "name": recipient_name,
+                    "roleName": role_name,
+                }
+            ],
+            "status": "sent",
+        }
+        if subject:
+            body["emailSubject"] = subject
+        return _request(
+            "POST",
+            f"{ctx['base']}/envelopes",
+            headers=_bearer_headers(ctx["token"]),
+            json=body,
+        )
+
+    docusign_send_from_template.__name__ = "docusign_send_from_template"
+    tools.append(
+        _attach(
+            docusign_send_from_template,
+            _schema(
+                "docusign_send_from_template",
+                "Send a Docusign template to one signer for signature. Requires user approval.",
+                {
+                    "template_id": {"type": "string"},
+                    "recipient_email": {"type": "string"},
+                    "recipient_name": {"type": "string"},
+                    "role_name": {"type": "string"},
+                    "subject": {"type": "string"},
+                },
+                ["template_id", "recipient_email", "recipient_name"],
+            ),
+            approval=True,
+            caps=["docusign", "write"],
+        )
+    )
+
+    # --- Canva --------------------------------------------------------------
+
+    _CANVA = "https://api.canva.com/rest/v1"
+
+    def canva_list_designs(query: str = "", max_results: int = 10) -> dict[str, Any]:
+        profile, err = _profile(secrets, "canva", "access_token")
+        if err:
+            return err
+        params: dict[str, Any] = {"limit": _clamp(max_results)}
+        if query:
+            params["query"] = query
+        return _request(
+            "GET",
+            f"{_CANVA}/designs",
+            headers=_bearer_headers(profile["access_token"]),
+            params=params,
+        )
+
+    canva_list_designs.__name__ = "canva_list_designs"
+    tools.append(
+        _attach(
+            canva_list_designs,
+            _schema(
+                "canva_list_designs",
+                "List (or text-search) Canva designs.",
+                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                [],
+            ),
+            caps=["canva", "read"],
+        )
+    )
+
+    def canva_get_design(design_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "canva", "access_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CANVA}/designs/{quote(design_id)}",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+
+    canva_get_design.__name__ = "canva_get_design"
+    tools.append(
+        _attach(
+            canva_get_design,
+            _schema(
+                "canva_get_design",
+                "Read a Canva design's metadata (title, pages, urls).",
+                {"design_id": {"type": "string"}},
+                ["design_id"],
+            ),
+            caps=["canva", "read"],
+        )
+    )
+
+    def canva_export_design(design_id: str, format: str = "pdf") -> dict[str, Any]:
+        profile, err = _profile(secrets, "canva", "access_token")
+        if err:
+            return err
+        return _request(
+            "POST",
+            f"{_CANVA}/exports",
+            headers=_bearer_headers(profile["access_token"]),
+            json={"design_id": design_id, "format": {"type": format}},
+        )
+
+    canva_export_design.__name__ = "canva_export_design"
+    tools.append(
+        _attach(
+            canva_export_design,
+            _schema(
+                "canva_export_design",
+                "Start rendering a Canva design to pdf/png/jpg; returns an export job to poll.",
+                {"design_id": {"type": "string"}, "format": {"type": "string"}},
+                ["design_id"],
+            ),
+            caps=["canva", "read"],
+        )
+    )
+
+    def canva_get_export(export_id: str) -> dict[str, Any]:
+        profile, err = _profile(secrets, "canva", "access_token")
+        if err:
+            return err
+        return _request(
+            "GET",
+            f"{_CANVA}/exports/{quote(export_id)}",
+            headers=_bearer_headers(profile["access_token"]),
+        )
+
+    canva_get_export.__name__ = "canva_get_export"
+    tools.append(
+        _attach(
+            canva_get_export,
+            _schema(
+                "canva_get_export",
+                "Check a Canva export job; returns download URLs when finished.",
+                {"export_id": {"type": "string"}},
+                ["export_id"],
+            ),
+            caps=["canva", "read"],
         )
     )
 
