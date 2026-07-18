@@ -1,21 +1,21 @@
 > ![NEW](https://img.shields.io/badge/%E2%9C%A8_NEW-8250df?style=for-the-badge)
-> ## OpenCoworker
+> ## OpenWorker
 > **An AI agent that lives on your desktop, built on aisuite.**
 >
-> OpenCoworker is a desktop AI agent that can not only chat, but also do deep research and carry out tasks for
+> OpenWorker is a desktop AI agent that can not only chat, but also do deep research and carry out tasks for
 > you on your computer. It can read files (with permission) to gain context, read/send messages (slack, email, etc.),
 > and create real deliverables like PDF reports, documents, spreadsheets. It also supports scheduled automations,
 > such as providing you a daily news summary. 
 >
 > Requires bringing your own API key (OpenAI, Anthropic, Google) or run fully local with Ollama. Your data stays on your machine.
 >
-> [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg)
+> [**⬇ Download for macOS**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-macos-arm64.dmg)
 > <sub>&nbsp;&nbsp;macOS 13+ (Apple Silicon)</sub> &nbsp;&nbsp;
 > 
-> [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe)
+> [**⬇ Download for Windows**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-windows-setup.exe)
 > <sub>&nbsp;&nbsp;Windows 10/11 (x64) &nbsp;·&nbsp; </sub>
 >
-> [**Quickstart:**](docs/opencoworker-quickstart.md) — install, connect a model, first tasks, automations.
+> [**Quickstart:**](docs/openworker-quickstart.md) — install, connect a model, first tasks, automations.
 > 
 > Its source lives in this repository under `platform/` — a working reference for building your own agent harness on aisuite.
 
@@ -26,11 +26,11 @@
 [![PyPI](https://img.shields.io/pypi/v/aisuite)](https://pypi.org/project/aisuite/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-`aisuite` is a lightweight Python library for building with LLMs, in two layers: a unified **Chat Completions API** across providers, and an **Agents API** with tools and toolkits on top. This repo is also home to **OpenCoworker**, a desktop AI coworker built using aisuite:
+`aisuite` is a lightweight Python library for building with LLMs, in two layers: a unified **Chat Completions API** across providers, and an **Agents API** with tools and toolkits on top. This repo is also home to **OpenWorker**, a desktop AI coworker built using aisuite:
 
 ```text
 ┌───────────────────────────────────────────────┐
-│                 OpenCoworker                  │   agent harness for doing everyday tasks
+│                 OpenWorker                  │   agent harness for doing everyday tasks
 ├───────────────────────────────────────────────┤
 │        Agents API  ·  Toolkits  ·  MCP        │   build agents across multiple LLMs
 ├───────────────────────────────────────────────┤
@@ -42,7 +42,7 @@
 
 * **[Chat Completions API](#chat-completions)** — a unified, OpenAI-style interface for *OpenAI, Anthropic, Google, Mistral, Hugging Face, AWS, Cohere, Ollama, OpenRouter, Requesty*, and more. Swap providers by changing one string.
 * **[Agents API · Toolkits · MCP](#agents)** — give models real Python functions as tools, run multi-turn loops, attach ready-made toolkits (files, git, shell) or any MCP server, and govern it all with tool policies.
-* **[OpenCoworker](docs/opencoworker-quickstart.md)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks.
+* **[OpenWorker](docs/openworker-quickstart.md)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks.
 
 ---
 
@@ -60,11 +60,11 @@ pip install 'aisuite[all]'        # with all provider SDKs
 
 You'll also need API keys for the providers you call — the [Chat Completions quickstart](docs/chat-completions-quickstart.md) covers key setup and your first calls.
 
-### The OpenCoworker app (desktop)
+### The OpenWorker app (desktop)
 
 Download the installer and bring your own API key (or run local models with Ollama):
 
-[**⬇ macOS (Apple Silicon)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-macos-arm64.dmg) &nbsp;·&nbsp; [**⬇ Windows 10/11 (x64)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenCoworker-windows-setup.exe) &nbsp;·&nbsp; [OpenCoworker quickstart](docs/opencoworker-quickstart.md)
+[**⬇ macOS (Apple Silicon)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-macos-arm64.dmg) &nbsp;·&nbsp; [**⬇ Windows 10/11 (x64)**](https://github.com/andrewyng/aisuite/releases/latest/download/OpenWorker-windows-setup.exe) &nbsp;·&nbsp; [OpenWorker quickstart](docs/openworker-quickstart.md)
 
 ---
 

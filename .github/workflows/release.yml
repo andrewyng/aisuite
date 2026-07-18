@@ -10,7 +10,7 @@
 #   - manual run     → builds and uploads workflow artifacts only (no release).
 #
 # Each installer is uploaded twice: once with its versioned name (archive) and once with a
-# stable name (OpenCoworker-macos-arm64.dmg, …) so the website can link to
+# stable name (OpenWorker-macos-arm64.dmg, …) so the website can link to
 #   github.com/<repo>/releases/latest/download/<stable-name>
 # and never need updating.
 #
@@ -127,20 +127,20 @@ jobs:
           BUNDLE=platform/surfaces/gui/src-tauri/target/release/bundle
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp "$BUNDLE"/nsis/*.exe out/
-            cp "$BUNDLE"/nsis/*.exe out/OpenCoworker-windows-setup.exe
+            cp "$BUNDLE"/nsis/*.exe out/OpenWorker-windows-setup.exe
             cp "$BUNDLE"/msi/*.msi out/
-            cp "$BUNDLE"/msi/*.msi out/OpenCoworker-windows.msi
+            cp "$BUNDLE"/msi/*.msi out/OpenWorker-windows.msi
             # Updater signature for the NSIS installer (present only when the updater key
             # secret is configured). The .sig signs CONTENT, so the stable rename is safe.
             SIG=$(ls "$BUNDLE"/nsis/*.exe.sig 2>/dev/null | head -1 || true)
-            [ -n "$SIG" ] && cp "$SIG" out/OpenCoworker-windows-setup.exe.sig
+            [ -n "$SIG" ] && cp "$SIG" out/OpenWorker-windows-setup.exe.sig
           else
             cp "$BUNDLE"/dmg/*.dmg out/
-            cp "$BUNDLE"/dmg/*.dmg out/OpenCoworker-${{ matrix.slug }}.dmg
+            cp "$BUNDLE"/dmg/*.dmg out/OpenWorker-${{ matrix.slug }}.dmg
             # macOS updater artifact: the signed .app tarball the installed app swaps in.
-            if [ -f "$BUNDLE"/macos/OpenCoworker.app.tar.gz ]; then
-              cp "$BUNDLE"/macos/OpenCoworker.app.tar.gz out/OpenCoworker-${{ matrix.slug }}.app.tar.gz
-              cp "$BUNDLE"/macos/OpenCoworker.app.tar.gz.sig out/OpenCoworker-${{ matrix.slug }}.app.tar.gz.sig
+            if [ -f "$BUNDLE"/macos/OpenWorker.app.tar.gz ]; then
+              cp "$BUNDLE"/macos/OpenWorker.app.tar.gz out/OpenWorker-${{ matrix.slug }}.app.tar.gz
+              cp "$BUNDLE"/macos/OpenWorker.app.tar.gz.sig out/OpenWorker-${{ matrix.slug }}.app.tar.gz.sig
             fi
           fi
           ls -la out
@@ -167,7 +167,7 @@ jobs:
 
       - name: Compose the auto-update manifest (latest.json)
         # Shipped apps poll releases/latest/download/latest.json (via the branded
-        # download.opencoworker.app redirect) — publishing this release IS pushing the
+        # download.openworker.com redirect) — publishing this release IS pushing the
         # update. The tag must match tauri.conf.json's version or installed apps would
         # see a permanent phantom update; fail loudly on drift. Runs only when signed
         # updater artifacts exist (i.e. the TAURI_SIGNING_PRIVATE_KEY secret is set).
@@ -182,7 +182,7 @@ jobs:
             python3 platform/packaging/make_update_manifest.py \
               --version "${TAG#v}" --tag "$TAG" --repo "$GITHUB_REPOSITORY" \
               --dist dist --out dist/latest.json \
-              --notes "OpenCoworker ${TAG#v}"
+              --notes "OpenWorker ${TAG#v}"
           else
             echo "::warning::no updater signatures in dist/ — release ships WITHOUT auto-update manifest"
           fi

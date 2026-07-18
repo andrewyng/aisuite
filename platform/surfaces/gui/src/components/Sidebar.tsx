@@ -888,7 +888,7 @@ export function Sidebar(props: Props) {
             <Icon name="sidebar" size={16} />
           </button>
         )}
-        <div className="brand-wordmark text-[15px]">OpenCoworker</div>
+        <div className="brand-wordmark text-[15px]">OpenWorker</div>
       </div>
 
       {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
@@ -1009,14 +1009,14 @@ export function Sidebar(props: Props) {
                 {cloud?.signed_in ? (
                   <div
                     className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
-                    title={`${accountEmail} · OpenCoworker Cloud`}
+                    title={`${accountEmail} · OpenWorker Cloud`}
                   >
-                    {accountEmail} · OpenCoworker Cloud
+                    {accountEmail} · OpenWorker Cloud
                   </div>
                 ) : (
                   <>
                     <div className="px-3 py-1.5 text-[11px] text-faint border-b border-line">
-                      Not signed in — one-click connections need OpenCoworker Cloud
+                      Not signed in — one-click connections need OpenWorker Cloud
                     </div>
                     <button
                       className="w-full flex items-center gap-2.5 px-3 py-1.5 mb-1 text-[13px] text-left text-accent hover:bg-paper"
@@ -1034,7 +1034,7 @@ export function Sidebar(props: Props) {
                         });
                       }}
                     >
-                      <Icon name="plug" size={15} className="shrink-0" /> Sign in to OpenCoworker
+                      <Icon name="plug" size={15} className="shrink-0" /> Sign in to OpenWorker
                       Cloud
                     </button>
                   </>
@@ -1101,7 +1101,7 @@ export function Sidebar(props: Props) {
             {cloud?.signed_in && (
               <span
                 className="w-[7px] h-[7px] rounded-full bg-ok shrink-0"
-                title="Signed in to OpenCoworker Cloud"
+                title="Signed in to OpenWorker Cloud"
                 aria-hidden
               />
             )}

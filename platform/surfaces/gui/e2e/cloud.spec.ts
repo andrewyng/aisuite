@@ -27,7 +27,7 @@ test("signed out: the account row is the sign-in home; managed connector still c
   // The menu leads with the sign-in CTA and always lists Inbox + Connectors.
   await row.click();
   const menu = page.getByTestId("account-menu");
-  await expect(menu).toContainText("one-click connections need OpenCoworker Cloud");
+  await expect(menu).toContainText("one-click connections need OpenWorker Cloud");
   await expect(menu.getByTestId("account-sign-in")).toBeVisible();
   await expect(menu.getByRole("button", { name: "Inbox" })).toBeVisible();
   await menu.getByRole("button", { name: "Connectors", exact: true }).click();
@@ -36,7 +36,7 @@ test("signed out: the account row is the sign-in home; managed connector still c
   // one-click button while signed out.
   await page.getByTestId("connector-gmail").getByRole("button", { name: "Connect" }).click();
   const modal = page.getByTestId("add-connection-modal");
-  await expect(modal.getByTestId("managed-connect")).toContainText("Sign in to OpenCoworker Cloud");
+  await expect(modal.getByTestId("managed-connect")).toContainText("Sign in to OpenWorker Cloud");
   await expect(modal.locator("input[type=password]")).toBeVisible(); // manual field rendered
   await expect(modal.getByRole("button", { name: /one click/i })).toHaveCount(0);
 });
@@ -57,7 +57,7 @@ test("signed in: account row shows the name; one-click appears; sign out from th
   // The menu header carries the email; Sign out flips the row back.
   await page.getByTestId("account-row").click();
   const menu = page.getByTestId("account-menu");
-  await expect(menu).toContainText("rohit@opencoworker.app");
+  await expect(menu).toContainText("rohit@openworker.com");
   await menu.getByRole("button", { name: "Sign out" }).click();
   await page.getByTestId("account-row").click(); // reopen → status refetch
   await expect(page.getByTestId("account-row")).toContainText("Not signed in");

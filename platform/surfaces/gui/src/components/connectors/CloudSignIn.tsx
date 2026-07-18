@@ -17,7 +17,7 @@ export function CloudSignInInline({ blurb }: { blurb?: string }) {
           setTimeout(() => setWaiting(false), 4000);
         }}
       >
-        {waiting ? "Check your browser…" : "Sign in to OpenCoworker Cloud"}
+        {waiting ? "Check your browser…" : "Sign in to OpenWorker Cloud"}
       </button>
       <div className="text-[11.5px] text-faint">
         {blurb || "Sign-in unlocks one-click connects — or switch to Manual, which works without it."}

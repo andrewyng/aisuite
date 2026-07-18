@@ -1,7 +1,7 @@
 # coworker GUI (React + Tauri)
 
 A thin client of the coworker server (OpenAI-compatible API + WS event/approval stream).
-Same codebase runs in a browser (dev) and as the OpenCoworker desktop app.
+Same codebase runs in a browser (dev) and as the OpenWorker desktop app.
 
 ## First time: bootstrap the Python backend
 

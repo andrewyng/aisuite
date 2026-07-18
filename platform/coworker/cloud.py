@@ -1,4 +1,4 @@
-"""OpenCoworker Cloud client: sign-in and managed one-click connectors.
+"""OpenWorker Cloud client: sign-in and managed one-click connectors.
 
 Everything here is OPTIONAL. The app is fully functional signed out — manual
 token paste stays available for every connector (and remains available after

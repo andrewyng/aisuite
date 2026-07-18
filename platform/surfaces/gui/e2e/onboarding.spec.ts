@@ -100,7 +100,7 @@ test("tools page: out-of-band sign-in flips to the signed-in state; the automati
   await expect(page.getByTestId("ob-continue-tools")).toHaveCount(0);
   await page.getByTestId("ob-cloud-signin").click();
   await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("ob-tools-signedin")).toContainText("rohit@opencoworker.app");
+  await expect(page.getByTestId("ob-tools-signedin")).toContainText("rohit@openworker.com");
   await page.getByTestId("ob-continue-tools").click();
 
   // Done step: the automation CTA lands on the Automations quickstart.

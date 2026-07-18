@@ -159,9 +159,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
 
         {step === 0 && (
           <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-            <h1 className="text-[19px] font-semibold">Welcome to OpenCoworker</h1>
+            <h1 className="text-[19px] font-semibold">Welcome to OpenWorker</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-5">
-              Connect a model to get started — OpenCoworker runs on your own API key, and your
+              Connect a model to get started — OpenWorker runs on your own API key, and your
               key and your data stay on this Mac.
             </p>
             <label className={label}>Provider</label>
@@ -324,7 +324,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
           <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
             <h1 className="text-[19px] font-semibold">Sign in for one-click connections</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-5">
-              OpenCoworker works with the apps you already use.
+              OpenWorker works with the apps you already use.
             </p>
 
             <div className="flex items-center gap-2.5 mb-5">

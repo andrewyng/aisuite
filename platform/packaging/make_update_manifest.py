@@ -9,8 +9,8 @@ Run by the release CI job after all platform builds are staged in one directory:
 Looks for the updater artifacts by their STABLE names (the same names release.yml
 uploads):
 
-    OpenCoworker-macos-arm64.app.tar.gz(.sig)   -> platforms["darwin-aarch64"]
-    OpenCoworker-windows-setup.exe(.sig)        -> platforms["windows-x86_64"]
+    OpenWorker-macos-arm64.app.tar.gz(.sig)   -> platforms["darwin-aarch64"]
+    OpenWorker-windows-setup.exe(.sig)        -> platforms["windows-x86_64"]
 
 URLs point at the TAG-pinned GitHub download path (releases/download/<tag>/<asset>),
 never at `latest/` — a manifest must reference exactly the artifacts it shipped with,
@@ -18,7 +18,7 @@ or a half-published release would mix versions. Platforms whose artifact or .sig
 missing are SKIPPED with a warning (e.g. a mac-only hotfix release), so shipped apps
 on other platforms simply see no update rather than a broken one.
 
-The desktop app finds this file through https://download.opencoworker.app/latest.json
+The desktop app finds this file through https://download.openworker.com/latest.json
 (branded redirect) falling back to the repo's releases/latest/download/latest.json —
 see tauri.conf.json `plugins.updater.endpoints`.
 """
@@ -33,8 +33,8 @@ import sys
 
 # stable asset name -> Tauri platform key
 ARTIFACTS = {
-    "OpenCoworker-macos-arm64.app.tar.gz": "darwin-aarch64",
-    "OpenCoworker-windows-setup.exe": "windows-x86_64",
+    "OpenWorker-macos-arm64.app.tar.gz": "darwin-aarch64",
+    "OpenWorker-windows-setup.exe": "windows-x86_64",
 }
 
 

@@ -72,7 +72,7 @@ def _browser_page(
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{_html.escape(title)} — OpenCoworker</title><style>"
+        f"<title>{_html.escape(title)} — OpenWorker</title><style>"
         ":root{--paper:#f6f5f2;--panel:#fff;--line:#e4e2dc;--ink:#2c2c2a;--muted:#6f6e68;"
         "--faint:#a3a19a;--accent:#3670b2;--ok:#2e7d4f;--ok-soft:#e3f2e9;--bad:#b3423a;"
         "--bad-soft:#f8e7e5}"
@@ -104,9 +104,9 @@ def _browser_page(
         "padding:7px 10px;margin-top:12px;text-align:left;word-break:break-word}"
         ".foot{font-size:10.5px;color:var(--faint)}"
         "</style></head><body>"
-        '<div class="card"><div class="mark"><i></i>OpenCoworker</div>'
+        '<div class="card"><div class="mark"><i></i>OpenWorker</div>'
         f"{icon}<h1>{_html.escape(title)}</h1><p>{_html.escape(detail)}</p>{err}</div>"
-        '<div class="foot">Served locally by OpenCoworker on your Mac</div>'
+        '<div class="foot">Served locally by OpenWorker on your Mac</div>'
         "</body></html>"
     )
 
@@ -121,7 +121,7 @@ def _connector_title(name: str) -> str:
 
 _CONNECT_FAILED_DETAIL = (
     "Something went wrong finishing this connection. "
-    "Close this tab and try again from OpenCoworker."
+    "Close this tab and try again from OpenWorker."
 )
 
 from ..attachments import build_user_content
@@ -797,7 +797,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         action = str((body or {}).get("action", "")).strip()
         return await manager.resolve_unauthorized(name, item_id, action)
 
-    # -- OpenCoworker Cloud: sign-in + managed one-click connect ---------------
+    # -- OpenWorker Cloud: sign-in + managed one-click connect ---------------
     # All optional: the app is fully functional signed out (manual token paste
     # stays available for every connector, before and after sign-in).
 
@@ -847,7 +847,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..config import load_config
 
         signin_failed_detail = (
-            "Close this tab and try signing in again from OpenCoworker."
+            "Close this tab and try signing in again from OpenWorker."
         )
         if error:
             return HTMLResponse(
@@ -888,8 +888,8 @@ def create_app(manager: SessionManager) -> FastAPI:
         return HTMLResponse(
             _browser_page(
                 "Signed in",
-                "You're signed in to OpenCoworker Cloud. "
-                "You can close this tab and return to OpenCoworker.",
+                "You're signed in to OpenWorker Cloud. "
+                "You can close this tab and return to OpenWorker.",
             )
         )
 
@@ -962,7 +962,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             return HTMLResponse(
                 _browser_page(
                     "GitHub connected",
-                    "You can close this tab and return to OpenCoworker.",
+                    "You can close this tab and return to OpenWorker.",
                     connector="github",
                 )
             )
@@ -1025,7 +1025,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         return HTMLResponse(
             _browser_page(
                 f"{_connector_title(connector)} connected",
-                "You can close this tab and return to OpenCoworker.",
+                "You can close this tab and return to OpenWorker.",
                 connector=connector,
             )
         )

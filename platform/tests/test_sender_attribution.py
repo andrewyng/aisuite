@@ -1,5 +1,5 @@
 """P1 sender attribution (2026-07-14): outbound Slack posts carry "[<installer>] " so
-channels shared by several OpenCoworker users can tell whose coworker is speaking.
+channels shared by several OpenWorker users can tell whose coworker is speaking.
 Identity = the managed install's authed_user (plumbed broker → form-POST → team
 profile), name resolved once via users.info and cached. Attribution never blocks a
 send; manual installs (no authed_user) and DMs stay bare."""

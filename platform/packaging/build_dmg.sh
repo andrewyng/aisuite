@@ -3,7 +3,7 @@
 #
 #   1. PyInstaller-bundle the server into a standalone onedir folder (no venv at runtime).
 #   2. Stage it at binaries/sidecar/ for Tauri's `resources` slot (+ sign its Mach-Os).
-#   3. `tauri build --bundles app` → OpenCoworker.app (resources are copied in).
+#   3. `tauri build --bundles app` → OpenWorker.app (resources are copied in).
 #   4. Wrap the .app in a compressed .dmg via hdiutil (reliable + headless; Tauri's own
 #      bundle_dmg.sh uses Finder AppleScript and fails in non-interactive sessions).
 #
@@ -40,7 +40,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PLATFORM="$(cd "$HERE/.." && pwd)"
 GUI="$PLATFORM/surfaces/gui"
-APP="OpenCoworker"
+APP="OpenWorker"
 # Single source of truth for the version: tauri.conf.json (also stamps the bundle).
 VERSION="$(node -p "require('$GUI/src-tauri/tauri.conf.json').version")"
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"   # e.g. aarch64-apple-darwin

@@ -4,7 +4,7 @@ The desktop offers the user two ways to receive Slack:
 - **Socket Mode** (`SlackAdapter`): manual bot + app tokens, one workspace, a
   direct WebSocket to Slack. No cloud involved.
 - **Managed relay** (`SlackRelayAdapter`, here): "Add to Slack" OAuth, no tokens
-  typed, *many* workspaces, events pushed from OpenCoworker Cloud over one
+  typed, *many* workspaces, events pushed from OpenWorker Cloud over one
   authenticated WebSocket. Replies still go desktop → Slack Web API directly
   with the per-team bot token (the relay is inbound-only).
 

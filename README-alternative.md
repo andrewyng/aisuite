@@ -1,6 +1,6 @@
 # aisuite
 
-> **🆕 Introducing Open Coworker** — an open agent harness that runs tasks and
+> **🆕 Introducing OpenWorker** — an open agent harness that runs tasks and
 > automations on your machine. Desktop app, your own API keys, your files.
 > **→ [Get started in 2 minutes](docs/coworker/quickstart.md)**
 
@@ -69,7 +69,7 @@ pip install aisuite[agents]
 
 ---
 
-## Open Coworker
+## OpenWorker
 
 An open agent harness for automating daily tasks and more — a desktop app where
 an agent works in your folders, uses connectors and tools, produces artifacts,
@@ -92,7 +92,7 @@ on your machine.
 Each layer builds on the one below it, and each is usable on its own:
 
 ```
-Open Coworker        an agent harness for tasks & automations  (app)
+OpenWorker        an agent harness for tasks & automations  (app)
       │  built on
 Agent API            Agent + Runner: tools, state, tracing      (lib)
       │  built on
@@ -111,7 +111,7 @@ libs/
   aisuite-py/     the `aisuite` package — Chat Completions + Agent API
   aisuite-js/     JavaScript/TypeScript port
 apps/
-  opencoworker/   the Open Coworker harness (desktop app + server)
+  openworker/   the OpenWorker harness (desktop app + server)
   code-cli/       aisuite-code, the command-line coding agent
 examples/         runnable examples per product
 docs/             chat / agents / coworker
@@ -121,7 +121,7 @@ docs/             chat / agents / coworker
 
 - **Chat Completions** — [docs/chat](docs/chat)
 - **Agent API** — [docs/agents](docs/agents)
-- **Open Coworker** — [docs/coworker](docs/coworker)
+- **OpenWorker** — [docs/coworker](docs/coworker)
 
 ## Contributing
 

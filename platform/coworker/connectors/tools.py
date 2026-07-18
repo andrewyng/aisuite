@@ -54,7 +54,7 @@ def _slack_channel_name_like(chat_id: str) -> bool:
 
 
 def _parse_or_coerce(target: str) -> tuple[str, str, Optional[str]]:
-    """parse_target, but a BARE channel name ('all-opencoworker', '#general') coerces to
+    """parse_target, but a BARE channel name ('all-openworker', '#general') coerces to
     Slack — models pass what the user said, and a lowercase/#-name is Slack-shaped (owner
     repro 2026-07-14: the model never invented the 'slack:' prefix on its own). Telegram
     targets are numeric, so the shapes never collide."""
@@ -70,7 +70,7 @@ def _parse_or_coerce(target: str) -> tuple[str, str, Optional[str]]:
 def _resolve_slack_channel(
     secrets: SecretStore, name: str
 ) -> tuple[Optional[str], Optional[str]]:
-    """'#all-opencoworker' (a NAME the user said) → the team-qualified chat_id, via the
+    """'#all-openworker' (a NAME the user said) → the team-qualified chat_id, via the
     same cached conversations.list roster the GUI's channel picker uses. (chat_id, error):
     exactly one match wins; none/many return an actionable error instead of a guess
     (§36 — 'post Hi to <channel>' must just work when Slack is connected)."""
