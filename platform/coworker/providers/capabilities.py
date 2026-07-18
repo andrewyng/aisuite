@@ -31,8 +31,10 @@ def capabilities_for(model: str) -> ModelCapabilities:
 
     # Claude / Gemini (both native): tools + vision + parallel tool calls + streaming. The
     # engine executes parallel calls sequentially and each converter folds the results into
-    # the single next user message — exactly what both APIs require.
-    if provider in ("anthropic", "gemini"):
+    # the single next user message — exactly what both APIs require. Match either the provider
+    # prefix (anthropic:/gemini:) or a bare model name (claude-*, gemini-*) so an unprefixed id
+    # isn't misreported as text-only by the conservative default below.
+    if provider in ("anthropic", "gemini") or name.startswith(("claude", "gemini")):
         return ModelCapabilities(
             tools=True, vision=True, pdf=True, parallel_tool_calls=True, streaming=True
         )
