@@ -395,7 +395,7 @@ def _github_auth(
         if not token:
             return None, {
                 "error": "github installation token unavailable "
-                "(sign in to OpenCoworker Cloud and retry)"
+                "(sign in to OpenWorker Cloud and retry)"
             }
         return _github_headers(token), None
     return None, {"error": "github is not connected; missing token"}

@@ -625,13 +625,17 @@ and it duplicated the Automations page's template system.
 
 - **Onboarding = three fixed-height pages, one decision each:**
   1. **Model** — unchanged (§24 + its revisions).
-  2. **Connect your tools** — value-framed cloud sign-in: real connector logos (ConnectorIcon
-     set, never letter stand-ins), "one sign-in unlocks every one-click connection — your
-     tokens stay on this Mac", the manual path spelled out ("every tool can also be connected
-     with your own API keys — signing in just makes it one click"), plain-link skip (no
-     confirm; sign-in is genuinely optional — the lazy first-connect sign-in stays for
-     skippers). Signed-in replay shows the ✓ state instead of the button.
-     `↪ Open:` the owner finds this page's copy still confusing — copy iteration pending.
+  2. **Sign in for one-click connections** *(amended 2026-07-16, owner design — resolves the
+     copy iteration that was pending here)* — the VALUE is the headline and there is ONE
+     primary action: the footer is the flow's standard pair — quiet "Skip for now" left,
+     primary **Sign in** right, which becomes **Continue** once signed in. (The old page was
+     headlined "Connect your tools" but offered no connecting, and its mid-page sign-in
+     button competed with a footer Continue that did something else.) The security story is
+     one titled card — **"Secure by design"**: broker framing ("OpenCoworker Cloud brokers
+     the OAuth handshake — your tokens never leave this Mac") with the manual-keys path as
+     the card's divider-set footnote. Real connector logos kept (ConnectorIcon set, never
+     letter stand-ins); sign-in stays genuinely optional (the lazy first-connect sign-in
+     remains for skippers); signed-in replay shows the ✓ state.
   3. **You're set up** — two CTAs: "Create your first automation" → the Automations
      quickstart; "Start working with Coworker" → fresh session with the session-settings
      panel open (§24's teach-by-landing kept). The gallery card + scope line stay hidden.

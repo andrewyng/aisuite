@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Attachment } from "../types";
-import { readFile } from "../attach";
+import { isPdfFile, readFile } from "../attach";
+import { getSettings, inspectPdf } from "../api";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
 import {
   cancelDictation,
+  getDictationLevel,
   getDictationStatus,
   isTauri,
   startDictation,
@@ -31,7 +33,9 @@ const shortModel = (m: string) => (m.includes(":") ? m.split(":").slice(1).join(
 // Identify an attachment by name + payload size so duplicates (e.g. the same file picked twice,
 // or a prefill applied twice) collapse to one chip.
 const attKey = (a: Attachment) =>
-  a.kind === "image" ? `i:${a.name}:${a.data_url?.length ?? 0}` : `t:${a.name}:${a.text?.length ?? 0}`;
+  a.kind === "text"
+    ? `t:${a.name}:${a.text?.length ?? 0}`
+    : `${a.kind[0]}:${a.name}:${a.data_url?.length ?? 0}`;
 const mergeAttachments = (cur: Attachment[], add: Attachment[]): Attachment[] => {
   const seen = new Set(cur.map(attKey));
   return [...cur, ...add.filter((a) => !seen.has(attKey(a)))].slice(0, 8);
@@ -83,8 +87,17 @@ export function Composer(props: Props) {
   const [dictationBusy, setDictationBusy] = useState<string | null>(null);
   const [dictationError, setDictationError] = useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [attachNotice, setAttachNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const noticeTimer = useRef<number | null>(null);
+
+  // Rejected-attachment notice: visible ~8s, then clears (or on ✕).
+  const showAttachNotice = (message: string) => {
+    setAttachNotice(message);
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setAttachNotice(null), 8000);
+  };
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -147,6 +160,23 @@ export function Composer(props: Props) {
     return () => window.clearInterval(timer);
   }, [dictation?.recording]);
 
+  // Live waveform: poll mic loudness at ~10Hz while recording; the bars scroll left so the
+  // trace reads as a real input meter (owner catch on DMG #28 — the first cut's bars were
+  // decorative constants and read as fake).
+  const [levels, setLevels] = useState<number[]>([]);
+  useEffect(() => {
+    if (!dictation?.recording) {
+      setLevels([]);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      getDictationLevel().then((level) => {
+        if (typeof level === "number") setLevels((cur) => [...cur.slice(-13), level]);
+      });
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [dictation?.recording]);
+
   useEffect(() => {
     if (!dictation?.recording) return;
     const cancelOnEscape = (event: KeyboardEvent) => {
@@ -165,8 +195,50 @@ export function Composer(props: Props) {
   const voiceReady = !!dictation?.supported && !!dictation?.model_verified && !!dictation?.test_passed;
   const recordingTime = `${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`;
 
+  // Attach-time PDF thresholds (Settings → Token savings): a PDF over the user's page or
+  // size limit is REJECTED with a visible notice — never attached, never silently dropped.
+  // The rationale is token cost: a big PDF re-rides every turn of the conversation.
   const addFiles = async (files: FileList | File[]) => {
-    const next = (await Promise.all(Array.from(files).map(readFile))).filter(Boolean) as Attachment[];
+    const list = Array.from(files);
+    let maxPages = 20;
+    let maxMb = 10;
+    if (list.some(isPdfFile)) {
+      try {
+        const s = await getSettings();
+        if (s.pdf_max_pages) maxPages = s.pdf_max_pages;
+        if (s.pdf_max_mb) maxMb = s.pdf_max_mb;
+      } catch {
+        /* offline settings fetch — fall back to defaults */
+      }
+    }
+    const accepted: File[] = [];
+    for (const file of list) {
+      if (isPdfFile(file) && file.size > maxMb * 1024 * 1024) {
+        showAttachNotice(
+          `${file.name} skipped — ${(file.size / 1024 / 1024).toFixed(1)} MB is over your ${maxMb} MB limit (Settings → Token savings)`,
+        );
+        continue;
+      }
+      accepted.push(file);
+    }
+    const read = (await Promise.all(accepted.map(readFile))).filter(Boolean) as Attachment[];
+    const next: Attachment[] = [];
+    for (const a of read) {
+      if (a.kind === "pdf" && a.data_url) {
+        const info = await inspectPdf(a.data_url).catch(() => null);
+        if (info?.ok && (info.pages ?? 0) > maxPages) {
+          showAttachNotice(
+            `${a.name} skipped — ${info.pages} pages is over your ${maxPages}-page limit (Settings → Token savings)`,
+          );
+          continue;
+        }
+        if (info && !info.ok) {
+          showAttachNotice(`${a.name} skipped — ${info.error || "could not read PDF"}`);
+          continue;
+        }
+      }
+      next.push(a);
+    }
     if (next.length) setAttachments((a) => mergeAttachments(a, next));
   };
 
@@ -270,6 +342,23 @@ export function Composer(props: Props) {
         </div>
       )}
 
+      {/* Rejected-attachment notice (PDF over the user's Token-savings thresholds). */}
+      {attachNotice && (
+        <div
+          data-testid="attach-notice"
+          className="max-w-3xl mx-auto mb-1.5 flex items-center gap-2 rounded-lg border border-warnInk/30 bg-warnSoft px-3 py-1.5 text-[12.5px] text-warnInk"
+        >
+          <span className="flex-1">{attachNotice}</span>
+          <button
+            className="shrink-0 opacity-60 hover:opacity-100"
+            onClick={() => setAttachNotice(null)}
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Attachments preview — a strip ABOVE the input box (mock/Claude-style). */}
       {attachments.length > 0 && (
         <div className="max-w-3xl mx-auto mb-1.5 flex flex-wrap gap-2">
@@ -298,7 +387,7 @@ export function Composer(props: Props) {
         <textarea
           ref={textareaRef}
           className="w-full block px-3.5 pt-3.5 pb-1.5 text-[14.5px]"
-          placeholder={props.placeholder || "Ask the coworker…  (drop or paste images)"}
+          placeholder={props.placeholder || "Ask the coworker…  (drop or paste files)"}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
@@ -344,14 +433,16 @@ export function Composer(props: Props) {
             }}
           />
 
-          {/* Listening replaces the quiet middle controls with waveform + elapsed time (§37). */}
+          {/* Listening replaces the quiet middle controls with a LIVE waveform (mic RMS,
+              polled ~10Hz, scrolling left) + elapsed time (§37). */}
           {dictation?.recording ? (
             <div className="voice-wave-row flex-1 flex items-center gap-2 ml-1" aria-hidden="true">
               <span className="voice-wave-line" />
               <span className="voice-wave-bars">
-                {[8, 16, 11, 23, 14, 27, 18, 9, 21, 13, 25, 16, 10, 19].map((height, index) => (
-                  <i key={index} style={{ height }} />
-                ))}
+                {Array.from({ length: 14 }, (_, index) => {
+                  const level = levels[levels.length - 14 + index] ?? 0;
+                  return <i key={index} style={{ height: Math.round(4 + level * 24) }} />;
+                })}
               </span>
               <span className="text-[12px] text-muted tabular-nums">{recordingTime}</span>
             </div>
@@ -364,6 +455,29 @@ export function Composer(props: Props) {
             />
           ) : null}
 
+          {dictationBusy === "Transcribing…" && <span className="text-[11.5px] text-accent">Transcribing…</span>}
+
+          <span className="ml-auto" />
+
+          {/* model — a quiet chip on a FRESH session only; once the session has history the
+              fact moves up to the topbar subtitle (§17 expressed spatially). */}
+          {!dictation?.recording && (needsModel ? (
+            <button
+              className="pill model-warn chip"
+              onClick={() => props.onConnectModel?.()}
+              title="Connect a model"
+              aria-label="No model connected — connect a model"
+            >
+              <span className="pill-label">No model</span>
+              <span className="model-warn-ico" aria-hidden>⚠</span>
+            </button>
+          ) : (
+            !props.modelLocked && (
+              <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
+            )
+          ))}
+
+          {/* mic — immediately before send (owner call, DMG #28 walkthrough) */}
           {isTauri() && (
             <button
               className={
@@ -388,28 +502,6 @@ export function Composer(props: Props) {
               <Icon name={dictation?.recording ? "stop" : "mic"} size={16} />
             </button>
           )}
-
-          {dictationBusy === "Transcribing…" && <span className="text-[11.5px] text-accent">Transcribing…</span>}
-
-          <span className="ml-auto" />
-
-          {/* model — a quiet chip on a FRESH session only; once the session has history the
-              fact moves up to the topbar subtitle (§17 expressed spatially). */}
-          {!dictation?.recording && (needsModel ? (
-            <button
-              className="pill model-warn chip"
-              onClick={() => props.onConnectModel?.()}
-              title="Connect a model"
-              aria-label="No model connected — connect a model"
-            >
-              <span className="pill-label">No model</span>
-              <span className="model-warn-ico" aria-hidden>⚠</span>
-            </button>
-          ) : (
-            !props.modelLocked && (
-              <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
-            )
-          ))}
 
           {/* send / stop */}
           {props.running ? (

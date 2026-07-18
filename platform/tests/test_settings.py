@@ -140,8 +140,8 @@ def test_scratch_base_setting_persists_and_drives_provisioning(tmp_path, monkeyp
     data_dir = tmp_path / "data"
     client = TestClient(create_app(SessionManager(data_dir=data_dir)))
 
-    # defaults to ~/OpenCoworker
-    assert client.get("/v1/settings").json()["scratch_base"] == "~/OpenCoworker"
+    # defaults to ~/OpenWorker
+    assert client.get("/v1/settings").json()["scratch_base"] == "~/OpenWorker"
 
     base = tmp_path / "my coworker files"
     resp = client.post("/v1/settings/scratch-base", json={"path": str(base)}).json()

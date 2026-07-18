@@ -72,7 +72,7 @@ def _browser_page(
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{_html.escape(title)} — OpenCoworker</title><style>"
+        f"<title>{_html.escape(title)} — OpenWorker</title><style>"
         ":root{--paper:#f6f5f2;--panel:#fff;--line:#e4e2dc;--ink:#2c2c2a;--muted:#6f6e68;"
         "--faint:#a3a19a;--accent:#3670b2;--ok:#2e7d4f;--ok-soft:#e3f2e9;--bad:#b3423a;"
         "--bad-soft:#f8e7e5}"
@@ -104,9 +104,9 @@ def _browser_page(
         "padding:7px 10px;margin-top:12px;text-align:left;word-break:break-word}"
         ".foot{font-size:10.5px;color:var(--faint)}"
         "</style></head><body>"
-        '<div class="card"><div class="mark"><i></i>OpenCoworker</div>'
+        '<div class="card"><div class="mark"><i></i>OpenWorker</div>'
         f"{icon}<h1>{_html.escape(title)}</h1><p>{_html.escape(detail)}</p>{err}</div>"
-        '<div class="foot">Served locally by OpenCoworker on your Mac</div>'
+        '<div class="foot">Served locally by OpenWorker on your Mac</div>'
         "</body></html>"
     )
 
@@ -121,7 +121,7 @@ def _connector_title(name: str) -> str:
 
 _CONNECT_FAILED_DETAIL = (
     "Something went wrong finishing this connection. "
-    "Close this tab and try again from OpenCoworker."
+    "Close this tab and try again from OpenWorker."
 )
 
 from ..attachments import build_user_content
@@ -797,7 +797,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         action = str((body or {}).get("action", "")).strip()
         return await manager.resolve_unauthorized(name, item_id, action)
 
-    # -- OpenCoworker Cloud: sign-in + managed one-click connect ---------------
+    # -- OpenWorker Cloud: sign-in + managed one-click connect ---------------
     # All optional: the app is fully functional signed out (manual token paste
     # stays available for every connector, before and after sign-in).
 
@@ -847,7 +847,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..config import load_config
 
         signin_failed_detail = (
-            "Close this tab and try signing in again from OpenCoworker."
+            "Close this tab and try signing in again from OpenWorker."
         )
         if error:
             return HTMLResponse(
@@ -869,15 +869,27 @@ def create_app(manager: SessionManager) -> FastAPI:
                 ),
                 status_code=400,
             )
-        # Sign-in restored GitHub installs from the broker's metadata rows —
-        # hot-add the gateway so the relay connects without a restart.
-        if result.get("restored_github_installs"):
-            await manager.refresh_gateway()
+
+        # Restore managed connections in the background: best-effort metadata work
+        # that must not hold the "Signed in" page (or the GUI's signed-in flip)
+        # hostage to another broker round trip. Restored GitHub installs hot-add
+        # the gateway so the relay connects without a restart.
+        async def _restore_connections() -> None:
+            try:
+                out = await asyncio.to_thread(
+                    lambda: cloud.sync_connections(manager.secrets, load_config())
+                )
+                if out.get("restored"):
+                    await manager.refresh_gateway()
+            except Exception:
+                pass  # sign-in stands; the user can still connect by hand
+
+        asyncio.get_running_loop().create_task(_restore_connections())
         return HTMLResponse(
             _browser_page(
                 "Signed in",
-                "You're signed in to OpenCoworker Cloud. "
-                "You can close this tab and return to OpenCoworker.",
+                "You're signed in to OpenWorker Cloud. "
+                "You can close this tab and return to OpenWorker.",
             )
         )
 
@@ -950,7 +962,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             return HTMLResponse(
                 _browser_page(
                     "GitHub connected",
-                    "You can close this tab and return to OpenCoworker.",
+                    "You can close this tab and return to OpenWorker.",
                     connector="github",
                 )
             )
@@ -1013,7 +1025,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         return HTMLResponse(
             _browser_page(
                 f"{_connector_title(connector)} connected",
-                "You can close this tab and return to OpenCoworker.",
+                "You can close this tab and return to OpenWorker.",
                 connector=connector,
             )
         )
@@ -1171,6 +1183,24 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_set_sessions_peek(body: dict) -> dict[str, Any]:
         # Sidebar: sessions shown per group before "Show more" (owner ask, 2026-07-03).
         return manager.set_sessions_peek((body or {}).get("sessions_peek", 5))
+
+    @app.post("/v1/settings/pdf")
+    def settings_set_pdf(body: dict) -> dict[str, Any]:
+        # Token savings (owner ask, 2026-07-17): fallback mode for models without native
+        # PDF support + attach-time page/size thresholds.
+        b = body or {}
+        return manager.set_pdf_settings(
+            fallback=b.get("pdf_fallback"),
+            max_pages=b.get("pdf_max_pages"),
+            max_mb=b.get("pdf_max_mb"),
+        )
+
+    @app.post("/v1/attachments/inspect-pdf")
+    def attachments_inspect_pdf(body: dict) -> dict[str, Any]:
+        # Attach-time page/size probe for the composer's threshold check. Local only.
+        from ..pdf_support import inspect
+
+        return inspect(str((body or {}).get("data_url", "")))
 
     # -- direct-message routing -------------------------------------------------
     @app.get("/v1/messaging/dm-route")

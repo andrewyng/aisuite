@@ -181,9 +181,12 @@ class BedrockMessageConverter:
             "content"
         ][0]["text"]
 
-        # Map Bedrock stopReason to OpenAI finish_reason
+        # Map Bedrock stopReason to OpenAI finish_reason.
+        # Bedrock's Converse API returns "end_turn"/"stop_sequence" for a
+        # naturally-completed response (never "complete"), so normalize both to
+        # OpenAI's "stop"; otherwise the raw vendor token leaks through.
         stop_reason = response.get("stopReason")
-        if stop_reason == "complete":
+        if stop_reason in ("end_turn", "stop_sequence"):
             norm_response.choices[0].finish_reason = "stop"
         elif stop_reason == "max_tokens":
             norm_response.choices[0].finish_reason = "length"

@@ -41,6 +41,7 @@ import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
@@ -950,11 +951,18 @@ export function App() {
   if (booting || !uiReady) {
     return (
       <div className={"app boot-splash" + (overlay ? " tauri-overlay" : "")}>
-        {desktop && (
+        {/* overlay (not desktop): ?overlay=1 previews the splash's top-left in the browser
+            too — the wordmark/traffic-light alignment is exactly what it exists to tune. */}
+        {overlay && (
           <div className="titlebar-drag" data-tauri-drag-region>
             <span className="titlebar-brand brand-wordmark">
-              <Icon name="logo" size={13} className="mark" /> OpenCoworker
+              <Icon name="logo" size={13} className="mark" /> OpenWorker
             </span>
+          </div>
+        )}
+        {simOverlay && (
+          <div className="sim-traffic-lights" aria-hidden="true">
+            <span /><span /><span />
           </div>
         )}
         <div className="boot-mark">✦</div>
@@ -978,6 +986,8 @@ export function App() {
           <span /><span /><span />
         </div>
       )}
+      {/* Desktop-only auto-update prompt (checks once, 15s after boot; inert in browser). */}
+      <UpdateBanner />
       {/* When collapsed, a thin left-edge zone peeks the nav back as a floating overlay. */}
       {navCollapsed && (
         <div
@@ -1283,10 +1293,10 @@ export function App() {
               resetKey={sessionId}
               placeholder={
                 agent === "code"
-                  ? "Ask the coder to build, fix, or explain…  (drop or paste images)"
+                  ? "Ask the coder to build, fix, or explain…  (drop or paste files)"
                   : agent === "chat"
-                    ? "Ask anything…  (drop or paste images)"
-                    : "Ask the coworker…  (drop or paste images)"
+                    ? "Ask anything…  (drop or paste files)"
+                    : "Ask the coworker…  (drop or paste files)"
               }
               approvalSlot={
                 // Live inline cards are for ATTENDED sessions only; when Unattended the prompt is

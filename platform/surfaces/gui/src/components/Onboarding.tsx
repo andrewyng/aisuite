@@ -62,13 +62,21 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
 
   const info = providers.find((p) => p.name === prov);
 
+  // Unsaved per-provider input, kept across switches WITHIN this modal: typing an OpenAI key,
+  // peeking at Anthropic, and coming back used to silently blank the OpenAI field (owner
+  // complaint 2026-07-16 — "can't make out if OpenAI is already connected").
+  const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
+
   const pickProvider = (name: string, list?: ProviderInfo[]) => {
     const p = (list || providers).find((x) => x.name === name);
+    setDrafts((d) => ({ ...d, [prov]: fields }));
     setProv(name);
     setVerify({ state: "idle" });
     setShowEndpoint(false);
+    const draft = drafts[name];
     const next: Record<string, string> = {};
-    for (const f of p?.fields || []) next[f.key] = p?.values?.[f.key] || f.default || "";
+    for (const f of p?.fields || [])
+      next[f.key] = draft?.[f.key] || p?.values?.[f.key] || f.default || "";
     setFields(next);
   };
 
@@ -104,7 +112,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
   // §30: narrate the sign-in — "opening" while the POST is in flight, "waiting" once the
   // browser is off (the 3 s poll below flips to the ✓ state when the flow lands).
   const [signinPhase, setSigninPhase] = useState<"opening" | "waiting" | null>(null);
-  // Poll while on the tools page: the browser sign-in flow lands out-of-band.
+  // Poll while on the tools page: the browser sign-in flow lands out-of-band. Tighten the
+  // interval while a sign-in is actually in flight — staring at "Waiting for sign-in…" for
+  // seconds after the browser finished read as "sign-in is slow" (owner, 2026-07-16).
   useEffect(() => {
     if (step !== 1) return;
     const load = () => {
@@ -112,9 +122,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
       getCloudStatus().then(setCloud).catch(() => {});
     };
     load();
-    const t = setInterval(load, 3000);
+    const t = setInterval(load, signinPhase === "waiting" ? 750 : 3000);
     return () => clearInterval(t);
-  }, [step]);
+  }, [step, signinPhase]);
 
   // The logo row: the headline managed connectors, REAL brand icons (owner call 2026-07-12 —
   // the mock's letter badges were stand-ins).
@@ -149,9 +159,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
 
         {step === 0 && (
           <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-            <h1 className="text-[19px] font-semibold">Welcome to OpenCoworker</h1>
+            <h1 className="text-[19px] font-semibold">Welcome to OpenWorker</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-5">
-              Connect a model to get started — OpenCoworker runs on your own API key, and your
+              Connect a model to get started — OpenWorker runs on your own API key, and your
               key and your data stay on this Mac.
             </p>
             <label className={label}>Provider</label>
@@ -176,6 +186,15 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                 })}
               onChange={(name) => pickProvider(name)}
             />
+            {/* Connected state, ON the form (owner complaint 2026-07-16): the stored key is
+                never echoed back, so without this line a connected provider's empty password
+                field read as "not set up". */}
+            {credentialed && (
+              <p className="text-[12px] text-ok mt-1.5" data-testid="ob-provider-connected">
+                ✓ Already connected — a key is saved for {info?.title}. Leave the field blank to
+                keep it.
+              </p>
+            )}
             {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
 
             {(info?.fields || []).map((f) => {
@@ -196,20 +215,46 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                   </button>
                 );
               }
+              // The Test affordance lives IN the key field (owner call, DMG #28 walkthrough:
+              // the footer Test button sat too far from the thing being tested): a small
+              // right-edge button that flips to a green ✓ once the key verifies (or was
+              // already saved). Continue still auto-verifies — this is the optional check.
+              const testable = f.secret && f.key === (info?.fields || []).find((x) => x.secret)?.key;
               return (
                 <div key={f.key}>
                   <label className={label}>{f.label}</label>
-                  <input
-                    className={input}
-                    type={f.secret ? "password" : "text"}
-                    placeholder={f.placeholder}
-                    value={fields[f.key] || ""}
-                    data-testid={`ob-field-${f.key}`}
-                    onChange={(e) => {
-                      setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
-                      setVerify({ state: "idle" });
-                    }}
-                  />
+                  <div className="relative">
+                    <input
+                      className={input + (testable ? " pr-16" : "")}
+                      type={f.secret ? "password" : "text"}
+                      placeholder={
+                        f.secret && credentialed ? "••••••••  (key saved)" : f.placeholder
+                      }
+                      value={fields[f.key] || ""}
+                      data-testid={`ob-field-${f.key}`}
+                      onChange={(e) => {
+                        setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
+                        setVerify({ state: "idle" });
+                      }}
+                    />
+                    {testable && (
+                      <button
+                        className={
+                          "absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-[12px] disabled:opacity-40 " +
+                          (verified
+                            ? "text-ok bg-okSoft/60"
+                            : "text-accent hover:bg-accentSoft/60")
+                        }
+                        onClick={runTest}
+                        disabled={verify.state === "testing" || (!requiredFilled && !credentialed)}
+                        title={verified ? "Connected" : "Test this key"}
+                        aria-label={verified ? "Connected" : "Test this key"}
+                        data-testid="ob-test"
+                      >
+                        {verify.state === "testing" ? "…" : verified ? "✓" : "Test"}
+                      </button>
+                    )}
+                  </div>
                   {f.help && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
                 </div>
               );
@@ -254,19 +299,10 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                   </button>
                 </span>
               )}
+              {/* Test moved INTO the key field (owner call, DMG #28); Continue still
+                  auto-verifies before advancing. */}
               <button
-                className={
-                  "ml-auto px-4 py-2 rounded-full border text-[13px] disabled:opacity-40 " +
-                  (verified ? "border-ok/40 text-ok" : "border-line hover:bg-paper")
-                }
-                onClick={runTest}
-                disabled={verify.state === "testing"}
-                data-testid="ob-test"
-              >
-                {verify.state === "testing" ? "Testing…" : verified ? "✓ Connected" : "Test"}
-              </button>
-              <button
-                className="px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
                 disabled={!canContinue || verify.state === "testing"}
                 onClick={saveAndContinue}
                 data-testid="ob-continue"
@@ -278,10 +314,17 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
         )}
 
         {step === 1 && (
+          /* §29 amendment (owner design, 2026-07-16): the value IS the headline, ONE primary
+             action. The old page led with "Connect your tools" but offered no connecting —
+             only a sign-in button mid-page COMPETING with a Continue that did something else.
+             Now: headline names what sign-in buys, the security story is one titled card with
+             the manual path as its footnote, and the footer is the §29 pair everywhere else
+             in the flow: quiet "Skip for now" left, primary "Sign in" right (→ "Continue"
+             once signed in). */
           <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-            <h1 className="text-[19px] font-semibold">Connect your tools</h1>
+            <h1 className="text-[19px] font-semibold">Sign in for one-click connections</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-5">
-              OpenCoworker works with the apps you already use.
+              OpenWorker works with the apps you already use.
             </p>
 
             <div className="flex items-center gap-2.5 mb-5">
@@ -293,18 +336,20 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
 
             <div className="rounded-xl2 border border-line bg-paper px-4 py-3.5 text-[12.5px] text-muted">
               <span className="block text-[13px] text-ink font-medium mb-0.5">
-                One sign-in unlocks every one-click connection
+                Secure by design
               </span>
-              Connections are brokered by OpenCoworker Cloud — your tokens stay on this Mac.
-              Connect Slack, GitHub, HubSpot, Gmail and Calendar later with a single click each.
+              {/* Owner copy (DMG #28 walkthrough) — leads with the integration breadth. */}
+              Signing in handles OAuth and token management for 20+ integrations — Slack,
+              GitHub, HubSpot, Gmail, Calendar and more. Tokens stay local on your Mac. No
+              digging through dev consoles for API keys.
+              {/* Sign-in is the one-click path, never the ONLY path (owner call 2026-07-12). */}
+              <span className="block text-[11.5px] text-faint mt-3 pt-3 border-t border-line">
+                Prefer manual setup? Every tool also works with your own API keys from the
+                Connectors page — signing in just makes it one click.
+              </span>
             </div>
-            {/* Sign-in is the one-click path, never the ONLY path (owner call 2026-07-12). */}
-            <p className="text-[11.5px] text-faint mt-2.5">
-              Prefer manual setup? Every tool can also be connected with your own API keys from
-              the Connectors page — signing in just makes it one click.
-            </p>
 
-            <div className="mt-4">
+            <div className="mt-4 min-h-[36px]">
               {cloud?.signed_in ? (
                 <span
                   className="inline-flex items-center gap-2 text-[13px] text-ok bg-okSoft/60 rounded-lg px-3 py-2"
@@ -329,19 +374,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                     </span>
                   )}
                 </span>
-              ) : (
-                <button
-                  className="px-4 py-2 rounded-full bg-accent text-white text-[13px]"
-                  onClick={async () => {
-                    setSigninPhase("opening");
-                    await cloudLogin().catch(() => {});
-                    setSigninPhase("waiting");
-                  }}
-                  data-testid="ob-cloud-signin"
-                >
-                  Sign in to OpenCoworker Cloud
-                </button>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3 mt-auto pt-5">
@@ -350,15 +383,30 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                 onClick={() => setStep(2)}
                 data-testid="ob-tools-skip"
               >
-                Skip — you can sign in whenever you first connect something
+                Skip for now
               </button>
-              <button
-                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
-                onClick={() => setStep(2)}
-                data-testid="ob-continue-tools"
-              >
-                Continue
-              </button>
+              {cloud?.signed_in ? (
+                <button
+                  className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
+                  onClick={() => setStep(2)}
+                  data-testid="ob-continue-tools"
+                >
+                  Continue
+                </button>
+              ) : (
+                <button
+                  className="ml-auto px-5 py-2 rounded-full bg-accent text-white text-[13px] shrink-0 disabled:opacity-40"
+                  disabled={signinPhase === "opening"}
+                  onClick={async () => {
+                    setSigninPhase("opening");
+                    await cloudLogin().catch(() => {});
+                    setSigninPhase("waiting");
+                  }}
+                  data-testid="ob-cloud-signin"
+                >
+                  Sign in
+                </button>
+              )}
             </div>
           </section>
         )}

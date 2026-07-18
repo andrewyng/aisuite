@@ -1,6 +1,6 @@
 """Sender attribution for outbound Slack posts (P1, 2026-07-14).
 
-Multiple people can run OpenCoworker into the same channel, and every one of their
+Multiple people can run OpenWorker into the same channel, and every one of their
 posts arrives as the same @ocw bot. The managed OAuth install already records WHO
 connected each workspace — Slack's `authed_user` — so outbound text carries
 "[<their name>] " per workspace: the member id rides the install form-POST into the

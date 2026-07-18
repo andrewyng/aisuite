@@ -702,6 +702,32 @@ class TurnEngine:
             )
             for msg in self.messages
         ]
+        # PDF attachments (stored as `file` parts) are adapted to the ACTIVE model right
+        # here — never in the persisted history — so a mid-session model switch always
+        # re-decides: native PDF models get the real document, the rest get the local
+        # text-extract/page-image fallback (pdf_support.py).
+        if any(
+            isinstance(p, dict) and p.get("type") == "file"
+            for msg in out
+            if isinstance(msg.get("content"), list)
+            for p in msg["content"]
+        ):
+            caps = self.provider.capabilities(self.model)
+            if not getattr(caps, "pdf", False):
+                from . import pdf_support
+
+                out = [
+                    (
+                        {
+                            **msg,
+                            "content": pdf_support.adapt_content(msg["content"], caps),
+                        }
+                        if isinstance(msg.get("content"), list)
+                        else msg
+                    )
+                    for msg in out
+                ]
+
         context = (
             self.context_provider() if self.context_provider is not None else ""
         ) or ""

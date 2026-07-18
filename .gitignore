@@ -62,6 +62,10 @@ coverage/
 
 # Cloud credentials
 .google-adc
+# Local test scratch files
+ignore*.py
+ignore_local*.py
+
 
 # Logs
 logs

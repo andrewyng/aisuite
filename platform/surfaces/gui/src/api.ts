@@ -372,7 +372,7 @@ export interface Connector {
   installations?: GithubInstallation[]; // GitHub only: App installations (managed relay)
 }
 
-// --- OpenCoworker Cloud (optional sign-in; manual token paste always works) ---
+// --- OpenWorker Cloud (optional sign-in; manual token paste always works) ---
 
 export interface CloudStatus {
   signed_in: boolean;
@@ -402,6 +402,34 @@ export async function cloudLogin(): Promise<{ ok: boolean }> {
   // The sidecar opens the system browser; the GUI just polls status after.
   const res = await fetch(`${httpBase()}/v1/cloud/login`, { method: "POST" });
   return res.json();
+}
+
+/** Poll cloud status until the browser sign-in lands (or the bound runs out).
+ *
+ * Fast 500ms polls for the first 20s — the moment the user finishes in the
+ * browser they're staring at the app waiting for it to flip, and a 2s interval
+ * reads as "sign-in is slow" (owner complaint, 2026-07-16) — then relaxes to 2s
+ * for the long tail (~2min total). Calls `onDone` with the signed-in status, or
+ * null when it timed out. Returns a cancel function (call on unmount). */
+export function waitForCloudSignIn(
+  onDone: (s: CloudStatus | null) => void,
+): () => void {
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let polls = 0;
+  const tick = async () => {
+    polls += 1;
+    const s = await getCloudStatus().catch(() => null);
+    if (cancelled) return;
+    if (s?.signed_in) return onDone(s);
+    if (polls >= 90) return onDone(null); // 40×500ms + 50×2s ≈ 2min
+    timer = setTimeout(tick, polls < 40 ? 500 : 2000);
+  };
+  timer = setTimeout(tick, 500);
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
 }
 
 export async function cloudLogout(): Promise<{ ok: boolean }> {
@@ -560,6 +588,41 @@ export interface ModelSettings {
   sessions_peek?: number;
   // Curated-matrix display names ({full id → "GLM-5.2 · via Together"}); custom models absent.
   model_labels?: Record<string, string>;
+  // Token savings (PDF attachments): fallback for models without native PDF support,
+  // and attach-time thresholds. Optional so the GUI is robust to an older backend.
+  pdf_fallback?: "text" | "images";
+  pdf_max_pages?: number; // default 20, 1–100
+  pdf_max_mb?: number; // default 10, 1–10
+}
+
+export interface PdfSettings {
+  pdf_fallback: "text" | "images";
+  pdf_max_pages: number;
+  pdf_max_mb: number;
+}
+
+/** Persist the Token-savings PDF settings (fallback mode + attach thresholds). */
+export async function setPdfSettings(
+  patch: Partial<PdfSettings>,
+): Promise<{ ok: boolean; error?: string } & Partial<PdfSettings>> {
+  const res = await fetch(`${httpBase()}/v1/settings/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return res.json();
+}
+
+/** Local page/size probe for a PDF data URL — the composer's attach-time threshold check. */
+export async function inspectPdf(
+  dataUrl: string,
+): Promise<{ ok: boolean; pages?: number; bytes?: number; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/attachments/inspect-pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_url: dataUrl }),
+  });
+  return res.json();
 }
 
 /** Persist how many sessions a sidebar group shows before "Show more". */

@@ -1,4 +1,4 @@
-"""OpenCoworker Cloud integration: sign-in, managed connect callback, refresh.
+"""OpenWorker Cloud integration: sign-in, managed connect callback, refresh.
 
 Everything is offline: Auth0 and the cloud broker are stubbed at the httpx
 boundary. The invariants under test are the product promises — manual paste
@@ -92,11 +92,10 @@ def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
         )
 
     def fake_get(url, **kwargs):
-        if url == "https://cloud.test/v1/me":
-            return FakeResponse(200, {"user": {"email": "a@b.c", "user_id": "usr_1"}})
-        # complete_login also syncs connection state (restore-on-sign-in).
-        assert url == "https://cloud.test/v1/connections"
-        return FakeResponse(200, {"connections": []})
+        # Connection restore is NOT part of complete_login (it runs in the
+        # background from the /auth/callback route) — only /v1/me is hit here.
+        assert url == "https://cloud.test/v1/me"
+        return FakeResponse(200, {"user": {"email": "a@b.c", "user_id": "usr_1"}})
 
     monkeypatch.setattr(cloud.httpx, "post", fake_post)
     monkeypatch.setattr(cloud.httpx, "get", fake_get)
@@ -104,7 +103,6 @@ def test_complete_login_stores_tokens_and_account(secrets, config, monkeypatch):
     result = cloud.complete_login(secrets, config, "code1", state)
     assert result["ok"] and result["signed_in"]
     assert result["account"] == "a@b.c"
-    assert result["restored_github_installs"] == []
     profile = secrets.get(cloud.CLOUD_AUTH_PROFILE)
     assert profile["access_token"] == "at1"
     assert profile["refresh_token"] == "rt1"

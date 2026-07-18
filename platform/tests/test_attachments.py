@@ -177,3 +177,44 @@ def test_live_vision_model_reads_image():
         model="gpt-4o", messages=[{"role": "user", "content": content}]
     )
     assert "red" in (turn.text or "").lower(), f"model said: {turn.text!r}"
+
+
+def test_pdf_attachment_becomes_file_part():
+    url = "data:application/pdf;base64,JVBERi0xLjQ="
+    content = build_user_content(
+        "summarize this", [{"kind": "pdf", "name": "report.pdf", "data_url": url}]
+    )
+    assert content == [
+        {"type": "text", "text": "summarize this"},
+        {"type": "file", "file": {"filename": "report.pdf", "file_data": url}},
+    ]
+
+
+def test_pdf_attachment_invalid_or_oversized_skipped():
+    from coworker.attachments import MAX_PDF_CHARS
+
+    bad = [
+        {"kind": "pdf", "name": "x.pdf", "data_url": "data:image/png;base64,zz"},
+        {"kind": "pdf", "name": "x.pdf"},
+        {
+            "kind": "pdf",
+            "name": "big.pdf",
+            "data_url": "data:application/pdf;base64," + "A" * MAX_PDF_CHARS,
+        },
+    ]
+    assert build_user_content("hi", bad) == "hi"
+
+
+def test_content_to_text_renders_pdf_placeholder():
+    parts = [
+        {"type": "text", "text": "see attached"},
+        {
+            "type": "file",
+            "file": {
+                "filename": "report.pdf",
+                "file_data": "data:application/pdf;base64,x",
+            },
+        },
+    ]
+    assert content_to_text(parts) == "see attached [pdf]"
+    assert content_to_text(parts, image_placeholder="") == "see attached"

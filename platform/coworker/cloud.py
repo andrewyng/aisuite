@@ -1,4 +1,4 @@
-"""OpenCoworker Cloud client: sign-in and managed one-click connectors.
+"""OpenWorker Cloud client: sign-in and managed one-click connectors.
 
 Everything here is OPTIONAL. The app is fully functional signed out — manual
 token paste stays available for every connector (and remains available after
@@ -141,14 +141,12 @@ def complete_login(
         profile["account"] = me.get("user", {}).get("email") or ""
         profile["user_id"] = me.get("user", {}).get("user_id") or ""
         secrets.put(CLOUD_AUTH_PROFILE, profile)
-    # Best-effort restore of managed connections (a failure never fails the
-    # sign-in — the user can still connect by hand). The /auth/callback route
-    # hot-adds the gateway when anything came back.
-    try:
-        restored = sync_connections(secrets, config).get("restored", [])
-    except Exception:
-        restored = []
-    return {"ok": True, "restored_github_installs": restored, **status(secrets)}
+    # Connection restore (sync_connections) deliberately does NOT run here: it is
+    # best-effort metadata work, and doing it inline held the browser's "Signed in"
+    # page + the GUI's signed-in flip hostage to an extra broker round trip (slow
+    # sign-in complaint, 2026-07-16). The /auth/callback route kicks it off in the
+    # background after responding.
+    return {"ok": True, **status(secrets)}
 
 
 def sync_connections(secrets: SecretStore, config: Config) -> dict[str, Any]:

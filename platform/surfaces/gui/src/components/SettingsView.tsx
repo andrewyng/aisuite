@@ -5,10 +5,12 @@ import {
   getSettings,
   setCloudTelemetry,
   setOnboarded,
+  setPdfSettings,
   setScratchBase,
   setSessionsPeek,
   type CloudStatus,
   type ModelSettings,
+  type PdfSettings,
 } from "../api";
 import {
   cancelDictationModelDownload,
@@ -17,6 +19,8 @@ import {
   getAutostart,
   getDictationStatus,
   getKeepAwake,
+  checkForUpdate,
+  installUpdate,
   isTauri,
   listenDictationDownloadProgress,
   markDictationTestPassed,
@@ -249,7 +253,7 @@ function VoiceInputSection() {
       />
 
       {!desktop ? (
-        <div className={CARD + " p-4 text-[13px] text-muted"}>Voice Input setup is available in the OpenCoworker desktop app.</div>
+        <div className={CARD + " p-4 text-[13px] text-muted"}>Voice Input setup is available in the OpenWorker desktop app.</div>
       ) : (
         <div className="space-y-4">
           <div className="rounded-xl border border-green-200 bg-green-50/70 px-4 py-3 text-[12.5px] text-green-800">
@@ -357,7 +361,7 @@ function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => vo
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-medium">Browse the Persona Gallery</span>
           <span className="block text-[12px] text-muted">
-            Curated coworkers from the OpenCoworker team — see what each can do before installing.
+            Curated coworkers from the OpenWorker team — see what each can do before installing.
           </span>
         </span>
         <span className="text-[12.5px] text-accent shrink-0">Open →</span>
@@ -395,7 +399,7 @@ function AppearanceSection() {
 
   return (
     <section>
-      <PanelHead title="Appearance" sub="How OpenCoworker looks and behaves on this machine." />
+      <PanelHead title="Appearance" sub="How OpenWorker looks and behaves on this machine." />
 
       <div className={CARD + " p-4 mb-4"}>
         <div className={FIELD_LABEL}>Theme</div>
@@ -411,6 +415,8 @@ function AppearanceSection() {
 
       <SidebarCard />
 
+      <TokenSavingsCard />
+
       <TelemetryCard />
 
       {desktop && (
@@ -420,7 +426,7 @@ function AppearanceSection() {
             <input type="checkbox" className="mt-0.5" checked={autostart} onChange={(e) => toggleAuto(e.target.checked)} />
             <span>
               <span className="block text-[13px] text-ink">Open at login</span>
-              <span className="block text-[12px] text-muted">Launch OpenCoworker automatically when you sign in.</span>
+              <span className="block text-[12px] text-muted">Launch OpenWorker automatically when you sign in.</span>
             </span>
           </label>
           <label className="flex items-start gap-3 py-2">
@@ -442,7 +448,68 @@ function AppearanceSection() {
         </button>
         <div className={FIELD_HELP}>Replays the first-run setup: model, first automation, tips.</div>
       </div>
+
+      {/* Manual update check (desktop shell only; launch also checks automatically). */}
+      {desktop && <UpdateCard />}
     </section>
+  );
+}
+
+function UpdateCard() {
+  const [state, setState] = useState<"idle" | "checking" | "none" | "found" | "installing" | "error">("idle");
+  const [version, setVersion] = useState("");
+
+  const check = async () => {
+    setState("checking");
+    try {
+      const u = await checkForUpdate();
+      if (u) {
+        setVersion(u.version);
+        setState("found");
+      } else {
+        setState("none");
+      }
+    } catch {
+      setState("error");
+    }
+  };
+
+  const install = async () => {
+    setState("installing");
+    try {
+      await installUpdate(); // success restarts the app
+    } catch {
+      setState("error");
+    }
+  };
+
+  return (
+    <div className={CARD + " p-4 mt-4"}>
+      <div className={FIELD_LABEL + " mb-2"}>Updates</div>
+      {state === "found" ? (
+        <button className={BTN_BORDERED} onClick={install} data-testid="settings-update-install">
+          Update to v{version} and restart
+        </button>
+      ) : (
+        <button
+          className={BTN_BORDERED}
+          onClick={check}
+          disabled={state === "checking" || state === "installing"}
+          data-testid="settings-update-check"
+        >
+          {state === "checking" ? "Checking…" : "Check for updates"}
+        </button>
+      )}
+      <div className={FIELD_HELP}>
+        {state === "none"
+          ? "You're on the latest version."
+          : state === "error"
+            ? "Couldn't check right now — try again later."
+            : state === "installing"
+              ? "Downloading — OpenWorker restarts by itself when it's ready."
+              : "Updates download from OpenWorker's releases and install in place."}
+      </div>
+    </div>
   );
 }
 
@@ -476,7 +543,7 @@ function TelemetryCard() {
           }}
         />
         <span>
-          <span className="block text-[13px] text-ink">Help improve OpenCoworker</span>
+          <span className="block text-[13px] text-ink">Help improve OpenWorker</span>
           <span className="block text-[12px] text-muted">
             Which coworker type was started and when; never your prompts, files, or connector
             data. Signed-out installs send nothing regardless.
@@ -488,6 +555,96 @@ function TelemetryCard() {
 }
 
 // -- Sidebar density -------------------------------------------------------------
+// -- Token savings (PDF attachments; owner ask, 2026-07-17) ---------------------
+// Attachments replay with EVERY turn, so a big PDF quietly multiplies token spend.
+// Auto-compaction of long histories is a planned follow-up (punchlist §7) — until
+// then this card is the user's dial: attach thresholds + the fallback for models
+// without native PDF support.
+function TokenSavingsCard() {
+  const [pdf, setPdf] = useState<PdfSettings | null>(null);
+
+  useEffect(() => {
+    getSettings()
+      .then((s) =>
+        setPdf({
+          pdf_fallback: s.pdf_fallback || "text",
+          pdf_max_pages: s.pdf_max_pages || 20,
+          pdf_max_mb: s.pdf_max_mb || 10,
+        }),
+      )
+      .catch(() => setPdf({ pdf_fallback: "text", pdf_max_pages: 20, pdf_max_mb: 10 }));
+  }, []);
+
+  const save = async (patch: Partial<PdfSettings>) => {
+    setPdf((p) => (p ? { ...p, ...patch } : p));
+    await setPdfSettings(patch);
+  };
+
+  if (!pdf) return null;
+  return (
+    <div className={CARD + " p-4 mb-4"} data-testid="token-savings-card">
+      <div className={FIELD_LABEL}>Token savings</div>
+      <div className={FIELD_HELP}>
+        PDF attachments travel with every turn of a conversation, so large documents multiply
+        what you spend on tokens.
+      </div>
+
+      <div className="mt-3 text-[13px] text-ink">PDFs on models without native PDF support</div>
+      <div className="seg mt-2" role="radiogroup" aria-label="PDF fallback" data-testid="pdf-fallback">
+        <button
+          className={pdf.pdf_fallback === "text" ? "active" : ""}
+          onClick={() => save({ pdf_fallback: "text" })}
+        >
+          Extract text
+        </button>
+        <button
+          className={pdf.pdf_fallback === "images" ? "active" : ""}
+          onClick={() => save({ pdf_fallback: "images" })}
+        >
+          Send page images
+        </button>
+      </div>
+      <div className={FIELD_HELP}>
+        Claude, GPT and Gemini read PDFs natively — this only applies to models that
+        don&rsquo;t (GLM, Kimi, DeepSeek, local models…). Text extraction is cheapest; page
+        images cost more tokens and need a vision-capable model.
+      </div>
+
+      <div className="mt-3 flex items-center gap-5">
+        <label className="flex items-center gap-2.5">
+          <span className="text-[13px] text-ink">Max pages</span>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={pdf.pdf_max_pages}
+            data-testid="pdf-max-pages"
+            className="w-16 px-2 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent"
+            onChange={(e) => save({ pdf_max_pages: Math.max(1, Math.min(Number(e.target.value) || 20, 100)) })}
+          />
+        </label>
+        <label className="flex items-center gap-2.5">
+          <span className="text-[13px] text-ink">Max size</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={pdf.pdf_max_mb}
+            data-testid="pdf-max-mb"
+            className="w-16 px-2 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent"
+            onChange={(e) => save({ pdf_max_mb: Math.max(1, Math.min(Number(e.target.value) || 10, 10)) })}
+          />
+          <span className="text-[12.5px] text-muted">MB</span>
+        </label>
+      </div>
+      <div className={FIELD_HELP}>
+        PDFs over these limits are not attached — you&rsquo;ll see a notice in the composer
+        instead.
+      </div>
+    </div>
+  );
+}
+
 function SidebarCard() {
   const [peek, setPeek] = useState<number | null>(null);
 
@@ -564,7 +721,7 @@ function FilesSection() {
     <section>
       <PanelHead
         title="Files"
-        sub="Where OpenCoworker keeps the per-conversation scratch folders it saves files into by default."
+        sub="Where OpenWorker keeps the per-conversation scratch folders it saves files into by default."
       />
       <div className={CARD + " p-4"}>
         <div className={FIELD_LABEL}>Scratch location</div>
@@ -572,7 +729,7 @@ function FilesSection() {
           <input
             className={INPUT}
             type="text"
-            placeholder="~/OpenCoworker"
+            placeholder="~/OpenWorker"
             value={scratchDraft}
             spellCheck={false}
             autoComplete="off"

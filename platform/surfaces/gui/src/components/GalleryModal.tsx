@@ -30,10 +30,10 @@ const BTN_ACCENT =
   "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shrink-0 disabled:opacity-40";
 const CHIP = "text-[10.5px] px-1.5 py-0.5 rounded border border-line text-muted";
 
-type Source = "all" | "opencoworker" | "team";
+type Source = "all" | "openworker" | "team";
 
 function sourceOf(p: GalleryPersona): Exclude<Source, "all"> {
-  return p.publisher === "OpenCoworker" ? "opencoworker" : "team";
+  return p.publisher === "OpenWorker" ? "openworker" : "team";
 }
 
 function ConnectorChip({ name }: { name: string }) {
@@ -144,7 +144,7 @@ export function GalleryModal({
         {(
           [
             ["all", "All"],
-            ["opencoworker", "From OpenCoworker"],
+            ["openworker", "From OpenWorker"],
             ["team", "From your team"],
           ] as [Source, string][]
         ).map(([key, label]) => (
@@ -411,7 +411,7 @@ export function GalleryModal({
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-[14px] mb-1">Sign in to browse the Gallery</div>
                 <div className="text-[12.5px] text-muted leading-relaxed">
-                  The Gallery is a curated set of coworkers from OpenCoworker Cloud and needs a
+                  The Gallery is a curated set of coworkers from OpenWorker Cloud and needs a
                   (free) cloud sign-in. Installing personas from a folder or Git URL — on the
                   Personas page — always works without an account.
                 </div>

@@ -1,4 +1,4 @@
-//! OpenCoworker desktop shell.
+//! OpenWorker desktop shell.
 //!
 //! Tauri is a thin native window over the existing React SPA. It:
 //!   1. picks a free localhost port and starts the Python `coworker-server` as a managed
@@ -44,10 +44,12 @@ fn free_port() -> u16 {
 
 /// Path to the server entrypoint. Resolution order:
 ///   1. `COWORKER_SERVER_BIN` env override.
-///   2. The bundled sidecar next to the app executable (production — Tauri externalBin drops
-///      `coworker-server[.exe]` next to the app binary: Contents/MacOS on macOS, the install
-///      dir on Windows).
-///   3. Dev fallback: the repo venv, relative to this crate (`src-tauri` → `platform/.venv`;
+///   2. The bundled onedir sidecar shipped via Tauri `resources` (production): the
+///      `sidecar/` folder lands in Contents/Resources on macOS and in the install dir
+///      (next to the app exe) on Windows.
+///   3. Legacy onefile slot: `coworker-server[.exe]` next to the app binary (pre-onedir
+///      builds used Tauri externalBin).
+///   4. Dev fallback: the repo venv, relative to this crate (`src-tauri` → `platform/.venv`;
 ///      `bin/` on POSIX, `Scripts\` on Windows).
 fn server_bin() -> PathBuf {
     if let Ok(p) = std::env::var("COWORKER_SERVER_BIN") {
@@ -60,9 +62,17 @@ fn server_bin() -> PathBuf {
     };
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let bundled = dir.join(exe_name);
-            if bundled.exists() {
-                return bundled;
+            // macOS: Contents/MacOS/<app> → Contents/Resources/sidecar/; Windows: resources
+            // unpack next to the exe, so <install>/sidecar/.
+            let mut candidates = vec![dir.join("sidecar").join(exe_name)];
+            if let Some(contents) = dir.parent() {
+                candidates.push(contents.join("Resources").join("sidecar").join(exe_name));
+            }
+            candidates.push(dir.join(exe_name)); // legacy onefile externalBin slot
+            for c in candidates {
+                if c.exists() {
+                    return c;
+                }
             }
         }
     }
@@ -451,12 +461,60 @@ fn delete_dictation_model(state: tauri::State<Arc<Dictation>>) -> Result<VoiceIn
     Ok(voice_input_status(&state))
 }
 
+/// Instantaneous mic loudness (0..1) while a dictation is recording — the composer polls
+/// this to draw a real input-driven waveform instead of decorative bars (owner catch,
+/// DMG #28 walkthrough).
+#[tauri::command]
+fn dictation_level(state: tauri::State<Arc<Dictation>>) -> f32 {
+    state.input_level()
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+// --- Auto-update (tauri-plugin-updater) -------------------------------------------
+// The GUI drives updates through these two commands (same invoke bridge as everything
+// else — no global plugin JS). Update artifacts are minisign-verified against the
+// pubkey in tauri.conf.json before anything is installed; the manifest lives at the
+// endpoints configured there (download.openworker.com → GitHub Releases).
+
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: String,
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|u| UpdateInfo {
+        version: u.version.clone(),
+        notes: u.body.clone().unwrap_or_default(),
+    }))
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Err("no update available".into());
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    // Windows never reaches here (the NSIS installer takes over and relaunches).
+    // macOS: the .app was swapped in place — restart into the new version. The tray
+    // Exit path's sidecar kill runs via RunEvent, so no orphaned coworker-server.
+    app.restart();
 }
 
 pub fn run() {
@@ -475,6 +533,7 @@ pub fn run() {
             show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -494,7 +553,10 @@ pub fn run() {
             cancel_dictation_model_download,
             verify_dictation_model,
             mark_dictation_test_passed,
-            delete_dictation_model
+            delete_dictation_model,
+            dictation_level,
+            check_for_update,
+            install_update
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).
@@ -560,9 +622,15 @@ pub fn run() {
             //    Overlay title bar (macOS): traffic lights float over the edge-to-edge UI.
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("OpenCoworker")
+                    .title("OpenWorker")
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(980.0, 640.0)
+                    // Let the WEBVIEW receive OS file drags: Tauri's own drag-drop handler
+                    // otherwise intercepts them, so the composer's HTML5 onDrop (attach by
+                    // dragging a file in) never fired in the desktop shell — browser dev
+                    // worked, DMGs didn't. main.tsx guards against drops outside the
+                    // composer navigating the page.
+                    .disable_drag_drop_handler()
                     .initialization_script(&inject);
             #[cfg(target_os = "macos")]
             {
@@ -586,7 +654,7 @@ pub fn run() {
             });
 
             // 3. System tray: Open / Settings / Quit.
-            let open_i = MenuItem::with_id(app, "open", "Open OpenCoworker", true, None::<&str>)?;
+            let open_i = MenuItem::with_id(app, "open", "Open OpenWorker", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_i, &settings_i, &quit_i])?;
@@ -595,7 +663,7 @@ pub fn run() {
             // it for light/dark automatically — not the full-color app icon.
             let tray_icon = tauri::image::Image::new(include_bytes!("../icons/tray.rgba"), 44, 44);
             TrayIconBuilder::new()
-                .tooltip("OpenCoworker")
+                .tooltip("OpenWorker")
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .menu(&menu)
@@ -617,7 +685,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building the OpenCoworker desktop app")
+        .expect("error while building the OpenWorker desktop app")
         .run(|app, event| {
             // Also on Exit: belt-and-suspenders in case a quit path reaches teardown without
             // a preceding ExitRequested (observed with macOS Cmd+Q under the tray setup).

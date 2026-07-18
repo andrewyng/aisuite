@@ -44,3 +44,21 @@ def test_cohere_provider():
         )
 
         assert response.choices[0].message.content == response_text_content
+
+
+def test_cohere_finish_reason_max_tokens():
+    """A MAX_TOKENS Cohere response normalizes to OpenAI 'length', not 'stop'."""
+    provider = CohereProvider()
+    mock_response = MagicMock()
+    mock_response.finish_reason = "MAX_TOKENS"
+    mock_response.message = MagicMock()
+    mock_response.message.content = [MagicMock()]
+    mock_response.message.content[0].text = "truncated output"
+
+    with patch.object(provider.client, "chat", return_value=mock_response):
+        response = provider.chat_completions_create(
+            messages=[{"role": "user", "content": "hi"}],
+            model="our-favorite-model",
+        )
+
+    assert response.choices[0].finish_reason == "length"

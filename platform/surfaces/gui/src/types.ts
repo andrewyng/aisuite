@@ -59,12 +59,12 @@ export interface SessionInfo {
   origin_label?: string;
 }
 
-// Attachments (images, text files) sent with a user message.
+// Attachments (images, PDFs, text files) sent with a user message.
 export interface Attachment {
-  kind: "image" | "text";
+  kind: "image" | "text" | "pdf";
   name: string;
   mime?: string;
-  data_url?: string; // images
+  data_url?: string; // images + PDFs
   text?: string; // text files
 }
 

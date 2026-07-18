@@ -5,9 +5,9 @@
 
 .DESCRIPTION
   The Windows counterpart to build_dmg.sh:
-    1. PyInstaller-bundle the server into a standalone coworker-server.exe (no venv at runtime).
-    2. Drop it into Tauri's externalBin slot (binaries\coworker-server-<triple>.exe).
-    3. `tauri build --bundles nsis,msi` -> Coworker NSIS setup .exe + .msi (externalBin copied in).
+    1. PyInstaller-bundle the server into a standalone onedir folder (no venv at runtime).
+    2. Stage it at binaries\sidecar\ for Tauri's `resources` slot.
+    3. `tauri build --bundles nsis,msi` -> Coworker NSIS setup .exe + .msi (resources copied in).
 
   Prerequisites (see the toolchain notes in the PR/plan):
     - Rust (rustup) with the x86_64-pc-windows-msvc target + the MSVC C++ build tools (link.exe).
@@ -68,18 +68,33 @@ Write-Host "==> [1/3] PyInstaller: bundling coworker-server ($Triple)" -Foregrou
     (Join-Path $Here "coworker-server.spec")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit $LASTEXITCODE)" }
 
-Write-Host "==> [2/3] staging externalBin" -ForegroundColor Cyan
+Write-Host "==> [2/3] staging sidecar resources" -ForegroundColor Cyan
+# Onedir bundle (exe + _internal\) ships via Tauri `resources`, landing at <install>\sidecar\
+# next to the app exe — onefile's per-launch self-extraction cost seconds of boot splash.
 $BinDir = Join-Path $Gui "src-tauri\binaries"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$Src = Join-Path $Here "dist\coworker-server.exe"
-$Dst = Join-Path $BinDir "coworker-server-$Triple.exe"
-Copy-Item -Force $Src $Dst
+$Src = Join-Path $Here "dist\coworker-server"
+$Dst = Join-Path $BinDir "sidecar"
+if (Test-Path $Dst) { Remove-Item -Recurse -Force $Dst }
+# Clear any stale onefile binary from pre-onedir builds.
+Remove-Item -Force (Join-Path $BinDir "coworker-server-$Triple.exe") -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force $Src $Dst
 Write-Host "    -> $Dst"
 
 Write-Host "==> [3/3] tauri build (--bundles $Bundles)" -ForegroundColor Cyan
+# Auto-update artifacts (NSIS setup .exe + minisign .sig): produced only when the updater
+# signing key env is present (CI secret TAURI_SIGNING_PRIVATE_KEY). Keyless builds skip
+# the overlay so dev builds keep working; keyless RELEASES strand installs without
+# auto-update.
+$UpdaterArgs = @()
+if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+    $UpdaterArgs = @("--config", '{"bundle":{"createUpdaterArtifacts":true}}')
+} else {
+    Write-Host "    WARNING: no updater signing key - building WITHOUT auto-update artifacts (not releasable)." -ForegroundColor Yellow
+}
 Push-Location $Gui
 try {
-    & npm run tauri build -- --bundles $Bundles
+    & npm run tauri build -- --bundles $Bundles @UpdaterArgs
     if ($LASTEXITCODE -ne 0) { throw "tauri build failed (exit $LASTEXITCODE)" }
 }
 finally {

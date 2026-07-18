@@ -185,7 +185,7 @@ function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null 
   return (
     <div className="px-5 py-4 space-y-3">
       <p className="text-[13px] text-muted">
-        Opens GitHub in your browser — approve OpenCoworker there. An existing @ocw-agent App
+        Opens GitHub in your browser — approve OpenWorker there. An existing @ocw-agent App
         installation links right up; otherwise you'll pick an account and repos. No tokens
         typed; the agent acts as ocw-agent[bot].
       </p>

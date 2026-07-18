@@ -20,9 +20,10 @@ test("model step: configured provider fast-path; Continue verifies automatically
   await openOnboarding(page);
 
   // The configured provider (OpenAI in fixtures) is auto-picked: no re-typing a key. The
-  // success state lives ON the Test button (no separate status line), and OpenAI's optional
-  // endpoint hides behind the disclosure link even though it has no vendor default.
-  await expect(page.getByTestId("ob-test")).toHaveText("✓ Connected");
+  // Test affordance lives IN the key field (owner call, DMG #28) and reads ✓ when a key is
+  // already saved; OpenAI's optional endpoint hides behind the disclosure link even though
+  // it has no vendor default.
+  await expect(page.getByTestId("ob-test")).toHaveText("✓");
   await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
@@ -46,10 +47,41 @@ test("model step: configured provider fast-path; Continue verifies automatically
   await expect(page.getByTestId("ob-step-model")).toBeVisible();
   await expect(page.getByTestId("ob-continue")).toBeEnabled();
 
-  // A good key: one click verifies and advances — no manual Test required.
+  // A good key: the in-field Test flips to a tick, and Continue advances (it verifies
+  // by itself too — Test stays optional).
   await page.getByTestId("ob-field-api_key").fill("zk-good");
+  await page.getByTestId("ob-test").click();
+  await expect(page.getByTestId("ob-test")).toHaveText("✓");
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
+});
+
+test("model step: switching providers keeps unsaved input and shows the connected state", async ({
+  page,
+}) => {
+  await openOnboarding(page);
+
+  // The configured provider (OpenAI) says so ON the form — the stored key is never echoed
+  // back, so without this line the empty password field read as "not set up" (owner
+  // complaint 2026-07-16).
+  await expect(page.getByTestId("ob-provider-connected")).toBeVisible();
+  await expect(page.getByTestId("ob-field-api_key")).toHaveAttribute(
+    "placeholder",
+    /key saved/,
+  );
+
+  // Type a key on another vendor, peek back at OpenAI, return: the draft survives the
+  // round trip (it used to be silently blanked) and OpenAI still reads connected.
+  await page.getByRole("button", { name: "Provider" }).click();
+  await page.getByRole("option", { name: "Z AI (GLM)" }).click();
+  await expect(page.getByTestId("ob-provider-connected")).toHaveCount(0);
+  await page.getByTestId("ob-field-api_key").fill("zk-draft");
+  await page.getByRole("button", { name: "Provider" }).click();
+  await page.getByRole("option", { name: "OpenAI" }).click();
+  await expect(page.getByTestId("ob-provider-connected")).toBeVisible();
+  await page.getByRole("button", { name: "Provider" }).click();
+  await page.getByRole("option", { name: "Z AI (GLM)" }).click();
+  await expect(page.getByTestId("ob-field-api_key")).toHaveValue("zk-draft");
 });
 
 test("tools page: out-of-band sign-in flips to the signed-in state; the automation CTA lands on the quickstart", async ({
@@ -59,12 +91,16 @@ test("tools page: out-of-band sign-in flips to the signed-in state; the automati
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 
-  // §29's tools page: value-framed sign-in (never an account gate) — the manual-keys path is
-  // spelled out, and the sign-in lands out-of-band (browser flow), flipping to the ✓ state.
+  // §29's tools page (2026-07-16 owner redesign): the value is the headline, ONE primary
+  // action — Sign in sits in the footer slot and Continue only replaces it once signed in.
+  // The manual-keys path is spelled out inside the "Secure by design" card, and the sign-in
+  // lands out-of-band (browser flow), flipping to the ✓ state.
+  await expect(page.getByText("Secure by design")).toBeVisible();
   await expect(page.getByText("Prefer manual setup?")).toBeVisible();
+  await expect(page.getByTestId("ob-continue-tools")).toHaveCount(0);
   await page.getByTestId("ob-cloud-signin").click();
   await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("ob-tools-signedin")).toContainText("rohit@opencoworker.app");
+  await expect(page.getByTestId("ob-tools-signedin")).toContainText("rohit@openworker.com");
   await page.getByTestId("ob-continue-tools").click();
 
   // Done step: the automation CTA lands on the Automations quickstart.
