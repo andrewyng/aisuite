@@ -342,6 +342,10 @@ export interface Connector {
   title: string;
   icon: string;
   blurb: string;
+  // Pre-connect detail page copy (UX-DECISIONS §38): optional About paragraph
+  // (empty → group omitted) + honest Access bullets.
+  about?: string;
+  access?: string[];
   auth: string;
   two_way: boolean;
   // Chat-platform capability, narrower than two_way: sessions can subscribe to channels.

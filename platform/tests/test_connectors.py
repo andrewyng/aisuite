@@ -329,6 +329,29 @@ def test_connector_list_descriptors(tmp_path):
     assert "bot_token" in keys and by_name["telegram"]["instructions"]
 
 
+def test_connector_list_pre_connect_copy(tmp_path):
+    """Every connectable connector ships Access bullets for the pre-connect
+    detail page (UX-DECISIONS §38) — an empty Access section would render as
+    'this app tells you nothing about what it can do'."""
+    from coworker.connectors import connector_list
+    from coworker.connectors.catalog_copy import ACCESS
+    from coworker.connectors.descriptors import list_descriptors
+
+    for c in connector_list(SecretStore(tmp_path / "secrets.json")):
+        assert isinstance(c["about"], str)
+        assert c["access"] and all(
+            isinstance(line, str) and line for line in c["access"]
+        ), f"{c['name']} has no access copy"
+    # Curated (non-fallback) copy is required for every AVAILABLE connector —
+    # the fallback line is only a net for experimental/placeholder entries.
+    missing = [
+        d.name
+        for d in list_descriptors()
+        if d.available and not d.experimental and d.name not in ACCESS
+    ]
+    assert not missing, f"connectors missing curated access copy: {missing}"
+
+
 def test_connector_list_connected_for_required_profiles(tmp_path):
     from coworker.connectors import (
         connect_connector,

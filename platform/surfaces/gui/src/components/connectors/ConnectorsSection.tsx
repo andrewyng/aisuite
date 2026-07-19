@@ -11,6 +11,7 @@ import {
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
 import { AccountsDetail } from "./AccountsDetail";
+import { AvailableDetail } from "./AvailableDetail";
 import { CalendarDetail } from "./CalendarDetail";
 import { ConnectorsList } from "./ConnectorsList";
 import { GithubDetail } from "./GithubDetail";
@@ -81,6 +82,10 @@ export function ConnectorsSection() {
         </button>
         {!c ? (
           <div className="text-[13px] text-muted">Loading…</div>
+        ) : !c.connected ? (
+          /* Pre-connect page (§38). When a connect completes, the poll flips
+             c.connected and this same route re-renders as the connected page. */
+          <AvailableDetail c={c} cloud={cloud} onChanged={refresh} />
         ) : Page ? (
           <Page c={c} cloud={cloud} slack={slack} onChanged={refresh} />
         ) : (

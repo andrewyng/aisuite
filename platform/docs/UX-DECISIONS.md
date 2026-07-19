@@ -938,8 +938,37 @@ therefore has an explicit setup home and a visible readiness contract before it 
   click. That behavior is deliberately removed; the reusable local STT library and editable-draft
   behavior stay.
 
+## 38. Pre-connect connector detail page: About, honest Access bullets, tools behind a disclosure  *(Decided 2026-07-18 by owner; no mock — extends §21's grammar)*
+
+Prompted by competitor plugin-gallery pages: before any credentials exist, an **available**
+connector's row navigates to a detail subpage (same `‹ Connectors` breadcrumb as §21) so the user
+can see what they're granting before the vendor's consent screen does. The list's Connect pill
+remains the fast path straight into the add-modal.
+
+- **Content, top to bottom:** header (badge / title / blurb subtitle / Connect pill) → optional
+  About paragraph → **Access** group → collapsed **Tools** disclosure. Copy lives server-side
+  (`catalog_copy.py`, served on `/v1/connectors`) so all surfaces share it.
+- **Access bullets are honest or absent:** short statements of actual behavior — write powers name
+  themselves ("Sends email as you"), reads state their boundary ("…your account can see"), negative
+  guarantees are explicit ("Never deletes mail"). Every bullet must stay true to the connector's
+  real tools and, for managed connectors, the cloud app's scopes — overclaiming here is a product
+  bug (test-enforced: every available connector ships curated bullets). A standing footnote carries
+  the platform guarantee: "Keys and tokens are stored only on this computer."
+- **Tools are a collapsed "N tools this connector adds" disclosure** — advanced-reader detail, no
+  enable/disable pre-connect (that lever exists on the connected page, §21); write tools carry the
+  "asks first" tag. Owner: listing is enough, toggles are not needed here.
+- **No third-party-risk interstitial, deliberately:** competitor consent modals ("apps may introduce
+  elevated risk", data-sharing disclosures) exist because their plugins are third-party code
+  receiving conversation context. Our catalog is first-party tools with local-only tokens — copying
+  that fear-language would import a risk we don't have. The Access section IS our disclosure.
+- **Connect completes in place:** the poll flips `connected` and the same route re-renders as the
+  connected detail page — no navigation cliff after OAuth returns.
+
 ## Change log (requests, newest first)
 
+- **2026-07-18 (22)** — Owner (from competitor plugin-gallery screenshots): ship a pre-connect
+  connector detail page with launch — full details up front, tool list behind a link ("a detail
+  that only the advanced user will care" about), no per-tool toggles → §38.
 - **2026-07-15 (21)** — Owner: no download at the moment of use; put Voice input setup,
   compatibility requirements, visible model progress, verification, and a microphone transcript
   test in Settings; keep the composer mic muted with a Settings deep-link until ready → §37
