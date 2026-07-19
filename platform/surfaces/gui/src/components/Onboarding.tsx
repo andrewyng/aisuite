@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   cloudLogin,
+  connectManaged,
   getCloudStatus,
   getConnectors,
   getProviders,
@@ -13,12 +14,16 @@ import {
 } from "../api";
 import { openExternal } from "../tauri";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
-import { SelectMenu } from "./SelectMenu";
+import { PROVIDER_LOGOS, providerRank } from "../providers/logos";
 import { Spinner } from "./AutomationQuickstart";
 
-// First-run onboarding (UX-DECISIONS §24, restructured by §29): model → your tools → go.
-// Only the model step gates; the recipe machinery moved to the Automations quickstart
-// (AutomationQuickstart.tsx). Replayable from Settings ▸ Appearance ▸ "Run setup again".
+// First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
+// §39 (owner design, 2026-07-18): step 1 is a PROVIDER GALLERY — 13 real brand
+// marks, two per row, each card wearing its own state — and step 2 is a
+// two-state tools page whose post-sign-in body is a mini connector gallery with
+// live one-click connects. Both steps share one frame rule: the header and
+// footer never move; only the middle region swaps, at a fixed height.
+// Replayable from Settings ▸ Appearance ▸ "Run setup again".
 
 // Where a non-developer gets an API key — deep link + one line of instructions.
 const KEY_HELP: Record<string, { url: string; label: string }> = {
@@ -27,94 +32,150 @@ const KEY_HELP: Record<string, { url: string; label: string }> = {
   gemini: { url: "https://aistudio.google.com/apikey", label: "aistudio.google.com" },
   fireworks: { url: "https://fireworks.ai/account/api-keys", label: "fireworks.ai" },
   together: { url: "https://api.together.xyz/settings/api-keys", label: "together.xyz" },
+  zai: { url: "https://z.ai/manage-apikey/apikey-list", label: "z.ai" },
+  kimi: { url: "https://platform.moonshot.ai/console/api-keys", label: "platform.moonshot.ai" },
+  deepseek: { url: "https://platform.deepseek.com/api_keys", label: "platform.deepseek.com" },
+  mistral: { url: "https://console.mistral.ai/api-keys", label: "console.mistral.ai" },
+  qwen: { url: "https://modelstudio.console.alibabacloud.com", label: "alibabacloud.com" },
+  minimax: { url: "https://platform.minimax.io", label: "platform.minimax.io" },
+  xai: { url: "https://console.x.ai", label: "console.x.ai" },
 };
 
+// Step 2's mini gallery (§39): managed connectors with LIVE prod OAuth apps only.
+// gmail + google_calendar ship grayed "Coming soon" — both ride the same Google
+// app, gated on Google verification/CASA; flip them into ACTIVE when it lands.
+const TOOLS_ACTIVE = ["outlook", "slack", "github", "notion", "hubspot"];
+const TOOLS_SOON = ["gmail", "google_calendar"];
+
 type Verify = { state: "idle" | "testing" | "ok" | "error"; msg?: string };
+
+/** Brand chip: always a light plate so multicolor marks read on any theme. */
+function ProviderMark({ name, title, size = 32 }: { name: string; title: string; size?: number }) {
+  const url = PROVIDER_LOGOS[name];
+  return (
+    <span
+      className="rounded-lg border border-line grid place-items-center shrink-0"
+      style={{ width: size, height: size, background: "#f6f7f8" }}
+    >
+      {url ? (
+        <img src={url} alt="" style={{ width: size * 0.6, height: size * 0.6 }} />
+      ) : (
+        <span className="text-[13px] font-semibold text-muted">{title[0]}</span>
+      )}
+    </span>
+  );
+}
 
 export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "automations") => void }) {
   const [step, setStep] = useState(0);
 
-  // -- step 1: model ------------------------------------------------------------
+  // -- step 1: model (provider gallery ⇄ key form) -------------------------------
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [prov, setProv] = useState("anthropic");
+  // null = the gallery; a provider name = that provider's key form.
+  const [sel, setSel] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
-  // Optional endpoint (a base_url WITH a default, on a keyed provider) collapses behind a
-  // "Configure custom endpoint" link (owner call 2026-07-11) — most users never touch it.
+  const [dirty, setDirty] = useState(false);
   const [showEndpoint, setShowEndpoint] = useState(false);
   const [verify, setVerify] = useState<Verify>({ state: "idle" });
   const [skipConfirm, setSkipConfirm] = useState(false);
+  // Keyless providers (Ollama) report configured without proving anything runs —
+  // a passing Detect this session is what arms Next for them.
+  const [keylessOk, setKeylessOk] = useState<Set<string>>(new Set());
+  const backTimer = useRef<number | null>(null);
 
-  useEffect(() => {
+  const refreshProviders = () =>
     getProviders()
-      .then((ps) => {
-        setProviders(ps);
-        // Prefer a provider with a REAL credential; keyless ones (Ollama) report configured
-        // without proving anything is running — they must pass Test instead.
-        const preferred =
-          ps.find((p) => p.configured && p.needs_key) ||
-          ps.find((p) => p.name === "anthropic") ||
-          ps[0];
-        if (preferred) pickProvider(preferred.name, ps);
-      })
+      .then(setProviders)
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    refreshProviders();
+    return () => {
+      if (backTimer.current) window.clearTimeout(backTimer.current);
+    };
   }, []);
 
-  const info = providers.find((p) => p.name === prov);
+  const info = providers.find((p) => p.name === sel);
+  const credentialed = !!info?.configured && !!info?.needs_key;
 
-  // Unsaved per-provider input, kept across switches WITHIN this modal: typing an OpenAI key,
-  // peeking at Anthropic, and coming back used to silently blank the OpenAI field (owner
-  // complaint 2026-07-16 — "can't make out if OpenAI is already connected").
+  // Unsaved per-provider input survives switching cards (owner complaint 2026-07-16).
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
 
-  const pickProvider = (name: string, list?: ProviderInfo[]) => {
-    const p = (list || providers).find((x) => x.name === name);
-    setDrafts((d) => ({ ...d, [prov]: fields }));
-    setProv(name);
-    setVerify({ state: "idle" });
-    setShowEndpoint(false);
+  const openProvider = (name: string) => {
+    const p = providers.find((x) => x.name === name);
+    if (sel) setDrafts((d) => ({ ...d, [sel]: fields }));
     const draft = drafts[name];
     const next: Record<string, string> = {};
-    for (const f of p?.fields || [])
-      next[f.key] = draft?.[f.key] || p?.values?.[f.key] || f.default || "";
+    for (const f of p?.fields || []) next[f.key] = draft?.[f.key] || p?.values?.[f.key] || f.default || "";
+    setSel(name);
     setFields(next);
+    setDirty(!!draft && Object.values(draft).some(Boolean));
+    setVerify({ state: "idle" });
+    setShowEndpoint(false);
   };
 
-  const runTest = async (): Promise<boolean> => {
+  const backToGallery = () => {
+    if (sel) setDrafts((d) => ({ ...d, [sel]: fields }));
+    setSel(null);
+    setVerify({ state: "idle" });
+  };
+
+  // Test = verify AND save AND return (§39: a passing Test auto-saves and takes
+  // you back to the gallery, where the card now wears its ✓ — no extra clicks).
+  const runTestAndSave = async (): Promise<boolean> => {
+    if (!sel) return false;
     setVerify({ state: "testing" });
-    const res = await verifyProvider(prov, fields).catch(() => ({ ok: false, error: "unreachable" }));
-    setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "couldn't verify" });
-    return res.ok;
+    const res = await verifyProvider(sel, fields).catch(() => ({ ok: false, error: "unreachable" }));
+    if (!res.ok) {
+      setVerify({ state: "error", msg: res.error || "couldn't verify" });
+      return false;
+    }
+    if (dirty || !info?.configured) await setProvider(sel, fields).catch(() => {});
+    if (!info?.needs_key) setKeylessOk((s) => new Set(s).add(sel));
+    setVerify({ state: "ok" });
+    setDirty(false);
+    setDrafts((d) => ({ ...d, [sel]: {} }));
+    await refreshProviders();
+    // Let the in-field "✓ Tested & saved" register, then slide home.
+    backTimer.current = window.setTimeout(backToGallery, 900);
+    return true;
   };
 
-  const credentialed = !!info?.configured && !!info?.needs_key;
-  // What the Test button shows: a fresh pass OR already-stored credentials read "✓ Connected".
-  const verified = verify.state === "ok" || (credentialed && verify.state === "idle");
-  // Continue is clickable as soon as the required (secret) fields are filled — the verify runs
-  // AUTOMATICALLY on Continue (tester catch 2026-07-12: "did I have to click Test first?" — the
-  // manual Test-then-Continue two-step read as a puzzle). Test stays as an optional explicit check.
-  const requiredFilled = (info?.fields || []).every(
-    (f) => !f.secret || (fields[f.key] || "").trim(),
-  );
-  const canContinue = credentialed || requiredFilled;
+  const anyReady =
+    providers.some((p) => p.configured && p.needs_key) || keylessOk.size > 0;
+  // In the form with typed-but-untested input, Next verifies+saves first (tester
+  // catch 2026-07-12: a manual Test-then-Continue two-step reads as a puzzle).
+  const secretFilled = (info?.fields || []).every((f) => !f.secret || (fields[f.key] || "").trim());
+  const nextFromForm = !!sel && dirty && secretFilled;
+  const canNext = anyReady || nextFromForm;
 
-  const saveAndContinue = async () => {
-    if (!credentialed && verify.state !== "ok" && !(await runTest())) return;
-    if (!info?.configured || Object.values(fields).some(Boolean)) {
-      await setProvider(prov, fields).catch(() => {});
+  const advance = async () => {
+    if (nextFromForm && !credentialed) {
+      if (backTimer.current) window.clearTimeout(backTimer.current);
+      if (!(await runTestAndSave())) return;
     }
     setStep(1);
   };
 
-  // -- step 2: Connect your tools (§29 — value-framed cloud sign-in) ---------------
+  const providerStatus = (p: ProviderInfo) =>
+    p.configured && p.needs_key ? (
+      <span className="block text-[11.5px] text-ok font-medium">✓ Connected</span>
+    ) : !p.needs_key ? (
+      <span className="block text-[11.5px] text-faint">
+        {keylessOk.has(p.name) ? <span className="text-ok font-medium">✓ Running</span> : "No key needed"}
+      </span>
+    ) : (
+      <span className="block text-[11.5px] text-faint">Not set up</span>
+    );
+
+  // -- step 2: connect your everyday tools (§39 two-state page) -------------------
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
-  // §30: narrate the sign-in — "opening" while the POST is in flight, "waiting" once the
-  // browser is off (the 3 s poll below flips to the ✓ state when the flow lands).
   const [signinPhase, setSigninPhase] = useState<"opening" | "waiting" | null>(null);
-  // Poll while on the tools page: the browser sign-in flow lands out-of-band. Tighten the
-  // interval while a sign-in is actually in flight — staring at "Waiting for sign-in…" for
-  // seconds after the browser finished read as "sign-in is slow" (owner, 2026-07-16).
+  // One in-flight connect at a time; clicking another card quietly resets the first.
+  const [pendingTool, setPendingTool] = useState<string | null>(null);
+
+  // Poll while on the tools page: sign-in AND vendor consents land out-of-band in
+  // the system browser. Tighten while either is actually in flight.
   useEffect(() => {
     if (step !== 1) return;
     const load = () => {
@@ -122,13 +183,25 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
       getCloudStatus().then(setCloud).catch(() => {});
     };
     load();
-    const t = setInterval(load, signinPhase === "waiting" ? 750 : 3000);
+    const fast = signinPhase === "waiting" || pendingTool !== null;
+    const t = setInterval(load, fast ? 750 : 3000);
     return () => clearInterval(t);
-  }, [step, signinPhase]);
+  }, [step, signinPhase, pendingTool]);
 
-  // The logo row: the headline managed connectors, REAL brand icons (owner call 2026-07-12 —
-  // the mock's letter badges were stand-ins).
-  const TOOL_ROW = ["slack", "github", "hubspot", "gmail", "google_calendar"];
+  // The poll flips the card to ✓ when the consent lands.
+  useEffect(() => {
+    if (pendingTool && connectors.find((c) => c.name === pendingTool)?.connected)
+      setPendingTool(null);
+  }, [connectors, pendingTool]);
+
+  const startTool = async (name: string) => {
+    setPendingTool(name); // replaces any previous pending connect
+    const res = await connectManaged(
+      name,
+      name === "hubspot" ? { access: "read" } : undefined, // least privilege in onboarding
+    ).catch(() => ({ ok: false }));
+    if (!res.ok) setPendingTool((cur) => (cur === name ? null : cur)); // silent reset — no error walls here
+  };
 
   const finish = async (next?: "work" | "gallery" | "automations") => {
     await setOnboarded(true).catch(() => {});
@@ -138,7 +211,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
   // -- shared bits ----------------------------------------------------------------
   const label = "block text-[12px] text-muted mt-3 mb-1";
   const input =
-    "w-full px-3 py-2 rounded-lg border border-line bg-panel text-[13.5px] outline-none focus:border-accent";
+    "w-full px-3 py-2 rounded-lg border bg-panel text-[13.5px] outline-none focus:border-accent";
+  const card =
+    "flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-left hover:border-lineStrong transition-colors";
   const dots = (
     <div className="flex justify-center gap-2 mb-6">
       {[0, 1, 2].map((i) => (
@@ -147,146 +222,177 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
     </div>
   );
 
+  const ordered = [...providers].sort((a, b) => providerRank(a.name) - providerRank(b.name));
+  // The in-field saved state (§39): green border + pill INSIDE the key box — shown
+  // for stored credentials and fresh test-passes alike; typing clears it.
+  const savedState = (credentialed && !dirty) || verify.state === "ok";
+
   return (
     <div className="fixed inset-0 z-50 bg-ink/30 grid place-items-center" data-testid="onboarding">
-      {/* FIXED height across all three steps (owner call 2026-07-12: the modal resizing per
-          step felt unsettled). Steps are flex columns; each action row `mt-auto`-pins to the
-          bottom; taller content scrolls inside the step. */}
-      {/* 700px fits the tallest step (the recipe, ~593px content) with headroom; shorter
-          windows cap at 88vh and the step scrolls inside. */}
+      {/* FIXED height across all three steps (owner call 2026-07-12, reaffirmed §39: the
+          modal must never resize — the gallery⇄form swap happens inside this box). */}
       <div className="w-[600px] max-w-[92vw] h-[700px] max-h-[88vh] rounded-2xl border border-line bg-panel shadow-2xl p-8 flex flex-col">
         {dots}
 
         {step === 0 && (
-          <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+          <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col">
+            {/* Persistent header — stays put while the region below swaps (§39). */}
             <h1 className="text-[19px] font-semibold">Welcome to OpenWorker</h1>
-            <p className="text-[13px] text-muted mt-0.5 mb-5">
-              Connect a model to get started — OpenWorker runs on your own API key, and your
+            <p className="text-[13px] text-muted mt-0.5 mb-4">
+              Pick a model provider to get started — OpenWorker runs on your own key, and your
               key and your data stay on this Mac.
             </p>
-            <label className={label}>Provider</label>
-            {/* The same SelectMenu Settings ▸ Models uses (owner call 2026-07-11: the native
-                <select> read as a raw OS control) — sections + green key-set dots included. */}
-            <SelectMenu
-              ariaLabel="Provider"
-              value={prov}
-              options={[...providers]
-                .sort(
-                  (a, b) =>
-                    Number(b.configured && b.needs_key) - Number(a.configured && a.needs_key),
-                )
-                .map((p) => {
-                  const ready = p.configured && p.needs_key;
-                  return {
-                    value: p.name,
-                    label: p.title,
-                    group: ready ? "Ready to use" : "Needs setup",
-                    dot: ready,
-                  };
-                })}
-              onChange={(name) => pickProvider(name)}
-            />
-            {/* Connected state, ON the form (owner complaint 2026-07-16): the stored key is
-                never echoed back, so without this line a connected provider's empty password
-                field read as "not set up". */}
-            {credentialed && (
-              <p className="text-[12px] text-ok mt-1.5" data-testid="ob-provider-connected">
-                ✓ Already connected — a key is saved for {info?.title}. Leave the field blank to
-                keep it.
-              </p>
-            )}
-            {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
 
-            {(info?.fields || []).map((f) => {
-              // ANY base_url on a keyed provider is an expert option: collapsed behind a link
-              // (owner catch 2026-07-12: OpenAI's endpoint has no default, so the earlier
-              // default-only condition left it visible on the first pass). Keyless providers
-              // (Ollama) keep it visible — the endpoint IS the connection there.
-              const keyed = (info?.fields || []).some((x) => x.secret);
-              if (f.key === "base_url" && keyed && !showEndpoint) {
-                return (
-                  <button
-                    key={f.key}
-                    className="block self-start text-[12px] text-accent hover:underline mt-3"
-                    onClick={() => setShowEndpoint(true)}
-                    data-testid="ob-endpoint-link"
-                  >
-                    Configure custom endpoint ›
-                  </button>
-                );
-              }
-              // The Test affordance lives IN the key field (owner call, DMG #28 walkthrough:
-              // the footer Test button sat too far from the thing being tested): a small
-              // right-edge button that flips to a green ✓ once the key verifies (or was
-              // already saved). Continue still auto-verifies — this is the optional check.
-              const testable = f.secret && f.key === (info?.fields || []).find((x) => x.secret)?.key;
-              return (
-                <div key={f.key}>
-                  <label className={label}>{f.label}</label>
-                  <div className="relative">
-                    <input
-                      className={input + (testable ? " pr-16" : "")}
-                      type={f.secret ? "password" : "text"}
-                      placeholder={
-                        f.secret && credentialed ? "••••••••  (key saved)" : f.placeholder
-                      }
-                      value={fields[f.key] || ""}
-                      data-testid={`ob-field-${f.key}`}
-                      onChange={(e) => {
-                        setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
-                        setVerify({ state: "idle" });
-                      }}
-                    />
-                    {testable && (
-                      <button
-                        className={
-                          "absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-[12px] disabled:opacity-40 " +
-                          (verified
-                            ? "text-ok bg-okSoft/60"
-                            : "text-accent hover:bg-accentSoft/60")
-                        }
-                        onClick={runTest}
-                        disabled={verify.state === "testing" || (!requiredFilled && !credentialed)}
-                        title={verified ? "Connected" : "Test this key"}
-                        aria-label={verified ? "Connected" : "Test this key"}
-                        data-testid="ob-test"
-                      >
-                        {verify.state === "testing" ? "…" : verified ? "✓" : "Test"}
-                      </button>
-                    )}
-                  </div>
-                  {f.help && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
+            {!sel ? (
+              /* ---- the provider GALLERY ---- */
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-provider-gallery">
+                <div className="grid grid-cols-2 gap-2.5">
+                  {ordered.map((p) => (
+                    <button
+                      key={p.name}
+                      className={card}
+                      data-testid={`ob-provider-${p.name}`}
+                      onClick={() => openProvider(p.name)}
+                    >
+                      <ProviderMark name={p.name} title={p.title} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold leading-tight truncate">
+                          {p.title}
+                        </span>
+                        {providerStatus(p)}
+                      </span>
+                      <span className="text-faint text-[14px]">›</span>
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
-
-            {KEY_HELP[prov] && (
-              <p className="text-[11.5px] text-faint mt-2">
-                No key yet?{" "}
+              </div>
+            ) : (
+              /* ---- one provider's key form, same box ---- */
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
                 <button
-                  className="text-accent hover:underline"
-                  onClick={() => openExternal(KEY_HELP[prov].url)}
+                  className="text-[12.5px] text-muted hover:text-ink"
+                  onClick={backToGallery}
+                  data-testid="ob-back"
                 >
-                  Create one at {KEY_HELP[prov].label} ↗
-                </button>{" "}
-                — takes about a minute.
-              </p>
+                  ‹ All providers
+                </button>
+                <div className="flex items-center gap-3 mt-3 mb-1">
+                  <ProviderMark name={info?.name || ""} title={info?.title || ""} size={36} />
+                  <span className="min-w-0">
+                    <span className="block text-[15px] font-semibold leading-tight">{info?.title}</span>
+                    {info ? providerStatus(info) : null}
+                  </span>
+                </div>
+                {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
+
+                {(info?.fields || []).map((f) => {
+                  const keyed = (info?.fields || []).some((x) => x.secret);
+                  // ANY base_url on a keyed provider is an expert option: a quiet disclosure
+                  // (owner call 2026-07-18: no explainer copy — its users know what it's for).
+                  if (f.key === "base_url" && keyed && !showEndpoint) {
+                    return (
+                      <button
+                        key={f.key}
+                        className="block self-start text-[12.5px] text-muted hover:text-ink mt-4"
+                        onClick={() => setShowEndpoint(true)}
+                        data-testid="ob-endpoint-link"
+                      >
+                        Custom endpoint ⌄
+                      </button>
+                    );
+                  }
+                  const testable =
+                    (f.secret && f.key === (info?.fields || []).find((x) => x.secret)?.key) ||
+                    (!keyed && f.key === (info?.fields || [])[0]?.key);
+                  return (
+                    <div key={f.key}>
+                      <label className={label}>{f.label}</label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1 min-w-0">
+                          <input
+                            className={
+                              input +
+                              (savedState && f.secret ? " border-ok pr-32" : " border-line")
+                            }
+                            type={f.secret ? "password" : "text"}
+                            placeholder={f.secret && credentialed && !dirty ? "••••••••" : f.placeholder}
+                            value={fields[f.key] || ""}
+                            data-testid={`ob-field-${f.key}`}
+                            onChange={(e) => {
+                              setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
+                              setDirty(true);
+                              setVerify({ state: "idle" });
+                            }}
+                          />
+                          {/* §39: state lives IN the field — no status lines below. */}
+                          {savedState && f.secret && (
+                            <span
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-medium text-ok bg-okSoft rounded-full px-2 py-0.5 pointer-events-none"
+                              data-testid="ob-saved-pill"
+                            >
+                              ✓ Tested &amp; saved
+                            </span>
+                          )}
+                          {savedState && !f.secret && testable && (
+                            <span
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-medium text-ok bg-okSoft rounded-full px-2 py-0.5 pointer-events-none"
+                              data-testid="ob-saved-pill"
+                            >
+                              ✓ Detected
+                            </span>
+                          )}
+                        </div>
+                        {testable && (
+                          <button
+                            className="px-4 rounded-lg border border-line text-[13px] font-medium text-ink hover:border-lineStrong shrink-0 disabled:opacity-40"
+                            onClick={() => runTestAndSave()}
+                            disabled={
+                              verify.state === "testing" || (f.secret && !secretFilled && !credentialed)
+                            }
+                            data-testid="ob-test"
+                          >
+                            {verify.state === "testing" ? "…" : info?.needs_key ? "Test" : "Detect"}
+                          </button>
+                        )}
+                      </div>
+                      {f.help && !f.secret && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
+                    </div>
+                  );
+                })}
+
+                {info?.needs_key && KEY_HELP[sel] && (
+                  <p className="text-[11.5px] text-faint mt-2">
+                    No key yet?{" "}
+                    <button
+                      className="text-muted underline decoration-line underline-offset-2 hover:text-ink"
+                      onClick={() => openExternal(KEY_HELP[sel].url)}
+                    >
+                      Create one at {KEY_HELP[sel].label} ↗
+                    </button>{" "}
+                    — takes about a minute.
+                  </p>
+                )}
+                {info && !info.needs_key && (
+                  <p className="text-[11.5px] text-faint mt-2">
+                    No API key needed — Ollama runs models on this Mac.{" "}
+                    <button
+                      className="text-muted underline decoration-line underline-offset-2 hover:text-ink"
+                      onClick={() => openExternal("https://ollama.com/download")}
+                    >
+                      Install Ollama ↗
+                    </button>
+                  </p>
+                )}
+
+                {/* Error line: fixed height so failures never reflow the form. */}
+                <div className="mt-3 min-h-[19px] text-[12.5px]">
+                  {verify.state === "error" && <span className="text-warnInk">{verify.msg}</span>}
+                </div>
+              </div>
             )}
 
-            {/* No model picker here (owner call 2026-07-11): the model is chosen per session,
-                and the old select never persisted anything anyway. One pointer instead. */}
-            <p className="text-[11.5px] text-faint mt-3">
-              Models can be enabled or hidden anytime in Settings ▸ Models.
-            </p>
-
-            {/* Error line: fixed height so verify failures never reflow the form. Success is
-                NOT a line — the Test button itself flips to "✓ Connected" (owner call
-                2026-07-12: the green status text was louder than the moment deserved). */}
-            <div className="mt-3 min-h-[19px] text-[12.5px]">
-              {verify.state === "error" && <span className="text-warnInk">{verify.msg}</span>}
-            </div>
-
-            <div className="flex items-center gap-3 mt-auto pt-5">
+            {/* Persistent footer (§39). */}
+            <div className="flex items-center gap-3 pt-5">
               {!skipConfirm ? (
                 <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setSkipConfirm(true)}>
                   Skip setup
@@ -299,103 +405,145 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                   </button>
                 </span>
               )}
-              {/* Test moved INTO the key field (owner call, DMG #28); Continue still
-                  auto-verifies before advancing. */}
               <button
-                className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
-                disabled={!canContinue || verify.state === "testing"}
-                onClick={saveAndContinue}
+                className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
+                disabled={!canNext || verify.state === "testing"}
+                onClick={advance}
                 data-testid="ob-continue"
               >
-                {verify.state === "testing" ? "Checking…" : "Continue"}
+                {verify.state === "testing" ? "Checking…" : "Next"}
               </button>
             </div>
+            <p className="text-[11px] text-faint mt-3">
+              Models can be enabled or hidden anytime in Settings ▸ Models.
+            </p>
           </section>
         )}
 
         {step === 1 && (
-          /* §29 amendment (owner design, 2026-07-16): the value IS the headline, ONE primary
-             action. The old page led with "Connect your tools" but offered no connecting —
-             only a sign-in button mid-page COMPETING with a Continue that did something else.
-             Now: headline names what sign-in buys, the security story is one titled card with
-             the manual path as its footnote, and the footer is the §29 pair everywhere else
-             in the flow: quiet "Skip for now" left, primary "Sign in" right (→ "Continue"
-             once signed in). */
-          <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-            <h1 className="text-[19px] font-semibold">Sign in for one-click connections</h1>
-            <p className="text-[13px] text-muted mt-0.5 mb-5">
-              OpenWorker works with the apps you already use.
+          /* §39 (owner design, 2026-07-18): a two-state page. Pre-sign-in it makes the case —
+             tools are what turn a chatbot into a coworker — and asks for the sign-in that
+             makes connecting one click. Post-sign-in the SAME region becomes a mini connector
+             gallery with live one-click connects, so the headline's promise is kept on this
+             page, resolving §29's promise-with-no-action concern. */
+          <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col">
+            <h1 className="text-[19px] font-semibold">Connect your everyday tools</h1>
+            <p className="text-[13px] text-muted mt-0.5 mb-4">
+              A coworker that can only chat can only advise. Connected to your email, calendar,
+              CRM, and code, it can do the actual work — triage the inbox, prep the meeting,
+              update the pipeline, review the PR.
             </p>
 
-            <div className="flex items-center gap-2.5 mb-5">
-              {TOOL_ROW.map((name) => {
-                const c = connectors.find((x) => x.name === name);
-                return c ? <ConnectorBadge key={name} connector={c} size={38} title={c.title} /> : null;
-              })}
-            </div>
-
-            <div className="rounded-xl2 border border-line bg-paper px-4 py-3.5 text-[12.5px] text-muted">
-              <span className="block text-[13px] text-ink font-medium mb-0.5">
-                Secure by design
-              </span>
-              {/* Owner copy (DMG #28 walkthrough) — leads with the integration breadth. */}
-              Signing in handles OAuth and token management for 20+ integrations — Slack,
-              GitHub, HubSpot, Gmail, Calendar and more. Tokens stay local on your Mac. No
-              digging through dev consoles for API keys.
-              {/* Sign-in is the one-click path, never the ONLY path (owner call 2026-07-12). */}
-              <span className="block text-[11.5px] text-faint mt-3 pt-3 border-t border-line">
-                Prefer manual setup? Every tool also works with your own API keys from the
-                Connectors page — signing in just makes it one click.
-              </span>
-            </div>
-
-            <div className="mt-4 min-h-[36px]">
-              {cloud?.signed_in ? (
-                <span
-                  className="inline-flex items-center gap-2 text-[13px] text-ok bg-okSoft/60 rounded-lg px-3 py-2"
-                  data-testid="ob-tools-signedin"
-                >
-                  ✓ Signed in{cloud.account ? ` as ${cloud.account}` : ""}
-                </span>
-              ) : signinPhase ? (
-                <span className="inline-flex items-center gap-2 text-[13px] text-muted">
-                  <Spinner />
-                  {signinPhase === "opening" ? "Opening browser…" : "Waiting for sign-in…"}
-                  {signinPhase === "waiting" && (
-                    <span className="text-[11.5px] text-faint">
-                      finish in your browser — this page updates by itself ·{" "}
-                      <button
-                        className="underline hover:text-muted"
-                        onClick={() => setSigninPhase(null)}
-                        data-testid="ob-signin-cancel"
-                      >
-                        Cancel
-                      </button>
+            {!cloud?.signed_in ? (
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                <div className="flex items-center gap-2.5 mb-4">
+                  {TOOLS_ACTIVE.map((name) => {
+                    const c = connectors.find((x) => x.name === name);
+                    return c ? <ConnectorBadge key={name} connector={c} size={38} title={c.title} /> : null;
+                  })}
+                </div>
+                <div className="rounded-xl2 border border-line bg-paper px-4 py-3.5 text-[12.5px] text-muted">
+                  <span className="block text-[13px] text-ink font-medium mb-0.5">
+                    One click, keys handled
+                  </span>
+                  Sign in to OpenWorker and connecting is one click — OAuth and tokens for 20+
+                  integrations are handled for you, and tokens stay local on this Mac. No
+                  digging through dev consoles for API keys.
+                </div>
+                <div className="mt-4 min-h-[36px]">
+                  {signinPhase && (
+                    <span className="inline-flex items-center gap-2 text-[13px] text-muted">
+                      <Spinner />
+                      {signinPhase === "opening" ? "Opening browser…" : "Waiting for sign-in…"}
+                      {signinPhase === "waiting" && (
+                        <span className="text-[11.5px] text-faint">
+                          finish in your browser — this page updates by itself ·{" "}
+                          <button
+                            className="underline hover:text-muted"
+                            onClick={() => setSigninPhase(null)}
+                            data-testid="ob-signin-cancel"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      )}
                     </span>
                   )}
-                </span>
-              ) : null}
-            </div>
+                </div>
+              </div>
+            ) : (
+              /* ---- signed in: the mini connector gallery (§39) ---- */
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                <p className="text-[12.5px] text-ok mb-3" data-testid="ob-tools-signedin">
+                  ✓ Signed in{cloud.account ? ` as ${cloud.account}` : ""}
+                </p>
+                <div className="grid grid-cols-2 gap-2.5" data-testid="ob-tool-gallery">
+                  {[...TOOLS_ACTIVE, ...TOOLS_SOON].map((name) => {
+                    const c = connectors.find((x) => x.name === name);
+                    if (!c) return null;
+                    const soon = TOOLS_SOON.includes(name);
+                    if (soon)
+                      return (
+                        /* Grayed "Coming soon" (§39): the whole Google trio is gated on
+                           Google verification — present-but-gray says "coming", not "missing". */
+                        <div
+                          key={name}
+                          className="group relative flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5"
+                          data-testid={`ob-tool-${name}`}
+                        >
+                          <span className="opacity-40 grayscale">
+                            <ConnectorBadge connector={c} size={34} title={c.title} />
+                          </span>
+                          <span className="block text-[13px] font-semibold text-faint">{c.title}</span>
+                          <span className="absolute -top-2 right-2.5 rounded-full bg-ink text-panel text-[10.5px] px-2 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            Coming soon
+                          </span>
+                        </div>
+                      );
+                    return (
+                      <button
+                        key={name}
+                        className={card}
+                        data-testid={`ob-tool-${name}`}
+                        onClick={() => !c.connected && startTool(name)}
+                      >
+                        <ConnectorBadge connector={c} size={34} title={c.title} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold leading-tight">{c.title}</span>
+                          {c.connected ? (
+                            <span className="block text-[11.5px] text-ok font-medium">✓ Connected</span>
+                          ) : pendingTool === name ? (
+                            <span className="block text-[11.5px] text-muted">Check your browser…</span>
+                          ) : (
+                            <span className="block text-[11.5px] text-faint">One click</span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-            <div className="flex items-center gap-3 mt-auto pt-5">
+            <div className="flex items-center gap-3 pt-5">
               <button
                 className="text-[12.5px] text-faint hover:text-muted text-left"
                 onClick={() => setStep(2)}
                 data-testid="ob-tools-skip"
               >
-                Skip for now
+                {cloud?.signed_in ? "Set up later" : "Skip — I’ll use my own API tokens"}
               </button>
               {cloud?.signed_in ? (
                 <button
-                  className="ml-auto px-5 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
+                  className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
                   onClick={() => setStep(2)}
                   data-testid="ob-continue-tools"
                 >
-                  Continue
+                  Next
                 </button>
               ) : (
                 <button
-                  className="ml-auto px-5 py-2 rounded-full bg-accent text-white text-[13px] shrink-0 disabled:opacity-40"
+                  className="ml-auto px-6 py-2 rounded-full bg-accent text-white text-[13px] shrink-0 disabled:opacity-40"
                   disabled={signinPhase === "opening"}
                   onClick={async () => {
                     setSigninPhase("opening");
@@ -408,6 +556,11 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                 </button>
               )}
             </div>
+            <p className="text-[11px] text-faint mt-3">
+              {cloud?.signed_in
+                ? "30+ more tools on the Connectors page — add or remove anytime."
+                : "Even signed in, your data flows vendor → this Mac — the cloud only brokers the connection."}
+            </p>
           </section>
         )}
 

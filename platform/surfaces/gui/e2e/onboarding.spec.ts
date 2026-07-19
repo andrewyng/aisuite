@@ -1,8 +1,9 @@
-// First-run onboarding (UX-DECISIONS §24, restructured by §29): model → your tools → go.
-// Only the model step gates; the tools page is a value-framed cloud sign-in (skippable — the
-// lazy first-connect sign-in stays for skippers); the done page routes via two CTAs. The recipe
-// machinery moved to the Automations quickstart (automations-quickstart.spec.ts). Entered here
-// via the REPLAY path (Settings ▸ Appearance ▸ "Run setup again") — which is itself under test.
+// First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
+// §39: step 1 is a provider GALLERY (cards wear their own state; a card opens its key
+// form inside a fixed-height swap region; Test verifies, SAVES, and returns) and step 2
+// is a two-state tools page (why-paragraph + sign-in → mini connector gallery with live
+// one-click connects). Entered here via the REPLAY path (Settings ▸ Appearance ▸ "Run
+// setup again") — which is itself under test.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -14,93 +15,119 @@ async function openOnboarding(page) {
   await expect(page.getByTestId("ob-step-model")).toBeVisible();
 }
 
-test("model step: configured provider fast-path; Continue verifies automatically", async ({
+test("provider gallery: cards wear their state; Next arms off stored credentials", async ({
   page,
 }) => {
   await openOnboarding(page);
 
-  // The configured provider (OpenAI in fixtures) is auto-picked: no re-typing a key. The
-  // Test affordance lives IN the key field (owner call, DMG #28) and reads ✓ when a key is
-  // already saved; OpenAI's optional endpoint hides behind the disclosure link even though
-  // it has no vendor default.
-  await expect(page.getByTestId("ob-test")).toHaveText("✓");
-  await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
-  await expect(page.getByTestId("ob-continue")).toBeEnabled();
+  // Every card carries its own status with zero clicks (the 2026-07-16 confusion —
+  // "is OpenAI already connected?" — is answered by the gallery itself).
+  await expect(page.getByTestId("ob-provider-openai")).toContainText("✓ Connected");
+  await expect(page.getByTestId("ob-provider-anthropic")).toContainText("✓ Connected");
+  await expect(page.getByTestId("ob-provider-zai")).toContainText("Not set up");
+  await expect(page.getByTestId("ob-provider-ollama")).toContainText("No key needed");
+  // Recognition-first order: anthropic before openai before the OpenAI-compat tail.
+  const names = await page
+    .getByTestId("ob-provider-gallery")
+    .locator("[data-testid^=ob-provider-]")
+    .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+  expect(names.indexOf("ob-provider-anthropic")).toBeLessThan(names.indexOf("ob-provider-openai"));
+  expect(names.indexOf("ob-provider-openai")).toBeLessThan(names.indexOf("ob-provider-zai"));
 
-  // Switching to an unconfigured vendor: Continue gates only on the key being FILLED — the
-  // verify runs automatically on click (tester catch 2026-07-12: the manual Test-then-Continue
-  // two-step read as a puzzle). The picker is the Settings-Models SelectMenu.
-  await page.getByRole("button", { name: "Provider" }).click();
-  await page.getByRole("option", { name: "Z AI (GLM)" }).click();
-  await expect(page.getByTestId("ob-test")).toHaveText("Test");
-  await expect(page.getByTestId("ob-continue")).toBeDisabled();
-  // The optional endpoint is an expert option: hidden behind "Configure custom endpoint",
-  // prefilled with the vendor default once revealed.
+  // A configured provider already arms Next — no form visit required.
+  await expect(page.getByTestId("ob-continue")).toBeEnabled();
+  await page.getByTestId("ob-continue").click();
+  await expect(page.getByTestId("ob-step-tools")).toBeVisible();
+});
+
+test("key form: Test verifies, saves, and returns to the gallery with the ✓", async ({
+  page,
+}) => {
+  await openOnboarding(page);
+
+  await page.getByTestId("ob-provider-zai").click();
+  // The header stays put (§39 fixed frame): the welcome headline is still on screen.
+  await expect(page.getByRole("heading", { name: "Welcome to OpenWorker" })).toBeVisible();
+  // Optional endpoint is a quiet disclosure with no explainer copy (owner call 2026-07-18).
   await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
   await page.getByTestId("ob-endpoint-link").click();
   await expect(page.getByTestId("ob-field-base_url")).toHaveValue(/api\.z\.ai/);
 
-  // A bad key: Continue runs the check itself, fails, and STAYS on the step with the error.
+  // Bad key: the error is a line, not a navigation.
   await page.getByTestId("ob-field-api_key").fill("bad-key");
-  await expect(page.getByTestId("ob-continue")).toBeEnabled();
-  await page.getByTestId("ob-continue").click();
-  await expect(page.getByTestId("ob-step-model")).toBeVisible();
-  await expect(page.getByTestId("ob-continue")).toBeEnabled();
+  await page.getByTestId("ob-test").click();
+  await expect(page.getByText("Invalid API key.")).toBeVisible();
 
-  // A good key: the in-field Test flips to a tick, and Continue advances (it verifies
-  // by itself too — Test stays optional).
+  // Good key: state lands IN the field ("✓ Tested & saved" pill), then the form
+  // auto-returns to the gallery where the Z AI card now wears its ✓.
   await page.getByTestId("ob-field-api_key").fill("zk-good");
   await page.getByTestId("ob-test").click();
-  await expect(page.getByTestId("ob-test")).toHaveText("✓");
-  await page.getByTestId("ob-continue").click();
-  await expect(page.getByTestId("ob-step-tools")).toBeVisible();
+  await expect(page.getByTestId("ob-saved-pill")).toBeVisible();
+  await expect(page.getByTestId("ob-provider-zai")).toContainText("✓ Connected", {
+    timeout: 5_000,
+  });
+  await expect(page.getByTestId("ob-continue")).toBeEnabled();
 });
 
-test("model step: switching providers keeps unsaved input and shows the connected state", async ({
+test("key form: revisiting a connected provider shows the in-field saved state; drafts survive switching", async ({
   page,
 }) => {
   await openOnboarding(page);
 
-  // The configured provider (OpenAI) says so ON the form — the stored key is never echoed
-  // back, so without this line the empty password field read as "not set up" (owner
-  // complaint 2026-07-16).
-  await expect(page.getByTestId("ob-provider-connected")).toBeVisible();
-  await expect(page.getByTestId("ob-field-api_key")).toHaveAttribute(
-    "placeholder",
-    /key saved/,
-  );
+  // Revisit a configured provider: green in-field pill + masked placeholder — the old
+  // empty-password-field-reads-as-not-set-up trap (owner complaint 2026-07-16) is gone.
+  await page.getByTestId("ob-provider-openai").click();
+  await expect(page.getByTestId("ob-saved-pill")).toBeVisible();
+  await expect(page.getByTestId("ob-field-api_key")).toHaveAttribute("placeholder", "••••••••");
 
-  // Type a key on another vendor, peek back at OpenAI, return: the draft survives the
-  // round trip (it used to be silently blanked) and OpenAI still reads connected.
-  await page.getByRole("button", { name: "Provider" }).click();
-  await page.getByRole("option", { name: "Z AI (GLM)" }).click();
-  await expect(page.getByTestId("ob-provider-connected")).toHaveCount(0);
+  // Typed-but-unsaved input survives a peek at another provider (drafts).
+  await page.getByTestId("ob-back").click();
+  await page.getByTestId("ob-provider-zai").click();
   await page.getByTestId("ob-field-api_key").fill("zk-draft");
-  await page.getByRole("button", { name: "Provider" }).click();
-  await page.getByRole("option", { name: "OpenAI" }).click();
-  await expect(page.getByTestId("ob-provider-connected")).toBeVisible();
-  await page.getByRole("button", { name: "Provider" }).click();
-  await page.getByRole("option", { name: "Z AI (GLM)" }).click();
+  await page.getByTestId("ob-back").click();
+  await page.getByTestId("ob-provider-openai").click();
+  await expect(page.getByTestId("ob-saved-pill")).toBeVisible();
+  await page.getByTestId("ob-back").click();
+  await page.getByTestId("ob-provider-zai").click();
   await expect(page.getByTestId("ob-field-api_key")).toHaveValue("zk-draft");
+
+  // Next from a dirty form auto-verifies and saves first (2026-07-12: no hidden
+  // Test-then-Continue two-step), then advances.
+  await page.getByTestId("ob-field-api_key").fill("zk-good");
+  await page.getByTestId("ob-continue").click();
+  await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 });
 
-test("tools page: out-of-band sign-in flips to the signed-in state; the automation CTA lands on the quickstart", async ({
+test("tools page: sign-in morphs the page into the connector gallery; a card connects one-click", async ({
   page,
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 
-  // §29's tools page (2026-07-16 owner redesign): the value is the headline, ONE primary
-  // action — Sign in sits in the footer slot and Continue only replaces it once signed in.
-  // The manual-keys path is spelled out inside the "Secure by design" card, and the sign-in
-  // lands out-of-band (browser flow), flipping to the ✓ state.
-  await expect(page.getByText("Secure by design")).toBeVisible();
-  await expect(page.getByText("Prefer manual setup?")).toBeVisible();
-  await expect(page.getByTestId("ob-continue-tools")).toHaveCount(0);
+  // Pre-sign-in: the why-paragraph page — value first, one primary action, and the
+  // skip label NAMES the manual path (§39).
+  await expect(page.getByText("A coworker that can only chat can only advise")).toBeVisible();
+  await expect(page.getByText("One click, keys handled")).toBeVisible();
+  await expect(page.getByTestId("ob-tools-skip")).toContainText("my own API tokens");
+  await expect(page.getByTestId("ob-tool-gallery")).toHaveCount(0);
+
+  // Sign-in lands out-of-band; the SAME page morphs into the mini gallery.
   await page.getByTestId("ob-cloud-signin").click();
   await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("ob-tools-signedin")).toContainText("rohit@openworker.com");
+  await expect(page.getByTestId("ob-tool-gallery")).toBeVisible();
+  await expect(page.getByTestId("ob-tool-outlook")).toContainText("One click");
+  // The Google trio is gated on Google verification: present but grayed "Coming soon".
+  await expect(page.getByTestId("ob-tool-gmail")).toBeVisible();
+  await expect(page.getByTestId("ob-tool-gmail").getByRole("button")).toHaveCount(0);
+
+  // One-click connect: the consent completes in the (mock) browser; the poll flips the
+  // card to ✓ Connected. Next was armed the whole time — connecting is optional.
+  await page.getByTestId("ob-tool-outlook").click();
+  await expect(page.getByTestId("ob-tool-outlook")).toContainText("✓ Connected", {
+    timeout: 10_000,
+  });
+  await expect(page.getByTestId("ob-continue-tools")).toBeEnabled();
   await page.getByTestId("ob-continue-tools").click();
 
   // Done step: the automation CTA lands on the Automations quickstart.
@@ -108,10 +135,6 @@ test("tools page: out-of-band sign-in flips to the signed-in state; the automati
   await page.getByTestId("ob-cta-automation").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Automations" })).toBeVisible();
-  // Fixtures seed a task, so the list isn't empty — the quickstart is one toggle away (a real
-  // first run lands on the empty state, which shows it directly).
-  await page.getByRole("button", { name: "+ New automation" }).click();
-  await expect(page.getByText("Start from a template")).toBeVisible();
 });
 
 test("tools page skips cleanly; Start working lands in a session with the panel open", async ({
