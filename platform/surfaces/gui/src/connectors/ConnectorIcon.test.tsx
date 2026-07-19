@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { ConnectorBadge, ConnectorIcon } from "./ConnectorIcon";
+import { ConnectorBadge, ConnectorIcon, isDarkMark } from "./ConnectorIcon";
 
 afterEach(cleanup);
 
@@ -32,6 +32,25 @@ describe("ConnectorIcon", () => {
     const el = container.querySelector("[data-logo]") as HTMLElement;
     expect(el.getAttribute("data-logo")).toBe("fallback");
     expect(el.style.getPropertyValue("--brand")).toBe("#6b7280");
+  });
+
+  it("flags near-black marks so dark-mode CSS can compensate", () => {
+    // GitHub / Notion near-black → flagged; HubSpot orange → not.
+    expect(isDarkMark("#1f2328")).toBe(true);
+    expect(isDarkMark("#ff7a59")).toBe(false);
+    expect(isDarkMark("not-a-color")).toBe(false);
+    const dark = render(
+      <ConnectorIcon connector={{ logo: "github", brand_color: "#1f2328" }} />,
+    );
+    expect(
+      (dark.container.querySelector(".connector-icon") as HTMLElement).getAttribute("data-dark-mark"),
+    ).toBe("true");
+    const bright = render(
+      <ConnectorIcon connector={{ logo: "hubspot", brand_color: "#ff7a59" }} />,
+    );
+    expect(
+      (bright.container.querySelector(".connector-icon") as HTMLElement).hasAttribute("data-dark-mark"),
+    ).toBe(false);
   });
 });
 

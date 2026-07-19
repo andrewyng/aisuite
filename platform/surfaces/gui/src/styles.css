@@ -1247,6 +1247,18 @@ button.btn.ghost:hover { color: var(--ink); }
   background: var(--brand-soft, rgba(107, 114, 128, 0.12));
 }
 
+/* Dark mode (owner call 2026-07-18, matching the industry pattern): badges sit on a LIGHT
+   plate so near-black marks (GitHub, Notion, …) stay legible — the 12% brand tint is
+   invisible against dark panels. Bare icons (sidebar, session intro) have no plate, so
+   dark marks are instead mixed toward the theme ink; icons INSIDE a badge are excluded —
+   on the light plate the original mark is already right. */
+html[data-theme="dark"] .connector-badge {
+  background: #eef0f3;
+}
+html[data-theme="dark"] :not(.connector-badge) > .connector-icon[data-dark-mark] {
+  color: color-mix(in srgb, var(--brand) 35%, var(--ink)) !important;
+}
+
 /* Connector inbound message card (§3.3) — restyled inline with Tailwind utilities on the elements
    (ConnectorMessageCard.tsx). The header background pulls var(--brand-soft) (set inline from the
    connector's color); the header swaps names → `channel_id · sender_id` on hover/focus (React state). */
