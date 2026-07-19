@@ -40,6 +40,17 @@ function visualColor(connector: ConnectorVisual): string {
   return (connector.brand_color || "").trim() || NEUTRAL;
 }
 
+/** Near-black brand marks (GitHub #1f2328, Notion, …) vanish on dark panels. Flag them so
+ * dark-mode CSS can compensate: bare icons get their mark mixed toward the theme ink;
+ * badges instead sit on a light plate (styles.css), where the original mark is correct. */
+export function isDarkMark(color: string): boolean {
+  let h = color.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return false;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.25;
+}
+
 function visualLabel(connector: ConnectorVisual, fallbackLabel: string, title?: string): string {
   return title ?? connector.label ?? connector.title ?? fallbackLabel;
 }
@@ -63,6 +74,7 @@ export function ConnectorIcon({
       className="connector-icon"
       data-logo={key}
       data-brand={key}
+      data-dark-mark={isDarkMark(color) || undefined}
       role="img"
       aria-label={label}
       title={label}

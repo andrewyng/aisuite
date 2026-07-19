@@ -386,6 +386,15 @@ def _validate_canva(creds: dict) -> ValidationResult:
     )
 
 
+def _validate_outlook(creds: dict) -> ValidationResult:
+    return _validate_whoami(
+        "GET",
+        "https://graph.microsoft.com/v1.0/me",
+        headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+        identity=lambda d: d.get("mail") or d["userPrincipalName"],
+    )
+
+
 _ALLOWED_FIELD = Field(
     key="allowed_users",
     label="Allowed user IDs",
@@ -624,10 +633,15 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Use a Microsoft Graph OAuth access token with Mail and Calendar scopes.",
-            "Paste the access token below. Managed sign-in will replace this manual step later.",
+            "One click connects via OpenWorker Cloud (recommended).",
+            "Manual: paste a Microsoft Graph access token with Mail and Calendar scopes.",
         ],
+        validate=_validate_outlook,
         available=True,
+        managed=True,
+        # Key each connected mailbox by its email (the broker's `account` field,
+        # from the Microsoft id_token) — same multi-account shape as Gmail/Drive.
+        account_field="@identity",
     ),
     ConnectorDescriptor(
         name="jira",
@@ -1072,7 +1086,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         validate=_validate_google_drive,
         available=True,
         managed=True,
-        account_field="account_id",
+        # Key each connected account by its Google email (the broker's `account`
+        # field) so multiple Drive accounts list the same way Gmail's do, rather
+        # than by the opaque `sub` that account_field="account_id" would use.
+        account_field="@identity",
     ),
     ConnectorDescriptor(
         name="canva",

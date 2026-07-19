@@ -126,12 +126,15 @@ const CONNECTORS = {
     { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, channels: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
     { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, channels: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
     // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
-    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    // Carries pre-connect detail copy (§38): about + access + tools drive available-detail.spec.ts.
+    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", about: "Search, summarize, and send over your Gmail.", access: ["Reads and searches your mail.", "Sends email as you.", "Never deletes mail or changes account settings."], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [{ name: "gmail_search", label: "Search mail", kind: "read", description: "Search messages.", enabled: true, requires_approval: false }, { name: "gmail_send", label: "Send email", kind: "write", description: "Send a message.", enabled: true, requires_approval: true }], managed: true, managed_profile: false },
     { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
     { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, channels: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Generic multi-account connector (accounts.py layer): one-click OR integration token.
     { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    // Managed email-keyed multi-account connector (outlook) — drives the onboarding tools gallery.
+    { name: "outlook", title: "Outlook", icon: "◎", blurb: "Search, summarize, draft, and send Microsoft 365 email.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#0078d4", logo: "outlook", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
 };
 
@@ -293,6 +296,9 @@ const PROVIDERS = [
   { name: "anthropic", title: "Claude (Anthropic)", needs_key: true, fields: [{ key: "api_key", label: "API key", secret: true, required: true, help: "", placeholder: "sk-…" }], configured: true, values: {}, suggested_models: ["claude-opus-4-8"], key_set_at: null, last_used_at: null },
   // zai: an OpenAI-compatible vendor — unconfigured, with a prefilled editable endpoint + blurb.
   { name: "zai", title: "Z AI (GLM)", needs_key: true, blurb: "Uses Z AI's OpenAI-compatible API — the endpoint is prefilled, just add your key.", fields: [{ key: "api_key", label: "Z AI API key", secret: true, required: true, help: "", placeholder: "" }, { key: "base_url", label: "Endpoint", secret: false, required: false, help: "Prefilled with Z AI's international endpoint.", placeholder: "https://api.z.ai/api/paas/v4", default: "https://api.z.ai/api/paas/v4" }], configured: false, values: {}, suggested_models: ["glm-5.2"], key_set_at: null, last_used_at: null },
+  // ollama: keyless local provider — "configured" without proving anything runs; the
+  // onboarding gallery shows "No key needed" and its form is endpoint + Detect (§39).
+  { name: "ollama", title: "Ollama (local models)", needs_key: false, fields: [{ key: "base_url", label: "Endpoint", secret: false, required: false, help: "", placeholder: "http://127.0.0.1:11434", default: "http://127.0.0.1:11434" }], configured: true, values: {}, suggested_models: ["qwen3-coder:30b"], key_set_at: null, last_used_at: null },
 ];
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
@@ -407,6 +413,20 @@ export async function mockApi(page: import("@playwright/test").Page) {
       enabled: notionState.accounts.length > 0,
       account: notionState.accounts.find((a) => a.default)?.name ?? null,
       accounts: notionState.accounts.map((a) => ({ ...a })),
+    };
+  };
+  // Outlook — email-keyed managed accounts (mirrors outlook:account:<email> profiles).
+  const outlookState = {
+    accounts: [] as { account_id: string; name: string; default: boolean; managed: boolean }[],
+  };
+  const outlookConnector = () => {
+    const base = CONNECTORS.connectors.find((c: any) => c.name === "outlook");
+    return {
+      ...base,
+      connected: outlookState.accounts.length > 0,
+      enabled: outlookState.accounts.length > 0,
+      account: outlookState.accounts.find((a) => a.default)?.name ?? null,
+      accounts: outlookState.accounts.map((a) => ({ ...a })),
     };
   };
   // HubSpot — PER-TEST multi-portal state (starts disconnected; managed connects add
@@ -950,7 +970,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
                   ? hubspotConnector()
                   : c.name === "notion"
                     ? notionConnector()
-                    : { ...c },
+                    : c.name === "outlook"
+                      ? outlookConnector()
+                      : { ...c },
           ),
         ],
       });
@@ -999,6 +1021,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
         gcalState.accounts.push({
           email, default: gcalState.accounts.length === 0, managed: true,
           scopes: "calendar", needs_reauth: false,
+        });
+      }
+      // Outlook managed connect = add the next mailbox (email-keyed accounts).
+      if (p.includes("/connectors/outlook/")) {
+        outlookState.accounts.push({
+          account_id: `mbx${outlookState.accounts.length + 1}@openworker.com`,
+          name: `mbx${outlookState.accounts.length + 1}@openworker.com`,
+          default: outlookState.accounts.length === 0,
+          managed: true,
         });
       }
       // Notion managed connect = add the next workspace (generic accounts layer).

@@ -329,6 +329,29 @@ def test_connector_list_descriptors(tmp_path):
     assert "bot_token" in keys and by_name["telegram"]["instructions"]
 
 
+def test_connector_list_pre_connect_copy(tmp_path):
+    """Every connectable connector ships Access bullets for the pre-connect
+    detail page (UX-DECISIONS §38) — an empty Access section would render as
+    'this app tells you nothing about what it can do'."""
+    from coworker.connectors import connector_list
+    from coworker.connectors.catalog_copy import ACCESS
+    from coworker.connectors.descriptors import list_descriptors
+
+    for c in connector_list(SecretStore(tmp_path / "secrets.json")):
+        assert isinstance(c["about"], str)
+        assert c["access"] and all(
+            isinstance(line, str) and line for line in c["access"]
+        ), f"{c['name']} has no access copy"
+    # Curated (non-fallback) copy is required for every AVAILABLE connector —
+    # the fallback line is only a net for experimental/placeholder entries.
+    missing = [
+        d.name
+        for d in list_descriptors()
+        if d.available and not d.experimental and d.name not in ACCESS
+    ]
+    assert not missing, f"connectors missing curated access copy: {missing}"
+
+
 def test_connector_list_connected_for_required_profiles(tmp_path):
     from coworker.connectors import (
         connect_connector,
@@ -1209,6 +1232,79 @@ def test_managed_callback_profile_keys_by_account_id(tmp_path):
     # display names survive; default stays the first workspace
     rows = accounts.account_rows(secrets, "notion")
     assert rows[0]["name"] == "Rohit's Workspace" and rows[0]["default"]
+
+
+def test_google_drive_multi_account_keys_by_email(tmp_path):
+    """Managed Drive must add multiple accounts keyed by email — the same way
+    Gmail does — not by the opaque Google `sub`. The broker sends both `account`
+    (email) and `account_id` (sub); account_field="@identity" makes the email win."""
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    p1 = managed_profile_from_callback(
+        {
+            "access_token": "t1",
+            "account": "rohit@opencoworker.app",
+            "account_id": "114835900000000000001",  # Google sub — must NOT be the key
+            "provider": "google",
+            "connection_id": "c1",
+        }
+    )
+    managed_connect_connector(secrets, "google_drive", p1)
+    p2 = managed_profile_from_callback(
+        {
+            "access_token": "t2",
+            "account": "work@acme.com",
+            "account_id": "114835900000000000002",
+            "provider": "google",
+        }
+    )
+    managed_connect_connector(secrets, "google_drive", p2)
+
+    ids = [a for a, _ in accounts.list_accounts(secrets, "google_drive")]
+    assert ids == ["rohit@opencoworker.app", "work@acme.com"], ids
+    # The default resolves to the first email, and the account param selects the other.
+    _, _, prof = accounts.resolve(secrets, "google_drive", "work@acme.com")
+    assert prof["access_token"] == "t2"
+
+
+def test_outlook_managed_multi_account_keys_by_email(tmp_path, monkeypatch):
+    """Managed Outlook mirrors Gmail/Drive: broker `account` (email from the
+    Microsoft id_token) keys each mailbox; tools take an account param."""
+    import coworker.connectors.integration_tools as it
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors import accounts
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    for email, tok in (("rohit@openworker.com", "g1"), ("ops@acme.com", "g2")):
+        managed_connect_connector(
+            secrets,
+            "outlook",
+            managed_profile_from_callback(
+                {"access_token": tok, "account": email, "provider": "microsoft"}
+            ),
+        )
+    ids = [a for a, _ in accounts.list_accounts(secrets, "outlook")]
+    assert ids == ["ops@acme.com", "rohit@openworker.com"], ids
+
+    calls = []
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"url": url, "headers": headers or {}})
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+    out = tools["outlook_search_messages"]("q", account="ops@acme.com")
+    assert out["account"] == "ops@acme.com"
+    assert calls[-1]["headers"]["Authorization"] == "Bearer g2"
+    # default account = first connected (rohit@ was added first)
+    out = tools["outlook_list_events"]()
+    assert out["account"] == "rohit@openworker.com"
+    assert calls[-1]["url"] == "https://graph.microsoft.com/v1.0/me/events"
 
 
 def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):

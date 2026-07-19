@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..secrets import SecretStore
+from .catalog_copy import about_for, access_for
 from .descriptors import get_descriptor, list_descriptors
 from .tool_defs import patch_tool_settings, tool_dicts
 
@@ -58,6 +59,10 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             "title": d.title,
             "icon": d.icon,
             "blurb": d.blurb,
+            # Pre-connect detail page copy (UX-DECISIONS §38): About paragraph
+            # (may be empty → GUI omits the group) + honest Access bullets.
+            "about": about_for(d.name),
+            "access": access_for(d.name),
             "auth": d.auth,
             "two_way": d.two_way,
             "channels": d.channels,

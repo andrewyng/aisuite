@@ -938,8 +938,81 @@ therefore has an explicit setup home and a visible readiness contract before it 
   click. That behavior is deliberately removed; the reusable local STT library and editable-draft
   behavior stay.
 
+## 38. Pre-connect connector detail page: About, honest Access bullets, tools behind a disclosure  *(Decided 2026-07-18 by owner; no mock — extends §21's grammar)*
+
+Prompted by competitor plugin-gallery pages: before any credentials exist, an **available**
+connector's row navigates to a detail subpage (same `‹ Connectors` breadcrumb as §21) so the user
+can see what they're granting before the vendor's consent screen does. The list's Connect pill
+remains the fast path straight into the add-modal.
+
+- **Content, top to bottom:** header (badge / title / blurb subtitle / Connect pill) → optional
+  About paragraph → **Access** group → collapsed **Tools** disclosure. Copy lives server-side
+  (`catalog_copy.py`, served on `/v1/connectors`) so all surfaces share it.
+- **Access bullets are honest or absent:** short statements of actual behavior — write powers name
+  themselves ("Sends email as you"), reads state their boundary ("…your account can see"), negative
+  guarantees are explicit ("Never deletes mail"). Every bullet must stay true to the connector's
+  real tools and, for managed connectors, the cloud app's scopes — overclaiming here is a product
+  bug (test-enforced: every available connector ships curated bullets). A standing footnote carries
+  the platform guarantee: "Keys and tokens are stored only on this computer."
+- **Tools are a collapsed "N tools this connector adds" disclosure** — advanced-reader detail, no
+  enable/disable pre-connect (that lever exists on the connected page, §21); write tools carry the
+  "asks first" tag. Owner: listing is enough, toggles are not needed here.
+- **No third-party-risk interstitial, deliberately:** competitor consent modals ("apps may introduce
+  elevated risk", data-sharing disclosures) exist because their plugins are third-party code
+  receiving conversation context. Our catalog is first-party tools with local-only tokens — copying
+  that fear-language would import a risk we don't have. The Access section IS our disclosure.
+- **Connect completes in place:** the poll flips `connected` and the same route re-renders as the
+  connected detail page — no navigation cliff after OAuth returns.
+
+## 39. Onboarding galleries: provider cards, then a two-state tools page  *(Decided 2026-07-18 by owner → Built 2026-07-18; mocks: `ocw-context/docs/ux-improvements/mocks/UX-019v2-onboarding-provider-gallery.html`, `UX-020-onboarding-tools-page.html`; ledger UX-019/UX-020)*
+
+Owner: step 1 was "bland, tasteless and non-informing." Both onboarding steps become card
+galleries that carry the product's breadth on their face, under one frame rule: **the header
+and footer never move — only the middle region swaps, at a fixed height** (extends the
+2026-07-12 no-resize rule to in-step view changes).
+
+- **Step 1 = provider gallery.** All 13 providers as 2-per-row cards with their official brand
+  marks (vendored from MIT-licensed lobe-icons into `src/providers/logos/`, always on a light
+  chip so multicolor marks survive dark mode). Every card wears its own state — ✓ Connected /
+  Not set up / No key needed — so multi-provider state costs zero clicks (closes UX-019's
+  question). Recognition-first order; the long tail scrolls.
+- **Card → key form, in place.** Breadcrumb + identity row, then the provider's real fields.
+  **A passing Test verifies, SAVES, and auto-returns** to the gallery (~0.9 s, after the
+  in-field confirmation registers) — the "extra click back" never exists on the happy path.
+  State lives IN the field: green border + "✓ Tested & saved" pill (revisits show the same;
+  typing clears it); **no status lines below the form**. `base_url` on a keyed provider is a
+  quiet "Custom endpoint ⌄" disclosure with **no explainer copy** (its users know what it's
+  for). Ollama renders endpoint + **Detect**; a pass counts toward Next (configured-but-
+  unproven keyless providers don't).
+- **Footer: plain "Next"** (never "Continue with X" — configuring a provider isn't choosing a
+  model; §17's per-session choice happens later). Next arms at ≥1 ready provider; from a dirty
+  form it auto-verifies+saves first (preserves the 2026-07-12 no-hidden-two-step rule).
+  **No accent-blue links anywhere** — crumbs/disclosures/help links are muted ink with quiet
+  underlines (owner: blue links are "outdated design").
+- **Step 2 = two-state tools page.** Headline "Connect your everyday tools" + the why
+  paragraph ("A coworker that can only chat can only advise…"). Pre-sign-in: tool-logo row,
+  "One click, keys handled" card, skip renamed **"Skip — I'll use my own API tokens"**, privacy
+  line at the account-ask moment. Post-sign-in the SAME region becomes a **mini connector
+  gallery** — the five managed connectors with live prod OAuth apps (Outlook · Slack · GitHub ·
+  Notion · HubSpot); a card click launches the real one-click consent ("Check your browser…" →
+  poll → ✓). This keeps the headline's promise on-page, resolving §29's
+  promise-with-no-action concern. **Gmail + Google Calendar ship grayed "Coming soon"**
+  (both gated on Google verification/CASA — flip `TOOLS_SOON` when it lands). One pending
+  connect at a time (a second click quietly resets the first); failures reset silently — no
+  error walls in onboarding; **Next stays armed throughout** (connecting zero tools is fine);
+  HubSpot connects read-only here (least privilege; write is a Connectors-page consent).
+  AWS Bedrock / Azure deferred: provider-layer auth work, and Azure OpenAI is already
+  reachable via OpenAI's custom endpoint.
+
 ## Change log (requests, newest first)
 
+- **2026-07-18 (23)** — Owner: onboarding step 1 "bland, tasteless and non-informing" →
+  provider gallery; three review iterations (fixed frame; in-field saved state + endpoint
+  disclosure + "Next"; de-blued links); then step 2's why-paragraph + post-sign-in connector
+  gallery ("It's tempting!") → §39 (mocked UX-019v2/UX-020; built 2026-07-18).
+- **2026-07-18 (22)** — Owner (from competitor plugin-gallery screenshots): ship a pre-connect
+  connector detail page with launch — full details up front, tool list behind a link ("a detail
+  that only the advanced user will care" about), no per-tool toggles → §38.
 - **2026-07-15 (21)** — Owner: no download at the moment of use; put Voice input setup,
   compatibility requirements, visible model progress, verification, and a microphone transcript
   test in Settings; keep the composer mic muted with a Settings deep-link until ready → §37

@@ -74,16 +74,30 @@ export function ConnectorsList({
       <div className={GRP_H}>Available</div>
       <div className={GRP}>
         {shown.map((c) => (
-          <div key={c.name} data-testid={`connector-${c.name}`} className={ROW}>
+          /* The row navigates to the pre-connect detail page (§38); the pill
+             stays the fast path straight into the modal. */
+          <button
+            key={c.name}
+            data-testid={`connector-${c.name}`}
+            className={ROW + " w-full text-left hover:bg-paper/60"}
+            onClick={() => onOpen(c.name)}
+          >
             <ConnectorBadge connector={c} size={34} title={c.title} />
             <span className="min-w-0 flex-1">
               <span className="font-medium text-[13.5px]">{c.title}</span>
               <span className="block text-[12px] text-muted truncate">{c.blurb}</span>
             </span>
-            <button className={PILL_QUIET} onClick={() => setConnecting(c.name)}>
+            <span
+              className={PILL_QUIET + " cursor-pointer"}
+              role="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConnecting(c.name);
+              }}
+            >
               Connect
-            </button>
-          </div>
+            </span>
+          </button>
         ))}
         {shown.length === 0 && (
           <div className={ROW + " text-[12.5px] text-muted"}>Nothing matches.</div>

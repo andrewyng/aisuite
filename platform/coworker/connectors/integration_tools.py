@@ -1306,19 +1306,24 @@ def make_integration_tools(
     )
 
     def outlook_search_messages(
-        query: str = "", max_results: int = 10
+        query: str = "", max_results: int = 10, account: str = ""
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
         params = {"$top": max(1, min(int(max_results or 10), 20))}
         if query:
             params["$search"] = f'"{query}"'
-        return _request(
-            "GET",
-            "https://graph.microsoft.com/v1.0/me/messages",
-            headers=_graph_headers(profile["access_token"]),
-            params=params,
+        return _acct_result(
+            aid,
+            _request(
+                "GET",
+                "https://graph.microsoft.com/v1.0/me/messages",
+                headers=_graph_headers(profile["access_token"]),
+                params=params,
+            ),
         )
 
     outlook_search_messages.__name__ = "outlook_search_messages"
@@ -1328,15 +1333,23 @@ def make_integration_tools(
             _schema(
                 "outlook_search_messages",
                 "Search or list Outlook messages through Microsoft Graph.",
-                {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
                 [],
             ),
             caps=["outlook", "read"],
         )
     )
 
-    def outlook_send_mail(to: str, subject: str, body: str) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+    def outlook_send_mail(
+        to: str, subject: str, body: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
         payload = {
@@ -1346,11 +1359,14 @@ def make_integration_tools(
                 "toRecipients": [{"emailAddress": {"address": to}}],
             }
         }
-        return _request(
-            "POST",
-            "https://graph.microsoft.com/v1.0/me/sendMail",
-            headers=_graph_headers(profile["access_token"]),
-            json=payload,
+        return _acct_result(
+            aid,
+            _request(
+                "POST",
+                "https://graph.microsoft.com/v1.0/me/sendMail",
+                headers=_graph_headers(profile["access_token"]),
+                json=payload,
+            ),
         )
 
     outlook_send_mail.__name__ = "outlook_send_mail"
@@ -1364,6 +1380,7 @@ def make_integration_tools(
                     "to": {"type": "string"},
                     "subject": {"type": "string"},
                     "body": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
                 },
                 ["to", "subject", "body"],
             ),
@@ -1372,15 +1389,20 @@ def make_integration_tools(
         )
     )
 
-    def outlook_list_events(max_results: int = 10) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+    def outlook_list_events(max_results: int = 10, account: str = "") -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
-        return _request(
-            "GET",
-            "https://graph.microsoft.com/v1.0/me/events",
-            headers=_graph_headers(profile["access_token"]),
-            params={"$top": max(1, min(int(max_results or 10), 20))},
+        return _acct_result(
+            aid,
+            _request(
+                "GET",
+                "https://graph.microsoft.com/v1.0/me/events",
+                headers=_graph_headers(profile["access_token"]),
+                params={"$top": max(1, min(int(max_results or 10), 20))},
+            ),
         )
 
     outlook_list_events.__name__ = "outlook_list_events"
@@ -1390,7 +1412,7 @@ def make_integration_tools(
             _schema(
                 "outlook_list_events",
                 "List Outlook calendar events through Microsoft Graph.",
-                {"max_results": {"type": "integer"}},
+                {"max_results": {"type": "integer"}, "account": _GEN_ACCOUNT_PROP},
                 [],
             ),
             caps=["outlook", "read"],
@@ -1398,9 +1420,16 @@ def make_integration_tools(
     )
 
     def outlook_create_event(
-        subject: str, start: str, end: str, timezone: str = "UTC", body: str = ""
+        subject: str,
+        start: str,
+        end: str,
+        timezone: str = "UTC",
+        body: str = "",
+        account: str = "",
     ) -> dict[str, Any]:
-        profile, err = _profile(secrets, "outlook", "access_token")
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
         if err:
             return err
         payload = {
@@ -1409,11 +1438,14 @@ def make_integration_tools(
             "start": {"dateTime": start, "timeZone": timezone},
             "end": {"dateTime": end, "timeZone": timezone},
         }
-        return _request(
-            "POST",
-            "https://graph.microsoft.com/v1.0/me/events",
-            headers=_graph_headers(profile["access_token"]),
-            json=payload,
+        return _acct_result(
+            aid,
+            _request(
+                "POST",
+                "https://graph.microsoft.com/v1.0/me/events",
+                headers=_graph_headers(profile["access_token"]),
+                json=payload,
+            ),
         )
 
     outlook_create_event.__name__ = "outlook_create_event"
@@ -1429,6 +1461,7 @@ def make_integration_tools(
                     "end": {"type": "string"},
                     "timezone": {"type": "string"},
                     "body": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
                 },
                 ["subject", "start", "end"],
             ),
