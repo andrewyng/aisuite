@@ -1199,6 +1199,14 @@ export async function setProvider(
   return res.json();
 }
 
+/** Forget a provider's stored config (Settings ▸ Models "Remove key…"). */
+export async function removeProvider(name: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/providers/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  return res.json();
+}
+
 /** Live read-only credential check (does NOT save the key). Triggered by the user's "Test" click. */
 export async function verifyProvider(
   name: string,

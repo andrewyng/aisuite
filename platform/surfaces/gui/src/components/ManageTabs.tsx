@@ -8,16 +8,15 @@ import {
   disallowUser,
   getMcpServers,
   getMcpTools,
-  getProviders,
   getSettings,
   getSubscriptions,
+  removeModel,
   resolveUnauthorized,
   unsubscribeChannel,
   patchMcpServer,
   reloadMcp,
-  setProvider,
+  setDefaultModel,
   updateConnectorTools,
-  verifyProvider,
   type CloudStatus,
   type Connector,
   type Subscription,
@@ -27,7 +26,7 @@ import {
 } from "../api";
 import { CloudSignInInline } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
-import { SelectMenu } from "./SelectMenu";
+import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Toggle } from "./Toggle";
 
 // "2h ago"-style label for the providers' Last-used line (null when never used).
@@ -42,12 +41,6 @@ const relTime = (epoch?: number | null): string | null => {
   return `${Math.floor(hrs / 24)}d ago`;
 };
 
-const fmtDate = (iso?: string | null): string | null => {
-  if (!iso) return null;
-  const d = new Date(iso + "T00:00:00");
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
-};
-
 // Shared tab bodies for the Settings and Integrations pages (the old top-tab ManageModal was retired
 // when Settings/Activity became full-page surfaces): ModelsTab → Settings ▸ Models; ConnectorsTab +
 // McpTab → Integrations ▸ Connectors / MCP servers.
@@ -57,10 +50,6 @@ const BTN_BORDERED =
   "text-[12.5px] px-3 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-accent text-white shrink-0 disabled:opacity-50";
 const BTN_DANGER = "text-[12.5px] text-danger/80 hover:text-danger shrink-0";
-const FIELD_LABEL = "block text-[12.5px] font-medium text-ink mb-1.5";
-const FIELD_HELP = "block text-[12px] text-muted mt-1.5 leading-relaxed";
-const INPUT_W =
-  "w-full px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
 
 /** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
 function initials(name: string): string {
@@ -78,318 +67,164 @@ const EXAMPLE = `{
   }
 }`;
 
-// -- Configure Models tab (providers, model list, keys) -----------------------
+// -- Configure Models tab (UX-021: the shared provider gallery + key form) ----
+// Settings ▸ Models reuses onboarding §39's ProviderCards/ProviderForm so the two
+// surfaces can't drift. Settings-only extras: per-card "used Nh ago", a "Remove
+// key…" affordance, the global composer-picker card (gallery view), and the
+// per-provider ModelChecklist / read-only model preview (form view).
 export function ModelsTab() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [ollamaUrl, setOllamaUrl] = useState("");
-  const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
-  // Two panes: hosted API models (key-based, per provider) and local Ollama models.
-  const [sub, setSub] = useState<"api" | "local">("api");
-  const [apiProv, setApiProv] = useState("openai");
-  const [endpoint, setEndpoint] = useState(""); // OpenAI custom endpoint (Azure, OpenRouter, …)
-  const [verify, setVerify] = useState<{ state: "idle" | "testing" | "ok" | "error"; msg?: string }>({ state: "idle" });
-
-  const refresh = () => getSettings().then(setSettings).catch(() => setSettings(null));
-  const loadProviders = () =>
-    getProviders()
-      .then((ps) => {
-        setProviders(ps);
-        const oll = ps.find((p) => p.name === "ollama");
-        if (oll?.values?.base_url) setOllamaUrl((cur) => cur || oll.values.base_url);
-        // Seed the endpoint for the selected provider: stored value, else the descriptor's
-        // pre-filled default (OpenAI-compatible vendors ship their official endpoint).
-        const sel = ps.find((p) => p.name === apiProv);
-        const seeded =
-          sel?.values?.base_url || sel?.fields.find((f) => f.key === "base_url")?.default || "";
-        if (seeded) setEndpoint((cur) => cur || seeded);
-      })
-      .catch(() => {});
+  const refreshSettings = () => getSettings().then(setSettings).catch(() => setSettings(null));
+  const ps = useProviderSetup({ onSaved: refreshSettings });
   useEffect(() => {
-    refresh();
-    loadProviders();
+    refreshSettings();
   }, []);
-
-  const saveOllama = async () => {
-    setOllamaMsg(null);
-    const res = await setProvider("ollama", { base_url: ollamaUrl.trim() });
-    if (res.ok) {
-      const rec = res.recommended_model;
-      setOllamaMsg(
-        rec
-          ? `Saved. ${rec} is the recommended model — added to your list if it's pulled (else: ollama pull ${rec}).`
-          : "Saved. Tick or add an Ollama model under “Models” below to use it.",
-      );
-      loadProviders();
-      refresh(); // pick up the auto-added recommended model in the curated list
-    } else {
-      setOllamaMsg(res.error || "Failed to save Ollama URL.");
-    }
-  };
-
-  // The provider the pane is configuring (the ModelChecklist owns add/remove/default).
-  const knownNames = providers.map((p) => p.name);
-  const provName = sub === "local" ? "ollama" : apiProv;
-  const selProv = providers.find((p) => p.name === provName);
-
-  // The provider's endpoint field, when it has one (OpenAI's optional custom endpoint + the
-  // OpenAI-compatible vendors' pre-filled one).
-  const endpointField = selProv?.fields.find((f) => f.key === "base_url");
-
-  const keyFields = (): Record<string, string> => {
-    const fields: Record<string, string> = {};
-    if (draft.trim()) fields.api_key = draft.trim();
-    if (endpointField) fields.base_url = endpoint.trim();
-    return fields;
-  };
-
-  const testKey = async () => {
-    if (!draft.trim() && !selProv?.configured) return;
-    setVerify({ state: "testing" });
-    const res = await verifyProvider(apiProv, keyFields());
-    setVerify(res.ok ? { state: "ok" } : { state: "error", msg: res.error || "Couldn't verify." });
-  };
-
-  const save = async () => {
-    if (!draft.trim() && !(endpointField && endpoint.trim())) return;
-    setBusy(true);
-    setMsg(null);
-    const res = await setProvider(apiProv, keyFields());
-    setBusy(false);
-    if (res.ok) {
-      setDraft("");
-      setVerify({ state: "idle" });
-      // set_provider auto-adds the provider's model and makes it the default if the old default
-      // wasn't usable — so the composer is ready immediately. Confirm that to the user.
-      const updated = await getSettings().catch(() => null);
-      if (updated) setSettings(updated);
-      setMsg(
-        updated
-          ? `Saved. “${updated.model}” is ready in the composer — stored locally, never sent to the model.`
-          : "Saved. The key is stored locally and never sent to the model.",
-      );
-      loadProviders();
-    } else {
-      setMsg(res.error || "Failed to save key.");
-    }
-  };
 
   if (!settings) return <div className="text-[13px] text-muted">Loading…</div>;
 
-  // The checklist shown once the pane's provider is usable (always, for keyless Ollama).
-  const checklist = (selProv?.configured || sub === "local") && (
-    <div className="mt-6">
-      <div className={SEC_H + " mb-1.5"}>Models</div>
-      <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
-        {sub === "local"
-          ? "Your pulled Ollama models. Ticked ones show in the composer's picker; the black badge marks the default for new sessions."
-          : "Ticked models show in the composer's picker; the black badge marks the default for new sessions."}
-      </p>
-      <ModelChecklist
-        provider={provName}
-        knownProviders={knownNames}
-        suggested={selProv?.suggested_models || []}
-        curated={settings.models}
-        defaultModel={settings.model}
-        labels={settings.model_labels}
-        onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
-      />
-    </div>
-  );
+  const info = ps.info;
+  const knownNames = ps.providers.map((p) => p.name);
 
-  // Unconfigured providers still show their curated models as a read-only preview — what a key
-  // unlocks is part of deciding to get one at all (owner ask, 2026-07-04). Real ids in tooltips.
-  const modelPreview = sub === "api" &&
-    selProv &&
-    !selProv.configured &&
-    (selProv.suggested_models?.length || 0) > 0 && (
-      <div className="mt-6" data-testid="model-preview">
-        <div className={SEC_H + " mb-1.5"}>Included models</div>
-        <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
-          Curated, agent-capable models this provider serves — add your key above to enable them.
-        </p>
-        <div className="space-y-1">
-          {(selProv.suggested_models || []).map((m) => {
-            const full = provName === "openai" ? m : `${provName}:${m}`;
-            return (
-              <div
-                key={m}
-                className="px-2.5 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-muted"
-                title={full}
-              >
-                {settings.model_labels?.[full] || m}
-              </div>
-            );
-          })}
-        </div>
+  if (ps.sel === null) {
+    return (
+      <div>
+        <ProviderCards ps={ps} tp="set" gridClass="grid grid-cols-2 xl:grid-cols-3 gap-2.5" lastUsed />
+        <ComposerPickerCard settings={settings} providers={ps.providers} onChanged={refreshSettings} />
       </div>
     );
+  }
 
   return (
     <div>
-      <div className="seg mb-4" role="tablist" aria-label="Model source">
-        <button className={sub === "api" ? "active" : ""} onClick={() => setSub("api")}>
-          API models
-        </button>
-        <button className={sub === "local" ? "active" : ""} onClick={() => setSub("local")}>
-          Local models
-        </button>
-      </div>
-
-      {sub === "api" ? (
-        <div className={CARD + " p-4"}>
-          <div className="mb-4">
-            <span className={FIELD_LABEL}>Provider</span>
-            {/* Custom select, sectioned "Ready to use" / "Needs a key" (configured providers
-                float to the top). Rows carry a green "key set" dot + a Last-used sub-line, so
-                which providers are configured (and still in use) is visible at a glance. */}
-            <SelectMenu
-              ariaLabel="Provider"
-              value={apiProv}
-              options={[...providers]
-                .filter((p) => p.name !== "ollama")
-                .sort((a, b) => Number(b.configured) - Number(a.configured)) // stable: keeps registry order within each section
-                .map((p) => ({
-                  value: p.name,
-                  label: p.title,
-                  group: p.configured ? "Ready to use" : "Needs a key",
-                  dot: p.configured,
-                  sub: p.configured
-                    ? relTime(p.last_used_at)
-                      ? `Last used ${relTime(p.last_used_at)}`
-                      : "Not used yet"
-                    : undefined,
-                }))}
-              onChange={(name) => {
-                setApiProv(name);
-                setDraft("");
-                setMsg(null);
-                setVerify({ state: "idle" });
-                // Re-seed the endpoint for the newly selected provider (stored → default → blank).
-                const p = providers.find((x) => x.name === name);
-                setEndpoint(
-                  p?.values?.base_url || p?.fields.find((f) => f.key === "base_url")?.default || "",
-                );
+      <ProviderForm
+        ps={ps}
+        tp="set"
+        footer={
+          ps.credentialed ? (
+            <button
+              className="text-[12.5px] text-danger/80 hover:text-danger hover:underline underline-offset-2"
+              data-testid="set-remove-key"
+              onClick={() => {
+                if (window.confirm(`Remove the ${info?.title} key from this computer?`)) ps.removeKey();
               }}
-            />
-          </div>
-
-          {selProv?.blurb && (
-            <p className="text-[12px] text-muted -mt-2 mb-4 leading-relaxed">{selProv.blurb}</p>
-          )}
-
-          <div className="text-[12px] mb-4">
-            {selProv?.configured ? (
-              <span className="text-ok">
-                ● Connected
-                {fmtDate(selProv.key_set_at) ? ` — key added ${fmtDate(selProv.key_set_at)}` : " — key set"}
-                {provName === "openai" && settings.source === "env" ? " (from environment)" : ""}
-                <span className="text-muted">
-                  {" · "}
-                  {relTime(selProv.last_used_at) ? `last used ${relTime(selProv.last_used_at)}` : "not used yet"}
-                </span>
-              </span>
-            ) : (
-              <span className="text-danger">● Not connected — add a key below to use this provider</span>
-            )}
-          </div>
-
-          {provName === "openai" && settings.source === "env" && (
-            <p className="text-[12px] text-muted mb-4 leading-relaxed">
-              A key is set via <code>OPENAI_API_KEY</code> in this server's environment. You can override
-              it below; the stored key is used only when the environment variable is absent.
-            </p>
-          )}
-          {endpointField && (
-            <label className="block mb-4">
-              <span className={FIELD_LABEL}>{endpointField.label}</span>
-              <input
-                className={INPUT_W}
-                type="text"
-                placeholder={endpointField.placeholder}
-                value={endpoint}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(e) => setEndpoint(e.target.value)}
-              />
-              <span className={FIELD_HELP}>{endpointField.help}</span>
-            </label>
-          )}
-          <label className="block mb-4">
-            <span className={FIELD_LABEL}>
-              {selProv?.fields.find((f) => f.key === "api_key")?.label || "API key"}
-            </span>
-            <input
-              className={INPUT_W}
-              type="password"
-              placeholder={selProv?.fields.find((f) => f.key === "api_key")?.placeholder || "sk-…"}
-              value={draft}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && save()}
-            />
-            <span className={FIELD_HELP}>
-              Stored locally at <code>~/.config/coworker/secrets.json</code> (0600). Required for the
-              desktop app, where the server can't read your shell environment.
-            </span>
-          </label>
-          <div className="flex items-center gap-2">
-            <button
-              className={BTN_BORDERED}
-              onClick={testKey}
-              disabled={verify.state === "testing" || (!draft.trim() && !selProv?.configured)}
-              title="Check the key works — without saving it"
             >
-              {verify.state === "testing" ? "Testing…" : "Test"}
+              Remove key…
             </button>
-            <button
-              className={BTN_ACCENT}
-              onClick={save}
-              disabled={busy || (!draft.trim() && !(apiProv === "openai" && endpoint.trim()))}
-            >
-              {busy ? "Saving…" : "Save"}
-            </button>
-          </div>
-          {verify.state === "ok" && <div className="text-[12px] text-ok mt-2.5">✓ Key verified.</div>}
-          {verify.state === "error" && <div className="text-[12px] text-danger mt-2.5">{verify.msg}</div>}
-          {msg && <div className="text-[12px] text-muted mt-2.5">{msg}</div>}
-        </div>
-      ) : (
-        <div className={CARD + " p-4"}>
-          <p className="text-[12.5px] text-muted mb-4 leading-relaxed">
-            Run models locally with <code>ollama serve</code>. OpenWorker uses Ollama's
-            OpenAI-compatible API, so tools work. No API key needed.
-          </p>
-          <label className="block mb-4">
-            <span className={FIELD_LABEL}>Ollama server URL</span>
-            <input
-              className={INPUT_W}
-              type="text"
-              placeholder="http://localhost:11434"
-              value={ollamaUrl}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(e) => setOllamaUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && saveOllama()}
-            />
-            <span className={FIELD_HELP}>
-              The OpenAI-compatible <code>/v1</code> path is added automatically. Leave blank for the
-              default. Your pulled models appear under <strong>Models</strong> below.
-            </span>
-          </label>
-          <button className={BTN_ACCENT} onClick={saveOllama}>
-            Save Ollama URL
-          </button>
-          {ollamaMsg && <div className="text-[12px] text-muted mt-2.5">{ollamaMsg}</div>}
-        </div>
+          ) : null
+        }
+      />
+
+      {ps.sel === "openai" && settings.source === "env" && (
+        <p className="text-[12px] text-muted mt-3 leading-relaxed">
+          A key is set via <code>OPENAI_API_KEY</code> in this server's environment. You can override
+          it above; the stored key is used only when the environment variable is absent.
+        </p>
       )}
 
-      {checklist}
-      {modelPreview}
+      {info?.configured ? (
+        <div className="mt-6">
+          <div className={SEC_H + " mb-1.5"}>Models</div>
+          <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
+            Ticked models show in the composer's picker; the black badge marks the default for new
+            sessions.
+          </p>
+          <ModelChecklist
+            provider={ps.sel}
+            knownProviders={knownNames}
+            suggested={info?.suggested_models || []}
+            curated={settings.models}
+            defaultModel={settings.model}
+            labels={settings.model_labels}
+            onChanged={(next) => setSettings((s) => (s ? { ...s, models: next.models, model: next.model } : s))}
+          />
+        </div>
+      ) : (
+        // Unconfigured providers still show their curated models as a read-only preview — what a
+        // key unlocks is part of deciding to get one at all (owner ask, 2026-07-04).
+        (info?.suggested_models?.length || 0) > 0 && (
+          <div className="mt-6" data-testid="model-preview">
+            <div className={SEC_H + " mb-1.5"}>Included models</div>
+            <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
+              Curated, agent-capable models this provider serves — add your key above to enable them.
+            </p>
+            <div className="space-y-1">
+              {(info?.suggested_models || []).map((m) => {
+                const full = ps.sel === "openai" ? m : `${ps.sel}:${m}`;
+                return (
+                  <div
+                    key={m}
+                    className="px-2.5 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-muted"
+                    title={full}
+                  >
+                    {settings.model_labels?.[full] || m}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// The gallery view's "In the composer's picker" card: every curated model across providers,
+// with its provider tag. Unticking removes it from the picker; adding happens from a
+// provider's card (the ModelChecklist there has the suggested list + free-type add).
+function ComposerPickerCard({
+  settings,
+  providers,
+  onChanged,
+}: {
+  settings: ModelSettings;
+  providers: ProviderInfo[];
+  onChanged: () => void;
+}) {
+  const names = providers.map((p) => p.name);
+  const provOf = (id: string) => {
+    const i = id.indexOf(":");
+    return i > 0 && names.includes(id.slice(0, i)) ? id.slice(0, i) : "openai";
+  };
+  const tag = (id: string) => {
+    const p = providers.find((x) => x.name === provOf(id));
+    return (p?.title || provOf(id)).split(" (")[0];
+  };
+  return (
+    <div className="mt-6" data-testid="composer-picker">
+      <div className={SEC_H + " mb-1.5"}>In the composer's picker</div>
+      <p className="text-[12px] text-muted mb-2.5 leading-relaxed">
+        The models offered when starting a session; the black badge marks the default. Add more
+        from a provider's card above.
+      </p>
+      <div className="mlist">
+        {settings.models.map((id) => {
+          const isDefault = id === settings.model;
+          return (
+            <div className="mlist-row" key={id}>
+              <label className="mlist-main">
+                <input
+                  type="checkbox"
+                  checked
+                  disabled={isDefault}
+                  title={isDefault ? "The default model is always shown — make another model default first" : "Remove from the picker"}
+                  onChange={() => removeModel(id).then((r) => r.ok && onChanged())}
+                />
+                <span className="mlist-name" title={id}>
+                  {settings.model_labels?.[id] || id}
+                </span>
+              </label>
+              <span className="text-[11px] text-faint mr-2 shrink-0">{tag(id)}</span>
+              {isDefault ? (
+                <span className="mlist-default">default</span>
+              ) : (
+                <button className="mlist-make" onClick={() => setDefaultModel(id).then(() => onChanged())}>
+                  Make default
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

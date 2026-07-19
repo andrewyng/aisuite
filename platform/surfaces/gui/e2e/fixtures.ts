@@ -1100,6 +1100,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (b.fields?.base_url) prov.values = { ...prov.values, base_url: b.fields.base_url };
       return json({ ok: true, provider: b.name, recommended_model: null });
     }
+    // forget a provider's stored config (Settings ▸ Models "Remove key…").
+    if (/\/v1\/providers\/[^/]+$/.test(p) && m === "DELETE") {
+      const name = p.split("/").pop()!;
+      const prov = providers.find((x) => x.name === name);
+      if (!prov) return json({ ok: false, error: `unknown provider: ${name}` });
+      prov.configured = !prov.needs_key; // keyless (ollama) stays "configured"
+      prov.key_set_at = null;
+      return json({ ok: true, provider: name });
+    }
     if (p.endsWith("/v1/providers")) return json(providers);
     if (p.endsWith("/v1/channels/recent"))
       return json({

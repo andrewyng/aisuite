@@ -1,20 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   cloudLogin,
   connectManaged,
   getCloudStatus,
   getConnectors,
-  getProviders,
   setOnboarded,
-  setProvider,
-  verifyProvider,
   type CloudStatus,
   type Connector,
-  type ProviderInfo,
 } from "../api";
-import { openExternal } from "../tauri";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
-import { PROVIDER_LOGOS, providerRank } from "../providers/logos";
+import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Spinner } from "./AutomationQuickstart";
 
 // First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
@@ -23,23 +18,9 @@ import { Spinner } from "./AutomationQuickstart";
 // two-state tools page whose post-sign-in body is a mini connector gallery with
 // live one-click connects. Both steps share one frame rule: the header and
 // footer never move; only the middle region swaps, at a fixed height.
-// Replayable from Settings ▸ Appearance ▸ "Run setup again".
-
-// Where a non-developer gets an API key — deep link + one line of instructions.
-const KEY_HELP: Record<string, { url: string; label: string }> = {
-  anthropic: { url: "https://console.anthropic.com/settings/keys", label: "console.anthropic.com" },
-  openai: { url: "https://platform.openai.com/api-keys", label: "platform.openai.com" },
-  gemini: { url: "https://aistudio.google.com/apikey", label: "aistudio.google.com" },
-  fireworks: { url: "https://fireworks.ai/account/api-keys", label: "fireworks.ai" },
-  together: { url: "https://api.together.xyz/settings/api-keys", label: "together.xyz" },
-  zai: { url: "https://z.ai/manage-apikey/apikey-list", label: "z.ai" },
-  kimi: { url: "https://platform.moonshot.ai/console/api-keys", label: "platform.moonshot.ai" },
-  deepseek: { url: "https://platform.deepseek.com/api_keys", label: "platform.deepseek.com" },
-  mistral: { url: "https://console.mistral.ai/api-keys", label: "console.mistral.ai" },
-  qwen: { url: "https://modelstudio.console.alibabacloud.com", label: "alibabacloud.com" },
-  minimax: { url: "https://platform.minimax.io", label: "platform.minimax.io" },
-  xai: { url: "https://console.x.ai", label: "console.x.ai" },
-};
+// The gallery/form themselves live in providers/ProviderSetup.tsx, shared with
+// Settings ▸ Models (UX-021) so the two surfaces can't drift.
+// Replayable from Settings ▸ General ▸ "Run setup again".
 
 // Step 2's mini gallery (§39): managed connectors with LIVE prod OAuth apps only.
 // gmail + google_calendar ship grayed "Coming soon" — both ride the same Google
@@ -47,125 +28,27 @@ const KEY_HELP: Record<string, { url: string; label: string }> = {
 const TOOLS_ACTIVE = ["outlook", "slack", "github", "notion", "hubspot"];
 const TOOLS_SOON = ["gmail", "google_calendar"];
 
-type Verify = { state: "idle" | "testing" | "ok" | "error"; msg?: string };
-
-/** Brand chip: always a light plate so multicolor marks read on any theme. */
-function ProviderMark({ name, title, size = 32 }: { name: string; title: string; size?: number }) {
-  const url = PROVIDER_LOGOS[name];
-  return (
-    <span
-      className="rounded-lg border border-line grid place-items-center shrink-0"
-      style={{ width: size, height: size, background: "#f6f7f8" }}
-    >
-      {url ? (
-        <img src={url} alt="" style={{ width: size * 0.6, height: size * 0.6 }} />
-      ) : (
-        <span className="text-[13px] font-semibold text-muted">{title[0]}</span>
-      )}
-    </span>
-  );
-}
-
 export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "automations") => void }) {
   const [step, setStep] = useState(0);
 
-  // -- step 1: model (provider gallery ⇄ key form) -------------------------------
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  // null = the gallery; a provider name = that provider's key form.
-  const [sel, setSel] = useState<string | null>(null);
-  const [fields, setFields] = useState<Record<string, string>>({});
-  const [dirty, setDirty] = useState(false);
-  const [showEndpoint, setShowEndpoint] = useState(false);
-  const [verify, setVerify] = useState<Verify>({ state: "idle" });
+  // -- step 1: model (provider gallery ⇄ key form, shared machinery) ---------------
+  const ps = useProviderSetup();
   const [skipConfirm, setSkipConfirm] = useState(false);
-  // Keyless providers (Ollama) report configured without proving anything runs —
-  // a passing Detect this session is what arms Next for them.
-  const [keylessOk, setKeylessOk] = useState<Set<string>>(new Set());
-  const backTimer = useRef<number | null>(null);
-
-  const refreshProviders = () =>
-    getProviders()
-      .then(setProviders)
-      .catch(() => {});
-  useEffect(() => {
-    refreshProviders();
-    return () => {
-      if (backTimer.current) window.clearTimeout(backTimer.current);
-    };
-  }, []);
-
-  const info = providers.find((p) => p.name === sel);
-  const credentialed = !!info?.configured && !!info?.needs_key;
-
-  // Unsaved per-provider input survives switching cards (owner complaint 2026-07-16).
-  const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
-
-  const openProvider = (name: string) => {
-    const p = providers.find((x) => x.name === name);
-    if (sel) setDrafts((d) => ({ ...d, [sel]: fields }));
-    const draft = drafts[name];
-    const next: Record<string, string> = {};
-    for (const f of p?.fields || []) next[f.key] = draft?.[f.key] || p?.values?.[f.key] || f.default || "";
-    setSel(name);
-    setFields(next);
-    setDirty(!!draft && Object.values(draft).some(Boolean));
-    setVerify({ state: "idle" });
-    setShowEndpoint(false);
-  };
-
-  const backToGallery = () => {
-    if (sel) setDrafts((d) => ({ ...d, [sel]: fields }));
-    setSel(null);
-    setVerify({ state: "idle" });
-  };
-
-  // Test = verify AND save AND return (§39: a passing Test auto-saves and takes
-  // you back to the gallery, where the card now wears its ✓ — no extra clicks).
-  const runTestAndSave = async (): Promise<boolean> => {
-    if (!sel) return false;
-    setVerify({ state: "testing" });
-    const res = await verifyProvider(sel, fields).catch(() => ({ ok: false, error: "unreachable" }));
-    if (!res.ok) {
-      setVerify({ state: "error", msg: res.error || "couldn't verify" });
-      return false;
-    }
-    if (dirty || !info?.configured) await setProvider(sel, fields).catch(() => {});
-    if (!info?.needs_key) setKeylessOk((s) => new Set(s).add(sel));
-    setVerify({ state: "ok" });
-    setDirty(false);
-    setDrafts((d) => ({ ...d, [sel]: {} }));
-    await refreshProviders();
-    // Let the in-field "✓ Tested & saved" register, then slide home.
-    backTimer.current = window.setTimeout(backToGallery, 900);
-    return true;
-  };
 
   const anyReady =
-    providers.some((p) => p.configured && p.needs_key) || keylessOk.size > 0;
+    ps.providers.some((p) => p.configured && p.needs_key) || ps.keylessOk.size > 0;
   // In the form with typed-but-untested input, Next verifies+saves first (tester
   // catch 2026-07-12: a manual Test-then-Continue two-step reads as a puzzle).
-  const secretFilled = (info?.fields || []).every((f) => !f.secret || (fields[f.key] || "").trim());
-  const nextFromForm = !!sel && dirty && secretFilled;
+  const nextFromForm = !!ps.sel && ps.dirty && ps.secretFilled;
   const canNext = anyReady || nextFromForm;
 
   const advance = async () => {
-    if (nextFromForm && !credentialed) {
-      if (backTimer.current) window.clearTimeout(backTimer.current);
-      if (!(await runTestAndSave())) return;
+    if (nextFromForm && !ps.credentialed) {
+      ps.cancelBackTimer();
+      if (!(await ps.runTestAndSave())) return;
     }
     setStep(1);
   };
-
-  const providerStatus = (p: ProviderInfo) =>
-    p.configured && p.needs_key ? (
-      <span className="block text-[11.5px] text-ok font-medium">✓ Connected</span>
-    ) : !p.needs_key ? (
-      <span className="block text-[11.5px] text-faint">
-        {keylessOk.has(p.name) ? <span className="text-ok font-medium">✓ Running</span> : "No key needed"}
-      </span>
-    ) : (
-      <span className="block text-[11.5px] text-faint">Not set up</span>
-    );
 
   // -- step 2: connect your everyday tools (§39 two-state page) -------------------
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -209,9 +92,6 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
   };
 
   // -- shared bits ----------------------------------------------------------------
-  const label = "block text-[12px] text-muted mt-3 mb-1";
-  const input =
-    "w-full px-3 py-2 rounded-lg border bg-panel text-[13.5px] outline-none focus:border-accent";
   const card =
     "flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-left hover:border-lineStrong transition-colors";
   const dots = (
@@ -221,11 +101,6 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
       ))}
     </div>
   );
-
-  const ordered = [...providers].sort((a, b) => providerRank(a.name) - providerRank(b.name));
-  // The in-field saved state (§39): green border + pill INSIDE the key box — shown
-  // for stored credentials and fresh test-passes alike; typing clears it.
-  const savedState = (credentialed && !dirty) || verify.state === "ok";
 
   return (
     <div className="fixed inset-0 z-50 bg-ink/30 grid place-items-center" data-testid="onboarding">
@@ -243,151 +118,15 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
               key and your data stay on this Mac.
             </p>
 
-            {!sel ? (
+            {!ps.sel ? (
               /* ---- the provider GALLERY ---- */
               <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-provider-gallery">
-                <div className="grid grid-cols-2 gap-2.5">
-                  {ordered.map((p) => (
-                    <button
-                      key={p.name}
-                      className={card}
-                      data-testid={`ob-provider-${p.name}`}
-                      onClick={() => openProvider(p.name)}
-                    >
-                      <ProviderMark name={p.name} title={p.title} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-semibold leading-tight truncate">
-                          {p.title}
-                        </span>
-                        {providerStatus(p)}
-                      </span>
-                      <span className="text-faint text-[14px]">›</span>
-                    </button>
-                  ))}
-                </div>
+                <ProviderCards ps={ps} tp="ob" />
               </div>
             ) : (
               /* ---- one provider's key form, same box ---- */
               <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-                <button
-                  className="text-[12.5px] text-muted hover:text-ink"
-                  onClick={backToGallery}
-                  data-testid="ob-back"
-                >
-                  ‹ All providers
-                </button>
-                <div className="flex items-center gap-3 mt-3 mb-1">
-                  <ProviderMark name={info?.name || ""} title={info?.title || ""} size={36} />
-                  <span className="min-w-0">
-                    <span className="block text-[15px] font-semibold leading-tight">{info?.title}</span>
-                    {info ? providerStatus(info) : null}
-                  </span>
-                </div>
-                {info?.blurb && <p className="text-[11.5px] text-faint mt-1">{info.blurb}</p>}
-
-                {(info?.fields || []).map((f) => {
-                  const keyed = (info?.fields || []).some((x) => x.secret);
-                  // ANY base_url on a keyed provider is an expert option: a quiet disclosure
-                  // (owner call 2026-07-18: no explainer copy — its users know what it's for).
-                  if (f.key === "base_url" && keyed && !showEndpoint) {
-                    return (
-                      <button
-                        key={f.key}
-                        className="block self-start text-[12.5px] text-muted hover:text-ink mt-4"
-                        onClick={() => setShowEndpoint(true)}
-                        data-testid="ob-endpoint-link"
-                      >
-                        Custom endpoint ⌄
-                      </button>
-                    );
-                  }
-                  const testable =
-                    (f.secret && f.key === (info?.fields || []).find((x) => x.secret)?.key) ||
-                    (!keyed && f.key === (info?.fields || [])[0]?.key);
-                  return (
-                    <div key={f.key}>
-                      <label className={label}>{f.label}</label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1 min-w-0">
-                          <input
-                            className={
-                              input +
-                              (savedState && f.secret ? " border-ok pr-32" : " border-line")
-                            }
-                            type={f.secret ? "password" : "text"}
-                            placeholder={f.secret && credentialed && !dirty ? "••••••••" : f.placeholder}
-                            value={fields[f.key] || ""}
-                            data-testid={`ob-field-${f.key}`}
-                            onChange={(e) => {
-                              setFields((cur) => ({ ...cur, [f.key]: e.target.value }));
-                              setDirty(true);
-                              setVerify({ state: "idle" });
-                            }}
-                          />
-                          {/* §39: state lives IN the field — no status lines below. */}
-                          {savedState && f.secret && (
-                            <span
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-medium text-ok bg-okSoft rounded-full px-2 py-0.5 pointer-events-none"
-                              data-testid="ob-saved-pill"
-                            >
-                              ✓ Tested &amp; saved
-                            </span>
-                          )}
-                          {savedState && !f.secret && testable && (
-                            <span
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-medium text-ok bg-okSoft rounded-full px-2 py-0.5 pointer-events-none"
-                              data-testid="ob-saved-pill"
-                            >
-                              ✓ Detected
-                            </span>
-                          )}
-                        </div>
-                        {testable && (
-                          <button
-                            className="px-4 rounded-lg border border-line text-[13px] font-medium text-ink hover:border-lineStrong shrink-0 disabled:opacity-40"
-                            onClick={() => runTestAndSave()}
-                            disabled={
-                              verify.state === "testing" || (f.secret && !secretFilled && !credentialed)
-                            }
-                            data-testid="ob-test"
-                          >
-                            {verify.state === "testing" ? "…" : info?.needs_key ? "Test" : "Detect"}
-                          </button>
-                        )}
-                      </div>
-                      {f.help && !f.secret && <p className="text-[11.5px] text-faint mt-1">{f.help}</p>}
-                    </div>
-                  );
-                })}
-
-                {info?.needs_key && KEY_HELP[sel] && (
-                  <p className="text-[11.5px] text-faint mt-2">
-                    No key yet?{" "}
-                    <button
-                      className="text-muted underline decoration-line underline-offset-2 hover:text-ink"
-                      onClick={() => openExternal(KEY_HELP[sel].url)}
-                    >
-                      Create one at {KEY_HELP[sel].label} ↗
-                    </button>{" "}
-                    — takes about a minute.
-                  </p>
-                )}
-                {info && !info.needs_key && (
-                  <p className="text-[11.5px] text-faint mt-2">
-                    No API key needed — Ollama runs models on this Mac.{" "}
-                    <button
-                      className="text-muted underline decoration-line underline-offset-2 hover:text-ink"
-                      onClick={() => openExternal("https://ollama.com/download")}
-                    >
-                      Install Ollama ↗
-                    </button>
-                  </p>
-                )}
-
-                {/* Error line: fixed height so failures never reflow the form. */}
-                <div className="mt-3 min-h-[19px] text-[12.5px]">
-                  {verify.state === "error" && <span className="text-warnInk">{verify.msg}</span>}
-                </div>
+                <ProviderForm ps={ps} tp="ob" />
               </div>
             )}
 
@@ -407,11 +146,11 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
               )}
               <button
                 className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
-                disabled={!canNext || verify.state === "testing"}
+                disabled={!canNext || ps.verify.state === "testing"}
                 onClick={advance}
                 data-testid="ob-continue"
               >
-                {verify.state === "testing" ? "Checking…" : "Next"}
+                {ps.verify.state === "testing" ? "Checking…" : "Next"}
               </button>
             </div>
             <p className="text-[11px] text-faint mt-3">

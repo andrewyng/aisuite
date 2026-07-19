@@ -1004,8 +1004,35 @@ and footer never move — only the middle region swaps, at a fixed height** (ext
   AWS Bedrock / Azure deferred: provider-layer auth work, and Azure OpenAI is already
   reachable via OpenAI's custom endpoint.
 
+## 40. Settings: three tabs, and Models is the shared provider gallery  *(Decided 2026-07-19 by owner → Built 2026-07-19; mock: `ocw-context/docs/ux-improvements/mocks/UX-021-settings-redesign.html`; ledger UX-021)*
+
+- **Three tabs — General · Models · Voice input.** "Appearance" was carrying seven cards, most
+  of them not appearance; it renames to **General** (the tab *key* stays `appearance` so
+  deep-links keep working). **Files folds into General as one card** — a single option doesn't
+  earn a nav entry. **Personas is launch-flagged off** (`flags.ts` `showPersonas()`, default
+  false; the e2e suite re-enables via localStorage to keep the hidden flows covered).
+- **Models = the §39 gallery, shared for real.** The provider gallery ⇄ key form was extracted
+  to `providers/ProviderSetup.tsx` (hook + `ProviderCards`/`ProviderForm`); Onboarding step 1
+  and Settings ▸ Models render the SAME components with different frames, so the two surfaces
+  cannot drift. Settings passes testid prefix `set-`, onboarding keeps `ob-`.
+- **Settings-only additions:** configured cards carry "✓ Connected · used Nh ago" (truncating,
+  never wrapping); the form of a credentialed provider gains a quiet red **"Remove key…"**
+  (confirm → `DELETE /v1/providers/{name}` forgets the stored profile; the card reverts to
+  "Not set up"; curated models stay, they just gray out).
+- **Below the gallery:** the **"In the composer's picker"** card lists every curated model
+  across providers with provider tags + the default badge (untick removes; adding happens from
+  a provider's card, whose form view keeps the per-provider ModelChecklist or, unconfigured,
+  the read-only "Included models" preview). **Token savings moved here from Appearance** —
+  it's model-spend behavior. The gallery⇄form swap happens in place and the page scrolls; the
+  fixed-height rule is onboarding-modal-specific.
+- The old dropdown provider picker, the API/Local sub-tabs, and the separate Save button are
+  retired — Test = verify + save + slide home, exactly as in onboarding.
+
 ## Change log (requests, newest first)
 
+- **2026-07-19 (24)** — Owner: "Settings is quite a mess visually" (token savings under
+  Appearance, one-option Files tab) + "Models should follow the onboarding look" + hide
+  Personas behind a flag + collapsed-nav overlap fix → §40 (mocked UX-021; built 2026-07-19).
 - **2026-07-18 (23)** — Owner: onboarding step 1 "bland, tasteless and non-informing" →
   provider gallery; three review iterations (fixed frame; in-field saved state + endpoint
   disclosure + "Next"; de-blued links); then step 2's why-paragraph + post-sign-in connector

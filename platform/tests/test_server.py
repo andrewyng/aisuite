@@ -660,3 +660,22 @@ def test_pick_native_folder_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", boom)
     out = mgr.pick_native_folder()
     assert out["ok"] is False and "picker" in out["error"]
+
+
+def test_provider_set_and_remove_roundtrip(tmp_path):
+    """Settings ▸ Models "Remove key": DELETE /v1/providers/{name} forgets the stored
+    profile so the provider reads unconfigured again; unknown names are a clean error.
+    """
+    client = _client(tmp_path, [])
+    assert client.post(
+        "/v1/providers", json={"name": "zai", "fields": {"api_key": "zk-test"}}
+    ).json()["ok"]
+    prov = {p["name"]: p for p in client.get("/v1/providers").json()}
+    assert prov["zai"]["configured"] and prov["zai"]["key_set_at"]
+
+    assert client.delete("/v1/providers/zai").json()["ok"]
+    prov = {p["name"]: p for p in client.get("/v1/providers").json()}
+    assert not prov["zai"]["configured"]
+    assert not prov["zai"]["key_set_at"]
+
+    assert not client.delete("/v1/providers/nope").json()["ok"]

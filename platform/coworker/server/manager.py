@@ -1318,6 +1318,17 @@ class SessionManager:
             self.set_default_model(added)
         return {"ok": True, "provider": name, "recommended_model": rec}
 
+    def remove_provider(self, name: str) -> dict[str, Any]:
+        """Forget a provider's stored config (Settings ▸ Models "Remove key"). The whole
+        `provider:<name>` profile goes — key, endpoint, key_set_at — so the provider reads
+        as never configured. Curated models stay; they just gray out until a new key."""
+        d = get_descriptor(name)
+        if d is None:
+            return {"ok": False, "error": f"unknown provider: {name}"}
+        self.secrets.delete(f"provider:{name}")
+        self._refresh_provider(name)
+        return {"ok": True, "provider": name}
+
     def verify_provider(
         self, name: str, fields: Optional[dict[str, Any]]
     ) -> dict[str, Any]:
