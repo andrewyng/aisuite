@@ -184,8 +184,7 @@ ACCESS: dict[str, list[str]] = {
         "Runs read-only chart queries: active users, event totals.",
     ],
     "apollo": [
-        "Searches and enriches people and companies, using your Apollo "
-        "credits.",
+        "Searches and enriches people and companies, using your Apollo " "credits.",
     ],
     "hunter": [
         "Finds and verifies email addresses, using your Hunter quota.",
