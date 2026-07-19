@@ -11,18 +11,27 @@ test("Settings opens as a full page and navigates sections", async ({ page }) =>
   // Full-page: left sub-nav + Appearance section (no modal backdrop).
   await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
   await expect(page.locator(".modal-backdrop")).toHaveCount(0);
-  for (const label of ["Appearance", "Files", "Models", "Personas"]) {
+  for (const label of ["Appearance", "Files", "Models"]) {
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
+  // Personas is launch-flagged off by default (2026-07-19) — no tab.
+  await expect(page.getByRole("button", { name: "Personas", exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Files", exact: true }).click();
   await expect(page.getByText("Scratch location")).toBeVisible();
 
-  await page.getByRole("button", { name: "Personas", exact: true }).click();
-  await expect(page.getByText("Add personas")).toBeVisible();
-
   await page.getByRole("button", { name: "Models", exact: true }).click();
   await expect(page.getByText("API models")).toBeVisible();
+});
+
+// The launch flag brings the Personas tab back (the gallery/persona suites rely on it).
+test("Settings: Personas tab returns behind the launch flag", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("ocw.flag.personas", "1"));
+  await page.goto("/");
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Personas", exact: true }).click();
+  await expect(page.getByText("Add personas")).toBeVisible();
 });
 
 // Guards the Models pane's custom provider picker: rows carry a green "key set" dot and a

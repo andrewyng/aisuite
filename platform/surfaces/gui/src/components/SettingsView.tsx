@@ -39,6 +39,7 @@ import { PanelHead } from "./IntegrationsView";
 import { ModelsTab } from "./ManageTabs";
 import { GalleryModal } from "./GalleryModal";
 import { PersonasTab } from "./PersonasTab";
+import { showPersonas } from "../flags";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
 // a left sub-nav (Appearance · Files · Models · Personas) + centered panel, replacing the old
@@ -71,15 +72,21 @@ export function SettingsView({
   initialTab?: SetTab;
   onOpenPersona?: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<SetTab>(initialTab ?? "appearance");
+  // Personas is flag-gated (hidden for launch) — filter the tab AND coerce a stale
+  // deep-link to it (openSettings("personas") callers) so the page never opens on a
+  // section with no nav entry.
+  const personas = showPersonas();
+  const tabs = personas ? SET_TABS : SET_TABS.filter((t) => t.key !== "personas");
+  const wanted = initialTab && (personas || initialTab !== "personas") ? initialTab : "appearance";
+  const [tab, setTab] = useState<SetTab>(wanted);
 
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
-      <nav className="w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
+      <nav className="page-subnav w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
         <div className="px-2 text-[13.5px] font-semibold mb-3 flex items-center gap-2">
           <Icon name="gear" size={16} /> Settings
         </div>
-        {SET_TABS.map((t) => {
+        {tabs.map((t) => {
           const active = tab === t.key;
           return (
             <button
