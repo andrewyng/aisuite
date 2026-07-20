@@ -22,12 +22,19 @@ import { Spinner } from "./AutomationQuickstart";
 // Settings ▸ Models (UX-021) so the two surfaces can't drift.
 // Replayable from Settings ▸ General ▸ "Run setup again".
 
-// Step 2's mini gallery (§39): managed connectors with LIVE prod OAuth apps only.
-// attio promoted from the "30+ more" footnote (owner, 2026-07-19): six active +
-// two coming-soon keeps the 2-col grid even, with the grayed pair together on the
-// last row. gmail + google_calendar ship grayed "Coming soon" — both ride the
-// same Google app, gated on Google verification/CASA; flip to ACTIVE when it lands.
-const TOOLS_ACTIVE = ["outlook", "slack", "github", "notion", "hubspot", "attio"];
+// Step 2's benefit rows (§41): managed connectors with LIVE prod OAuth apps only,
+// each framed by the job it does (detail copy stays ONE line even with a Connect
+// pill — wrap made rows jump between states). gmail + google_calendar ship as one
+// combined grayed "Coming soon" row — both ride the same Google app, gated on
+// Google verification/CASA; give them rows when it lands.
+const TOOL_ROWS = [
+  { name: "outlook", benefit: "Stay on top of email", detail: "Outlook — triage, summarize, draft, send." },
+  { name: "slack", benefit: "Keep up with Slack", detail: "Slack — catch up, answer mentions, post updates." },
+  { name: "github", benefit: "Ship code", detail: "GitHub — review PRs, watch issues, reply to @mentions." },
+  { name: "notion", benefit: "Keep your notes in reach", detail: "Notion — search pages, query databases, draft docs." },
+  { name: "hubspot", benefit: "Keep the CRM current", detail: "HubSpot — update deals, log notes, prep calls." },
+  { name: "attio", benefit: "Track every relationship", detail: "Attio — search records, read timelines, log notes." },
+];
 const TOOLS_SOON = ["gmail", "google_calendar"];
 
 export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "automations") => void }) {
@@ -94,8 +101,6 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
   };
 
   // -- shared bits ----------------------------------------------------------------
-  const card =
-    "flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-left hover:border-lineStrong transition-colors";
   const dots = (
     <div className="flex justify-center gap-2 mb-6">
       {[0, 1, 2].map((i) => (
@@ -108,7 +113,7 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
     <div className="fixed inset-0 z-50 bg-ink/30 grid place-items-center" data-testid="onboarding">
       {/* FIXED height across all three steps (owner call 2026-07-12, reaffirmed §39: the
           modal must never resize — the gallery⇄form swap happens inside this box). */}
-      <div className="w-[600px] max-w-[92vw] h-[700px] max-h-[88vh] rounded-2xl border border-line bg-panel shadow-2xl p-8 flex flex-col">
+      <div className="w-[600px] max-w-[92vw] h-[560px] max-h-[88vh] rounded-2xl border border-line bg-panel shadow-2xl p-8 flex flex-col">
         {dots}
 
         {step === 0 && (
@@ -162,122 +167,129 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
         )}
 
         {step === 1 && (
-          /* §39 (owner design, 2026-07-18): a two-state page. Pre-sign-in it makes the case —
-             tools are what turn a chatbot into a coworker — and asks for the sign-in that
-             makes connecting one click. Post-sign-in the SAME region becomes a mini connector
-             gallery with live one-click connects, so the headline's promise is kept on this
-             page, resolving §29's promise-with-no-action concern. */
+          /* §41 (owner design, 2026-07-19, supersedes §39's card gallery): BENEFIT ROWS are
+             the connect surface — one row set, two states, ZERO layout shift. Pre-sign-in the
+             rows make the case and a pinned band asks for sign-in; after sign-in the band's
+             slot keeps its place but flips to a green congrats, and every row grows a quiet
+             Connect pill. The gated Google pair is ONE combined grayed row. */
           <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col">
             <h1 className="text-[19px] font-semibold">Connect your everyday tools</h1>
-            <p className="text-[13px] text-muted mt-0.5 mb-4">
-              A coworker that can only chat can only advise. Connected to your email, calendar,
-              CRM, and code, it can do the actual work — triage the inbox, prep the meeting,
-              update the pipeline, review the PR.
+            <p className="text-[13px] text-muted mt-0.5 mb-3">
+              Chat can only advise. Connected, your coworker does the actual work:
             </p>
 
-            {!cloud?.signed_in ? (
-              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-                <div className="flex items-center gap-2.5 mb-4">
-                  {TOOLS_ACTIVE.map((name) => {
-                    const c = connectors.find((x) => x.name === name);
-                    return c ? <ConnectorBadge key={name} connector={c} size={38} title={c.title} /> : null;
-                  })}
-                </div>
-                <div className="rounded-xl2 border border-line bg-paper px-4 py-3.5 text-[12.5px] text-muted">
-                  <span className="block text-[13px] text-ink font-medium mb-0.5">
-                    One click, keys handled
-                  </span>
-                  Sign in to OpenWorker and connecting is one click — OAuth and tokens for 20+
-                  integrations are handled for you, and tokens stay local on this Mac. No
-                  digging through dev consoles for API keys.
-                </div>
-                <div className="mt-4 min-h-[36px]">
-                  {signinPhase && (
-                    <span className="inline-flex items-center gap-2 text-[13px] text-muted">
-                      <Spinner />
-                      {signinPhase === "opening" ? "Opening browser…" : "Waiting for sign-in…"}
-                      {signinPhase === "waiting" && (
-                        <span className="text-[11.5px] text-faint">
-                          finish in your browser — this page updates by itself ·{" "}
-                          <button
-                            className="underline hover:text-muted"
-                            onClick={() => setSigninPhase(null)}
-                            data-testid="ob-signin-cancel"
-                          >
-                            Cancel
-                          </button>
-                        </span>
-                      )}
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-tool-gallery">
+              {TOOL_ROWS.map(({ name, benefit, detail }) => {
+                const c = connectors.find((x) => x.name === name);
+                if (!c) return null;
+                return (
+                  <div
+                    key={name}
+                    className="flex items-center gap-3 py-2 border-b border-paper last:border-0"
+                    data-testid={`ob-tool-${name}`}
+                  >
+                    <ConnectorBadge connector={c} size={34} title={c.title} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-semibold leading-tight">{benefit}</span>
+                      <span className="block text-[12px] text-muted truncate">{detail}</span>
                     </span>
-                  )}
-                </div>
+                    {cloud?.signed_in &&
+                      (c.connected ? (
+                        <span className="text-[12px] text-ok font-medium shrink-0">✓ Connected</span>
+                      ) : pendingTool === name ? (
+                        <span className="text-[12px] text-muted shrink-0">Check your browser…</span>
+                      ) : (
+                        <button
+                          className="shrink-0 rounded-full border border-line px-4 py-1.5 text-[12.5px] font-medium hover:border-lineStrong"
+                          onClick={() => startTool(name)}
+                        >
+                          Connect
+                        </button>
+                      ))}
+                  </div>
+                );
+              })}
+              {/* The gated Google pair: one combined grayed row, both states (§41). */}
+              <div className="flex items-center gap-3 py-2" data-testid="ob-tool-google-soon">
+                <span className="flex gap-1.5 opacity-40 grayscale">
+                  {TOOLS_SOON.map((n) => {
+                    const c = connectors.find((x) => x.name === n);
+                    return c ? <ConnectorBadge key={n} connector={c} size={28} title={c.title} /> : null;
+                  })}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] font-semibold leading-tight text-faint">
+                    Gmail &amp; Google Calendar
+                  </span>
+                  <span className="block text-[12px] text-faint truncate">
+                    Coming soon — pending Google&rsquo;s app verification.
+                  </span>
+                </span>
+                {cloud?.signed_in && <span className="text-[11.5px] text-faint shrink-0">Coming soon</span>}
+              </div>
+            </div>
+
+            {/* The band is PINNED outside the scroll area and its slot never moves: the ask
+                pre-sign-in, a green congrats after — zero layout shift at the moment the user
+                returns from the browser (§41). */}
+            {!cloud?.signed_in ? (
+              <div className="mt-3.5 rounded-xl border border-line bg-paper px-4 py-3 flex items-center gap-3.5 shrink-0">
+                <span className="flex-1 text-[12.5px] text-muted leading-snug">
+                  <span className="block text-[13px] font-semibold text-ink mb-0.5">
+                    Sign in for one-click connections
+                  </span>
+                  OpenWorker handles the OAuth for 20+ tools — no dev consoles, no pasted keys.
+                  Tokens stay on this Mac.
+                </span>
+                {signinPhase ? (
+                  <span className="inline-flex items-center gap-2 text-[12.5px] text-muted shrink-0">
+                    <Spinner />
+                    {signinPhase === "opening" ? (
+                      "Opening browser…"
+                    ) : (
+                      <>
+                        Waiting…{" "}
+                        <button
+                          className="underline hover:text-ink"
+                          onClick={() => setSigninPhase(null)}
+                          data-testid="ob-signin-cancel"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                  </span>
+                ) : (
+                  <button
+                    className="shrink-0 px-5 py-2 rounded-full bg-ink text-panel text-[13px]"
+                    onClick={async () => {
+                      setSigninPhase("opening");
+                      await cloudLogin().catch(() => {});
+                      setSigninPhase("waiting");
+                    }}
+                    data-testid="ob-cloud-signin"
+                  >
+                    Sign in
+                  </button>
+                )}
               </div>
             ) : (
-              /* ---- signed in: the mini connector gallery (§39) ---- */
-              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-                <p className="text-[12.5px] text-ok mb-3" data-testid="ob-tools-signedin">
-                  ✓ Signed in{cloud.account ? ` as ${cloud.account}` : ""}
-                </p>
-                <div className="grid grid-cols-2 gap-2.5" data-testid="ob-tool-gallery">
-                  {[...TOOLS_ACTIVE, ...TOOLS_SOON].map((name) => {
-                    const c = connectors.find((x) => x.name === name);
-                    if (!c) return null;
-                    const soon = TOOLS_SOON.includes(name);
-                    if (soon)
-                      return (
-                        /* Grayed "Coming soon" (§39): the Google pair is gated on Google
-                           verification — present-but-gray says "coming", not "missing".
-                           The label is STATIC (owner critique 2026-07-19: hover-only read
-                           as a broken card), mirroring the active cards' status line. */
-                        <div
-                          key={name}
-                          className="flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5"
-                          data-testid={`ob-tool-${name}`}
-                        >
-                          <span className="opacity-40 grayscale">
-                            <ConnectorBadge connector={c} size={34} title={c.title} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[13px] font-semibold leading-tight text-faint">
-                              {c.title}
-                            </span>
-                            <span className="block text-[11.5px] text-faint">Coming soon</span>
-                          </span>
-                        </div>
-                      );
-                    return (
-                      <button
-                        key={name}
-                        className={card}
-                        data-testid={`ob-tool-${name}`}
-                        onClick={() => !c.connected && startTool(name)}
-                      >
-                        <ConnectorBadge connector={c} size={34} title={c.title} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] font-semibold leading-tight">{c.title}</span>
-                          {c.connected ? (
-                            <span className="block text-[11.5px] text-ok font-medium">✓ Connected</span>
-                          ) : pendingTool === name ? (
-                            <span className="block text-[11.5px] text-muted">Check your browser…</span>
-                          ) : (
-                            <span className="block text-[11.5px] text-faint">One click</span>
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div
+                className="mt-3.5 rounded-xl border border-line bg-okSoft px-4 py-3 shrink-0"
+                data-testid="ob-tools-signedin"
+              >
+                <span className="block text-[13px] font-semibold text-ok mb-0.5">
+                  🎉 You&rsquo;re signed in{cloud.account ? ` as ${cloud.account}` : ""}
+                </span>
+                <span className="block text-[12.5px] text-muted">
+                  Connect a tool above with one click — or add them anytime later from the
+                  Connectors page.
+                </span>
               </div>
             )}
 
-            <div className="flex items-center gap-3 pt-5">
-              <button
-                className="text-[12.5px] text-faint hover:text-muted text-left"
-                onClick={() => setStep(2)}
-                data-testid="ob-tools-skip"
-              >
-                {cloud?.signed_in ? "Set up later" : "Skip — I’ll use my own API tokens"}
-              </button>
+            {/* One footer button, one slot: quiet skip pre-sign-in, black Next after. */}
+            <div className="flex items-center mt-3.5">
               {cloud?.signed_in ? (
                 <button
                   className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
@@ -288,23 +300,17 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                 </button>
               ) : (
                 <button
-                  className="ml-auto px-6 py-2 rounded-full bg-accent text-white text-[13px] shrink-0 disabled:opacity-40"
-                  disabled={signinPhase === "opening"}
-                  onClick={async () => {
-                    setSigninPhase("opening");
-                    await cloudLogin().catch(() => {});
-                    setSigninPhase("waiting");
-                  }}
-                  data-testid="ob-cloud-signin"
+                  className="ml-auto px-5 py-2 rounded-full border border-line text-[13px] text-muted hover:text-ink hover:border-lineStrong shrink-0"
+                  onClick={() => setStep(2)}
+                  data-testid="ob-tools-skip"
                 >
-                  Sign in
+                  Continue without sign-in
                 </button>
               )}
             </div>
             <p className="text-[11px] text-faint mt-3">
-              {cloud?.signed_in
-                ? "30+ more tools on the Connectors page — add or remove anytime."
-                : "Even signed in, your data flows vendor → this Mac — the cloud only brokers the connection."}
+              30+ more tools on the Connectors page — add or remove anytime. Tokens stay on
+              this Mac.
             </p>
           </section>
         )}

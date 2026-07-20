@@ -302,20 +302,9 @@ export function ProviderForm({
 
       {(info?.fields || []).map((f) => {
         const keyed = (info?.fields || []).some((x) => x.secret);
-        // ANY base_url on a keyed provider is an expert option: a quiet disclosure
-        // (owner call 2026-07-18: no explainer copy — its users know what it's for).
-        if (f.key === "base_url" && keyed && !ps.showEndpoint) {
-          return (
-            <button
-              key={f.key}
-              className="block self-start text-[12.5px] text-muted hover:text-ink mt-4"
-              onClick={() => ps.setShowEndpoint(true)}
-              data-testid={`${tp}-endpoint-link`}
-            >
-              Custom endpoint ⌄
-            </button>
-          );
-        }
+        // A keyed provider's base_url is an expert option — it renders BELOW the key-help
+        // line as its own advanced section (owner nit 2026-07-19), not inside the loop.
+        if (f.key === "base_url" && keyed) return null;
         const testable =
           (f.secret && f.key === (info?.fields || []).find((x) => x.secret)?.key) ||
           (!keyed && f.key === (info?.fields || [])[0]?.key);
@@ -389,6 +378,39 @@ export function ProviderForm({
           </button>
         </p>
       )}
+
+      {/* Custom endpoint (keyed providers only): a quiet disclosure BELOW the key help,
+          with enough separation to read as its own advanced row — no explainer copy
+          (owner calls 2026-07-18 + 2026-07-19). */}
+      {(() => {
+        const keyed = (info?.fields || []).some((x) => x.secret);
+        const ep = keyed ? (info?.fields || []).find((f) => f.key === "base_url") : undefined;
+        if (!ep) return null;
+        if (!ps.showEndpoint)
+          return (
+            <button
+              className="block self-start text-[12.5px] text-muted hover:text-ink mt-4"
+              onClick={() => ps.setShowEndpoint(true)}
+              data-testid={`${tp}-endpoint-link`}
+            >
+              Custom endpoint ⌄
+            </button>
+          );
+        return (
+          <div className="mt-4">
+            <label className={label}>{ep.label}</label>
+            <input
+              className={input + " border-line"}
+              type="text"
+              placeholder={ep.placeholder}
+              value={ps.fields[ep.key] || ""}
+              data-testid={`${tp}-field-${ep.key}`}
+              onChange={(e) => ps.setFieldValue(ep.key, e.target.value)}
+            />
+            {ep.help && <p className="text-[11.5px] text-faint mt-1">{ep.help}</p>}
+          </div>
+        );
+      })()}
 
       {/* Error line: fixed height so failures never reflow the form. */}
       <div className="mt-3 min-h-[19px] text-[12.5px]">

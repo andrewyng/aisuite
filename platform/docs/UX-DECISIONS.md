@@ -1028,8 +1028,38 @@ and footer never move — only the middle region swaps, at a fixed height** (ext
 - The old dropdown provider picker, the API/Local sub-tabs, and the separate Save button are
   retired — Test = verify + save + slide home, exactly as in onboarding.
 
+## 41. Onboarding tools page: benefit rows, a band that never moves  *(Decided 2026-07-19 by owner → Built 2026-07-19; mocks: `ocw-context/docs/ux-improvements/mocks/UX-022b-tools-page-redesign.html` (3 directions), `UX-022c-benefit-rows-connect.html` (chosen); ledger UX-022)*
+
+- **Benefit rows replace the card gallery** (supersedes §39's step-2 body; frame rules stand).
+  Six rows — *Stay on top of email (Outlook) · Keep up with Slack · Ship code (GitHub) · Keep
+  your notes in reach (Notion) · Keep the CRM current (HubSpot) · Track every relationship
+  (Attio)* — benefit first, tool named in the ONE-LINE detail (wrap made row heights jump
+  between states). Rows scroll past the fold; accepted ("let users scroll"). The gated Google
+  pair is ONE combined grayed row with a static "Coming soon" — hover-only labels read as
+  broken cards.
+- **Zero layout shift at sign-in.** The band below the rows is pinned outside the scroll area
+  and its slot never moves: pre-sign-in it carries the ask ("Sign in for one-click connections —
+  OpenWorker handles the OAuth for 20+ tools… Tokens stay on this Mac") with the page's ONE
+  black button; after sign-in the same slot turns green-congrats ("🎉 You're signed in as … —
+  connect a tool above with one click, or add them anytime later"), and every row grows a quiet
+  bordered **Connect** pill in place (Connect → "Check your browser…" → ✓ Connected; one in
+  flight, silent resets — §39's connect rules carry over).
+- **One footer button, one slot:** quiet bordered "Continue without sign-in" pre-sign-in →
+  black "Next" after. The left "Skip" link is gone. The footnote is STATIC across states
+  ("30+ more tools on the Connectors page — add or remove anytime. Tokens stay on this Mac"),
+  so nothing below the band ever changes.
+- **Modal is 560px** (down from 700) across all steps — the §39 fixed-frame rule holds; the
+  provider gallery scrolls ~4.5 rows and the form views stop floating over a void. On step 1,
+  **"Custom endpoint ⌄" renders below the key-help line** as its own advanced row (both
+  surfaces — the disclosure lives in the shared ProviderForm).
+
 ## Change log (requests, newest first)
 
+- **2026-07-19 (25)** — Owner critique of the built §39 flow (from DMG walkthrough screenshots):
+  hover-only Coming soon, scattered grayed cards, blue-vs-black primaries, 700px void, key
+  state-restore bug, endpoint placement → fixes + full step-2 redesign through three mock
+  directions and two refinement rounds (his idea: rows grow Connect buttons; band stays with
+  congrats content) → §41 (mocked UX-022b/c; built 2026-07-19).
 - **2026-07-19 (24)** — Owner: "Settings is quite a mess visually" (token savings under
   Appearance, one-option Files tab) + "Models should follow the onboarding look" + hide
   Personas behind a flag + collapsed-nav overlap fix → §40 (mocked UX-021; built 2026-07-19).
