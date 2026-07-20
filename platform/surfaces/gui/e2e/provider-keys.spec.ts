@@ -32,6 +32,14 @@ test("Test with a bad key fails in place; a good key saves and returns to the ga
   await expect(page.getByTestId("set-provider-zai")).toContainText("✓ Connected", {
     timeout: 5_000,
   });
+
+  // State-restore regression (owner catch 2026-07-19): revisiting the just-saved provider
+  // must show the masked placeholder + saved pill — never the typed key restored as a draft
+  // (the auto-return used to stash the saved key and replay it on the next open).
+  await page.getByTestId("set-provider-zai").click();
+  await expect(page.getByTestId("set-field-api_key")).toHaveValue("");
+  await expect(page.getByTestId("set-field-api_key")).toHaveAttribute("placeholder", "••••••••");
+  await expect(page.getByTestId("set-saved-pill")).toContainText("Tested & saved");
 });
 
 test("a configured provider's form opens with the saved state, no plaintext key", async ({

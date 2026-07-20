@@ -129,7 +129,11 @@ export function useProviderSetup(opts?: { onSaved?: () => void }): ProviderSetup
   };
 
   const backToGallery = () => {
-    if (sel) setDrafts((d) => ({ ...d, [sel]: fields }));
+    // Stash only UNSAVED input. The unconditional stash used to capture the just-saved
+    // key on the post-Test auto-return, so revisiting a connected provider restored the
+    // plaintext key into the field instead of the masked placeholder + saved pill
+    // (state-restore bug, owner catch 2026-07-19). A clean form clears any stale draft.
+    if (sel) setDrafts((d) => ({ ...d, [sel]: dirty ? fields : {} }));
     setSel(null);
     setVerify({ state: "idle" });
   };
@@ -151,8 +155,15 @@ export function useProviderSetup(opts?: { onSaved?: () => void }): ProviderSetup
     setDrafts((d) => ({ ...d, [sel]: {} }));
     await refreshProviders();
     opts?.onSaved?.();
-    // Let the in-field "✓ Tested & saved" register, then slide home.
-    backTimer.current = window.setTimeout(backToGallery, 900);
+    // Let the in-field "✓ Tested & saved" register, then slide home. NOT backToGallery:
+    // the timeout would fire its stale closure (dirty/fields from before the save) and
+    // re-stash the just-saved key as a draft — the state-restore bug (owner catch
+    // 2026-07-19). This return path clears the draft unconditionally.
+    backTimer.current = window.setTimeout(() => {
+      setDrafts((d) => ({ ...d, [sel]: {} }));
+      setSel(null);
+      setVerify({ state: "idle" });
+    }, 900);
     return true;
   };
 

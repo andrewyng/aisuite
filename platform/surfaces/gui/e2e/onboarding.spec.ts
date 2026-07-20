@@ -117,8 +117,12 @@ test("tools page: sign-in morphs the page into the connector gallery; a card con
   await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("ob-tool-gallery")).toBeVisible();
   await expect(page.getByTestId("ob-tool-outlook")).toContainText("One click");
-  // The Google trio is gated on Google verification: present but grayed "Coming soon".
-  await expect(page.getByTestId("ob-tool-gmail")).toBeVisible();
+  // Attio is the sixth active card (promoted 2026-07-19 to even the grid).
+  await expect(page.getByTestId("ob-tool-attio")).toContainText("One click");
+  // The Google pair is gated on Google verification: grayed with a STATIC
+  // "Coming soon" label (hover-only read as a broken card — owner, 2026-07-19).
+  await expect(page.getByTestId("ob-tool-gmail")).toContainText("Coming soon");
+  await expect(page.getByTestId("ob-tool-google_calendar")).toContainText("Coming soon");
   await expect(page.getByTestId("ob-tool-gmail").getByRole("button")).toHaveCount(0);
 
   // One-click connect: the consent completes in the (mock) browser; the poll flips the

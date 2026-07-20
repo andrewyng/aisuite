@@ -23,9 +23,11 @@ import { Spinner } from "./AutomationQuickstart";
 // Replayable from Settings ▸ General ▸ "Run setup again".
 
 // Step 2's mini gallery (§39): managed connectors with LIVE prod OAuth apps only.
-// gmail + google_calendar ship grayed "Coming soon" — both ride the same Google
-// app, gated on Google verification/CASA; flip them into ACTIVE when it lands.
-const TOOLS_ACTIVE = ["outlook", "slack", "github", "notion", "hubspot"];
+// attio promoted from the "30+ more" footnote (owner, 2026-07-19): six active +
+// two coming-soon keeps the 2-col grid even, with the grayed pair together on the
+// last row. gmail + google_calendar ship grayed "Coming soon" — both ride the
+// same Google app, gated on Google verification/CASA; flip to ACTIVE when it lands.
+const TOOLS_ACTIVE = ["outlook", "slack", "github", "notion", "hubspot", "attio"];
 const TOOLS_SOON = ["gmail", "google_calendar"];
 
 export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "automations") => void }) {
@@ -223,19 +225,23 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                     const soon = TOOLS_SOON.includes(name);
                     if (soon)
                       return (
-                        /* Grayed "Coming soon" (§39): the whole Google trio is gated on
-                           Google verification — present-but-gray says "coming", not "missing". */
+                        /* Grayed "Coming soon" (§39): the Google pair is gated on Google
+                           verification — present-but-gray says "coming", not "missing".
+                           The label is STATIC (owner critique 2026-07-19: hover-only read
+                           as a broken card), mirroring the active cards' status line. */
                         <div
                           key={name}
-                          className="group relative flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5"
+                          className="flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5"
                           data-testid={`ob-tool-${name}`}
                         >
                           <span className="opacity-40 grayscale">
                             <ConnectorBadge connector={c} size={34} title={c.title} />
                           </span>
-                          <span className="block text-[13px] font-semibold text-faint">{c.title}</span>
-                          <span className="absolute -top-2 right-2.5 rounded-full bg-ink text-panel text-[10.5px] px-2 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                            Coming soon
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[13px] font-semibold leading-tight text-faint">
+                              {c.title}
+                            </span>
+                            <span className="block text-[11.5px] text-faint">Coming soon</span>
                           </span>
                         </div>
                       );
