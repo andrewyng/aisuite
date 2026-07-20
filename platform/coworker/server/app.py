@@ -683,6 +683,19 @@ def create_app(manager: SessionManager) -> FastAPI:
             await _refresh_listeners_if_two_way(name)
         return result
 
+    @app.post("/v1/connectors/{name}/mcp-connect")
+    async def connector_mcp_connect(name: str) -> dict[str, Any]:
+        # One-click connect for an MCP-backed connector: the browser OAuth flow can
+        # take minutes, so it runs in the background; the GUI polls /v1/connectors
+        # until the card flips to connected (mode "mcp").
+        from ..connectors.descriptors import get_descriptor
+
+        d = get_descriptor(name)
+        if d is None or not d.mcp_url:
+            return {"ok": False, "error": f"{name} has no MCP connect path"}
+        asyncio.create_task(manager.mcp_connect_connector(name))
+        return {"ok": True, "started": True}
+
     @app.post("/v1/connectors/{name}/disconnect")
     async def connector_disconnect(name: str) -> dict[str, Any]:
         # Managed profiles: best-effort flip of the cloud metadata record first

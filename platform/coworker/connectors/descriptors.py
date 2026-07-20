@@ -65,6 +65,13 @@ class ConnectorDescriptor:
     # Extra search terms for the catalog typeahead — capability words the title
     # doesn't carry (e.g. "calendar" must surface Outlook, not just Google Calendar).
     aliases: tuple = ()
+    # Vendor-hosted MCP server URL → this connector is MCP-BACKED: one-click connect
+    # runs the local MCP OAuth flow (DCR, tokens on this Mac — no broker), and the
+    # tool surface is the PINNED subset in tool_defs (names `mcp__<name>__<tool>`),
+    # never the vendor's full catalog (drift can only shrink capability, not grow it).
+    # A connector may carry BOTH mcp_url and manual fields (jira): the profile's
+    # mode decides which tool set is live.
+    mcp_url: str = ""
     # Experimental connectors are hidden unless the user enables them in settings, require an
     # explicit risk acknowledgment to connect, and ship in a separate package
     # (connectors/experimental/) that release builds exclude entirely.
@@ -658,6 +665,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         two_way=False,
         brand_color="#0052cc",
         logo="jira",
+        aliases=("issues", "tickets", "atlassian", "project management"),
+        mcp_url="https://mcp.atlassian.com/v1/mcp",
         fields=[
             Field(
                 "base_url",
@@ -669,8 +678,26 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             Field("api_token", "API token", secret=True, help="Atlassian API token."),
         ],
         instructions=[
-            "Create an Atlassian API token for your account.",
-            "Paste your site URL, account email, and API token below.",
+            "One click connects via Atlassian sign-in in your browser (recommended).",
+            "Manual: create an Atlassian API token and paste your site URL, account email, and token below.",
+        ],
+        available=True,
+    ),
+    ConnectorDescriptor(
+        name="monday",
+        title="monday.com",
+        icon="▦",
+        blurb="Read boards and items, track work, create items and post updates.",
+        auth="oauth",
+        two_way=False,
+        brand_color="#6161ff",
+        logo="monday",
+        aliases=("project management", "tasks", "boards", "work management"),
+        mcp_url="https://mcp.monday.com/mcp",
+        fields=[],
+        instructions=[
+            "One click connects via monday.com sign-in in your browser.",
+            "Sign-in is fully local — tokens stay on this Mac.",
         ],
         available=True,
     ),
@@ -830,11 +857,17 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="asana",
         title="Asana",
         icon="⊙",
-        blurb="Search tasks, read details, and create tasks.",
+        blurb="Search and read tasks and projects; create, update, and comment.",
         auth="token",
         two_way=False,
         brand_color="#f06a6a",
         logo="asana",
+        aliases=("project management", "tasks", "work management"),
+        # NO mcp_url (2026-07-20): Asana's V2 MCP server rejects Dynamic Client
+        # Registration — it needs a pre-registered "MCP app" with an EXACT redirect
+        # URI, which our dynamic sidecar port can't provide. One-click returns when
+        # the broker-routed callback lands; the pinned mcp__asana__* defs sit
+        # dormant until then. Manual token stays the connect path.
         fields=[
             Field(
                 "token",

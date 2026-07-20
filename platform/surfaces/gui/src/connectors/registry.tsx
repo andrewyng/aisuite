@@ -126,6 +126,13 @@ const AttioLogo = strokeLogo(
   </>,
 );
 
+// monday.com's mark is three staggered capsule bars; no simple-icons mono mark exists.
+const MondayLogo = strokeLogo(
+  <>
+    <path d="M4.5 7.5h9M4.5 12h15M4.5 16.5h6.5" />
+  </>,
+);
+
 const AmplitudeLogo = strokeLogo(
   <>
     <path d="M2.5 13.5h4l3-8 4.5 13 3-8h4.5" />
@@ -217,6 +224,7 @@ export const CONNECTORS: Record<string, ConnectorRegistryEntry> = {
   canva: { label: "Canva", logo: pathLogo(CANVA_PATH) },
   // No published monochrome mark — custom glyphs, tinted with the real brand color.
   attio: { label: "Attio", logo: AttioLogo },
+  monday: { label: "monday.com", logo: MondayLogo },
   descript: { label: "Descript", logo: DescriptLogo },
   clay: { label: "Clay", logo: ClayLogo },
   close: { label: "Close", logo: CloseLogo },

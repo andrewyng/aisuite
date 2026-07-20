@@ -1053,8 +1053,47 @@ and footer never move — only the middle region swaps, at a fixed height** (ext
   **"Custom endpoint ⌄" renders below the key-help line** as its own advanced row (both
   surfaces — the disclosure lives in the shared ProviderForm).
 
+## 42. Connectors are backing-agnostic: hosted-MCP connectors with a pinned tool allowlist  *(Decided 2026-07-19 by owner → Built 2026-07-19; no mock — extends §21's grammar; monday.com / Asana / Jira first)*
+
+The user's decision: "leverage MCP+OAuth wherever possible, but still show it in the
+Connectors section — from a UX perspective it shouldn't matter whether the connector is an
+app or MCP." A connector is a product concept (card, copy, consent, approval posture); the
+backing (broker OAuth app, vendor-hosted MCP server, manual token, relay) is plumbing.
+
+- **MCP-backed connector** = descriptor with `mcp_url` + a **pinned allowlist** of tools in
+  `tool_defs` (names `mcp__<connector>__<vendor tool>`). The pin is a whitelist that FAILS
+  CLOSED: only pinned tools ever reach a session or the Access bullets — the vendor shipping
+  new tools cannot silently expand agent capability (the owner's drift worry). Missing pins
+  degrade; unknown tools never load (`include_tools` on the seeded server config, re-derived
+  from the pin at session build so stale config can't widen it).
+- **Connect is one click and FULLY LOCAL**: the sidecar runs the MCP OAuth 2.1 flow (DCR —
+  no client secret, no broker, no OpenWorker sign-in). The modal says so ("no OpenWorker
+  account needed; sign-in runs entirely on this computer"). Connectors with a manual path
+  too (jira, asana) keep the §21 One click | Manual pills; MCP-only connectors (monday)
+  render the one-click pane directly. The profile's `mode: "mcp"` decides which tool set is
+  live — MCP pin vs the manual REST tools — one at a time, never both.
+- **Per-tool approval follows the pin's read/write classification** (reads run free, writes
+  ask first), not the MCP layer's server-level flag; unclassified defaults to ask. Session
+  gating matches connector tools exactly: effective-connector set (§4.3) + per-tool toggles.
+- **Placement**: MCP-backed connectors are cards on the Connectors page with §38 detail
+  pages; they are HIDDEN from the Settings ▸ MCP tab (that tab stays for arbitrary/community
+  servers). Disconnect forgets tokens + DCR registration + the seeded config.
+- First wave: **monday.com** (`mcp.monday.com/mcp`, MCP-only) and **Jira** via the
+  Atlassian server (`mcp.atlassian.com/v1/mcp`, + manual API token) — both accept DCR, so
+  no vendor app registrations, no review queues, no broker changes. **Asana was pulled
+  from the wave on 2026-07-20** (live test): their V2 server rejects DCR and requires a
+  pre-registered "MCP app" with an exact-match redirect URI, which the desktop's
+  dynamically-chosen sidecar port can't satisfy — one-click returns via a broker-routed
+  callback later; its pinned defs sit dormant and the manual PAT path stays.
+
 ## Change log (requests, newest first)
 
+- **2026-07-19 (26)** — Owner: "leverage MCP+OAuth wherever possible but still add it in the
+  Connectors section — UX-wise it shouldn't matter if the connector is an App or MCP"; and
+  "selectively allow only certain tool calls from the MCP connectors" (drift worry: vendors
+  changing their exposed functions) → §42 (pinned-allowlist MCP-backed connectors; monday.com
+  + Asana + Jira built same day). Tool-def scaling (caching audit, deferred tools + search)
+  noted on the launch punchlist for a later discussion.
 - **2026-07-19 (25)** — Owner critique of the built §39 flow (from DMG walkthrough screenshots):
   hover-only Coming soon, scattered grayed cards, blue-vs-black primaries, 700px void, key
   state-restore bug, endpoint placement → fixes + full step-2 redesign through three mock

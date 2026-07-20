@@ -302,6 +302,196 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
     ConnectorToolDef(
         "jira", "jira_create_issue", "Create issue", "write", "Create a Jira issue."
     ),
+    # -- jira via the Atlassian hosted MCP server (one-click path) ---------------
+    # PINNED allowlist (UX-DECISIONS §42): tool names are `mcp__<connector>__<vendor
+    # tool>` exactly as mcp/tools.py builds them; anything the vendor ships that is
+    # not listed here never reaches a session. Which set is live (these vs the
+    # jira_* REST tools above) follows the profile's mode — see tool_dicts.
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__getVisibleJiraProjects",
+        "List projects",
+        "read",
+        "List Jira projects you can access.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__searchJiraIssuesUsingJql",
+        "Search issues",
+        "read",
+        "Search Jira issues using JQL.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__getJiraIssue",
+        "Read issue",
+        "read",
+        "Read a Jira issue.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__getTransitionsForJiraIssue",
+        "List transitions",
+        "read",
+        "List available workflow transitions for an issue.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__createJiraIssue",
+        "Create issue",
+        "write",
+        "Create a Jira issue.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__editJiraIssue",
+        "Update issue",
+        "write",
+        "Update fields on an existing issue.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__addCommentToJiraIssue",
+        "Comment",
+        "write",
+        "Add a comment to an issue.",
+    ),
+    ConnectorToolDef(
+        "jira",
+        "mcp__jira__transitionJiraIssue",
+        "Transition issue",
+        "write",
+        "Move an issue through its workflow.",
+    ),
+    # -- monday.com (MCP-backed only; pinned subset of their 60+ tool catalog) ----
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__get_user_context",
+        "Who am I",
+        "read",
+        "Read the signed-in user, account, and their boards.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__search",
+        "Search",
+        "read",
+        "Search boards, docs, forms, and folders.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__get_board_info",
+        "Read board",
+        "read",
+        "Read a board's columns, groups, views, and owners.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__get_board_items_page",
+        "List items",
+        "read",
+        "Page through the items on a board.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__board_insights",
+        "Board insights",
+        "read",
+        "Aggregate, filter, and group board data.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__get_updates",
+        "Read updates",
+        "read",
+        "Read updates (comments) from an item or board.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__create_item",
+        "Create item",
+        "write",
+        "Create an item on a board.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__change_item_column_values",
+        "Update item",
+        "write",
+        "Change column values on an item.",
+    ),
+    ConnectorToolDef(
+        "monday",
+        "mcp__monday__create_update",
+        "Post update",
+        "write",
+        "Post a comment or reply on an item.",
+    ),
+    # -- asana via their hosted V2 MCP server (one-click path; the asana_* REST
+    # tools below stay the manual-token set — profile mode picks, as with jira) ---
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__get_me",
+        "Who am I",
+        "read",
+        "Read the signed-in Asana user.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__search_tasks",
+        "Search tasks",
+        "read",
+        "Search tasks across the workspace.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__get_task",
+        "Read task",
+        "read",
+        "Read a task with its fields and comments.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__get_my_tasks",
+        "My tasks",
+        "read",
+        "List the signed-in user's tasks.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__get_project",
+        "Read project",
+        "read",
+        "Read a project's details.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__get_status_overview",
+        "Status overview",
+        "read",
+        "Read status updates for projects and portfolios.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__create_tasks",
+        "Create tasks",
+        "write",
+        "Create one or more tasks.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__update_tasks",
+        "Update tasks",
+        "write",
+        "Update fields on existing tasks.",
+    ),
+    ConnectorToolDef(
+        "asana",
+        "mcp__asana__add_comment",
+        "Comment",
+        "write",
+        "Add a comment to a task.",
+    ),
     ConnectorToolDef(
         "confluence",
         "confluence_search",
@@ -969,10 +1159,37 @@ def patch_tool_settings(
     return {"ok": True, "tools": current}
 
 
+def mcp_tool_defs(connector: str) -> list[ConnectorToolDef]:
+    """The connector's PINNED MCP tools (names `mcp__<connector>__<vendor tool>`)."""
+    return [
+        t for t in TOOLS_BY_CONNECTOR.get(connector, []) if t.name.startswith("mcp__")
+    ]
+
+
+def mcp_pinned_tools(connector: str) -> list[str]:
+    """Vendor-side tool names of the pinned allowlist (prefix stripped) — what goes
+    into the seeded server config's `include_tools`."""
+    prefix = f"mcp__{connector}__"
+    return [t.name.removeprefix(prefix) for t in mcp_tool_defs(connector)]
+
+
+def active_tool_defs(secrets: SecretStore, connector: str) -> list[ConnectorToolDef]:
+    """The defs live for this connector's CURRENT profile. A connector with both an
+    API tool set and a pinned MCP set (jira) exposes exactly one of them, following
+    the profile's mode; single-set connectors are unaffected."""
+    defs = TOOLS_BY_CONNECTOR.get(connector, [])
+    mcp = [t for t in defs if t.name.startswith("mcp__")]
+    api = [t for t in defs if not t.name.startswith("mcp__")]
+    if not mcp or not api:
+        return defs
+    profile = secrets.get(f"{connector}:default") or {}
+    return mcp if profile.get("mode") == "mcp" else api
+
+
 def tool_dicts(secrets: SecretStore, connector: str) -> list[dict[str, Any]]:
     overrides = load_tool_settings(secrets, connector)
     out = []
-    for tool in TOOLS_BY_CONNECTOR.get(connector, []):
+    for tool in active_tool_defs(secrets, connector):
         out.append(
             {
                 "name": tool.name,

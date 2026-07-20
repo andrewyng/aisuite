@@ -4,6 +4,7 @@ import {
   allowUser,
   connectConnector,
   connectManaged,
+  connectMcpBacked,
   connectMcp,
   deleteMcpServer,
   disallowUser,
@@ -799,9 +800,29 @@ export function ConnectSetup({
     else setError(res.error || "could not start managed connect");
   };
 
+  const mcpOneClick = async () => {
+    setError(null);
+    const res = await connectMcpBacked(c.name);
+    // Completion likewise arrives via the poll — the sidecar flips the connector
+    // to connected once the local OAuth flow lands.
+    if (res.ok) setWaiting(true);
+    else setError(res.error || "could not start the connect");
+  };
+
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
-      {c.managed && !manualOnly && (
+      {c.mcp && !manualOnly && (
+        /* MCP-backed one-click needs no cloud sign-in — the OAuth flow is local. */
+        <div className="space-y-2" data-testid="mcp-connect">
+          <button className={BTN_ACCENT} onClick={mcpOneClick} disabled={waiting}>
+            {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
+          </button>
+          {c.fields.length > 0 && (
+            <div className="text-[11.5px] text-faint">or connect manually:</div>
+          )}
+        </div>
+      )}
+      {c.managed && !c.mcp && !manualOnly && (
         <div className="space-y-2" data-testid="managed-connect">
           {cloud?.signed_in ? (
             <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
