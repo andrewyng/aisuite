@@ -1004,8 +1004,65 @@ and footer never move — only the middle region swaps, at a fixed height** (ext
   AWS Bedrock / Azure deferred: provider-layer auth work, and Azure OpenAI is already
   reachable via OpenAI's custom endpoint.
 
+## 40. Settings: three tabs, and Models is the shared provider gallery  *(Decided 2026-07-19 by owner → Built 2026-07-19; mock: `ocw-context/docs/ux-improvements/mocks/UX-021-settings-redesign.html`; ledger UX-021)*
+
+- **Three tabs — General · Models · Voice input.** "Appearance" was carrying seven cards, most
+  of them not appearance; it renames to **General** (the tab *key* stays `appearance` so
+  deep-links keep working). **Files folds into General as one card** — a single option doesn't
+  earn a nav entry. **Personas is launch-flagged off** (`flags.ts` `showPersonas()`, default
+  false; the e2e suite re-enables via localStorage to keep the hidden flows covered).
+- **Models = the §39 gallery, shared for real.** The provider gallery ⇄ key form was extracted
+  to `providers/ProviderSetup.tsx` (hook + `ProviderCards`/`ProviderForm`); Onboarding step 1
+  and Settings ▸ Models render the SAME components with different frames, so the two surfaces
+  cannot drift. Settings passes testid prefix `set-`, onboarding keeps `ob-`.
+- **Settings-only additions:** configured cards carry "✓ Connected · used Nh ago" (truncating,
+  never wrapping); the form of a credentialed provider gains a quiet red **"Remove key…"**
+  (confirm → `DELETE /v1/providers/{name}` forgets the stored profile; the card reverts to
+  "Not set up"; curated models stay, they just gray out).
+- **Below the gallery:** the **"In the composer's picker"** card lists every curated model
+  across providers with provider tags + the default badge (untick removes; adding happens from
+  a provider's card, whose form view keeps the per-provider ModelChecklist or, unconfigured,
+  the read-only "Included models" preview). **Token savings moved here from Appearance** —
+  it's model-spend behavior. The gallery⇄form swap happens in place and the page scrolls; the
+  fixed-height rule is onboarding-modal-specific.
+- The old dropdown provider picker, the API/Local sub-tabs, and the separate Save button are
+  retired — Test = verify + save + slide home, exactly as in onboarding.
+
+## 41. Onboarding tools page: benefit rows, a band that never moves  *(Decided 2026-07-19 by owner → Built 2026-07-19; mocks: `ocw-context/docs/ux-improvements/mocks/UX-022b-tools-page-redesign.html` (3 directions), `UX-022c-benefit-rows-connect.html` (chosen); ledger UX-022)*
+
+- **Benefit rows replace the card gallery** (supersedes §39's step-2 body; frame rules stand).
+  Six rows — *Stay on top of email (Outlook) · Keep up with Slack · Ship code (GitHub) · Keep
+  your notes in reach (Notion) · Keep the CRM current (HubSpot) · Track every relationship
+  (Attio)* — benefit first, tool named in the ONE-LINE detail (wrap made row heights jump
+  between states). Rows scroll past the fold; accepted ("let users scroll"). The gated Google
+  pair is ONE combined grayed row with a static "Coming soon" — hover-only labels read as
+  broken cards.
+- **Zero layout shift at sign-in.** The band below the rows is pinned outside the scroll area
+  and its slot never moves: pre-sign-in it carries the ask ("Sign in for one-click connections —
+  OpenWorker handles the OAuth for 20+ tools… Tokens stay on this Mac") with the page's ONE
+  black button; after sign-in the same slot turns green-congrats ("🎉 You're signed in as … —
+  connect a tool above with one click, or add them anytime later"), and every row grows a quiet
+  bordered **Connect** pill in place (Connect → "Check your browser…" → ✓ Connected; one in
+  flight, silent resets — §39's connect rules carry over).
+- **One footer button, one slot:** quiet bordered "Continue without sign-in" pre-sign-in →
+  black "Next" after. The left "Skip" link is gone. The footnote is STATIC across states
+  ("30+ more tools on the Connectors page — add or remove anytime. Tokens stay on this Mac"),
+  so nothing below the band ever changes.
+- **Modal is 560px** (down from 700) across all steps — the §39 fixed-frame rule holds; the
+  provider gallery scrolls ~4.5 rows and the form views stop floating over a void. On step 1,
+  **"Custom endpoint ⌄" renders below the key-help line** as its own advanced row (both
+  surfaces — the disclosure lives in the shared ProviderForm).
+
 ## Change log (requests, newest first)
 
+- **2026-07-19 (25)** — Owner critique of the built §39 flow (from DMG walkthrough screenshots):
+  hover-only Coming soon, scattered grayed cards, blue-vs-black primaries, 700px void, key
+  state-restore bug, endpoint placement → fixes + full step-2 redesign through three mock
+  directions and two refinement rounds (his idea: rows grow Connect buttons; band stays with
+  congrats content) → §41 (mocked UX-022b/c; built 2026-07-19).
+- **2026-07-19 (24)** — Owner: "Settings is quite a mess visually" (token savings under
+  Appearance, one-option Files tab) + "Models should follow the onboarding look" + hide
+  Personas behind a flag + collapsed-nav overlap fix → §40 (mocked UX-021; built 2026-07-19).
 - **2026-07-18 (23)** — Owner: onboarding step 1 "bland, tasteless and non-informing" →
   provider gallery; three review iterations (fixed frame; in-field saved state + endpoint
   disclosure + "Next"; de-blued links); then step 2's why-paragraph + post-sign-in connector

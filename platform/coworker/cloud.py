@@ -49,6 +49,7 @@ PROVIDER_FOR_CONNECTOR = {
     "attio": "attio",
     "hubspot": "hubspot",
     "github": "github",
+    "outlook": "microsoft",
 }
 
 # Pending PKCE verifiers keyed by OAuth state; in-process only. A login that

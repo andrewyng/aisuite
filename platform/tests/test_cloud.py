@@ -219,6 +219,19 @@ def test_logout_clears_session(secrets, config):
 # --- managed connect -------------------------------------------------------------
 
 
+def test_every_managed_connector_has_a_provider_mapping():
+    """A managed=True descriptor without a PROVIDER_FOR_CONNECTOR entry ships a
+    dead one-click button ("X has no managed OAuth path") — outlook did exactly
+    that. Wire the map in the same change that flips a connector to managed."""
+    from coworker.connectors.descriptors import DESCRIPTORS
+
+    managed = {d.name for d in DESCRIPTORS if d.managed}
+    unmapped = managed - set(cloud.PROVIDER_FOR_CONNECTOR)
+    assert (
+        not unmapped
+    ), f"managed connectors missing an OAuth provider: {sorted(unmapped)}"
+
+
 def test_begin_managed_connect_requires_sign_in(secrets, config):
     out = cloud.begin_managed_connect(secrets, config, "gmail")
     assert not out["ok"]

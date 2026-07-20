@@ -105,25 +105,30 @@ test("tools page: sign-in morphs the page into the connector gallery; a card con
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 
-  // Pre-sign-in: the why-paragraph page — value first, one primary action, and the
-  // skip label NAMES the manual path (§39).
-  await expect(page.getByText("A coworker that can only chat can only advise")).toBeVisible();
-  await expect(page.getByText("One click, keys handled")).toBeVisible();
-  await expect(page.getByTestId("ob-tools-skip")).toContainText("my own API tokens");
-  await expect(page.getByTestId("ob-tool-gallery")).toHaveCount(0);
+  // Pre-sign-in (§41): the benefit rows are already there (no Connect buttons yet),
+  // the combined Google row says Coming soon, the band asks for sign-in, and the one
+  // footer button is the quiet "Continue without sign-in".
+  await expect(page.getByText("Chat can only advise")).toBeVisible();
+  await expect(page.getByTestId("ob-tool-outlook")).toContainText("Stay on top of email");
+  await expect(page.getByTestId("ob-tool-outlook").getByRole("button")).toHaveCount(0);
+  await expect(page.getByTestId("ob-tool-attio")).toContainText("Track every relationship");
+  await expect(page.getByTestId("ob-tool-google-soon")).toContainText("Coming soon");
+  await expect(page.getByText("Sign in for one-click connections")).toBeVisible();
+  await expect(page.getByTestId("ob-tools-skip")).toContainText("Continue without sign-in");
 
-  // Sign-in lands out-of-band; the SAME page morphs into the mini gallery.
+  // Sign-in lands out-of-band; the band's SLOT stays put and flips to the congrats
+  // (zero layout shift), and every row grows its Connect pill.
   await page.getByTestId("ob-cloud-signin").click();
   await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("ob-tool-gallery")).toBeVisible();
-  await expect(page.getByTestId("ob-tool-outlook")).toContainText("One click");
-  // The Google trio is gated on Google verification: present but grayed "Coming soon".
-  await expect(page.getByTestId("ob-tool-gmail")).toBeVisible();
-  await expect(page.getByTestId("ob-tool-gmail").getByRole("button")).toHaveCount(0);
+  await expect(page.getByTestId("ob-tools-signedin")).toContainText("You’re signed in");
+  await expect(
+    page.getByTestId("ob-tool-attio").getByRole("button", { name: "Connect" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("ob-tool-google-soon").getByRole("button")).toHaveCount(0);
 
   // One-click connect: the consent completes in the (mock) browser; the poll flips the
-  // card to ✓ Connected. Next was armed the whole time — connecting is optional.
-  await page.getByTestId("ob-tool-outlook").click();
+  // row to ✓ Connected. Next was armed the whole time — connecting is optional.
+  await page.getByTestId("ob-tool-outlook").getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("ob-tool-outlook")).toContainText("✓ Connected", {
     timeout: 10_000,
   });

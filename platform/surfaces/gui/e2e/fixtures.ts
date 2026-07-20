@@ -135,6 +135,8 @@ const CONNECTORS = {
     { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Managed email-keyed multi-account connector (outlook) — drives the onboarding tools gallery.
     { name: "outlook", title: "Outlook", icon: "◎", blurb: "Search, summarize, draft, and send Microsoft 365 email.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#0078d4", logo: "outlook", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    // Sixth active card in the onboarding gallery (promoted 2026-07-19 to even the grid).
+    { name: "attio", title: "Attio", icon: "▣", blurb: "Search and read Attio CRM records; log notes.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#2d6ae0", logo: "attio", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
   ],
 };
 
@@ -1099,6 +1101,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
       }
       if (b.fields?.base_url) prov.values = { ...prov.values, base_url: b.fields.base_url };
       return json({ ok: true, provider: b.name, recommended_model: null });
+    }
+    // forget a provider's stored config (Settings ▸ Models "Remove key…").
+    if (/\/v1\/providers\/[^/]+$/.test(p) && m === "DELETE") {
+      const name = p.split("/").pop()!;
+      const prov = providers.find((x) => x.name === name);
+      if (!prov) return json({ ok: false, error: `unknown provider: ${name}` });
+      prov.configured = !prov.needs_key; // keyless (ollama) stays "configured"
+      prov.key_set_at = null;
+      return json({ ok: true, provider: name });
     }
     if (p.endsWith("/v1/providers")) return json(providers);
     if (p.endsWith("/v1/channels/recent"))

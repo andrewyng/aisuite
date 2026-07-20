@@ -164,6 +164,11 @@ body {
 /* The session topbar's collapsed-state cluster is INLINE (§22), so only the overlay build pads
    it — to clear the traffic lights. */
 .app.nav-collapsed.tauri-overlay .main-topbar { padding-left: 84px; }
+/* Full-page sub-navs (Settings / Connectors) start at the window top; while the main nav is
+   collapsed, the fixed reveal button (and, in the overlay build, the traffic lights) float over
+   that corner — push the sub-nav header below the strip so they never overlap. */
+.app.nav-collapsed .page-subnav { padding-top: 48px; }
+.app.nav-collapsed.tauri-overlay .page-subnav { padding-top: 56px; }
 
 .tabs { display: flex; gap: 4px; background: var(--paper); padding: 4px; border-radius: 10px; }
 .tab {

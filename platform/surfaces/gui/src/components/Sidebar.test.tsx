@@ -192,6 +192,7 @@ describe("New-session split button", () => {
   });
 
   it("primary starts the last-used persona; the menu lists enabled personas + Manage personas…", async () => {
+    localStorage.setItem("ocw.flag.personas", "1"); // Manage entry is launch-flagged off
     stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
@@ -220,5 +221,19 @@ describe("New-session split button", () => {
     fireEvent.click(screen.getByLabelText("Choose a persona"));
     fireEvent.click(await screen.findByText("Manage personas…"));
     expect(baseProps.onManagePersonas).toHaveBeenCalled();
+  });
+
+  it("hides Manage personas… while the launch flag is off (the default)", async () => {
+    localStorage.removeItem("ocw.flag.personas");
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+    await screen.findByLabelText("Group and filter conversations");
+    fireEvent.click(screen.getByLabelText("Choose a persona"));
+    const menu = (await screen.findByText("Start a session as")).closest(".newsplit-menu") as HTMLElement;
+    expect(within(menu).getByText("Ops")).toBeTruthy();
+    expect(within(menu).queryByText("Manage personas…")).toBeNull();
   });
 });

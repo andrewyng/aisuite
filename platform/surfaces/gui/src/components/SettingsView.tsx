@@ -39,13 +39,16 @@ import { PanelHead } from "./IntegrationsView";
 import { ModelsTab } from "./ManageTabs";
 import { GalleryModal } from "./GalleryModal";
 import { PersonasTab } from "./PersonasTab";
+import { showPersonas } from "../flags";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
 // a left sub-nav (Appearance · Files · Models · Personas) + centered panel, replacing the old
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
-type SetTab = "appearance" | "files" | "models" | "voice" | "personas";
+// "appearance" is the General tab's stable key — callers deep-link with it, so the
+// rename (UX-021) changed only the label. "files" folded into General as a card.
+type SetTab = "appearance" | "models" | "voice" | "personas";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -56,9 +59,8 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 
-const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "folder" | "code" | "mic" | "sparkle" }[] = [
-  { key: "appearance", label: "Appearance", icon: "sliders" },
-  { key: "files", label: "Files", icon: "folder" },
+const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" }[] = [
+  { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
   { key: "voice", label: "Voice input", icon: "mic" },
   { key: "personas", label: "Personas", icon: "sparkle" },
@@ -71,15 +73,21 @@ export function SettingsView({
   initialTab?: SetTab;
   onOpenPersona?: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<SetTab>(initialTab ?? "appearance");
+  // Personas is flag-gated (hidden for launch) — filter the tab AND coerce a stale
+  // deep-link to it (openSettings("personas") callers) so the page never opens on a
+  // section with no nav entry.
+  const personas = showPersonas();
+  const tabs = personas ? SET_TABS : SET_TABS.filter((t) => t.key !== "personas");
+  const wanted = initialTab && (personas || initialTab !== "personas") ? initialTab : "appearance";
+  const [tab, setTab] = useState<SetTab>(wanted);
 
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
-      <nav className="w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
+      <nav className="page-subnav w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
         <div className="px-2 text-[13.5px] font-semibold mb-3 flex items-center gap-2">
           <Icon name="gear" size={16} /> Settings
         </div>
-        {SET_TABS.map((t) => {
+        {tabs.map((t) => {
           const active = tab === t.key;
           return (
             <button
@@ -100,15 +108,18 @@ export function SettingsView({
         <div className="max-w-3xl mx-auto px-7 py-6">
           {tab === "appearance" ? (
             <AppearanceSection />
-          ) : tab === "files" ? (
-            <FilesSection />
           ) : tab === "models" ? (
             <section>
               <PanelHead
                 title="Models"
-                sub="API keys and the models offered in the composer's picker. Keys are stored locally, never sent to the model."
+                sub="Providers and the models offered in the composer's picker. Keys are stored only on this computer."
               />
               <ModelsTab />
+              {/* Token savings is model-spend behavior, so it lives here (UX-021),
+                  not under General. */}
+              <div className="mt-6">
+                <TokenSavingsCard />
+              </div>
             </section>
           ) : tab === "voice" ? (
             <VoiceInputSection />
@@ -399,7 +410,7 @@ function AppearanceSection() {
 
   return (
     <section>
-      <PanelHead title="Appearance" sub="How OpenWorker looks and behaves on this machine." />
+      <PanelHead title="General" sub="How OpenWorker looks and behaves on this machine." />
 
       <div className={CARD + " p-4 mb-4"}>
         <div className={FIELD_LABEL}>Theme</div>
@@ -415,7 +426,7 @@ function AppearanceSection() {
 
       <SidebarCard />
 
-      <TokenSavingsCard />
+      <FilesCard />
 
       <TelemetryCard />
 
@@ -439,23 +450,24 @@ function AppearanceSection() {
         </div>
       )}
 
-      {/* The onboarding replay entry (§24) — every build, not just desktop: the browser dev
-          shell runs the same first-run flow, and owner testing replays it here. */}
+      {/* One card for the app-lifecycle actions (UX-021): the onboarding replay (§24 —
+          every build, the browser dev shell runs the same first-run flow) and, on
+          desktop, the manual update check (launch also checks automatically). */}
       <div className={CARD + " p-4 mt-4"}>
-        <div className={FIELD_LABEL + " mb-2"}>Setup</div>
-        <button className={BTN_BORDERED} onClick={runSetupAgain}>
-          Run setup again
-        </button>
+        <div className={FIELD_LABEL + " mb-2"}>Setup &amp; updates</div>
+        <div className="flex items-center gap-2">
+          <button className={BTN_BORDERED} onClick={runSetupAgain}>
+            Run setup again
+          </button>
+          {desktop && <UpdateInline />}
+        </div>
         <div className={FIELD_HELP}>Replays the first-run setup: model, first automation, tips.</div>
       </div>
-
-      {/* Manual update check (desktop shell only; launch also checks automatically). */}
-      {desktop && <UpdateCard />}
     </section>
   );
 }
 
-function UpdateCard() {
+function UpdateInline() {
   const [state, setState] = useState<"idle" | "checking" | "none" | "found" | "installing" | "error">("idle");
   const [version, setVersion] = useState("");
 
@@ -484,8 +496,7 @@ function UpdateCard() {
   };
 
   return (
-    <div className={CARD + " p-4 mt-4"}>
-      <div className={FIELD_LABEL + " mb-2"}>Updates</div>
+    <span className="inline-flex items-center gap-2.5">
       {state === "found" ? (
         <button className={BTN_BORDERED} onClick={install} data-testid="settings-update-install">
           Update to v{version} and restart
@@ -500,16 +511,16 @@ function UpdateCard() {
           {state === "checking" ? "Checking…" : "Check for updates"}
         </button>
       )}
-      <div className={FIELD_HELP}>
-        {state === "none"
-          ? "You're on the latest version."
-          : state === "error"
-            ? "Couldn't check right now — try again later."
-            : state === "installing"
-              ? "Downloading — OpenWorker restarts by itself when it's ready."
-              : "Updates download from OpenWorker's releases and install in place."}
-      </div>
-    </div>
+      {(state === "none" || state === "error" || state === "installing") && (
+        <span className="text-[12px] text-muted">
+          {state === "none"
+            ? "You're on the latest version."
+            : state === "error"
+              ? "Couldn't check right now — try again later."
+              : "Downloading — OpenWorker restarts by itself when it's ready."}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -682,8 +693,9 @@ function SidebarCard() {
   );
 }
 
-// -- Files (scratch location) --------------------------------------------------
-function FilesSection() {
+// -- Files (scratch location) — one card inside General (UX-021: a single option
+// doesn't earn its own tab) -----------------------------------------------------
+function FilesCard() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [scratchDraft, setScratchDraft] = useState("");
   const [scratchMsg, setScratchMsg] = useState<string | null>(null);
@@ -715,16 +727,11 @@ function FilesSection() {
     if (picked) setScratchDraft(picked);
   };
 
-  if (!settings) return <div className="text-[13px] text-muted">Loading…</div>;
+  if (!settings) return null;
 
   return (
-    <section>
-      <PanelHead
-        title="Files"
-        sub="Where OpenWorker keeps the per-conversation scratch folders it saves files into by default."
-      />
-      <div className={CARD + " p-4"}>
-        <div className={FIELD_LABEL}>Scratch location</div>
+    <div className={CARD + " p-4 mb-4"}>
+      <div className={FIELD_LABEL}>Files</div>
         <div className="flex items-center gap-2 mt-2.5">
           <input
             className={INPUT}
@@ -745,12 +752,11 @@ function FilesSection() {
             Save
           </button>
         </div>
-        <div className={FIELD_HELP}>
-          Each conversation gets its own folder under this location. Existing conversations keep their current
-          folder; you can grant access to more folders inside any conversation.
-        </div>
-        {scratchMsg && <div className="text-[12.5px] text-muted mt-2.5">{scratchMsg}</div>}
+      <div className={FIELD_HELP}>
+        Each conversation gets its own folder under this location. Existing conversations keep their current
+        folder; you can grant access to more folders inside any conversation.
       </div>
-    </section>
+      {scratchMsg && <div className="text-[12.5px] text-muted mt-2.5">{scratchMsg}</div>}
+    </div>
   );
 }

@@ -70,7 +70,7 @@ test("telemetry toggle: lives in Settings, signed-in only, default on, opt-out r
   await page.goto("/");
   await page.getByTestId("account-row").click();
   await page.getByTestId("account-menu").getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
   await expect(page.getByTestId("telemetry-toggle")).toHaveCount(0);
 
   await signIn(page);

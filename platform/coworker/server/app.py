@@ -1129,6 +1129,10 @@ def create_app(manager: SessionManager) -> FastAPI:
             return {"ok": False, "error": "name required"}
         return manager.set_provider(name, (body or {}).get("fields"))
 
+    @app.delete("/v1/providers/{name}")
+    def providers_remove(name: str) -> dict[str, Any]:
+        return manager.remove_provider(name)
+
     @app.post("/v1/providers/verify")
     async def providers_verify(body: dict) -> dict[str, Any]:
         # Live read-only credential check (sync httpx) — run off the event loop.

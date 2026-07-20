@@ -23,6 +23,7 @@ import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 import { SearchModal } from "./SearchModal";
 import { baseName } from "../paths";
+import { showPersonas } from "../flags";
 
 // Session surfaces shown as accordions, in display order. The surfaced personas drive this list
 // (so third-party / Ops personas appear); the hardcoded set is the fallback before personas load.
@@ -1227,17 +1228,19 @@ function NewSessionSplit({
                 </span>
               </button>
             ))}
-            <div className="border-t border-line mt-1 pt-1">
-              <button
-                className="w-full px-2 py-1.5 rounded-lg hover:bg-paper text-left text-[12.5px] text-muted"
-                onClick={() => {
-                  setOpen(false);
-                  onManage();
-                }}
-              >
-                Manage personas…
-              </button>
-            </div>
+            {showPersonas() && (
+              <div className="border-t border-line mt-1 pt-1">
+                <button
+                  className="w-full px-2 py-1.5 rounded-lg hover:bg-paper text-left text-[12.5px] text-muted"
+                  onClick={() => {
+                    setOpen(false);
+                    onManage();
+                  }}
+                >
+                  Manage personas…
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
