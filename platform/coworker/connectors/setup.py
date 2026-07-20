@@ -69,6 +69,7 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             "available": d.available,
             "brand_color": d.brand_color,
             "logo": d.logo,
+            "aliases": list(d.aliases),
             "fields": [f.to_dict() for f in d.fields],
             "instructions": d.instructions,
             "connected": connected,

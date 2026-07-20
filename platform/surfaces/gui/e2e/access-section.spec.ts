@@ -57,6 +57,10 @@ test("+ Add a source: catalog typeahead → connect-in-context; connected source
   await search.fill("github");
   await expect(page.getByText("No match — see all on the Connectors page below.")).toBeVisible();
 
+  // Capability aliases match too: "calendar" surfaces Outlook (title alone never would).
+  await search.fill("calendar");
+  await expect(page.getByTestId("access-add-outlook")).toBeVisible();
+
   // …the long tail does: Notion is in the catalog but neither connected nor recommended.
   await search.fill("notion");
   await page.getByTestId("access-add-notion").click();

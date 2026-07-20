@@ -263,7 +263,7 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "outlook_list_events",
         "List events",
         "read",
-        "List Outlook calendar events.",
+        "List upcoming Outlook calendar events.",
     ),
     ConnectorToolDef(
         "outlook",
@@ -271,6 +271,27 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "Create event",
         "write",
         "Create an Outlook calendar event.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_update_event",
+        "Update event",
+        "write",
+        "Change fields of an existing event.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_delete_event",
+        "Delete event",
+        "write",
+        "Delete a calendar event.",
+    ),
+    ConnectorToolDef(
+        "outlook",
+        "outlook_respond_event",
+        "Respond to invite",
+        "write",
+        "Accept, decline, or tentatively accept a meeting invite.",
     ),
     ConnectorToolDef(
         "jira", "jira_search_issues", "Search issues", "read", "Search Jira issues."

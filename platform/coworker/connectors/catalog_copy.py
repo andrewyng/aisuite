@@ -34,8 +34,9 @@ ABOUT: dict[str, str] = {
     "status. One click installs the OpenWorker GitHub App on the repositories "
     "you pick; mention the agent on an issue or PR and it answers from your "
     "desktop.",
-    "outlook": "Search, summarize, and send Microsoft 365 mail, and put "
-    "meetings on the calendar. Multiple mailboxes connect side by side.",
+    "outlook": "Search, summarize, and send Microsoft 365 mail, and run your "
+    "calendar — create and move meetings, respond to invites. Multiple "
+    "mailboxes connect side by side.",
     "hubspot": "Search and read your CRM; optionally log notes and tasks and "
     "update records. Read-only vs read & write is chosen at consent time, and "
     "chosen properties can be hidden from agents entirely.",
@@ -89,7 +90,8 @@ ACCESS: dict[str, list[str]] = {
     "outlook": [
         "Reads and searches your mail.",
         "Sends mail as you.",
-        "Reads your calendar and creates events.",
+        "Reads your calendar.",
+        "Creates, changes, and cancels events; responds to invites as you.",
     ],
     "jira": [
         "Reads and searches issues your account can see.",

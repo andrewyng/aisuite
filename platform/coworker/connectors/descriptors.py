@@ -62,6 +62,9 @@ class ConnectorDescriptor:
     # stable logo id (e.g. "slack") the frontend maps to a bundled SVG. Empty logo → UI fallback.
     brand_color: str = "#6b7280"
     logo: str = ""
+    # Extra search terms for the catalog typeahead — capability words the title
+    # doesn't carry (e.g. "calendar" must surface Outlook, not just Google Calendar).
+    aliases: tuple = ()
     # Experimental connectors are hidden unless the user enables them in settings, require an
     # explicit risk acknowledgment to connect, and ship in a separate package
     # (connectors/experimental/) that release builds exclude entirely.
@@ -532,6 +535,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         auth="oauth",
         two_way=False,
         brand_color="#ea4335",
+        aliases=("email", "mail", "google"),
         logo="gmail",
         fields=[
             Field(
@@ -619,11 +623,13 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="outlook",
         title="Outlook",
         icon="◎",
-        blurb="Search, summarize, draft, and send Microsoft 365 email.",
+        blurb="Microsoft 365 mail and calendar: search, draft, and send email; "
+        "manage events and respond to invites.",
         auth="oauth",
         two_way=False,
         brand_color="#0078d4",
         logo="outlook",
+        aliases=("calendar", "email", "mail", "microsoft", "office"),
         fields=[
             Field(
                 "access_token",
