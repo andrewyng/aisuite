@@ -106,8 +106,11 @@ describe("Sidebar group/filter control", () => {
   });
 });
 
-describe("Chronological list row actions", () => {
-  it("flat-layout rows offer rename / archive / delete (not just pin)", async () => {
+describe("Chronological list row actions (⋮ menu)", () => {
+  // The Recent list sorts by updated_at desc with store order breaking ties, so index 0 = s-ops-1.
+  const openOpsMenu = () => fireEvent.click(screen.getAllByTestId("row-menu")[0]);
+
+  it("rename / pin / archive / two-step delete all live behind the row's single kebab", async () => {
     stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
@@ -115,21 +118,49 @@ describe("Chronological list row actions", () => {
     render(<Sidebar {...baseProps} />);
     await screen.findByText("incident watch"); // flat Recent list rendered
 
-    // Rename: pencil → inline input → Enter commits.
-    fireEvent.click(screen.getAllByTitle("Rename")[0]);
+    // Rename: menu item → inline input → Enter commits.
+    openOpsMenu();
+    fireEvent.click(screen.getByTestId("row-menu-rename"));
     const input = screen.getByDisplayValue("incident watch");
     fireEvent.change(input, { target: { value: "war room" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(baseProps.onRenameSession).toHaveBeenCalledWith("s-ops-1", "war room");
 
+    // Pin moved inside the menu (unpinned session → "Pin").
+    openOpsMenu();
+    fireEvent.click(screen.getByTestId("row-menu-pin"));
+    expect(baseProps.onTogglePin).toHaveBeenCalledWith("s-ops-1", true);
+
     // Archive.
-    fireEvent.click(screen.getAllByTitle("Archive (reversible)")[0]);
+    openOpsMenu();
+    fireEvent.click(screen.getByTestId("row-menu-archive"));
     expect(baseProps.onArchiveSession).toHaveBeenCalledWith("s-ops-1", true);
 
-    // Delete is two-step: × arms, "Delete?" confirms.
-    fireEvent.click(screen.getAllByTitle("Delete permanently")[0]);
-    fireEvent.click(screen.getByTitle("Click to permanently delete"));
+    // Delete is two-step: first click arms ("Delete?"), the second deletes.
+    openOpsMenu();
+    fireEvent.click(screen.getByTestId("row-menu-delete"));
+    expect(baseProps.onDeleteSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId("row-menu-delete").textContent).toContain("Delete?");
+    fireEvent.click(screen.getByTestId("row-menu-delete"));
     expect(baseProps.onDeleteSession).toHaveBeenCalledWith("s-ops-1");
+  });
+
+  it("the kebab and its menu never select the row; Escape closes the menu", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+    await screen.findByText("incident watch");
+
+    openOpsMenu();
+    fireEvent.click(screen.getByTestId("row-menu-pin"));
+    expect(baseProps.onSelectSession).not.toHaveBeenCalled();
+
+    openOpsMenu();
+    expect(screen.getByTestId("row-menu-rename")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("row-menu-rename")).toBeNull();
   });
 });
 

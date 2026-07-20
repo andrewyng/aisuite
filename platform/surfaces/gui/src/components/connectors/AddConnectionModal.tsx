@@ -9,7 +9,7 @@ import {
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { ConnectSetup } from "../ManageTabs";
-import { CloudSignInInline } from "./CloudSignIn";
+import { CloudSignInInline, CloudStatusPending } from "./CloudSignIn";
 import { PILL_ACCENT, PILL_LINE, TAG_ACCENT } from "./ui";
 
 // The ONE place a connection gets added (UX-DECISIONS §21): the detail page's header
@@ -198,8 +198,10 @@ function GenericOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null
         >
           {waiting ? "Check your browser…" : `Connect ${c.title}`}
         </button>
-      ) : (
+      ) : cloud ? (
         <CloudSignInInline />
+      ) : (
+        <CloudStatusPending />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
@@ -228,8 +230,10 @@ function SlackOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null }
         <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-add-to-slack" onClick={go} disabled={waiting}>
           {waiting ? "Check your browser…" : "Add to Slack"}
         </button>
-      ) : (
+      ) : cloud ? (
         <CloudSignInInline />
+      ) : (
+        <CloudStatusPending />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
@@ -262,8 +266,10 @@ function GithubOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null 
         <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-install-github-app" onClick={() => go()} disabled={waiting}>
           {waiting ? "Check your browser…" : "Connect GitHub"}
         </button>
-      ) : (
+      ) : cloud ? (
         <CloudSignInInline />
+      ) : (
+        <CloudStatusPending />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
@@ -316,8 +322,10 @@ function HubSpotOneClick({ c, cloud }: { c: Connector; cloud: CloudStatus | null
         <button className={PILL_ACCENT + " w-full !py-2"} data-testid="modal-connect-hubspot" onClick={go} disabled={waiting}>
           {waiting ? "Check your browser…" : "Connect HubSpot"}
         </button>
-      ) : (
+      ) : cloud ? (
         <CloudSignInInline />
+      ) : (
+        <CloudStatusPending />
       )}
       {error && <div className="text-[12.5px] text-danger">{error}</div>}
       <p className="text-[12px] text-faint text-center">

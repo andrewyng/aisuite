@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  CLOUD_CHANGED,
   getCloudStatus,
   getConnectors,
   getRecentChannels,
@@ -110,8 +111,9 @@ export function AccessSection({
   // Child views (connect-in-context / channels drill-down) replace the section body inline.
   const [channelsFor, setChannelsFor] = useState<string | null>(null);
   const [connectFor, setConnectFor] = useState<Connector | null>(null);
-  // "+ Add a source…" (§32 addendum): search the FULL catalog in-session — search-only, never a
-  // browsable list (browsing stays on the global Connectors page, or the rail turns into it).
+  // "+ Add a source…" (§32 addendum): the FULL catalog in-session. The list shows on focus,
+  // before any typing (FB-012: typing-to-see was a hidden step), and the query filters it
+  // live; rich browsing (detail pages, connect states) stays on the global Connectors page.
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   // The add flow guarantees the new source is live HERE: the user asked for it in this
@@ -121,7 +123,20 @@ export function AccessSection({
   const [addingFolder, setAddingFolder] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
   useEffect(() => {
-    if (connectFor) getCloudStatus().then(setCloud).catch(() => setCloud(null));
+    if (!connectFor) return;
+    // null means UNKNOWN (renders as "checking"), never signed-out: a single failed
+    // fetch here used to demand sign-in from a signed-in user with no way to recover
+    // (FB-013). Poll while the connect pane is open, keep last-good on failure, and
+    // listen for the sign-in broadcast so the pane flips the moment login lands.
+    const load = () => getCloudStatus().then(setCloud).catch(() => {});
+    load();
+    const t = setInterval(load, 5000);
+    window.addEventListener(CLOUD_CHANGED, load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(CLOUD_CHANGED, load);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!connectFor]);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [recent, setRecent] = useState<RecentChannel[]>([]);
@@ -174,23 +189,24 @@ export function AccessSection({
   const recommended = conns?.recommended ?? [];
   const live = connected.filter((c) => c.enabled);
 
-  // Catalog search: available, not already in the Connected list (those have toggles above),
-  // matched on title/name/aliases ("calendar" must surface Outlook, not just Google
-  // Calendar). Capped — this is a typeahead, not a directory.
+  // Catalog list: available, not already in the Connected list (those have toggles above).
+  // Empty query = the whole catalog (FB-012 — the list renders before any typing); a query
+  // narrows it on title/name/aliases ("calendar" must surface Outlook, not just Google
+  // Calendar). Alphabetical so filtering never reorders; the container height-caps it, so
+  // no count cap here.
   const connectedSet = new Set(connected.map((c) => c.connector));
   const q = query.trim().toLowerCase();
-  const results = !q
-    ? []
-    : Object.values(byName)
-        .filter(
-          (c) =>
-            c.available &&
-            !connectedSet.has(c.name) &&
-            (c.title.toLowerCase().includes(q) ||
-              c.name.toLowerCase().includes(q) ||
-              (c.aliases ?? []).some((a) => a.toLowerCase().includes(q))),
-        )
-        .slice(0, 6);
+  const results = Object.values(byName)
+    .filter(
+      (c) =>
+        c.available &&
+        !connectedSet.has(c.name) &&
+        (!q ||
+          c.title.toLowerCase().includes(q) ||
+          c.name.toLowerCase().includes(q) ||
+          (c.aliases ?? []).some((a) => a.toLowerCase().includes(q))),
+    )
+    .sort((a, b) => a.title.localeCompare(b.title));
 
   // The header summary — the §23 glance, permanent: live source names + the folder fact.
   const names = live.map((c) => labelFor(c.connector, byName));
@@ -307,8 +323,9 @@ export function AccessSection({
                     Off mutes it for <b>this session only</b> — the connector stays connected.
                   </p>
                 )}
-                {/* §32 addendum (owner ask 2026-07-13): the catalog's long tail, in-session.
-                    A quiet row that becomes a typeahead — search-only, no browsable list. */}
+                {/* §32 addendum (owner ask 2026-07-13; FB-012): the catalog's long tail,
+                    in-session. A quiet row that becomes a typeahead: full list on focus,
+                    filter as you type. */}
                 {adding ? (
                   <div className="mt-1.5">
                     <input
@@ -325,12 +342,14 @@ export function AccessSection({
                       autoFocus
                       data-testid="access-add-search"
                     />
-                    {q && results.length === 0 && (
+                    {results.length === 0 && (
+                      // Also covers a failed/empty catalog fetch: an open picker must never
+                      // be silently blank — point at the Connectors page either way.
                       <div className="text-[11.5px] text-faint mt-1.5 px-0.5">
                         No match — see all on the Connectors page below.
                       </div>
                     )}
-                    <div className="mt-1">
+                    <div className="mt-1 max-h-64 overflow-y-auto">
                       {results.map((c) => (
                         <button
                           key={c.name}

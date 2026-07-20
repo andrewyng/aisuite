@@ -27,7 +27,7 @@ import {
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
-import { CloudSignInInline } from "./connectors/CloudSignIn";
+import { CloudSignInInline, CloudStatusPending } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Toggle } from "./Toggle";
@@ -828,10 +828,14 @@ export function ConnectSetup({
             <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
               {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
             </button>
-          ) : (
+          ) : cloud ? (
             <CloudSignInInline
               blurb={`Sign-in unlocks the one-click ${c.title} connect — or connect manually below.`}
             />
+          ) : (
+            // Status unknown (fetch pending/failed): never show the sign-in ask to a
+            // possibly-signed-in user (FB-013); the host keeps polling.
+            <CloudStatusPending />
           )}
           {cloud?.signed_in && (
             <div className="text-[11.5px] text-faint">or connect manually:</div>
