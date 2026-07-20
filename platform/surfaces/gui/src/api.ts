@@ -380,6 +380,7 @@ export interface Connector {
   brand_color: string; // hex brand color, e.g. "#611f69" (fallback gray "#6b7280")
   logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   aliases?: string[]; // extra typeahead terms ("calendar" surfaces Outlook)
+  mcp?: boolean; // MCP-backed one-click (vendor-hosted MCP + local OAuth — no cloud sign-in)
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
   allowed_user_names?: Record<string, string | null>; // id → display name (people directory)
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
@@ -479,6 +480,17 @@ export async function connectManaged(
         ...(options?.access ? { access: options.access } : {}),
       }),
     },
+  );
+  return res.json();
+}
+
+/** One-click connect for an MCP-backed connector (monday, asana, jira): the sidecar
+ * opens the vendor's sign-in in the browser (local OAuth, no cloud account needed);
+ * poll getConnectors until the card flips to connected. */
+export async function connectMcpBacked(name: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/mcp-connect`,
+    { method: "POST" },
   );
   return res.json();
 }

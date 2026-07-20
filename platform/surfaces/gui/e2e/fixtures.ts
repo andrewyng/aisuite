@@ -137,6 +137,11 @@ const CONNECTORS = {
     { name: "outlook", title: "Outlook", icon: "◎", blurb: "Microsoft 365 mail and calendar: search, draft, and send email; manage events and respond to invites.", aliases: ["calendar", "email", "mail", "microsoft", "office"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#0078d4", logo: "outlook", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Sixth active card in the onboarding gallery (promoted 2026-07-19 to even the grid).
     { name: "attio", title: "Attio", icon: "▣", blurb: "Search and read Attio CRM records; log notes.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#2d6ae0", logo: "attio", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    // MCP-BACKED connectors (§42): vendor-hosted MCP + local OAuth, pinned tool subset.
+    // monday is one-click ONLY (no manual fields); jira also has a manual token path
+    // (two-mode modal). Neither needs cloud sign-in.
+    { name: "monday", title: "monday.com", icon: "▦", blurb: "Read boards and items, track work, create items and post updates.", aliases: ["project management", "tasks", "boards"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#6161ff", logo: "monday", mcp: true, fields: [], instructions: ["One click connects via monday.com sign-in in your browser.", "Sign-in is fully local — tokens stay on this Mac."], connected: false, account: null, enabled: false, allowed_users: [], tools: [{ name: "mcp__monday__get_board_info", label: "Read board", kind: "read", description: "Read a board's columns and groups.", enabled: true, requires_approval: false }, { name: "mcp__monday__create_item", label: "Create item", kind: "write", description: "Create an item on a board.", enabled: true, requires_approval: true }], managed: false, managed_profile: false },
+    { name: "jira", title: "Jira", icon: "◆", blurb: "Search, summarize, create, and update issues.", aliases: ["issues", "tickets", "atlassian"], auth: "api_token", two_way: false, channels: false, available: true, brand_color: "#0052cc", logo: "jira", mcp: true, fields: [{ key: "base_url", label: "Atlassian site URL", secret: false, required: true, help: "", placeholder: "" }, { key: "email", label: "Account email", secret: false, required: true, help: "", placeholder: "" }, { key: "api_token", label: "API token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
   ],
 };
 
@@ -420,6 +425,18 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Outlook — email-keyed managed accounts (mirrors outlook:account:<email> profiles).
   const outlookState = {
     accounts: [] as { account_id: string; name: string; default: boolean; managed: boolean }[],
+  };
+  // MCP-backed connectors (§42) — per-test connect state; the mock "browser flow"
+  // completes instantly so the modal's poll picks it up.
+  const mcpState = { monday: false, jira: false };
+  const mcpConnector = (name: "monday" | "jira") => {
+    const base = CONNECTORS.connectors.find((c: any) => c.name === name);
+    return {
+      ...base,
+      connected: mcpState[name],
+      enabled: mcpState[name],
+      mode: mcpState[name] ? "mcp" : "",
+    };
   };
   const outlookConnector = () => {
     const base = CONNECTORS.connectors.find((c: any) => c.name === "outlook");
@@ -976,7 +993,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
                     ? notionConnector()
                     : c.name === "outlook"
                       ? outlookConnector()
-                      : { ...c },
+                      : c.name === "monday" || c.name === "jira"
+                        ? mcpConnector(c.name)
+                        : { ...c },
           ),
         ],
       });
@@ -992,6 +1011,17 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/cloud/logout") && m === "POST") {
       Object.assign(CLOUD_STATE, { signed_in: false, account: "", user_id: "" });
       return json({ ok: true, signed_in: false });
+    }
+    if (/\/v1\/connectors\/[^/]+\/mcp-connect$/.test(p) && m === "POST") {
+      // Local MCP OAuth flow — no cloud sign-in required; completes instantly here.
+      const name = p.match(/\/v1\/connectors\/([^/]+)\/mcp-connect$/)?.[1] as
+        | "monday"
+        | "jira";
+      if (name in mcpState) {
+        mcpState[name] = true;
+        return json({ ok: true, started: true });
+      }
+      return json({ ok: false, error: `${name} has no MCP connect path` });
     }
     if (/\/v1\/connectors\/[^/]+\/connect-managed$/.test(p) && m === "POST") {
       if (!CLOUD_STATE.signed_in) return json({ ok: false, error: "not signed in" });

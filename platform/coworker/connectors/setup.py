@@ -43,6 +43,14 @@ def _profile_connected(descriptor, profile: dict[str, Any]) -> bool:
     return bool(profile) and all(bool(profile.get(k)) for k in required)
 
 
+def _mcp_tokens_present(secrets: SecretStore, name: str) -> bool:
+    # Lazy import: the mcp package pulls in the MCP SDK, which connector listing
+    # shouldn't pay for unless an MCP-backed profile actually exists.
+    from ..mcp.oauth import has_tokens
+
+    return has_tokens(name, secrets)
+
+
 def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
     show_experimental = experimental_enabled(secrets)
     out: list[dict[str, Any]] = []
@@ -53,7 +61,12 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
         if d.experimental and not show_experimental:
             continue
         profile = secrets.get(f"{d.name}:default") or {}
-        connected = _profile_connected(d, profile)
+        if d.mcp_url and profile.get("mode") == "mcp":
+            # MCP-backed connect: the profile is just a marker — connected-ness
+            # lives with the OAuth tokens (mcp-oauth:<name> in the SecretStore).
+            connected = _mcp_tokens_present(secrets, d.name)
+        else:
+            connected = _profile_connected(d, profile)
         entry = {
             "name": d.name,
             "title": d.title,
@@ -70,6 +83,9 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             "brand_color": d.brand_color,
             "logo": d.logo,
             "aliases": list(d.aliases),
+            # MCP-backed one-click (vendor-hosted MCP server + local OAuth) —
+            # distinct from `managed` (broker OAuth): no cloud sign-in needed.
+            "mcp": bool(d.mcp_url),
             "fields": [f.to_dict() for f in d.fields],
             "instructions": d.instructions,
             "connected": connected,
@@ -463,4 +479,13 @@ def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
                 secrets.delete(github_installs.PREFIX + installation_id)
                 or dropped_accounts
             )
+    profile = secrets.get(f"{name}:default") or {}
+    if profile.get("mode") == "mcp":
+        # MCP-backed connect: forget the OAuth tokens + DCR registration and remove
+        # the seeded server entry, so a reconnect runs a fresh flow.
+        from ..mcp import config as mcp_config
+        from ..mcp import oauth as mcp_oauth
+
+        dropped_accounts = mcp_oauth.sign_out(name, secrets) or dropped_accounts
+        mcp_config.delete_global_server(name)
     return {"ok": secrets.delete(f"{name}:default") or dropped_accounts}

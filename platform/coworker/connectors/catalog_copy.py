@@ -47,6 +47,13 @@ ABOUT: dict[str, str] = {
     "meetings and answer pipeline questions, and log notes as you work.",
     "google_drive": "Search, browse, and read files across your Drive. "
     "Multiple accounts connect side by side.",
+    "monday": "Work with your monday.com boards — read items, summarize and "
+    "aggregate board data, create items, and post updates. One-click sign-in "
+    "runs entirely on this Mac against monday.com's own agent service; agents "
+    "get a small curated set of its tools, never the full catalog.",
+    "asana": "Keep up with your Asana work — search and read tasks and "
+    "projects, create tasks, and comment. Connects with a personal access "
+    "token from the Asana developer console.",
 }
 
 # What connecting actually grants, as short honest bullets. Write powers always
@@ -95,7 +102,15 @@ ACCESS: dict[str, list[str]] = {
     ],
     "jira": [
         "Reads and searches issues your account can see.",
-        "Creates issues as you.",
+        "Creates, updates, and transitions issues; comments as you.",
+    ],
+    "monday": [
+        "Reads boards, items, and updates your account can see.",
+        "Creates items, changes item values, and posts updates as you.",
+    ],
+    "asana": [
+        "Reads and searches tasks your account can see.",
+        "Creates tasks as you.",
     ],
     "confluence": [
         "Reads and searches spaces and pages your account can see.",
@@ -120,10 +135,6 @@ ACCESS: dict[str, list[str]] = {
     "stripe": [
         "Reads customers, charges, and invoices — read-only.",
         "A restricted read-only key means write access isn't even possible.",
-    ],
-    "asana": [
-        "Reads and searches tasks your account can see.",
-        "Creates tasks as you.",
     ],
     "hubspot": [
         "Reads contacts, companies, deals, and tickets.",

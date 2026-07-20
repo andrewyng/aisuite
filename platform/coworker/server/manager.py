@@ -785,36 +785,73 @@ class SessionManager:
         """
         if session_id in self._engines:
             return []
+        from ..connectors.descriptors import get_descriptor
+        from ..connectors.tool_defs import (
+            approval_for_tool,
+            mcp_tool_defs,
+            tool_enabled,
+        )
+
         ws = self.engine_workspace(session_id, workspace=workspace, agent=agent)
         loop = asyncio.get_running_loop()
+        effective: Optional[set[str]] = None  # computed lazily, once
         out: list[Any] = []
         for server in load_mcp_servers(ws, secrets=self.secrets):
             if not server.enabled:
                 continue
+            descriptor = get_descriptor(server.name)
+            backed = descriptor is not None and bool(descriptor.mcp_url)
+            if backed:
+                # Connector-backed server: obey the same gates as connector tools —
+                # the session's effective connector set and the per-tool toggles.
+                # The descriptor's PIN is authoritative over whatever the config
+                # file says (drift can only ever shrink the surface).
+                if effective is None:
+                    effective = self.effective_connectors(session_id, agent)
+                if server.name not in effective:
+                    continue
+                prefix = f"mcp__{server.name}__"
+                server.include_tools = [
+                    t.name.removeprefix(prefix)
+                    for t in mcp_tool_defs(server.name)
+                    if tool_enabled(self.secrets, server.name, t.name)
+                ]
             try:
                 conn = await self.mcp.ensure(server)
             except (
                 Exception
             ):  # bad command / unreachable url — skip, don't break the session
                 continue
-            out.extend(
-                build_callables(
-                    server,
-                    conn.tools,
-                    lambda tool, args, name=server.name: self.mcp.call(
-                        name, tool, args
-                    ),
-                    loop,
-                )
+            callables = build_callables(
+                server,
+                conn.tools,
+                lambda tool, args, name=server.name: self.mcp.call(name, tool, args),
+                loop,
             )
+            if backed:
+                # Per-tool approval from the pinned read/write classification
+                # (server-level requires_approval is off for backed servers);
+                # anything unclassified stays approval-gated — fail closed.
+                for fn in callables:
+                    fn.__aisuite_tool_metadata__.requires_approval = approval_for_tool(
+                        fn.__aisuite_tool_metadata__.name, default=True
+                    )
+            out.extend(callables)
         return out
 
     def list_mcp(self) -> list[dict[str, Any]]:
         """Servers from the global config + connection status (does not connect)."""
         from ..mcp import oauth as mcp_oauth
 
+        from ..connectors.descriptors import get_descriptor
+
         out = []
         for name, raw in read_global().items():
+            d = get_descriptor(name)
+            if d is not None and d.mcp_url:
+                # Connector-backed server: surfaced on the Connectors page (its
+                # connect/disconnect lifecycle lives there), not in the MCP tab.
+                continue
             connected = name in self.mcp._conns
             is_oauth = str(raw.get("auth", "")).lower() == "oauth"
             if connected:
@@ -870,6 +907,37 @@ class SessionManager:
             finally:
                 self._mcp_authorizing.discard(name)
         return {"ok": False, "error": f"unknown MCP server: {name}"}
+
+    async def mcp_connect_connector(self, name: str) -> dict[str, Any]:
+        """One-click connect for an MCP-BACKED connector (descriptor.mcp_url): seed
+        the global server entry pinned to the curated allowlist, run the browser
+        OAuth flow, and mark the connector profile `mode: "mcp"` on success."""
+        from ..connectors.descriptors import get_descriptor
+        from ..connectors.tool_defs import mcp_pinned_tools
+
+        d = get_descriptor(name)
+        if d is None or not d.mcp_url:
+            return {"ok": False, "error": f"{name} has no MCP connect path"}
+        put_global_server(
+            name,
+            {
+                "url": d.mcp_url,
+                "auth": "oauth",
+                # Server-level approval off: writes gate per-tool via the pinned
+                # read/write classification (prepare_mcp_tools); unknown vendor
+                # tools never load at all (include_tools).
+                "requires_approval": False,
+                "include_tools": mcp_pinned_tools(name),
+                "enabled": True,
+            },
+        )
+        result = await self.connect_mcp(name)
+        if result.get("ok"):
+            profile = self.secrets.get(f"{name}:default") or {}
+            self.secrets.put(
+                f"{name}:default", {**profile, "mode": "mcp", "enabled": True}
+            )
+        return result
 
     async def signout_mcp(self, name: str) -> dict[str, Any]:
         """Drop the live connection (if any) and forget the stored OAuth tokens."""
@@ -966,6 +1034,10 @@ class SessionManager:
         return set_experimental_enabled(self.secrets, value)
 
     def disconnect_connector(self, name: str) -> dict[str, Any]:
+        # MCP-backed profile: drop the live server connection before the tokens go.
+        conn = self.mcp._conns.get(name)
+        if conn is not None:
+            conn.shutdown.set()
         return disconnect_connector(self.secrets, name)
 
     def update_connector_tools(
