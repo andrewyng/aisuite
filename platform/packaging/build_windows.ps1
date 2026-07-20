@@ -88,7 +88,11 @@ Write-Host "==> [3/3] tauri build (--bundles $Bundles)" -ForegroundColor Cyan
 # auto-update.
 $UpdaterArgs = @()
 if ($env:TAURI_SIGNING_PRIVATE_KEY) {
-    $UpdaterArgs = @("--config", '{"bundle":{"createUpdaterArtifacts":true}}')
+    # Pass the overlay as a FILE: inline JSON loses its quotes through the
+    # PowerShell -> npm.cmd -> cmd hop ("key must be a string", v0.1.3 run).
+    $Overlay = Join-Path ([IO.Path]::GetTempPath()) "ocw-updater-overlay.json"
+    Set-Content -Path $Overlay -Value '{"bundle":{"createUpdaterArtifacts":true}}' -Encoding ascii
+    $UpdaterArgs = @("--config", $Overlay)
 } else {
     Write-Host "    WARNING: no updater signing key - building WITHOUT auto-update artifacts (not releasable)." -ForegroundColor Yellow
 }

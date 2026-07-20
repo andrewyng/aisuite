@@ -46,6 +46,29 @@ VERSION="$(node -p "require('$GUI/src-tauri/tauri.conf.json').version")"
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"   # e.g. aarch64-apple-darwin
 ARCH="${TRIPLE%%-*}"
 
+# CI keychain bootstrap: on a fresh runner the Developer ID cert exists only as the
+# APPLE_CERTIFICATE secret (base64 .p12) — import it into a throwaway keychain so the
+# sidecar codesign calls below can find the identity ("no identity found", v0.1.3 run
+# 29773913622). tauri build does its OWN import later; this covers our signing, which
+# runs first. Local builds never set APPLE_CERTIFICATE — the identity already lives in
+# the login keychain, and this block is skipped.
+if [ -n "${APPLE_CERTIFICATE:-}" ] && [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+  echo "==> importing signing certificate into a temporary keychain"
+  KC_DIR="$(mktemp -d)"
+  KC="$KC_DIR/ocw-signing.keychain-db"
+  KC_PASS="$(openssl rand -hex 16)"
+  security create-keychain -p "$KC_PASS" "$KC"
+  security set-keychain-settings -lut 21600 "$KC"
+  security unlock-keychain -p "$KC_PASS" "$KC"
+  echo "$APPLE_CERTIFICATE" | base64 -d > "$KC_DIR/cert.p12"
+  security import "$KC_DIR/cert.p12" -P "${APPLE_CERTIFICATE_PASSWORD:-}" \
+    -A -t cert -f pkcs12 -k "$KC"
+  rm -f "$KC_DIR/cert.p12"
+  # Allow codesign to use the key headlessly (no UI prompt exists on a runner).
+  security set-key-partition-list -S "apple-tool:,apple:" -s -k "$KC_PASS" "$KC" >/dev/null
+  security list-keychains -d user -s "$KC" login.keychain-db
+fi
+
 echo "==> [1/5] PyInstaller: bundling coworker-server ($TRIPLE)"
 "$PLATFORM/.venv/bin/pyinstaller" --noconfirm --clean \
   --distpath "$HERE/dist" --workpath "$HERE/build" "$HERE/coworker-server.spec"
@@ -208,6 +231,12 @@ if [ "${OCW_SKIP_NOTARIZE:-}" = "1" ] && [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; t
 elif [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
   echo "==> [5/5] release finishing: sign container → notarize → staple"
   codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG"
+
+  # CI provides the App Store Connect key under tauri's APPLE_API_* names (release.yml)
+  # — reuse the same key for the DMG-container notarization below.
+  NOTARYTOOL_API_KEY_PATH="${NOTARYTOOL_API_KEY_PATH:-${APPLE_API_KEY_PATH:-}}"
+  NOTARYTOOL_API_KEY_ID="${NOTARYTOOL_API_KEY_ID:-${APPLE_API_KEY:-}}"
+  NOTARYTOOL_API_ISSUER_ID="${NOTARYTOOL_API_ISSUER_ID:-${APPLE_API_ISSUER:-}}"
 
   REPO="$(cd "$PLATFORM/.." && pwd)"
   NOTARY_ENV="${OCW_NOTARY_ENV:-$REPO/../.ocw-notary.env}"
