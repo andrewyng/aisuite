@@ -1304,7 +1304,75 @@ def test_outlook_managed_multi_account_keys_by_email(tmp_path, monkeypatch):
     # default account = first connected (rohit@ was added first)
     out = tools["outlook_list_events"]()
     assert out["account"] == "rohit@openworker.com"
-    assert calls[-1]["url"] == "https://graph.microsoft.com/v1.0/me/events"
+    # Bare list = the next-7-days calendarView (recurrences expanded), not /me/events.
+    assert calls[-1]["url"] == "https://graph.microsoft.com/v1.0/me/calendarView"
+
+
+def test_outlook_calendar_tools_hit_the_right_graph_endpoints(tmp_path, monkeypatch):
+    """The calendar CRUD + invite-response tools map onto Microsoft Graph:
+    create carries attendees/location/Teams flags, update PATCHes only the
+    provided fields, respond posts to the accept/decline/tentativelyAccept
+    action endpoints."""
+    import coworker.connectors.integration_tools as it
+    from coworker.cloud import managed_profile_from_callback
+    from coworker.connectors.setup import managed_connect_connector
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    managed_connect_connector(
+        secrets,
+        "outlook",
+        managed_profile_from_callback(
+            {"access_token": "tok", "account": "rohit@openworker.com", "provider": "microsoft"}
+        ),
+    )
+
+    calls = []
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"method": method, "url": url, "params": params, "json": json})
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    tools = {t.__name__: t for t in it.make_integration_tools(secrets)}
+
+    tools["outlook_create_event"](
+        "Sync",
+        "2026-07-20T10:00:00",
+        "2026-07-20T10:30:00",
+        attendees="a@x.com, b@y.com",
+        location="Room 4",
+        teams_meeting=True,
+    )
+    payload = calls[-1]["json"]
+    assert [a["emailAddress"]["address"] for a in payload["attendees"]] == [
+        "a@x.com",
+        "b@y.com",
+    ]
+    assert payload["location"] == {"displayName": "Room 4"}
+    assert payload["isOnlineMeeting"] is True
+
+    tools["outlook_update_event"]("ev1", subject="Moved", start="2026-07-21T10:00:00")
+    assert calls[-1]["method"] == "PATCH"
+    assert calls[-1]["url"].endswith("/me/events/ev1")
+    # PATCH semantics: untouched fields stay out of the payload.
+    assert set(calls[-1]["json"]) == {"subject", "start"}
+
+    tools["outlook_delete_event"]("ev1")
+    assert calls[-1]["method"] == "DELETE"
+    assert calls[-1]["url"].endswith("/me/events/ev1")
+
+    tools["outlook_respond_event"]("ev1", "tentative", comment="might be late")
+    assert calls[-1]["url"].endswith("/me/events/ev1/tentativelyAccept")
+    assert calls[-1]["json"] == {"comment": "might be late", "sendResponse": True}
+
+    out = tools["outlook_respond_event"]("ev1", "maybe")
+    assert "error" in out
+
+    # A time-windowed list passes the window through to calendarView.
+    tools["outlook_list_events"](start="2026-07-20T00:00:00Z", end="2026-07-22T00:00:00Z")
+    assert calls[-1]["params"]["startDateTime"] == "2026-07-20T00:00:00Z"
+    assert calls[-1]["params"]["endDateTime"] == "2026-07-22T00:00:00Z"
+    assert calls[-1]["params"]["$orderby"] == "start/dateTime"
 
 
 def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):

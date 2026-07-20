@@ -175,7 +175,8 @@ export function AccessSection({
   const live = connected.filter((c) => c.enabled);
 
   // Catalog search: available, not already in the Connected list (those have toggles above),
-  // matched on title/name. Capped — this is a typeahead, not a directory.
+  // matched on title/name/aliases ("calendar" must surface Outlook, not just Google
+  // Calendar). Capped — this is a typeahead, not a directory.
   const connectedSet = new Set(connected.map((c) => c.connector));
   const q = query.trim().toLowerCase();
   const results = !q
@@ -185,7 +186,9 @@ export function AccessSection({
           (c) =>
             c.available &&
             !connectedSet.has(c.name) &&
-            (c.title.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)),
+            (c.title.toLowerCase().includes(q) ||
+              c.name.toLowerCase().includes(q) ||
+              (c.aliases ?? []).some((a) => a.toLowerCase().includes(q))),
         )
         .slice(0, 6);
 
