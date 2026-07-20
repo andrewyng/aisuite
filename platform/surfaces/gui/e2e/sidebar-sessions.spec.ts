@@ -1,8 +1,9 @@
 import { test, expect } from "./fixtures";
 
 // Sidebar session lifecycle (owner testing pass, 2026-07-03): the peek cap (sessions_peek=5 →
-// "Show more (2)" with 7 sessions), one-click reversible archive with the Archived disclosure,
-// and the two-step delete (× arms the row → "Delete?" confirms).
+// "Show more (2)" with 7 sessions), reversible archive with the Archived disclosure, and the
+// two-step delete (Delete arms → "Delete?" confirms). All row actions sit behind the per-row
+// ⋮ kebab (FB-011), so each flow goes hover → kebab → menu item.
 
 test("session list caps at the peek count with Show more", async ({ page }) => {
   await page.goto("/");
@@ -16,13 +17,14 @@ test("session list caps at the peek count with Show more", async ({ page }) => {
   await expect(page.getByTitle("Weekly plan 7")).toBeVisible();
 });
 
-test("archive is one click and reversible via the Archived disclosure", async ({ page }) => {
+test("archive via the row menu is reversible via the Archived disclosure", async ({ page }) => {
   await page.goto("/");
   const row = page.getByTitle("Weekly plan 2");
   await expect(row).toBeVisible();
 
   await row.hover();
-  await row.getByTitle("Archive (reversible)").click();
+  await row.getByTestId("row-menu").click();
+  await row.getByTestId("row-menu-archive").click();
 
   // Gone from the main list; parked under the Archived disclosure.
   await expect(page.getByTitle("Weekly plan 2")).toHaveCount(0);
@@ -30,9 +32,12 @@ test("archive is one click and reversible via the Archived disclosure", async ({
   const archivedRow = page.getByTitle("Weekly plan 2");
   await expect(archivedRow).toBeVisible();
 
-  // Unarchive brings it straight back; the disclosure disappears with its last item.
+  // Unarchive (same menu slot on an archived row) brings it straight back; the disclosure
+  // disappears with its last item.
   await archivedRow.hover();
-  await archivedRow.getByTitle("Unarchive").click();
+  await archivedRow.getByTestId("row-menu").click();
+  await expect(archivedRow.getByTestId("row-menu-archive")).toHaveText("Unarchive");
+  await archivedRow.getByTestId("row-menu-archive").click();
   await expect(page.getByRole("button", { name: /Archived/ })).toHaveCount(0);
   await expect(page.getByTitle("Weekly plan 2")).toBeVisible();
 });
@@ -59,17 +64,42 @@ test("mention-spawned sessions collapse under From Slack with the platform icon 
   await expect(page.getByTitle("#general — check the deploy?")).toHaveCount(1);
 });
 
-test("delete is two-step: × arms the row, Delete? confirms", async ({ page }) => {
+test("pin via the row menu moves the session to the Pinned band and back", async ({ page }) => {
+  await page.goto("/");
+  const row = page.getByTitle("Weekly plan 4");
+  await expect(row).toBeVisible();
+
+  await row.hover();
+  await row.getByTestId("row-menu").click();
+  await expect(row.getByTestId("row-menu-pin")).toHaveText("Pin");
+  await row.getByTestId("row-menu-pin").click();
+
+  // Pinned rows live ONLY in the cross-persona Pinned band — no duplicate in the body.
+  const pinnedBand = page.getByText("Pinned", { exact: true }).locator("..");
+  await expect(pinnedBand.getByTitle("Weekly plan 4")).toBeVisible();
+  await expect(page.getByTitle("Weekly plan 4")).toHaveCount(1);
+
+  const pinnedRow = pinnedBand.getByTitle("Weekly plan 4");
+  await pinnedRow.hover();
+  await pinnedRow.getByTestId("row-menu").click();
+  await expect(pinnedRow.getByTestId("row-menu-pin")).toHaveText("Unpin");
+  await pinnedRow.getByTestId("row-menu-pin").click();
+  await expect(pinnedBand.getByTitle("Weekly plan 4")).toHaveCount(0);
+  await expect(page.getByTitle("Weekly plan 4")).toHaveCount(1);
+});
+
+test("delete is two-step: the menu's Delete arms, Delete? confirms", async ({ page }) => {
   await page.goto("/");
   const row = page.getByTitle("Weekly plan 3");
   await expect(row).toBeVisible();
 
   await row.hover();
-  await row.getByTitle("Delete permanently").click();
-  // First click only ARMS — the row is still there, now showing the confirm affordance.
-  await expect(row.getByTitle("Click to permanently delete")).toBeVisible();
+  await row.getByTestId("row-menu").click();
+  await row.getByTestId("row-menu-delete").click();
+  // First click only ARMS — the menu stays open showing the confirm affordance, the row remains.
+  await expect(row.getByTestId("row-menu-delete")).toHaveText("Delete?");
   await expect(page.getByTitle("Weekly plan 3")).toHaveCount(1);
 
-  await row.getByTitle("Click to permanently delete").click();
+  await row.getByTestId("row-menu-delete").click();
   await expect(page.getByTitle("Weekly plan 3")).toHaveCount(0);
 });

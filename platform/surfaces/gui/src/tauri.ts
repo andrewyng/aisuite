@@ -100,8 +100,19 @@ export type UpdateInfo = { version: string; notes: string };
  * null = up to date, unreachable endpoint, or not the desktop app. */
 export const checkForUpdate = () => invoke<UpdateInfo | null>("check_for_update");
 
-/** Download + verify + install the update, then relaunch. Resolves only on failure paths
- * (success restarts the process on macOS; Windows hands off to the installer). */
+/** Pre-fetch + verify the update bytes in the background so the install is instant.
+ * The shell caches them keyed by version; calling again for the same version is a no-op.
+ * Rejects when there is no update or the download fails — callers fall back to the
+ * download-on-install path. */
+export const downloadUpdate = () => invokeStrict<void>("download_update");
+
+/** Drop the pre-fetched update bundle (freed on "Later" so a dismissed release
+ * doesn't pin tens of MB for a weeks-long app run). */
+export const clearPendingUpdate = () => invokeStrict<void>("clear_pending_update");
+
+/** Install the update (pre-fetched bytes when available, else download + verify now),
+ * then relaunch. Resolves only on failure paths (success restarts the process on macOS;
+ * Windows hands off to the installer). */
 export const installUpdate = () => invokeStrict<void>("install_update");
 
 /** Best-effort open a URL in the user's browser. Uses the Tauri opener plugin if present, else

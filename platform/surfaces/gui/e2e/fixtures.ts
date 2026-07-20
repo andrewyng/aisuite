@@ -610,6 +610,23 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return;
         }
+        // A deliberately SLOW multi-second stream (~40 ticks × 120ms) so specs can
+        // interact mid-turn — the follow/pin scroll contract (FB-004) is untestable
+        // against the instant echo below.
+        if (/stream the epic/i.test(msg.text)) {
+          let ticks = 0;
+          const line = "The epic scrolls ever onward, line upon line upon line. ";
+          const timer = setInterval(() => {
+            ticks += 1;
+            send("assistant_delta", { text: line.repeat(3) + "\n\n" });
+            if (ticks >= 40) {
+              clearInterval(timer);
+              send("assistant_message", { text: ("The epic concludes. " + line).repeat(20) });
+              send("turn_done");
+            }
+          }, 120);
+          return;
+        }
         send("assistant_delta", { text: "Echo: " });
         send("assistant_delta", { text: msg.text });
         // Echo the model the message carried — pins the model-per-message contract (the

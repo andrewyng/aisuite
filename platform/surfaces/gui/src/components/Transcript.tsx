@@ -4,6 +4,51 @@ import { shortArgs } from "./ApprovalCard";
 import { humanizeAsk, humanizeTool, type HumanLine } from "../humanize";
 import { Markdown } from "./Markdown";
 import { ConnectorMessageCard } from "./ConnectorMessageCard";
+import { Icon } from "./Icon";
+
+// Hover affordances for a message bubble (FB-005): copy the raw text + the message's time.
+// Lives in a ZERO-HEIGHT strip under the bubble (absolute, inside the transcript's 20px gap)
+// so revealing it on group-hover never shifts the layout. `ts` is unix seconds — canonical
+// messages carry it, pre-stamp history doesn't, so the time simply omits itself when absent.
+function BubbleMeta({ text, ts, align }: { text: string; ts?: number; align: "left" | "right" }) {
+  const [copied, setCopied] = useState(false);
+  const when = typeof ts === "number" ? new Date(ts * 1000) : null;
+  const copy = () => {
+    // "Copied" only after the write actually lands — WebKit can reject outside a
+    // trusted gesture, and claiming success on a silent no-op would gaslight the user.
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {});
+  };
+  return (
+    <div className="relative h-0 select-none">
+      <div
+        className={
+          "absolute top-1 flex items-center gap-1.5 text-[10.5px] leading-none text-faint whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity " +
+          (align === "right" ? "right-0" : "left-0")
+        }
+      >
+        <button
+          className="flex items-center cursor-pointer hover:text-muted"
+          data-testid="bubble-copy"
+          title="Copy message"
+          onClick={copy}
+        >
+          {copied ? "Copied" : <Icon name="copy" size={11} />}
+        </button>
+        {when && (
+          <span data-testid="bubble-ts" title={when.toLocaleString()}>
+            {when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
 type ApprovalItem = Extract<Item, { kind: "approval" }>;
@@ -296,29 +341,30 @@ export function Transcript({ items, running, streamingText }: Props) {
             return <ConnectorMessageCard source={item.source} key={bi} />;
           case "user":
             return (
-              <div
-                className="bubble-user self-end max-w-[78%] px-3.5 py-2.5 rounded-[14px_14px_4px_14px] bg-solid text-onSolid text-[14.5px] leading-relaxed whitespace-pre-wrap"
-                key={bi}
-              >
-                {item.attachments && item.attachments.length > 0 && (
-                  <div className="bubble-attachments">
-                    {item.attachments.map((a, i) =>
-                      a.kind === "image" ? (
-                        <img key={i} className="msg-img" src={a.data_url} alt={a.name} />
-                      ) : (
-                        <span key={i} className="msg-file">📄 {a.name}</span>
-                      ),
-                    )}
-                  </div>
-                )}
-                {item.text}
+              <div className="group self-end max-w-[78%] flex flex-col items-end" key={bi}>
+                <div className="bubble-user px-3.5 py-2.5 rounded-[14px_14px_4px_14px] bg-solid text-onSolid text-[14.5px] leading-relaxed whitespace-pre-wrap">
+                  {item.attachments && item.attachments.length > 0 && (
+                    <div className="bubble-attachments">
+                      {item.attachments.map((a, i) =>
+                        a.kind === "image" ? (
+                          <img key={i} className="msg-img" src={a.data_url} alt={a.name} />
+                        ) : (
+                          <span key={i} className="msg-file">📄 {a.name}</span>
+                        ),
+                      )}
+                    </div>
+                  )}
+                  {item.text}
+                </div>
+                <BubbleMeta text={item.text} ts={item.ts} align="right" />
               </div>
             );
           case "assistant":
             return (
-              <div className="bubble-assistant" key={bi}>
+              <div className="group bubble-assistant" key={bi}>
                 <div className="who">assistant</div>
                 <Markdown text={item.text} />
+                <BubbleMeta text={item.text} ts={item.ts} align="left" />
               </div>
             );
           case "dirreq":

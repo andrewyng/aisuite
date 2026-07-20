@@ -39,23 +39,31 @@ test("no topbar opener; the Access header IS the ambient glance; expanding edits
   await expect(body.getByText("GitHub", { exact: true })).toBeVisible();
 });
 
-test("+ Add a source: catalog typeahead → connect-in-context; connected sources never match", async ({
+test("+ Add a source: full catalog on focus, filter as you type → connect-in-context; connected sources never match", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
   await page.getByTestId("access-toggle").click();
 
-  // The quiet row becomes a typeahead (search-only — no browsable list renders unprompted).
+  // Focusing the empty input shows the FULL catalog (FB-012) — every available connector
+  // minus the already-connected three, before any typing.
   await page.getByTestId("access-add-source").click();
   const search = page.getByTestId("access-add-search");
-  await expect(page.getByTestId("access-add-notion")).toHaveCount(0); // nothing unprompted
+  await expect(search).toBeFocused();
+  const rows = page.locator('[data-testid^="access-add-"]:not([data-testid="access-add-search"])');
+  await expect(rows).toHaveCount(9); // 12 in the catalog − browser/slack/github (connected)
+  await expect(page.getByTestId("access-add-notion")).toBeVisible();
 
   // Already-connected sources don't match (Slack and GitHub are connected in fixtures)…
   await search.fill("slack");
   await expect(page.getByText("No match — see all on the Connectors page below.")).toBeVisible();
   await search.fill("github");
   await expect(page.getByText("No match — see all on the Connectors page below.")).toBeVisible();
+
+  // …and clearing the query restores the full list ("filter as you type", not search-only).
+  await search.fill("");
+  await expect(rows).toHaveCount(9);
 
   // Capability aliases match too: "calendar" surfaces Outlook (title alone never would).
   await search.fill("calendar");

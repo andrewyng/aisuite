@@ -129,6 +129,10 @@ class SessionManager:
         self._running_sessions: set[str] = (
             set()
         )  # sessions with an in-flight turn (busy)
+        # Sessions with an auto-title LLM call in flight (FB-010) — one call at a time.
+        self._autotitle_inflight: set[str] = set()
+        self._autotitle_tasks: set[asyncio.Task] = set()
+        self._autotitle_attempts: dict[str, int] = {}
         self.secrets = SecretStore()
         # No explicit provider injected → route by the model's `provider:` prefix (OpenAI default,
         # Ollama, …). Tests inject a provider directly and bypass the router. The same router is
@@ -2379,6 +2383,10 @@ class SessionManager:
 
     def mark_idle(self, session_id: str) -> None:
         self._running_sessions.discard(session_id)
+        # Every turn path (WS, background delivery, durable resume) marks idle when it
+        # finishes — the one shared post-turn moment, so auto-titling hooks in here and
+        # can never add latency to the response itself.
+        self._maybe_autotitle(session_id)
 
     def is_running(self, session_id: str) -> bool:
         return session_id in self._running_sessions
@@ -2865,6 +2873,110 @@ class SessionManager:
             {"path": str(r.path), "writable": bool(r.writable), "label": r.label}
             for r in roots[1:]
         ]
+
+    # -- LLM auto-titles (FB-010) -------------------------------------------------
+    _AUTOTITLE_PROMPT = (
+        "You title chat sessions. Given the user's opening message(s), reply with ONLY "
+        "a 4-5 word title for the session — no quotes or punctuation wrapping it. If "
+        'the opening is merely a greeting or small-talk with no topic ("hey", '
+        '"how are you", "hi there"), reply with exactly: small-talk'
+    )
+
+    def _maybe_autotitle(self, session_id: str) -> None:
+        """Kick off title generation after a turn completes, fire-and-forget. Only while
+        the session has neither a manual rename nor a generated title, at most twice:
+        attempt 1 rides turn 1, and the second window exists solely for the small-talk
+        retry (with both openers). Attempts are counted in memory rather than derived
+        from the user-message count — steering injections also land as role "user", and
+        counting them would silently suppress titling on a steered first turn. A restart
+        forgetting the counter is harmless: renamed/auto_title still gate re-titling."""
+        if session_id.startswith("__"):
+            return
+        engine = self._engines.get(session_id)
+        if engine is None or session_id in self._autotitle_inflight:
+            return
+        if self.task_store.task_for_run_session(session_id) is not None:
+            return  # automation runs are titled by their task
+        if self._autotitle_attempts.get(session_id, 0) >= 2:
+            return
+        users = [m for m in engine.messages if m.get("role") == "user"]
+        if not users:
+            return
+        state = self.session_store.title_state(session_id)
+        if state is None or state["renamed"] or state["auto_title"]:
+            return
+        from ..attachments import content_to_text
+
+        openers = [
+            text
+            for m in users
+            if (text := content_to_text(m.get("content"), image_placeholder="").strip())
+        ][:2]
+        if not openers:
+            return
+        self._autotitle_attempts[session_id] = (
+            self._autotitle_attempts.get(session_id, 0) + 1
+        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no loop to ride (sync caller) — skip, never block
+        self._autotitle_inflight.add(session_id)
+        # Retain the task: the loop holds only a weak ref, and a GC'd task would both
+        # kill the title mid-flight and strand the inflight guard.
+        task = loop.create_task(self._generate_autotitle(session_id, engine, openers))
+        self._autotitle_tasks.add(task)
+        task.add_done_callback(self._autotitle_tasks.discard)
+
+    async def _generate_autotitle(
+        self, session_id: str, engine: TurnEngine, openers: list[str]
+    ) -> None:
+        """One cheap non-streaming completion on the session's own provider/model. Every
+        failure (provider error, empty, absurdly long) is swallowed — the title_from
+        fallback stays; the small-talk sentinel leaves auto_title unset so the turn-2
+        retry can run."""
+        try:
+            turn = await asyncio.to_thread(
+                engine.provider.complete,
+                model=engine.model,
+                messages=[
+                    {"role": "system", "content": self._AUTOTITLE_PROMPT},
+                    {"role": "user", "content": "\n\n".join(openers)},
+                ],
+                temperature=0.2,
+                # Reasoning-routed models spend hidden tokens BEFORE emitting text; a
+                # tight cap plus default effort yields an empty completion and a silent
+                # no-op. Effort "none" reaches only the OpenAI-compat path (the native
+                # providers whitelist their settings), and 64 leaves headroom either way.
+                max_tokens=64,
+                reasoning_effort="none",
+            )
+            raw = (getattr(turn, "text", None) or "").strip()
+            # Sanitize: surrounding quotes off, whitespace collapsed, capped at 60.
+            title = " ".join(raw.strip("\"'“”‘’`").split())
+            # Sentinel tolerance: models riff on the exact token ("Small talk.", quoted,
+            # trailing period) — normalize before comparing, else the riff becomes the title.
+            if title.lower().strip(".!,;:'\"").replace(" ", "-").replace("_", "-") in (
+                "small-talk",
+                "smalltalk",
+            ):
+                return
+            if not title or len(title) > 80:
+                return
+            if self.session_store.set_auto_title(session_id, title[:60]):
+                # Best-effort nudge for any live viewer; the sidebar's poll and
+                # post-turn refresh pick the new title up regardless.
+                await self.broadcast_session(
+                    session_id,
+                    {
+                        "type": "session_title",
+                        "data": {"session_id": session_id, "title": title[:60]},
+                    },
+                )
+        except Exception:
+            pass  # a failed title must never surface as a session error
+        finally:
+            self._autotitle_inflight.discard(session_id)
 
     # -- session roots (orphan Cowork: scratch + added folders) ------------------
     def get_roots(self, session_id: str) -> list[dict[str, Any]]:

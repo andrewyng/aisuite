@@ -180,9 +180,52 @@ export function Sidebar(props: Props) {
   }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  // Two-step delete: first click arms the row (× → "Delete?"), second click deletes.
+  // Two-step delete inside the row's ⋮ menu: Delete arms ("Delete?"), a second click deletes.
   // Archive is the primary way to put a conversation away — one click, reversible.
   const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+  // The open row-actions ⋮ menu (one at a time). Fixed-position, not absolute: the expanded
+  // accordion group clips overflow (its rounded fill), so an absolute popover on its lower rows
+  // would be cut off — same constraint as SlackDetail's person picker.
+  const [rowMenu, setRowMenu] = useState<{
+    id: string;
+    top: number;
+    left: number;
+    anchor: HTMLElement;
+  } | null>(null);
+  const closeRowMenu = () => {
+    setRowMenu(null);
+    setConfirmDelId(null);
+  };
+  const openRowMenu = (id: string, anchor: HTMLElement) => {
+    const r = anchor.getBoundingClientRect();
+    const MENU_W = 160; // w-40
+    const MENU_H = 150; // ~4 items + divider; only used to flip upward near the window bottom
+    setConfirmDelId(null);
+    setRowMenu({
+      id,
+      top: r.bottom + 4 + MENU_H > window.innerHeight ? r.top - MENU_H : r.bottom + 4,
+      left: Math.max(8, r.right - MENU_W),
+      anchor,
+    });
+  };
+  useEffect(() => {
+    if (!rowMenu) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRowMenu();
+    // Scrolling an ANCESTOR of the anchor row detaches the fixed menu from it — dismiss.
+    // Filter by containment: unrelated scrollers (the transcript auto-follow during a
+    // streaming turn fires constantly) must not close the menu.
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      if (t === document || (t instanceof Node && t.contains(rowMenu.anchor))) closeRowMenu();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowMenu]);
   const [showArchived, setShowArchived] = useState(false);
   // Surfaced + enabled personas drive the surface list + family-aware behavior.
   // Refetched on the personas-changed event so an enable/install/delete in Settings
@@ -357,68 +400,100 @@ export function Sidebar(props: Props) {
     .filter(matches)
     .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
 
-  // Hover action cluster (pin / rename / archive / delete) shared by BOTH row styles — the
-  // chronological cardRow must offer the same actions as the persona accordion's sessionRow
-  // (owner ask 2026-07-09; it previously had pin only).
-  const rowActions = (s: SessionInfo, title: string) => (
-    <span
-      className="hidden group-hover:flex items-center gap-0.5 shrink-0"
-      onClick={(e) => e.stopPropagation()}
-    >
+  // Row actions live behind ONE ⋮ kebab per row (FB-011: four hover icons read as clutter) —
+  // the menu offers Rename · Pin/Unpin · Archive/Unarchive · Delete, with the two-step delete
+  // confirm kept inside it. Shared by BOTH row styles, so the chronological cardRow offers the
+  // same actions as the persona accordion's sessionRow (owner ask 2026-07-09).
+  const rowActions = (s: SessionInfo, title: string) => {
+    const menuOpen = rowMenu?.id === s.session_id;
+    const item = (testid: string, icon: IconName, label: string, onClick: () => void) => (
       <button
-        title={s.pinned ? "Unpin" : "Pin to top"}
-        className={
-          "w-5 h-5 grid place-items-center rounded hover:bg-paper " +
-          (s.pinned ? "text-accent" : "text-faint hover:text-ink")
-        }
-        onClick={() => props.onTogglePin(s.session_id, !s.pinned)}
-      >
-        <Icon name="pin" size={12} />
-      </button>
-      <button
-        title="Rename"
-        className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left hover:bg-paper"
+        data-testid={testid}
+        role="menuitem"
         onClick={() => {
-          setEditingId(s.session_id);
-          setEditValue(title);
+          closeRowMenu();
+          onClick();
         }}
       >
-        <Icon name="pencil" size={12} />
+        <Icon name={icon} size={13} className="shrink-0 text-muted" />
+        <span className="flex-1">{label}</span>
       </button>
-      <button
-        title={s.archived ? "Unarchive" : "Archive (reversible)"}
-        className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-paper"
-        onClick={() => props.onArchiveSession(s.session_id, !s.archived)}
+    );
+    return (
+      <span
+        // Stay visible while this row's menu is open — the pointer may be on the menu, off the row.
+        className={(menuOpen ? "flex" : "hidden group-hover:flex") + " items-center shrink-0"}
+        onClick={(e) => e.stopPropagation()}
       >
-        <Icon name="archive" size={12} />
-      </button>
-      {confirmDelId === s.session_id ? (
         <button
-          title="Click to permanently delete"
-          className="px-1.5 h-5 grid place-items-center rounded bg-danger text-white text-[10.5px] font-medium"
-          onBlur={() => setConfirmDelId(null)}
-          onMouseLeave={() => setConfirmDelId(null)}
-          onClick={() => {
-            setConfirmDelId(null);
-            props.onDeleteSession(s.session_id);
-          }}
+          title="Session actions"
+          aria-label="Session actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          data-testid="row-menu"
+          className={
+            "w-5 h-5 grid place-items-center rounded hover:bg-paper " +
+            (menuOpen ? "text-ink bg-paper" : "text-faint hover:text-ink")
+          }
+          onClick={(e) => (menuOpen ? closeRowMenu() : openRowMenu(s.session_id, e.currentTarget))}
         >
-          Delete?
+          {/* Vertical kebab = the horizontal glyph rotated — no extra icon needed. */}
+          <Icon name="moreHorizontal" size={14} className="rotate-90" />
         </button>
-      ) : (
-        <button
-          title="Delete permanently"
-          className="w-5 h-5 grid place-items-center rounded text-faint hover:text-danger hover:bg-paper leading-none"
-          onClick={() => setConfirmDelId(s.session_id)}
-        >
-          ×
-        </button>
-      )}
-    </span>
-  );
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={closeRowMenu} />
+            <div
+              className="fixed z-50 w-40 rounded-xl border border-line bg-panel shadow-xl py-1"
+              style={{ top: rowMenu!.top, left: rowMenu!.left }}
+              role="menu"
+            >
+              {item("row-menu-rename", "pencil", "Rename", () => {
+                setEditingId(s.session_id);
+                setEditValue(title);
+              })}
+              {item("row-menu-pin", "pin", s.pinned ? "Unpin" : "Pin", () =>
+                props.onTogglePin(s.session_id, !s.pinned),
+              )}
+              {item("row-menu-archive", "archive", s.archived ? "Unarchive" : "Archive", () =>
+                props.onArchiveSession(s.session_id, !s.archived),
+              )}
+              <div className="h-px bg-line my-1 mx-2" />
+              {confirmDelId === s.session_id ? (
+                <button
+                  title="Click again to permanently delete"
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left font-medium text-danger hover:bg-paper"
+                  data-testid="row-menu-delete"
+                  role="menuitem"
+                  onClick={() => {
+                    closeRowMenu();
+                    props.onDeleteSession(s.session_id);
+                  }}
+                >
+                  <Icon name="trash" size={13} className="shrink-0" />
+                  <span className="flex-1">Delete?</span>
+                </button>
+              ) : (
+                <button
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left text-danger hover:bg-paper"
+                  data-testid="row-menu-delete"
+                  role="menuitem"
+                  onClick={() => setConfirmDelId(s.session_id)}
+                >
+                  <Icon name="trash" size={13} className="shrink-0" />
+                  <span className="flex-1">Delete</span>
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </span>
+    );
+  };
 
   // A compact session row (mock §141 grouped/recent rows): one-line title + right-side indicators,
-  // with the pin/rename/delete actions revealed on hover. Used in accordion bodies + grouped cards.
+  // with the ⋮ actions kebab revealed on hover. Used in accordion bodies + grouped cards.
   const sessionRow = (s: SessionInfo, opts: { showTime?: boolean } = {}) => {
     const title = s.title || s.session_id;
     const editing = editingId === s.session_id;
@@ -467,7 +542,12 @@ export function Sidebar(props: Props) {
               {s.pinned && <Icon name="pin" size={11} className="text-faint shrink-0" />}
               <span className="truncate">{title}</span>
             </span>
-            <span className="flex items-center gap-1.5 shrink-0 group-hover:hidden">
+            <span
+              className={
+                "flex items-center gap-1.5 shrink-0 group-hover:hidden" +
+                (rowMenu?.id === s.session_id ? " hidden" : "")
+              }
+            >
               {opts.showTime && compactAge(s.updated_at) && (
                 <span className="text-[11px] text-faint tabular-nums">{compactAge(s.updated_at)}</span>
               )}
@@ -483,7 +563,7 @@ export function Sidebar(props: Props) {
   };
 
   // A 2-line card row (mock §141 list-flat): an optional persona icon tile + title + a
-  // persona/channel subtitle + right-side indicators, with a pin/unpin button revealed on hover.
+  // persona/channel subtitle + right-side indicators, with the ⋮ actions kebab revealed on hover.
   // Shared by the flat layout's Pinned (no icon) and Recent (with icon) sections.
   const cardRow = (s: SessionInfo) => {
     const active = s.session_id === props.activeSession;
@@ -536,7 +616,12 @@ export function Sidebar(props: Props) {
               <span className="block truncate text-[13px] font-medium">{title}</span>
               <span className="block truncate text-[11px] text-faint">{subParts.join(" · ")}</span>
             </span>
-            <span className="flex items-center gap-1.5 shrink-0 group-hover:hidden">
+            <span
+              className={
+                "flex items-center gap-1.5 shrink-0 group-hover:hidden" +
+                (rowMenu?.id === s.session_id ? " hidden" : "")
+              }
+            >
               <OriginIcon s={s} />
               <ConnectorDot subs={s.subscriptions} />
               <LiveDot state={s.liveness} />

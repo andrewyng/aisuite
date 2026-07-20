@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional
@@ -128,7 +129,12 @@ class TurnEngine:
         # `source` (a MessageSource dict) is a display-only sidecar for connector messages: it
         # rides on the persisted user message + the TURN_START event, but is stripped before the
         # message reaches a provider (see `_outbound_messages`). `content` stays the framed text.
-        message: dict[str, Any] = {"role": "user", "content": user_input}
+        # `ts` (unix seconds, stamped on every appended message) is the same kind of sidecar.
+        message: dict[str, Any] = {
+            "role": "user",
+            "content": user_input,
+            "ts": time.time(),
+        }
         if source is not None:
             message["source"] = source
         self.messages.append(message)
@@ -675,7 +681,11 @@ class TurnEngine:
 
     def _inject_steering(self) -> None:
         for text, source in self._steering:
-            message: dict[str, Any] = {"role": "user", "content": text}
+            message: dict[str, Any] = {
+                "role": "user",
+                "content": text,
+                "ts": time.time(),
+            }
             if source is not None:
                 message["source"] = source
             self.messages.append(message)
@@ -684,16 +694,17 @@ class TurnEngine:
     def _outbound_messages(self) -> list[dict[str, Any]]:
         """`self.messages` prepared for the provider. The SOLE provider feed (see `_astream`).
 
-        Every message is stripped of the display-only sidecars — `source` and `_display` —
-        (providers reject unknown keys), unconditionally — whether or not a `<system-context>`
-        block is added. When a context
+        Every message is stripped of the display-only sidecars — `source`, `_display`, and
+        `ts` — (providers reject unknown keys), unconditionally — whether or not a
+        `<system-context>` block is added. When a context
         provider yields a non-empty string, an ephemeral `<system-context>` block is appended to the
         last user message. Never mutates `self.messages`, so neither the strip nor the block is
         persisted/replayed.
         """
-        # Strip the display-only sidecars — `source` (connector cards) and `_display`
-        # (e.g. filter-hidden counts) — copying only messages that carry one.
-        _SIDECARS = ("source", "_display")
+        # Strip the display-only sidecars — `source` (connector cards), `_display`
+        # (e.g. filter-hidden counts), and `ts` (append-time timestamps) — copying only
+        # messages that carry one.
+        _SIDECARS = ("source", "_display", "ts")
         out = [
             (
                 {k: v for k, v in msg.items() if k not in _SIDECARS}
@@ -751,7 +762,11 @@ class TurnEngine:
 
 
 def _assistant_message(turn: AssistantTurn) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": "assistant", "content": turn.text or ""}
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": turn.text or "",
+        "ts": time.time(),
+    }
     if turn.tool_calls:
         message["tool_calls"] = [
             {
@@ -766,7 +781,12 @@ def _assistant_message(turn: AssistantTurn) -> dict[str, Any]:
 
 def _tool_result_message(tool_call: ToolCall, result: Any) -> dict[str, Any]:
     content = result if isinstance(result, str) else json.dumps(result, default=str)
-    return {"role": "tool", "tool_call_id": tool_call.id, "content": content}
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "content": content,
+        "ts": time.time(),
+    }
 
 
 def _tool_error_message(tool_call: ToolCall, reason: str) -> dict[str, Any]:
@@ -774,6 +794,7 @@ def _tool_error_message(tool_call: ToolCall, reason: str) -> dict[str, Any]:
         "role": "tool",
         "tool_call_id": tool_call.id,
         "content": json.dumps({"error": "tool call not executed", "reason": reason}),
+        "ts": time.time(),
     }
 
 
