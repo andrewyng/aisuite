@@ -208,7 +208,11 @@ export interface McpServer {
   enabled: boolean;
   transport: string;
   requires_approval: boolean;
+  // "connected" | "configured" | "disabled" | and for auth:"oauth" servers:
+  // "needs_auth" (no tokens yet) | "authorizing" (browser sign-in in flight)
   status: string;
+  auth?: "oauth" | null;
+  last_error?: string | null;
   tool_count: number | null;
   config: Record<string, any>;
 }
@@ -250,6 +254,23 @@ export async function getMcpTools(
 
 export async function reloadMcp() {
   const res = await fetch(`${httpBase()}/v1/mcp/reload`, { method: "POST" });
+  return res.json();
+}
+
+/** Connect one MCP server now. For OAuth servers this opens the system browser;
+ * poll getMcpServers() for the status flip (authorizing → connected / needs_auth). */
+export async function connectMcp(name: string): Promise<{ ok: boolean; started?: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/mcp/${encodeURIComponent(name)}/connect`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+/** Drop the connection and forget the stored OAuth tokens. */
+export async function signoutMcp(name: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/mcp/${encodeURIComponent(name)}/signout`, {
+    method: "POST",
+  });
   return res.json();
 }
 

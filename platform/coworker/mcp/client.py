@@ -33,10 +33,13 @@ class _Conn:
 class MCPManager:
     """Owns persistent MCP connections keyed by server name; lazy-connects on demand."""
 
-    def __init__(self) -> None:
+    def __init__(self, secrets: Any = None) -> None:
         self._conns: dict[str, _Conn] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+        # SecretStore for OAuth servers' token persistence (mcp/oauth.py); lazy default
+        # so library/CLI construction without secrets keeps working.
+        self._secrets = secrets
 
     async def ensure(self, server: MCPServerDef) -> _Conn:
         """Return a live connection for `server`, connecting (once) if needed."""
@@ -82,9 +85,17 @@ class MCPManager:
                         raise ValueError(
                             f"MCP server '{server.name}' is http but has no url"
                         )
+                    auth = None
+                    if server.auth == "oauth":
+                        from ..secrets import SecretStore
+                        from .oauth import build_auth
+
+                        if self._secrets is None:
+                            self._secrets = SecretStore()
+                        auth = build_auth(server.name, server.url, self._secrets)
                     read, write, *_ = await stack.enter_async_context(
                         streamablehttp_client(
-                            server.url, headers=server.headers or None
+                            server.url, headers=server.headers or None, auth=auth
                         )
                     )
                 else:

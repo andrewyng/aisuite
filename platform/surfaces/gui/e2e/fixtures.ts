@@ -487,6 +487,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const providers: any[] = PROVIDERS.map((p) => ({ ...p }));
   // Automations — mutable so Run now appends a run, enable/disable toggles, and delete removes.
   const automations: any[] = [{ ...AUTOMATION }];
+  // MCP servers (empty by default; the granola OAuth quick-add test populates it).
+  const mcpServers: any[] = [];
   const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));
   // Per-session unattended flag — mutable so the composer's "Send to Inbox" toggle persists and
   // the app reads it back (which is what gates parking approvals to the Inbox vs an inline card).
@@ -1228,7 +1230,51 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/settings/onboarded") && m === "POST") {
       return json({ ok: true, onboarded: !!(req.postDataJSON() || {}).value });
     }
-    if (p.endsWith("/v1/mcp")) return json({ servers: [] });
+    // MCP servers — mutable so the OAuth quick-add (granola) flow reflects through the
+    // UI: add → needs_auth, connect → authorizing, next poll → connected (6 tools).
+    if (p.endsWith("/v1/mcp") && m === "GET") {
+      for (const s2 of mcpServers) {
+        if (s2.status === "authorizing" && s2._flip) {
+          s2.status = "connected";
+          s2.tool_count = 6;
+        }
+        if (s2.status === "authorizing") s2._flip = true;
+      }
+      return json({ servers: mcpServers.map(({ _flip, ...s2 }) => s2) });
+    }
+    if (p.endsWith("/v1/mcp") && m === "POST") {
+      const b = req.postDataJSON();
+      mcpServers.push({
+        name: b.name,
+        enabled: true,
+        transport: b.config?.url ? "http" : "stdio",
+        requires_approval: true,
+        auth: b.config?.auth === "oauth" ? "oauth" : null,
+        status: b.config?.auth === "oauth" ? "needs_auth" : "configured",
+        last_error: null,
+        tool_count: null,
+        config: b.config || {},
+      });
+      return json({ ok: true, name: b.name });
+    }
+    {
+      const mc = p.match(/\/v1\/mcp\/([^/]+)\/connect$/);
+      if (mc && m === "POST") {
+        const s2 = mcpServers.find((x) => x.name === decodeURIComponent(mc[1]));
+        if (s2) s2.status = "authorizing";
+        return json({ ok: true, started: true });
+      }
+      const ms = p.match(/\/v1\/mcp\/([^/]+)\/signout$/);
+      if (ms && m === "POST") {
+        const s2 = mcpServers.find((x) => x.name === decodeURIComponent(ms[1]));
+        if (s2) {
+          s2.status = "needs_auth";
+          s2.tool_count = null;
+          s2._flip = false;
+        }
+        return json({ ok: true });
+      }
+    }
     if (p.endsWith("/v1/unrouted")) return json([]);
 
     // channel subscriptions — mutable so add/remove reflect through the UI
