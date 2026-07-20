@@ -531,7 +531,7 @@ export function App() {
               const last = p[p.length - 1];
               return last && last.kind === "user" && last.text === d.input
                 ? p
-                : [...p, { kind: "user", text: d.input as string }];
+                : [...p, { kind: "user", text: d.input as string, ts: Date.now() / 1000 }];
             });
           }
           break;
@@ -539,7 +539,7 @@ export function App() {
           setStreaming((s) => s + (d.text || ""));
           break;
         case "assistant_message":
-          if (d.text) setItems((p) => [...p, { kind: "assistant", text: d.text }]);
+          if (d.text) setItems((p) => [...p, { kind: "assistant", text: d.text, ts: Date.now() / 1000 }]);
           setStreaming(""); // finalized into items (or empty tool-only turn)
           break;
         case "tool_proposed":
@@ -641,7 +641,7 @@ export function App() {
         const p = pendingPromptRef.current;
         if (p) {
           pendingPromptRef.current = null;
-          setItems((prev) => [...prev, { kind: "user", text: p }]);
+          setItems((prev) => [...prev, { kind: "user", text: p, ts: Date.now() / 1000 }]);
           sessionRef.current?.userMessage(p);
         }
       },
@@ -659,8 +659,53 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booting, sessionId, agent, refreshSessions]);
 
+  // Stream-following (FB-004): auto-scroll only while the user is AT the bottom, so scrolling
+  // up to read during a streaming turn sticks. `atBottomRef` is the live truth (per scroll
+  // event, no re-render); `following` mirrors it into state for the jump-to-latest pill.
+  // Programmatic smooth-scrolls fire scroll events of their own — while one is in flight
+  // (`autoScrollingRef`) they must not read as "the user scrolled up", or every stream tick
+  // would disengage its OWN follow. The animation only moves down, so a decreasing scrollTop
+  // mid-flight can only be the user taking over.
+  const atBottomRef = useRef(true);
+  const autoScrollingRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
+  const [following, setFollowing] = useState(true);
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    autoScrollingRef.current = true;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
+  const followLatest = () => {
+    atBottomRef.current = true;
+    setFollowing(true);
+    scrollToBottom();
+  };
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const top = el.scrollTop;
+    const atBottom = el.scrollHeight - top - el.clientHeight < 48;
+    if (autoScrollingRef.current) {
+      if (atBottom) autoScrollingRef.current = false; // landed
+      else if (top >= lastScrollTopRef.current) {
+        lastScrollTopRef.current = top; // still animating down — not the user
+        return;
+      } else autoScrollingRef.current = false; // moved UP mid-flight — user takeover
+    }
+    lastScrollTopRef.current = top;
+    atBottomRef.current = atBottom;
+    setFollowing(atBottom);
+  };
+  // A different session is a fresh viewport — never inherit a scrolled-up state. Declared
+  // BEFORE the auto-scroll effect: when a session switch and its hydrated items land in one
+  // commit, the reset must run first or the stale ref would skip the initial bottom-scroll.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    atBottomRef.current = true;
+    setFollowing(true);
+  }, [sessionId]);
+  useEffect(() => {
+    if (atBottomRef.current) scrollToBottom();
   }, [items, streaming]);
 
   // Track produced-file count for the topbar "Artifacts" affordance (works even when the rail is
@@ -687,9 +732,10 @@ export function App() {
   }, [surface, sessionId, browserRefreshKey, markUnattended]);
 
   const send = (text: string, attachments?: Attachment[]) => {
-    setItems((p) => [...p, { kind: "user", text, attachments }]);
+    setItems((p) => [...p, { kind: "user", text, attachments, ts: Date.now() / 1000 }]);
     // The visible model rides along with the message (single source of truth per turn).
     sessionRef.current?.userMessage(text, attachments, model);
+    followLatest(); // sending always re-engages stream-following, wherever the user had scrolled
   };
   // Resolving a LIVE prompt also resolves its parked Inbox mirror server-side, but the polled
   // `sessionInbox` copy stays "pending" for up to a poll cycle — long enough for the docked
@@ -986,7 +1032,7 @@ export function App() {
           <span /><span /><span />
         </div>
       )}
-      {/* Desktop-only auto-update prompt (checks once, 15s after boot; inert in browser). */}
+      {/* Desktop-only auto-update prompt (15s after boot, then every 30 min; inert in browser). */}
       <UpdateBanner />
       {/* When collapsed, a thin left-edge zone peeks the nav back as a floating overlay. */}
       {navCollapsed && (
@@ -1217,7 +1263,7 @@ export function App() {
                 </button>
               </div>
             )}
-            <div className="main-scroll" ref={scrollRef}>
+            <div className="main-scroll" ref={scrollRef} onScroll={handleScroll}>
               {idle ? (
                 agent === "cowork" ? (
                   <SessionIntro
@@ -1270,6 +1316,22 @@ export function App() {
                 </>
               )}
             </div>
+
+            {/* Scrolled up while the transcript is still growing → offer the way back down.
+                Zero-height strip keeps the pill floating over the scroll area, above the
+                composer, without reserving layout space. */}
+            {!following && (running || !!streaming) && (
+              <div className="relative h-0 z-10">
+                <button
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line bg-panel shadow-md text-[12px] text-muted hover:text-ink cursor-pointer whitespace-nowrap"
+                  data-testid="jump-to-latest"
+                  onClick={followLatest}
+                >
+                  <Icon name="chevronDown" size={13} />
+                  Jump to latest
+                </button>
+              </div>
+            )}
 
             <Composer
               mode={mode}

@@ -69,13 +69,15 @@ export interface Attachment {
 }
 
 // Transcript items
+// `ts` = unix seconds (the server's canonical-message stamp; live items stamp locally).
+// Optional: sessions saved before the server stamped timestamps have none.
 export type Item =
-  | { kind: "user"; text: string; attachments?: Attachment[] }
+  | { kind: "user"; text: string; attachments?: Attachment[]; ts?: number }
   // A connector-delivered inbound message (Slack/Salesforce/…), rendered as a structured card
   // (ConnectorMessageCard) instead of a plain user bubble. Generalizes to any connector via the
   // registry — no per-connector special-casing.
   | { kind: "connector"; source: MessageSource }
-  | { kind: "assistant"; text: string }
+  | { kind: "assistant"; text: string; ts?: number }
   // `hidden` = results the user's privacy filters removed before the agent saw them
   // (from the tool message's `_display` sidecar; the agent-visible content has no trace).
   // `standingRule` = the task-scoped rule that auto-allowed this call ("tool → target").

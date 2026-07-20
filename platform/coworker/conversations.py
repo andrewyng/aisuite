@@ -30,6 +30,14 @@ def _load_roots(raw: Optional[str]) -> list[dict]:
     return value if isinstance(value, list) else []
 
 
+def _display_title(row: sqlite3.Row) -> Optional[str]:
+    """Title precedence for every read path: a manual rename (renamed=1) always wins,
+    then the generated auto_title, then the first-line snapshot `save()` wrote."""
+    if row["renamed"]:
+        return row["title"]
+    return row["auto_title"] or row["title"]
+
+
 def title_from(messages: list[dict]) -> str:
     from .attachments import content_to_text
 
@@ -58,6 +66,7 @@ class ConversationStore:
                 title TEXT, agent TEXT DEFAULT 'code', n_msgs INTEGER DEFAULT 0, messages TEXT,
                 extra_roots TEXT, pinned INTEGER DEFAULT 0, archived INTEGER DEFAULT 0,
                 origin TEXT, origin_label TEXT,
+                auto_title TEXT, renamed INTEGER DEFAULT 0,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -73,6 +82,8 @@ class ConversationStore:
             "ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN origin TEXT",
             "ALTER TABLE sessions ADD COLUMN origin_label TEXT",
+            "ALTER TABLE sessions ADD COLUMN auto_title TEXT",
+            "ALTER TABLE sessions ADD COLUMN renamed INTEGER DEFAULT 0",
         ):
             try:
                 self._conn.execute(ddl)
@@ -210,7 +221,7 @@ class ConversationStore:
             model=row["model"],
             mode=row["mode"],
             messages=messages,
-            title=row["title"],
+            title=_display_title(row),
             agent=row["agent"] or "code",
             message_count=len(messages),
             updated_at=row["updated_at"],
@@ -251,7 +262,7 @@ class ConversationStore:
                 model=r["model"],
                 mode=r["mode"],
                 messages=[],
-                title=r["title"],
+                title=_display_title(r),
                 agent=r["agent"] or "code",
                 message_count=r["n_msgs"] or 0,
                 updated_at=r["updated_at"],
@@ -321,12 +332,41 @@ class ConversationStore:
         if not clean:
             return False
         with self._lock:
+            # renamed=1 makes the manual title final: auto-titling skips the session and
+            # `_display_title` ignores any auto_title already there.
             cur = self._conn.execute(
-                "UPDATE sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                "UPDATE sessions SET title = ?, renamed = 1, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
                 (clean, session_id),
             )
             self._conn.commit()
         return cur.rowcount > 0
+
+    def set_auto_title(self, session_id: str, title: str) -> bool:
+        """Store a generated title. Its own column — never `title` — so a manual rename
+        (past or future) always wins; doesn't touch updated_at (a title landing after the
+        turn must not reorder the session list)."""
+        clean = " ".join((title or "").split())[:60]
+        if not clean:
+            return False
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE sessions SET auto_title = ? WHERE session_id = ? AND renamed = 0",
+                (clean, session_id),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def title_state(self, session_id: str) -> Optional[dict]:
+        """The auto-title guard inputs: whether the user renamed and whether a generated
+        title already exists. None when the session has no row yet."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT renamed, auto_title FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"renamed": bool(row["renamed"]), "auto_title": row["auto_title"]}
 
     def set_flags(
         self,

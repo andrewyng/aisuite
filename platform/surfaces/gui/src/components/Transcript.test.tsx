@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Transcript } from "./Transcript";
 import { humanizeTool } from "../humanize";
 import type { Item } from "../types";
@@ -143,6 +143,40 @@ describe("live turns (§33 flicker fix)", () => {
     const { container } = render(<Transcript items={items} onApprove={vi.fn()} running />);
     expect(container.querySelector("details.stepgroup")).toBeNull();
     expect(container.querySelector(".bubble-assistant")?.textContent).toContain("Hello!");
+  });
+});
+
+describe("bubble hover affordances (FB-005)", () => {
+  const TS = 1752969720; // unix seconds, as the server stamps them
+  const ITEMS: Item[] = [
+    { kind: "user", text: "post the digest", ts: TS },
+    { kind: "assistant", text: "Done — posted to #all-openworker." }, // pre-stamp history: no ts
+  ];
+
+  it("copy button copies the bubble's raw text and flashes Copied", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<Transcript items={ITEMS} onApprove={vi.fn()} />);
+
+    const copies = screen.getAllByTestId("bubble-copy");
+    expect(copies).toHaveLength(2); // user + assistant bubbles both get one
+    fireEvent.click(copies[0]);
+    expect(writeText).toHaveBeenCalledWith("post the digest");
+    // "Copied" lands only after the clipboard write RESOLVES (a rejected write must
+    // not claim success), hence the await.
+    await waitFor(() => expect(copies[0].textContent).toBe("Copied"));
+    fireEvent.click(copies[1]);
+    expect(writeText).toHaveBeenCalledWith("Done — posted to #all-openworker.");
+  });
+
+  it("timestamp renders only when the item carries ts; full date rides the title", () => {
+    render(<Transcript items={ITEMS} onApprove={vi.fn()} />);
+
+    const stamps = screen.getAllByTestId("bubble-ts");
+    expect(stamps).toHaveLength(1); // the ts-less assistant bubble shows none
+    const when = new Date(TS * 1000);
+    expect(stamps[0].textContent).toBe(when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    expect(stamps[0].getAttribute("title")).toBe(when.toLocaleString());
   });
 });
 

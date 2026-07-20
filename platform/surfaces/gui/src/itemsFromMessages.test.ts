@@ -32,3 +32,19 @@ describe("itemsFromMessages _display sidecar", () => {
     expect(tools[0].preview).not.toContain("hidden"); // content stays clean
   });
 });
+
+describe("itemsFromMessages timestamps", () => {
+  it("carries the server ts through to user/assistant items; pre-stamp history gets none", () => {
+    const items = itemsFromMessages([
+      { role: "user", content: "hi", ts: 1752969720 },
+      { role: "assistant", content: "hello", ts: 1752969724 },
+      { role: "user", content: "old message" }, // saved before the server stamped ts
+    ] as any);
+
+    expect(items).toEqual([
+      { kind: "user", text: "hi", ts: 1752969720 },
+      { kind: "assistant", text: "hello", ts: 1752969724 },
+      { kind: "user", text: "old message" },
+    ]);
+  });
+});

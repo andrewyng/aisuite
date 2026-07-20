@@ -33,9 +33,12 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
         continue;
       }
       const user = userItemFromContent(m.content);
+      // `ts` (unix seconds) is the server's canonical-message stamp; older sessions have none.
+      if (typeof m.ts === "number") user.ts = m.ts;
       if (user.text || user.attachments?.length) items.push(user);
     } else if (m.role === "assistant") {
-      if (m.content) items.push({ kind: "assistant", text: m.content });
+      if (m.content)
+        items.push({ kind: "assistant", text: m.content, ...(typeof m.ts === "number" ? { ts: m.ts } : {}) });
       for (const tc of m.tool_calls || []) {
         let args: any = {};
         try {
