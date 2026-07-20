@@ -34,6 +34,9 @@ class MCPServerDef:
     include_tools: Optional[list[str]] = None
     exclude_tools: Optional[list[str]] = None
     requires_approval: bool = True
+    # "oauth" → browser OAuth 2.1 + PKCE with Dynamic Client Registration (mcp/oauth.py).
+    # HTTP transport only; tokens live in the SecretStore, never in this file.
+    auth: Optional[str] = None
 
 
 def global_mcp_path() -> Path:
@@ -71,6 +74,7 @@ def _parse(name: str, raw: dict[str, Any], secrets: SecretStore) -> MCPServerDef
         include_tools=raw.get("include_tools"),
         exclude_tools=raw.get("exclude_tools"),
         requires_approval=bool(raw.get("requires_approval", True)),
+        auth=(str(raw["auth"]).lower() if raw.get("auth") else None),
     )
 
 

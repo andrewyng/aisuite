@@ -137,7 +137,11 @@ class SessionManager:
             self.provider = ProviderRouter(
                 self.secrets, default_provider="openai", on_use=self._note_provider_use
             )
-        self.mcp = MCPManager()
+        self.mcp = MCPManager(secrets=self.secrets)
+        # OAuth MCP servers with a sign-in in flight / their last connect error —
+        # feeds list_mcp's status so the GUI can show "authorizing…" and failures.
+        self._mcp_authorizing: set[str] = set()
+        self._mcp_errors: dict[str, str] = {}
         self.gateway: Optional[Gateway] = None
         self._data_base = base
         # Desktop/UI prefs (default model, onboarding state) — not secrets; a plain JSON file.
@@ -807,9 +811,22 @@ class SessionManager:
 
     def list_mcp(self) -> list[dict[str, Any]]:
         """Servers from the global config + connection status (does not connect)."""
+        from ..mcp import oauth as mcp_oauth
+
         out = []
         for name, raw in read_global().items():
             connected = name in self.mcp._conns
+            is_oauth = str(raw.get("auth", "")).lower() == "oauth"
+            if connected:
+                status = "connected"
+            elif not raw.get("enabled", True):
+                status = "disabled"
+            elif name in self._mcp_authorizing:
+                status = "authorizing"
+            elif is_oauth and not mcp_oauth.has_tokens(name, self.secrets):
+                status = "needs_auth"
+            else:
+                status = "configured"
             out.append(
                 {
                     "name": name,
@@ -824,13 +841,9 @@ class SessionManager:
                         else "stdio"
                     ),
                     "requires_approval": bool(raw.get("requires_approval", True)),
-                    "status": (
-                        "connected"
-                        if connected
-                        else (
-                            "disabled" if not raw.get("enabled", True) else "configured"
-                        )
-                    ),
+                    "auth": "oauth" if is_oauth else None,
+                    "status": status,
+                    "last_error": self._mcp_errors.get(name),
                     "tool_count": (
                         len(self.mcp._conns[name].tools) if connected else None
                     ),
@@ -838,6 +851,36 @@ class SessionManager:
                 }
             )
         return out
+
+    async def connect_mcp(self, name: str) -> dict[str, Any]:
+        """Connect one server NOW — for OAuth servers this may open the browser and wait
+        for the loopback callback, so callers run it as a background task and watch
+        list_mcp for the status flip."""
+        for server in load_mcp_servers(self.default_workspace, secrets=self.secrets):
+            if server.name != name:
+                continue
+            self._mcp_authorizing.add(name)
+            self._mcp_errors.pop(name, None)
+            try:
+                conn = await self.mcp.ensure(server)
+                return {"ok": True, "tools": len(conn.tools)}
+            except Exception as exc:
+                self._mcp_errors[name] = str(exc) or exc.__class__.__name__
+                return {"ok": False, "error": self._mcp_errors[name]}
+            finally:
+                self._mcp_authorizing.discard(name)
+        return {"ok": False, "error": f"unknown MCP server: {name}"}
+
+    async def signout_mcp(self, name: str) -> dict[str, Any]:
+        """Drop the live connection (if any) and forget the stored OAuth tokens."""
+        from ..mcp import oauth as mcp_oauth
+
+        conn = self.mcp._conns.get(name)
+        if conn is not None:
+            conn.shutdown.set()
+        self._mcp_errors.pop(name, None)
+        removed = mcp_oauth.sign_out(name, self.secrets)
+        return {"ok": True, "had_tokens": removed}
 
     def add_mcp(self, name: str, config: dict[str, Any]) -> dict[str, Any]:
         put_global_server(name, config)

@@ -4,10 +4,12 @@ import {
   allowUser,
   connectConnector,
   connectManaged,
+  connectMcp,
   deleteMcpServer,
   disallowUser,
   getMcpServers,
   getMcpTools,
+  signoutMcp,
   getSettings,
   getSubscriptions,
   removeModel,
@@ -229,6 +231,17 @@ function ComposerPickerCard({
   );
 }
 
+// Curated OAuth quick-adds: remote MCP servers with browser sign-in (OAuth 2.1 + DCR) —
+// no keys to paste, tokens stay in the local secret store. First: Granola.
+const MCP_PRESETS: { name: string; label: string; blurb: string; config: Record<string, any> }[] = [
+  {
+    name: "granola",
+    label: "Granola",
+    blurb: "Meeting notes & transcripts — sign in with your Granola account.",
+    config: { type: "http", url: "https://mcp.granola.ai/mcp", auth: "oauth" },
+  },
+];
+
 export function McpTab() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [adding, setAdding] = useState(false);
@@ -238,6 +251,15 @@ export function McpTab() {
   useEffect(() => {
     refresh();
   }, []);
+
+  // While a browser sign-in is in flight, poll so the row flips to connected (or
+  // surfaces the error) without the user having to touch anything.
+  const authorizing = servers.some((s) => s.status === "authorizing");
+  useEffect(() => {
+    if (!authorizing) return;
+    const t = window.setInterval(refresh, 2000);
+    return () => window.clearInterval(t);
+  }, [authorizing]);
 
   const toggle = async (s: McpServer) => {
     await patchMcpServer(s.name, { enabled: !s.enabled });
@@ -272,10 +294,36 @@ export function McpTab() {
       ) : (
         <div className="space-y-2">
           {servers.map((s) => (
-            <McpRow key={s.name} server={s} onToggle={() => toggle(s)} onRemove={() => remove(s)} />
+            <McpRow
+              key={s.name}
+              server={s}
+              onToggle={() => toggle(s)}
+              onRemove={() => remove(s)}
+              onRefresh={refresh}
+            />
           ))}
         </div>
       )}
+
+      {/* One-click OAuth presets not yet configured. */}
+      {MCP_PRESETS.filter((p) => !servers.some((s) => s.name === p.name)).map((p) => (
+        <div key={p.name} className={CARD + " p-3.5 flex items-center gap-3"} data-testid={`mcp-preset-${p.name}`}>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14px] font-medium">{p.label}</div>
+            <div className="text-[11.5px] text-faint">{p.blurb}</div>
+          </div>
+          <button
+            className={BTN_ACCENT}
+            onClick={async () => {
+              await addMcpServer(p.name, p.config);
+              await connectMcp(p.name); // opens the browser sign-in right away
+              refresh();
+            }}
+          >
+            Connect
+          </button>
+        </div>
+      ))}
 
       {adding ? (
         <AddForm
@@ -304,14 +352,27 @@ function McpRow({
   server,
   onToggle,
   onRemove,
+  onRefresh,
 }: {
   server: McpServer;
   onToggle: () => void;
   onRemove: () => void;
+  onRefresh: () => void;
 }) {
   const [tools, setTools] = useState<{ name: string; description: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [toolErr, setToolErr] = useState<string | null>(null);
+
+  const isOauth = server.auth === "oauth";
+  const authorizing = server.status === "authorizing";
+  const signIn = async () => {
+    await connectMcp(server.name); // browser opens; the tab's poll flips the status
+    onRefresh();
+  };
+  const signOut = async () => {
+    await signoutMcp(server.name);
+    onRefresh();
+  };
 
   const loadTools = async () => {
     if (tools) {
@@ -333,11 +394,28 @@ function McpRow({
         <div className="flex-1 min-w-0">
           <div className="text-[14px] font-medium">{server.name}</div>
           <div className="text-[11.5px] text-faint">
-            {server.transport} · {server.status}
+            {server.transport} · {authorizing ? "signing in…" : server.status.replace("_", " ")}
             {server.tool_count != null ? ` · ${server.tool_count} tools` : ""}
             {server.requires_approval ? " · asks" : ""}
+            {isOauth ? " · oauth" : ""}
           </div>
         </div>
+        {isOauth &&
+          (server.status === "needs_auth" ? (
+            <button className={BTN_ACCENT} onClick={signIn} data-testid={`mcp-signin-${server.name}`}>
+              Sign in
+            </button>
+          ) : authorizing ? (
+            <span className="text-[12px] text-muted shrink-0">waiting for browser…</span>
+          ) : server.status === "connected" ? (
+            <button
+              className="text-[12px] text-muted hover:text-ink shrink-0"
+              onClick={signOut}
+              data-testid={`mcp-signout-${server.name}`}
+            >
+              sign out
+            </button>
+          ) : null)}
         <button
           className="text-[12px] text-muted hover:text-ink shrink-0"
           onClick={loadTools}
@@ -349,6 +427,9 @@ function McpRow({
           remove
         </button>
       </div>
+      {server.last_error && server.status !== "connected" && (
+        <div className="text-[12.5px] text-danger mt-1.5">{server.last_error}</div>
+      )}
       {toolErr && <div className="text-[12.5px] text-danger mt-1.5">{toolErr}</div>}
       {tools && (
         <div className="mt-2.5 pt-2.5 border-t border-line flex flex-wrap gap-1.5">
