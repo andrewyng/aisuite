@@ -1322,7 +1322,11 @@ def test_outlook_calendar_tools_hit_the_right_graph_endpoints(tmp_path, monkeypa
         secrets,
         "outlook",
         managed_profile_from_callback(
-            {"access_token": "tok", "account": "rohit@openworker.com", "provider": "microsoft"}
+            {
+                "access_token": "tok",
+                "account": "rohit@openworker.com",
+                "provider": "microsoft",
+            }
         ),
     )
 
@@ -1369,7 +1373,9 @@ def test_outlook_calendar_tools_hit_the_right_graph_endpoints(tmp_path, monkeypa
     assert "error" in out
 
     # A time-windowed list passes the window through to calendarView.
-    tools["outlook_list_events"](start="2026-07-20T00:00:00Z", end="2026-07-22T00:00:00Z")
+    tools["outlook_list_events"](
+        start="2026-07-20T00:00:00Z", end="2026-07-22T00:00:00Z"
+    )
     assert calls[-1]["params"]["startDateTime"] == "2026-07-20T00:00:00Z"
     assert calls[-1]["params"]["endDateTime"] == "2026-07-22T00:00:00Z"
     assert calls[-1]["params"]["$orderby"] == "start/dateTime"
