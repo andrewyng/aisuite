@@ -186,6 +186,36 @@ def test_effort_400_from_an_unpinned_model_retries_once_at_none():
     assert out[-1].turn.text == "ok" and len(client.chat.completions.calls) == 4
 
 
+def test_max_tokens_rejection_retries_as_max_completion_tokens():
+    """Reasoning-routed models 400 on max_tokens (want max_completion_tokens); compat
+    servers know only max_tokens — so the swap happens on rejection, never up front.
+    (Owner-hit 2026-07-20: the auto-title call silently no-oped on gpt-5.6-sol.)"""
+
+    class _MaxTokensRejecting:
+        def __init__(self, response):
+            self._response = response
+            self.calls: list[dict] = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            if "max_tokens" in kwargs:
+                raise RuntimeError(
+                    "Error code: 400 - Unsupported parameter: 'max_tokens' is not "
+                    "supported with this model. Use 'max_completion_tokens' instead."
+                )
+            return self._response
+
+    client = _FakeClient(_response(content="Jira vs Linear"))
+    client.chat.completions = _MaxTokensRejecting(_response(content="Jira vs Linear"))
+    provider = OpenAIProvider(client=client)
+
+    turn = provider.complete(model="gpt-5.6-sol", messages=[], max_tokens=64)
+    calls = client.chat.completions.calls
+    assert turn.text == "Jira vs Linear" and len(calls) == 2
+    assert calls[0]["max_tokens"] == 64
+    assert "max_tokens" not in calls[1] and calls[1]["max_completion_tokens"] == 64
+
+
 def test_unrelated_400s_are_not_retried():
     class _AlwaysRejects:
         calls: list = []

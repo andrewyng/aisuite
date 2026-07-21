@@ -51,14 +51,25 @@ def _pin_reasoning_effort(kwargs: dict[str, Any]) -> None:
         kwargs.setdefault("reasoning_effort", "none")
 
 
-def _effort_none_retry(kwargs: dict[str, Any], exc: Exception) -> dict[str, Any]:
-    """Kwargs for the one retry this error earns, or re-raise anything else."""
-    if (
-        kwargs.get("reasoning_effort") == "none"
-        or _EFFORT_ERROR not in str(exc).lower()
-    ):
-        raise exc
-    return {**kwargs, "reasoning_effort": "none"}
+_MAX_TOKENS_ERROR = "'max_tokens' is not supported"
+
+
+def _param_fix_retry(kwargs: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    """Kwargs for the one retry an unsupported-parameter error earns, or re-raise.
+
+    Reasoning-routed OpenAI models reject `max_tokens` outright (they want
+    `max_completion_tokens`) — but compat servers (Ollama's /v1) know ONLY
+    `max_tokens`, so the swap must happen on rejection, never up front. Same
+    contract as the reasoning_effort retry: fix exactly what the server named.
+    """
+    msg = str(exc).lower()
+    if _EFFORT_ERROR in msg and kwargs.get("reasoning_effort") != "none":
+        return {**kwargs, "reasoning_effort": "none"}
+    if _MAX_TOKENS_ERROR in msg and "max_tokens" in kwargs:
+        fixed = dict(kwargs)
+        fixed["max_completion_tokens"] = fixed.pop("max_tokens")
+        return fixed
+    raise exc
 
 
 class OpenAIProvider(ProviderClient):
@@ -117,10 +128,15 @@ class OpenAIProvider(ProviderClient):
         _pin_reasoning_effort(kwargs)
 
         client = self._ensure_client()
-        try:
+        # Up to two param-fix retries: effort and max_tokens can BOTH need fixing.
+        for _ in range(2):
+            try:
+                response = client.chat.completions.create(**kwargs)
+                break
+            except Exception as exc:
+                kwargs = _param_fix_retry(kwargs, exc)
+        else:
             response = client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            response = client.chat.completions.create(**_effort_none_retry(kwargs, exc))
         choice = response.choices[0]
         message = choice.message
         text = getattr(message, "content", None)
@@ -159,10 +175,15 @@ class OpenAIProvider(ProviderClient):
         tool_accum: dict[int, dict[str, str]] = {}
         finish_reason = None
 
-        try:
+        # Up to two param-fix retries: effort and max_tokens can BOTH need fixing.
+        for _ in range(2):
+            try:
+                chunks = client.chat.completions.create(**kwargs)
+                break
+            except Exception as exc:
+                kwargs = _param_fix_retry(kwargs, exc)
+        else:
             chunks = client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            chunks = client.chat.completions.create(**_effort_none_retry(kwargs, exc))
         for chunk in chunks:
             choices = getattr(chunk, "choices", None)
             if not choices:
