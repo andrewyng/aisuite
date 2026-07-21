@@ -307,6 +307,10 @@ export interface SlackWorkspace {
   allowed_users: string[];
   allow_all: boolean;
   allowed_user_names?: Record<string, string | null>;
+  // Who installed this workspace (authed_user) — pre-added to the allow-list on
+  // connect (UX-027); the GUI marks their chip "you" and keys the setup card copy.
+  installer_user_id?: string;
+  installer_name?: string;
 }
 
 // One connected GitHub App installation (managed relay is multi-installation;
@@ -1339,6 +1343,37 @@ export async function getAutomations(): Promise<Automation[]> {
 export const AUTOMATIONS_CHANGED = "coworker:automations-changed";
 export function announceAutomationsChanged() {
   window.dispatchEvent(new CustomEvent(AUTOMATIONS_CHANGED));
+}
+
+/** App-wide event stream (/ws/events): session-independent server pushes — today
+ * automation_run_started (the UX-026 toast). Quietly reconnects while the app is
+ * open; the returned cleanup stops it for good. */
+export function connectEvents(
+  onEvent: (msg: { type: string; data?: Record<string, unknown> }) => void
+): () => void {
+  let ws: WebSocket | null = null;
+  let timer: number | null = null;
+  let closed = false;
+  const open = () => {
+    if (closed) return;
+    ws = new WebSocket(`${wsBase()}/ws/events`);
+    ws.onmessage = (e) => {
+      try {
+        onEvent(JSON.parse(e.data));
+      } catch {
+        /* malformed frame — ignore */
+      }
+    };
+    ws.onclose = () => {
+      if (!closed) timer = window.setTimeout(open, 5000);
+    };
+  };
+  open();
+  return () => {
+    closed = true;
+    if (timer !== null) window.clearTimeout(timer);
+    ws?.close();
+  };
 }
 
 /** Advance the automation's seen mark — clears its unseen-runs badge (UX-023). */
