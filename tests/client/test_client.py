@@ -49,6 +49,34 @@ def provider_configs():
         },
     }
 
+def test_process_mcp_configs_without_mcp_package(monkeypatch):
+    """Regression test: _process_mcp_configs should not raise NameError
+    when the optional `mcp` package isn't installed."""
+    import aisuite.client as client_module
+
+    monkeypatch.setattr(client_module, "MCP_AVAILABLE", False)
+
+    client = Client()
+    tools = [lambda: None]  # a plain callable tool, not an MCP config
+
+    # Should return tools unchanged, not raise NameError
+    processed_tools, mcp_clients = client.chat.completions._process_mcp_configs(tools)
+    assert processed_tools == tools
+    assert mcp_clients == []
+
+
+def test_process_mcp_configs_raises_helpful_error_for_mcp_dict_without_package(monkeypatch):
+    """When mcp isn't installed but the user passes an MCP-style config dict,
+    it should raise a clear ImportError, not a NameError."""
+    import aisuite.client as client_module
+
+    monkeypatch.setattr(client_module, "MCP_AVAILABLE", False)
+
+    client = Client()
+    mcp_config = {"type": "mcp", "name": "fs", "command": "npx", "args": []}
+
+    with pytest.raises(ImportError, match="MCP tools require"):
+        client.chat.completions._process_mcp_configs([mcp_config])
 
 def test_default_provider_configs_are_not_shared_between_clients():
     client_a = Client()
