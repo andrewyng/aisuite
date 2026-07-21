@@ -1,71 +1,53 @@
-# Google (Vertex) AI
+# Google (Gemini & Vertex AI)
 
-To use Google (Vertex) AI with the `aisuite` library, you'll first need to create a Google Cloud account and set up your environment to work with Google Cloud.
+To use Google models with the `aisuite` library, you have two authentication options:
+1. **Google AI Studio (Recommended for most users):** A fast, developer-friendly way to authenticate using a standard `GOOGLE_API_KEY`.
+2. **Google Vertex AI:** An enterprise-grade backend via Google Cloud requiring a `GOOGLE_PROJECT_ID` and GCP Service Account credentials.
 
-## Create a Google Cloud Account and Project
+---
 
-Google Cloud provides in-depth [documentation](https://cloud.google.com/vertex-ai/docs/start/cloud-environment) on getting started with their platform, but here are the basic steps:
+## Option 1: Authenticate via Google AI Studio (Recommended)
 
-### Create your account.
+This is the easiest way to get started. 
 
-Visit [Google Cloud](https://cloud.google.com/free) and follow the instructions for registering a new account. If you already have an account with Google Cloud, sign in and skip to the next step.
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Sign in with your Google account.
+3. Click "Create API key" to generate your key.
+4. Export the key to your environment:
 
-### Create a new project and enable billing.
+```shell
+export GOOGLE_API_KEY="your-api-key"
+```
 
-Once you have an account, you can create a new project. Visit the [project selector page](https://console.cloud.google.com/projectselector2/home/dashboard) and click the "New Project" button. Give your project a name and click "Create Project." Your project will be created and you will be redirected to the project dashboard.
+---
 
-Now that you have a project, you'll need to enable billing. Visit the [how-to page](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled#confirm_billing_is_enabled_on_a_project) for billing enablement instructions.
+## Option 2: Authenticate via Google Cloud (Vertex AI)
 
-### Set your project ID in an environment variable.
+If you are operating inside an enterprise GCP environment, `aisuite` seamlessly falls back to Vertex AI authentication.
 
-Set the `GOOGLE_PROJECT_ID` environment variable to the ID of your project. You can find the Project ID by visiting the project dashboard in the "Project Info" section toward the top of the page.
-
-### Set your preferred region in an environment variable.
-
-Set the `GOOGLE_REGION` environment variable. You can find the region by going to Project Dashboard under VertexAI side navigation menu, and then scrolling to the bottom of the page.
-
-## Create a Service Account For API Access
-
-Because `aisuite` needs to authenticate with Google Cloud to access the Vertex AI API, you'll need to create a service account and set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of a JSON file containing the service account's credentials, which you can download from the Google Cloud Console.
-
-This is documented [here](https://cloud.google.com/docs/authentication/provide-credentials-adc#how-to), and the basic steps are as follows:
-
-1. Visit the [service accounts page](https://console.cloud.google.com/iam-admin/serviceaccounts) in the Google Cloud Console.
-2. Click the "+ Create Service Account" button toward the top of the page.
-3. Follow the steps for naming your service account and granting access to the project.
-4. Click "Done" to create the service account.
-5. Now, click the "Keys" tab towards the top of the page.
-6. Click the "Add Key" menu, then select "Create New Key."
-6. Choose "JSON" as the key type, and click "Create."
-7. Move this file to a location on your file system like your home directory.
-8. Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of the JSON file.
-
-## Double check your environment is configured correctly.
-
-At this point, you should have three environment variables set to ensure your environment is set up correctly:
-
-- `GOOGLE_PROJECT_ID`
-- `GOOGLE_REGION`
-- `GOOGLE_APPLICATION_CREDENTIALS`
-
-Once these are set, you are ready to write some code and send a chat completion request.
-
-## Create a chat completion.
-
-With your account and service account set up, you can send a chat completion request.
-
-Export the environment variables:
+1. Follow the [Vertex AI setup documentation](https://cloud.google.com/vertex-ai/docs/start/cloud-environment) to create a Google Cloud Project with Billing enabled.
+2. Visit the [Service Accounts page](https://console.cloud.google.com/iam-admin/serviceaccounts) to create a service account and download its JSON key.
+3. Check your `GOOGLE_REGION` at the bottom of the Vertex AI Dashboard.
+4. Export your environment variables:
 
 ```shell
 export GOOGLE_PROJECT_ID="your-project-id"
 export GOOGLE_REGION="your-region"
-export GOOGLE_APPLICATION_CREDENTIALS="path/to/your/service-account-file.json"
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-file.json"
 ```
 
-Install the Vertex AI SDK:
+*(Note: The `GoogleProvider` will dynamically route through Vertex AI if a `GOOGLE_API_KEY` is not found but these GCP variables are defined).*
+
+---
+
+## Create a Chat Completion
+
+With your credentials exported (either via Option 1 or Option 2), you are ready to send a chat completion request.
+
+First, install the Google GenAI SDK extra:
 
 ```shell
-pip install vertexai
+pip install "aisuite[google]"
 ```
 
 In your code:
@@ -74,7 +56,7 @@ In your code:
 import aisuite as ai
 client = ai.Client()
 
-model="google:gemini-1.5-pro-001"
+model="google:gemini-1.5-pro-latest"
 
 messages = [
     {"role": "system", "content": "Respond in Pirate English."},
