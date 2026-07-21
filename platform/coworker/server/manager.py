@@ -833,9 +833,19 @@ class SessionManager:
                 ]
             try:
                 conn = await self.mcp.ensure(server)
-            except (
-                Exception
-            ):  # bad command / unreachable url — skip, don't break the session
+            except Exception as exc:
+                if mcp_oauth.is_auth_required(exc):
+                    # Stored tokens no longer refresh (vendor rotated/expired
+                    # them) — the non-interactive connect refused to open a
+                    # browser. Record it so the MCP page shows WHY the server is
+                    # dark; the session just runs without its tools.
+                    self._mcp_errors[server.name] = (
+                        "sign-in required — reconnect this server from its page"
+                    )
+                    logger.info(
+                        "mcp %s needs re-auth; skipped for this session", server.name
+                    )
+                # else: bad command / unreachable url — skip, don't break the session
                 continue
             callables = build_callables(
                 server,
@@ -914,7 +924,8 @@ class SessionManager:
             self._mcp_authorizing.add(name)
             self._mcp_errors.pop(name, None)
             try:
-                conn = await self.mcp.ensure(server)
+                # The ONE place a browser sign-in may start: an explicit connect.
+                conn = await self.mcp.ensure(server, interactive=True)
                 return {"ok": True, "tools": len(conn.tools)}
             except Exception as exc:
                 self._mcp_errors[name] = str(exc) or exc.__class__.__name__
