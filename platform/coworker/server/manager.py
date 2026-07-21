@@ -796,12 +796,23 @@ class SessionManager:
             tool_enabled,
         )
 
+        from ..mcp import oauth as mcp_oauth
+
         ws = self.engine_workspace(session_id, workspace=workspace, agent=agent)
         loop = asyncio.get_running_loop()
         effective: Optional[set[str]] = None  # computed lazily, once
         out: list[Any] = []
         for server in load_mcp_servers(ws, secrets=self.secrets):
             if not server.enabled:
+                continue
+            if server.auth == "oauth" and not mcp_oauth.has_tokens(
+                server.name, self.secrets
+            ):
+                # NEVER start an interactive OAuth flow from a turn: a token-less
+                # server here would open a browser and block every session for the
+                # full flow timeout (owner-hit 2026-07-20 — a failed one-click's
+                # leftover config froze all new sessions). Flows start only from an
+                # explicit connect in Settings/Connectors.
                 continue
             descriptor = get_descriptor(server.name)
             backed = descriptor is not None and bool(descriptor.mcp_url)
@@ -941,6 +952,12 @@ class SessionManager:
             self.secrets.put(
                 f"{name}:default", {**profile, "mode": "mcp", "enabled": True}
             )
+        else:
+            # A failed connect must take its seeded config with it: an enabled
+            # oauth entry with no tokens lingers forever (nothing owns it once
+            # the descriptor's mcp_url is gone) and re-arms at every session
+            # start — the owner-hit asana leftover, 2026-07-20.
+            delete_global_server(name)
         return result
 
     async def signout_mcp(self, name: str) -> dict[str, Any]:
@@ -2707,7 +2724,29 @@ class SessionManager:
 
     # -- automation REST --------------------------------------------------------
     def list_automations(self) -> dict[str, Any]:
-        return {"tasks": [t.public() for t in self.task_store.list()]}
+        # Unseen = runs started after the task's seen mark (UX-023 sidebar badges).
+        # `unseen_failed` tints the badge when the NEWEST unseen run errored.
+        tasks = []
+        for t in self.task_store.list():
+            unseen = [
+                r for r in self.task_store.runs(t.id) if r.started_at > t.seen_runs_at
+            ]
+            tasks.append(
+                {
+                    **t.public(),
+                    "unseen_runs": len(unseen),
+                    "unseen_failed": bool(unseen) and unseen[0].status == "error",
+                }
+            )
+        return {"tasks": tasks}
+
+    def mark_automation_seen(self, task_id: str) -> dict[str, Any]:
+        task = self.task_store.get(task_id)
+        if task is None:
+            return {"ok": False, "error": "not found"}
+        task.seen_runs_at = time.time()
+        self.task_store.save(task)
+        return {"ok": True}
 
     def get_automation(self, task_id: str) -> dict[str, Any]:
         task = self.task_store.get(task_id)
@@ -2974,7 +3013,10 @@ class SessionManager:
                     },
                 )
         except Exception:
-            pass  # a failed title must never surface as a session error
+            # A failed title must never surface as a session error — but it must
+            # not be invisible either (a silent provider 400 hid the max_tokens
+            # rejection for a whole owner test pass, 2026-07-20).
+            logger.debug("autotitle failed for %s", session_id, exc_info=True)
         finally:
             self._autotitle_inflight.discard(session_id)
 

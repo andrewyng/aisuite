@@ -55,6 +55,7 @@ const baseProps = {
   onOpenPersona: vi.fn(),
   onManagePersonas: vi.fn(),
   onOpenScheduled: vi.fn(),
+  onOpenAutomation: vi.fn(),
   onOpenIntegrations: vi.fn(),
   onOpenAudit: vi.fn(),
   onOpenInbox: vi.fn(),

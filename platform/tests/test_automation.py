@@ -7,6 +7,7 @@ operate on a real SQLite store; execution policy (catch-up, overlap) is exercise
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -361,3 +362,32 @@ def test_automations_rest(tmp_path, monkeypatch):
     )
     assert client.get(f"/v1/automations/{t.id}").json()["task"]["id"] == t.id
     assert client.delete(f"/v1/automations/{t.id}").json()["ok"] is True
+
+
+# -- unseen-run tracking (UX-023 sidebar badges) --------------------------------
+def test_unseen_runs_counted_and_cleared_by_mark_seen(tmp_path, monkeypatch):
+    """list_automations surfaces unseen counts (runs after the seen mark), with
+    unseen_failed keyed to the NEWEST unseen run; mark_automation_seen clears them
+    and later runs count fresh."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    from coworker.server.manager import SessionManager
+
+    manager = SessionManager(data_dir=tmp_path / "data")
+    t = manager.task_store.save(_task())
+    manager.task_store.add_run(TaskRun(task_id=t.id, status="ok"))
+    manager.task_store.add_run(TaskRun(task_id=t.id, status="error"))
+
+    row = manager.list_automations()["tasks"][0]
+    assert row["unseen_runs"] == 2
+    assert row["unseen_failed"] is True  # newest unseen run errored
+
+    assert manager.mark_automation_seen(t.id)["ok"]
+    row = manager.list_automations()["tasks"][0]
+    assert row["unseen_runs"] == 0 and row["unseen_failed"] is False
+
+    time.sleep(0.01)  # a run strictly after the seen mark
+    manager.task_store.add_run(TaskRun(task_id=t.id, status="ok"))
+    row = manager.list_automations()["tasks"][0]
+    assert row["unseen_runs"] == 1 and row["unseen_failed"] is False
+
+    assert not manager.mark_automation_seen("task-nope")["ok"]

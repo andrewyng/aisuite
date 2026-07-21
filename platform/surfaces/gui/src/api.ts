@@ -1305,6 +1305,11 @@ export interface Automation {
   last_status: string | null;
   run_count: number;
   notify_on_completion: boolean;
+  // UX-023 sidebar badges: runs started since the user last opened this automation's
+  // detail; `unseen_failed` = the newest unseen run errored (danger tint).
+  unseen_runs?: number;
+  unseen_failed?: boolean;
+  seen_runs_at?: number;
   // Standing scoped approvals (§25): target-bound rules this automation may exercise
   // without asking. `entry` is the raw record entry — the revoke handle; `target` is
   // null for legacy name-only entries.
@@ -1327,6 +1332,19 @@ export interface AutomationRun {
 export async function getAutomations(): Promise<Automation[]> {
   const res = await fetch(`${httpBase()}/v1/automations`);
   return (await res.json()).tasks ?? [];
+}
+
+// Fired after any automation mutation the sidebar should reflect immediately
+// (mark-seen, create, delete) — its poll covers the rest.
+export const AUTOMATIONS_CHANGED = "coworker:automations-changed";
+export function announceAutomationsChanged() {
+  window.dispatchEvent(new CustomEvent(AUTOMATIONS_CHANGED));
+}
+
+/** Advance the automation's seen mark — clears its unseen-runs badge (UX-023). */
+export async function markAutomationSeen(id: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/automations/${id}/seen`, { method: "POST" });
+  return res.json();
 }
 
 export async function createAutomation(payload: {

@@ -135,6 +135,9 @@ class ScheduledTask:
     last_status: Optional[str] = None
     run_count: int = 0
     max_runs: Optional[int] = None
+    # Sidebar unread tracking (UX-023): runs started after this mark count as
+    # "unseen"; opening the automation's detail advances it. 0.0 = never opened.
+    seen_runs_at: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.task_session_id:
@@ -199,6 +202,8 @@ class ScheduledTask:
             "last_status": self.last_status,
             "run_count": self.run_count,
             "notify_on_completion": self.notify_on_completion,
+            # UX-023: lets the detail freeze the pre-open mark for its "new" pills.
+            "seen_runs_at": self.seen_runs_at,
             # Structured for the task page's revoke list; `entry` is the revoke handle.
             "always_allowed": [
                 {"entry": e, "tool": t, "target": tg}
