@@ -1538,3 +1538,9 @@ html[data-theme="dark"] .hiw-sticky { background: #eab308; color: #3d2c05; }
   .hiw-play .hiw-spark { opacity: 0 !important; }
   .hiw-tab.on .hiw-prog i { animation: none !important; width: 100%; }
 }
+
+/* ---- UX-026: automation-start toast (top-right, 5s; schedule-fired runs only) ---- */
+.toast-pulse { animation: toast-pulse 1.2s ease infinite; }
+@keyframes toast-pulse { 50% { opacity: .35; } }
+.toast-drain { animation: toast-drain 5s linear forwards; }
+@keyframes toast-drain { to { width: 0; } }

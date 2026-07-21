@@ -161,6 +161,9 @@ class SessionManager:
         # whoever drives the turn (foreground user_message, channel delivery, self-wake, resume).
         # Delivery itself is socket-independent — this only governs *live visibility*.
         self._session_clients: dict[str, set[Any]] = {}
+        # App-wide event sockets (/ws/events): session-independent pushes — today the
+        # automation-run-started toast (UX-026); badges could ride it later.
+        self._event_clients: set[Any] = set()
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
@@ -2150,6 +2153,21 @@ class SessionManager:
         return {"ok": True}
 
     # -- per-session live view --------------------------------------------------
+    def register_event_client(self, send_cb: Any) -> None:
+        self._event_clients.add(send_cb)
+
+    def unregister_event_client(self, send_cb: Any) -> None:
+        self._event_clients.discard(send_cb)
+
+    async def broadcast_event(self, message: dict) -> None:
+        """Fan an app-wide event out to every /ws/events socket. Best-effort: a dead
+        socket is dropped, never fatal to the caller."""
+        for cb in list(self._event_clients):
+            try:
+                await cb(message)
+            except Exception:
+                self.unregister_event_client(cb)
+
     def register_session_client(self, session_id: str, send_cb: Any) -> None:
         self._session_clients.setdefault(session_id, set()).add(send_cb)
 
@@ -2661,6 +2679,22 @@ class SessionManager:
             task_id=task.id, trigger=trigger
         )  # __post_init__ sets run.session_id
         self.task_store.add_run(run)  # mark "running"
+        # UX-026: tell every open app window a SCHEDULED run just started (the 5s
+        # top-right toast). Manual runs never come through here — the user is
+        # already watching those live.
+        await self.broadcast_event(
+            {
+                "type": "automation_run_started",
+                "data": {
+                    "task_id": task.id,
+                    "task_title": task.title,
+                    "session_id": run.session_id,
+                    "workspace": task.workspace,
+                    "agent": task.agent,
+                    "trigger": trigger,
+                },
+            }
+        )
         # Each run is a real, persisted conversation thread: it runs the instructions under its
         # own session id, then saves the transcript. The user can reopen that session and ask a
         # follow-up — the scheduled agent is no longer fire-and-forget.
