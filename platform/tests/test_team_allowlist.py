@@ -249,7 +249,10 @@ def test_reinstall_preserves_the_existing_allow_list(tmp_path):
 
 
 def test_workspace_listing_carries_installer_identity(tmp_path):
-    from coworker.connectors.setup import _slack_workspaces, managed_connect_slack_install
+    from coworker.connectors.setup import (
+        _slack_workspaces,
+        managed_connect_slack_install,
+    )
 
     s = SecretStore(tmp_path / "secrets.json")
     managed_connect_slack_install(
