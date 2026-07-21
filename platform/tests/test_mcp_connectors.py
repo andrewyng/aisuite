@@ -93,6 +93,52 @@ def test_mcp_connect_seeds_pinned_config_and_profile(tmp_path, monkeypatch):
     assert not out["ok"]
 
 
+def test_failed_mcp_connect_removes_the_seeded_config(tmp_path, monkeypatch):
+    """A one-click that fails (DCR rejected, user closed the browser) must not leave
+    an enabled oauth server behind — the leftover re-arms at every session start
+    (owner-hit: the pulled asana attempt froze all new sessions, 2026-07-20)."""
+    _state(tmp_path, monkeypatch)
+    manager = SessionManager(data_dir=tmp_path / "data")
+
+    async def fail_connect(name):
+        return {"ok": False, "error": "no DCR"}
+
+    monkeypatch.setattr(manager, "connect_mcp", fail_connect)
+    out = asyncio.run(manager.mcp_connect_connector("monday"))
+    assert not out["ok"]
+    assert "monday" not in read_global()
+    assert manager.secrets.get("monday:default") is None
+
+
+def test_prepare_mcp_tools_never_starts_an_oauth_flow(tmp_path, monkeypatch):
+    """Token-less oauth servers are SKIPPED at turn start — connecting one would
+    open a browser and block the session for the whole flow timeout. Tokens
+    present → the server connects as usual."""
+    _state(tmp_path, monkeypatch)
+    manager = SessionManager(data_dir=tmp_path / "data")
+    put_global_server(
+        "granola",
+        {"url": "https://mcp.granola.ai/mcp", "auth": "oauth", "enabled": True},
+    )
+
+    async def must_not_connect(server):
+        raise AssertionError(f"ensure() reached for token-less {server.name}")
+
+    monkeypatch.setattr(manager.mcp, "ensure", must_not_connect)
+    assert asyncio.run(manager.prepare_mcp_tools("s1")) == []
+
+    manager.secrets.put("mcp-oauth:granola", {"tokens": {"access_token": "at"}})
+    seen = {}
+
+    async def fake_ensure(server):
+        seen["name"] = server.name
+        return SimpleNamespace(tools=[])
+
+    monkeypatch.setattr(manager.mcp, "ensure", fake_ensure)
+    asyncio.run(manager.prepare_mcp_tools("s2"))
+    assert seen["name"] == "granola"
+
+
 def test_connected_follows_tokens_and_disconnect_forgets_everything(
     tmp_path, monkeypatch
 ):
@@ -140,6 +186,9 @@ def test_prepare_mcp_tools_gates_by_session_pin_and_toggles(tmp_path, monkeypatc
     _state(tmp_path, monkeypatch)
     manager = SessionManager(data_dir=tmp_path / "data")
     manager.secrets.put("monday:default", {"mode": "mcp", "enabled": True})
+    # Tokens present — a token-less oauth server is skipped outright (see
+    # test_prepare_mcp_tools_never_starts_an_oauth_flow).
+    manager.secrets.put("mcp-oauth:monday", {"tokens": {"access_token": "at"}})
     # Stale config: include_tools claims a tool we never pinned.
     put_global_server(
         "monday",

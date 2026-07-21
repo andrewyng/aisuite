@@ -796,12 +796,23 @@ class SessionManager:
             tool_enabled,
         )
 
+        from ..mcp import oauth as mcp_oauth
+
         ws = self.engine_workspace(session_id, workspace=workspace, agent=agent)
         loop = asyncio.get_running_loop()
         effective: Optional[set[str]] = None  # computed lazily, once
         out: list[Any] = []
         for server in load_mcp_servers(ws, secrets=self.secrets):
             if not server.enabled:
+                continue
+            if server.auth == "oauth" and not mcp_oauth.has_tokens(
+                server.name, self.secrets
+            ):
+                # NEVER start an interactive OAuth flow from a turn: a token-less
+                # server here would open a browser and block every session for the
+                # full flow timeout (owner-hit 2026-07-20 — a failed one-click's
+                # leftover config froze all new sessions). Flows start only from an
+                # explicit connect in Settings/Connectors.
                 continue
             descriptor = get_descriptor(server.name)
             backed = descriptor is not None and bool(descriptor.mcp_url)
@@ -941,6 +952,12 @@ class SessionManager:
             self.secrets.put(
                 f"{name}:default", {**profile, "mode": "mcp", "enabled": True}
             )
+        else:
+            # A failed connect must take its seeded config with it: an enabled
+            # oauth entry with no tokens lingers forever (nothing owns it once
+            # the descriptor's mcp_url is gone) and re-arms at every session
+            # start — the owner-hit asana leftover, 2026-07-20.
+            delete_global_server(name)
         return result
 
     async def signout_mcp(self, name: str) -> dict[str, Any]:
