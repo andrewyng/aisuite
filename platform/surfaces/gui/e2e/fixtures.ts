@@ -277,6 +277,21 @@ const AUTOMATION = {
   always_allowed: [
     { entry: "send_message slack:T1/C1", tool: "send_message", target: "slack:T1/C1" },
   ],
+  // UX-023 sidebar badges: two unopened runs, the newest of them failed.
+  unseen_runs: 2,
+  unseen_failed: true,
+  seen_runs_at: 0,
+};
+// A second, quiet automation so the Scheduled band shows badge-less rows too.
+const AUTOMATION_CLEAN = {
+  ...AUTOMATION,
+  id: "task-2",
+  title: "Weekly CRM digest",
+  schedule: "Every Monday at ~9:00 AM",
+  last_status: "ok",
+  unseen_runs: 0,
+  unseen_failed: false,
+  always_allowed: [],
 };
 const AUTOMATION_RUNS = [
   {
@@ -503,7 +518,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // backend's set_provider. verify (POST) never mutates: it's a live read-only credential check.
   const providers: any[] = PROVIDERS.map((p) => ({ ...p }));
   // Automations — mutable so Run now appends a run, enable/disable toggles, and delete removes.
-  const automations: any[] = [{ ...AUTOMATION }];
+  const automations: any[] = [{ ...AUTOMATION }, { ...AUTOMATION_CLEAN }];
   // MCP servers (empty by default; the granola OAuth quick-add test populates it).
   const mcpServers: any[] = [];
   const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));
@@ -1200,6 +1215,16 @@ export async function mockApi(page: import("@playwright/test").Page) {
     // automations: one scheduled task with a running run (drives the Automations detail page
     // and the run-session banner + Back-to-runs flow). Mutable: Run now appends a run and opens
     // its live session; the enable toggle (PATCH) and delete (DELETE) round-trip through the UI.
+    if (/\/v1\/automations\/[^/]+\/seen$/.test(p) && m === "POST") {
+      const id = p.split("/").slice(-2)[0];
+      const task = automations.find((t) => t.id === id);
+      if (task) {
+        task.unseen_runs = 0;
+        task.unseen_failed = false;
+        task.seen_runs_at = Math.floor(Date.now() / 1000);
+      }
+      return json({ ok: !!task });
+    }
     if (/\/v1\/automations\/[^/]+\/run$/.test(p) && m === "POST") {
       const id = p.split("/").slice(-2)[0];
       const task = automations.find((t) => t.id === id);

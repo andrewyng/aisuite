@@ -161,7 +161,10 @@ export function App() {
   // to, driving the banner + "Back to runs". Best-effort — a run session without context still
   // shows a generic banner (detected by its __run__ id).
   const [runContext, setRunContext] = useState<{ id: string; title: string } | null>(null);
-  // Which automation the Automations surface opens on (set by the banner's Back link).
+  // Which automation the Automations surface opens on (set by the banner's Back link
+  // or a sidebar Scheduled-band click). Cleared on leaving the surface: a remembered
+  // id going stale (e.g. the automation was deleted) reopened a dead detail —
+  // "Loading…" forever (owner-hit 2026-07-20). Nav re-entry should land on the list.
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
@@ -179,6 +182,12 @@ export function App() {
   const [surface, setSurface] = useState<
     "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona" | "settings"
   >("session");
+  // A remembered Scheduled-detail target must not outlive the surface (see the
+  // scheduledOpenId comment above): nav re-entry lands on the list, never a
+  // possibly-deleted automation's dead detail.
+  useEffect(() => {
+    if (surface !== "scheduled") setScheduledOpenId(null);
+  }, [surface]);
   // The persona whose detail page is showing (surface === "persona"); empty falls back to the
   // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
   const [personaViewId, setPersonaViewId] = useState<string>("");
@@ -1098,6 +1107,10 @@ export function App() {
         }}
         onManagePersonas={() => openSettings("personas")}
         onOpenScheduled={() => setSurface("scheduled")}
+        onOpenAutomation={(id) => {
+          setScheduledOpenId(id);
+          setSurface("scheduled");
+        }}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}

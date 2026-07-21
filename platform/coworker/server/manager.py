@@ -2724,7 +2724,29 @@ class SessionManager:
 
     # -- automation REST --------------------------------------------------------
     def list_automations(self) -> dict[str, Any]:
-        return {"tasks": [t.public() for t in self.task_store.list()]}
+        # Unseen = runs started after the task's seen mark (UX-023 sidebar badges).
+        # `unseen_failed` tints the badge when the NEWEST unseen run errored.
+        tasks = []
+        for t in self.task_store.list():
+            unseen = [
+                r for r in self.task_store.runs(t.id) if r.started_at > t.seen_runs_at
+            ]
+            tasks.append(
+                {
+                    **t.public(),
+                    "unseen_runs": len(unseen),
+                    "unseen_failed": bool(unseen) and unseen[0].status == "error",
+                }
+            )
+        return {"tasks": tasks}
+
+    def mark_automation_seen(self, task_id: str) -> dict[str, Any]:
+        task = self.task_store.get(task_id)
+        if task is None:
+            return {"ok": False, "error": "not found"}
+        task.seen_runs_at = time.time()
+        self.task_store.save(task)
+        return {"ok": True}
 
     def get_automation(self, task_id: str) -> dict[str, Any]:
         task = self.task_store.get(task_id)

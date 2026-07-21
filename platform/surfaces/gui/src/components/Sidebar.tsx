@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   announceCloudChanged,
+  AUTOMATIONS_CHANGED,
   CLOUD_CHANGED,
   cloudLogin,
   cloudLogout,
+  getAutomations,
   getCloudStatus,
   getPersonas,
   getSettings,
@@ -11,6 +13,7 @@ import {
   PERSONAS_CHANGED,
   setNavLayout,
   waitForCloudSignIn,
+  type Automation,
   type CloudStatus,
   type Persona,
   type RecentWorkspace,
@@ -48,6 +51,21 @@ function AttnBadge({ n }: { n: number }) {
     <span
       className="text-[10px] font-semibold text-ink bg-faint/30 rounded-full px-1.5 leading-[15px] shrink-0"
       title={`${n} awaiting your attention`}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
+
+// UX-023: unseen-run count on a Scheduled entry. Deliberately QUIET — same neutral
+// treatment as the attention badge; failure only colors the tooltip's words, not the
+// sidebar (owner call 2026-07-20: no color, and the entry alone carries the count).
+function UnseenBadge({ n, failed }: { n: number; failed?: boolean }) {
+  if (!n) return null;
+  return (
+    <span
+      className="text-[10px] font-semibold text-ink bg-faint/30 rounded-full px-1.5 leading-[15px] shrink-0"
+      title={failed ? `${n} new run${n > 1 ? "s" : ""} — the latest failed` : `${n} new run${n > 1 ? "s" : ""}`}
     >
       {n > 99 ? "99+" : n}
     </span>
@@ -114,6 +132,8 @@ interface Props {
   onOpenPersona: (id: string) => void;
   onManagePersonas: () => void;
   onOpenScheduled: () => void;
+  // Scheduled-band row click: open the Automations surface ON that automation (UX-023).
+  onOpenAutomation: (id: string) => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
@@ -128,7 +148,7 @@ interface Props {
   onPeekLeave?: () => void;
 }
 
-// Codex-style compact age for project session rows: "now" / "5m" / "6h" / "3d" / "2w" / "4mo" / "2y".
+// Compact age for project session rows: "now" / "5m" / "6h" / "3d" / "2w" / "4mo" / "2y".
 const compactAge = (iso?: string | null): string => {
   if (!iso) return "";
   const then = Date.parse(iso);
@@ -176,6 +196,20 @@ export function Sidebar(props: Props) {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(CLOUD_CHANGED, onFocus);
       window.removeEventListener(INBOX_UNLOCK, unlock);
+    };
+  }, []);
+  // UX-023: automations feed the nav row's badge + the Scheduled band. The 15s poll
+  // is the baseline; mutations announce AUTOMATIONS_CHANGED for an instant refresh
+  // (mark-seen must clear the badge the moment the detail opens).
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  useEffect(() => {
+    const load = () => getAutomations().then(setAutomations).catch(() => {});
+    load();
+    const t = setInterval(load, 15_000);
+    window.addEventListener(AUTOMATIONS_CHANGED, load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(AUTOMATIONS_CHANGED, load);
     };
   }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -243,18 +277,24 @@ export function Sidebar(props: Props) {
   const personaOf = (id: string) => personas?.find((p) => p.id === id);
 
   // Sidebar layout (§7): "grouped" = the per-persona accordion; "flat" = a single ungrouped list
-  // (Pinned + Recent). Read the persisted preference on load (absent → grouped, the accordion),
-  // write via setNavLayout when toggled (now flips flat-list ↔ accordion).
-  const [layout, setLayout] = useState<"flat" | "grouped">("grouped");
+  // (Pinned + Recent). Read the persisted preference on load; ABSENT falls back by the
+  // Personas flag — with personas hidden for launch, a per-persona accordion groups by
+  // a concept the user can't see, so the default is the flat chronological list
+  // (owner call 2026-07-20). An explicit stored choice always wins.
+  const defaultLayout: "flat" | "grouped" = showPersonas() ? "grouped" : "flat";
+  const [layout, setLayout] = useState<"flat" | "grouped">(defaultLayout);
   // Sessions shown per group before "Show more" — Settings ▸ Appearance ▸ Sidebar.
   const [peek, setPeek] = useState(5);
   useEffect(() => {
     getSettings()
       .then((s) => {
-        setLayout(s.nav_layout === "flat" ? "flat" : "grouped");
+        setLayout(
+          s.nav_layout === "flat" ? "flat" : s.nav_layout === "grouped" ? "grouped" : defaultLayout,
+        );
         if (s.sessions_peek) setPeek(s.sessions_peek);
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const setGroupBy = (next: "flat" | "grouped") => {
     setLayout(next);
@@ -386,7 +426,7 @@ export function Sidebar(props: Props) {
   // so they list flat. Workspace-aware (not id-aware) — any git/project persona gets Projects.
   const workspaceSurface = isProjectScoped(personaOf(browseKey));
 
-  // Search now lives in the SearchModal (Codex-style overlay), so the sidebar lists never filter
+  // Search now lives in the SearchModal (command-palette overlay), so the sidebar lists never filter
   // in place — these stay constant and the `.filter(matches)` / `normalizedQuery ? …` call sites
   // below are intentional no-ops kept to avoid churn.
   const normalizedQuery = "";
@@ -644,6 +684,35 @@ export function Sidebar(props: Props) {
         </div>
         <div className="space-y-0.5">
           {pinnedSessions.map((s) => cardRow(s))}
+        </div>
+      </div>
+    ) : null;
+
+  // UX-023: the Scheduled band — ONE entry per automation (never per run): name +
+  // cadence, with the unseen-runs badge. Runs themselves never enter Recent (run
+  // sessions are __run__-prefixed and hidden from the sessions list).
+  const scheduledBand = () =>
+    automations.length > 0 ? (
+      <div data-testid="scheduled-band">
+        <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
+          Scheduled
+        </div>
+        <div className="space-y-0.5">
+          {automations.map((a) => (
+            <button
+              key={a.id}
+              className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg text-left hover:bg-paper"
+              data-testid={`scheduled-${a.id}`}
+              title={a.title}
+              onClick={() => props.onOpenAutomation(a.id)}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] text-ink truncate">{a.title}</div>
+                <div className="text-[11px] text-faint truncate">{a.schedule}</div>
+              </div>
+              <UnseenBadge n={a.unseen_runs || 0} failed={a.unseen_failed} />
+            </button>
+          ))}
         </div>
       </div>
     ) : null;
@@ -996,11 +1065,28 @@ export function Sidebar(props: Props) {
         </button>
       </div>
 
+      {/* Automations: a first-class nav row (UX-023) — the account menu keeps its entry.
+          The badge is the cross-automation unseen-run total. */}
+      <div className="px-2.5 mt-1">
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.scheduledActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-automations"
+          onClick={props.onOpenScheduled}
+        >
+          <Icon name="clock" size={15} className="shrink-0" />
+          <span className="flex-1">Automations</span>
+        </button>
+      </div>
+
       {/* Scroll area: Pinned band + the RECENT header (with group/filter control), then the body —
           grouped (per-persona accordion) or flat (chronological list). */}
       <div className="flex-1 overflow-y-auto px-2.5 mt-3 pb-2">
         <div className="space-y-4">
           {pinnedBand()}
+          {scheduledBand()}
           {fromSlackBand()}
           <div>
             {recentHeader()}

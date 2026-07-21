@@ -21,7 +21,7 @@
   --faint: #9aa1aa;
   --line: #e8eaed;
   --line-strong: #d8dce1;
-  --accent: #2563eb; /* cobalt — our signature, distinct from Claude's coral */
+  --accent: #2563eb; /* cobalt — our signature, distinct from the coral-leaning tools */
   --accent-soft: #e9f0fd;
   --ok: #2f7d57;
   --ok-soft: #eef6f0;
@@ -938,6 +938,11 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
 .sched-run { border-bottom: 1px solid var(--line); }
 .sched-run-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; padding: 8px 2px; cursor: pointer; color: var(--muted); }
 .run-ok { color: var(--ok); } .run-error { color: var(--accent); } .run-running { color: var(--muted); }
+/* UX-023: marks runs newer than the seen mark captured when the detail opened. */
+.run-new-pill {
+  display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 999px;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 600; line-height: 16px;
+}
 /* Run row = a launcher into the run's conversation. */
 .sched-run.open { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; padding: 4px 12px 10px; cursor: pointer; background: var(--panel); }
 .sched-run.open:hover { border-color: var(--line-strong); background: var(--paper); }

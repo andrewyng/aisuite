@@ -4,6 +4,8 @@ import {
   deleteAutomation,
   getAutomation,
   getAutomations,
+  markAutomationSeen,
+  announceAutomationsChanged,
   updateAutomation,
   type Automation,
   type AutomationRun,
@@ -67,6 +69,12 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // The sidebar's Scheduled band can retarget an ALREADY-open Automations surface —
+  // initial state alone would ignore the change (UX-023).
+  useEffect(() => {
+    if (initialOpenId) setOpenId(initialOpenId);
+  }, [initialOpenId]);
+
   const refresh = () => getAutomations().then(setTasks).catch(() => setTasks([]));
   useEffect(() => {
     refresh();
@@ -85,6 +93,7 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
     setBusy(payload.title);
     try {
       const res = await createAutomation(payload);
+      announceAutomationsChanged(); // new entry shows in the sidebar band right away
       await refresh();
       if (res.ok && res.task) {
         setShowForm(false);
@@ -288,15 +297,32 @@ function TaskDetail({
   const [freq, setFreq] = useState("daily");
   const [saving, setSaving] = useState(false);
 
+  // The seen mark AS OF opening — the "new" pills compare against this frozen value
+  // while mark-seen advances the stored one (badge clears; highlights survive).
+  const [seenMark, setSeenMark] = useState<number | null>(null);
+
   const refresh = () =>
     getAutomation(id)
       .then((d) => {
+        if (!d.task) {
+          // Deleted (or a stale reopen target): "Loading…" forever is a trap —
+          // fall back to the overview (owner-hit 2026-07-20).
+          onBack();
+          return;
+        }
         setTask(d.task);
         setRuns(d.runs || []);
+        setSeenMark((cur) => (cur === null ? d.task?.seen_runs_at ?? 0 : cur));
       })
       .catch(() => {});
   useEffect(() => {
+    setSeenMark(null);
     refresh();
+    // Opening the detail IS reading it: advance the seen mark and nudge the
+    // sidebar so the badge clears immediately (UX-023).
+    markAutomationSeen(id)
+      .then(() => announceAutomationsChanged())
+      .catch(() => {});
   }, [id]);
 
   if (!task)
@@ -334,6 +360,7 @@ function TaskDetail({
   };
   const remove = async () => {
     await deleteAutomation(id);
+    announceAutomationsChanged(); // the sidebar band must not wait out its poll
     onBack();
   };
 
@@ -461,6 +488,9 @@ function TaskDetail({
           >
             <div className="sched-run-row">
               <span>
+                {seenMark !== null && r.started_at > seenMark && (
+                  <span className="run-new-pill" data-testid="run-new">new</span>
+                )}
                 {fmt(r.started_at)} · <span className={"run-" + r.status}>{r.status}</span> · {r.trigger}
                 {r.artifacts.length > 0 && <span className="dim"> · {r.artifacts.length} file(s)</span>}
               </span>

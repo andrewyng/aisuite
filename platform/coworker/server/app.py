@@ -1327,6 +1327,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_delete(task_id: str) -> dict[str, Any]:
         return manager.delete_automation(task_id)
 
+    @app.post("/v1/automations/{task_id}/seen")
+    def automations_seen(task_id: str) -> dict[str, Any]:
+        return manager.mark_automation_seen(task_id)
+
     @app.post("/v1/automations/{task_id}/run")
     def automation_run(task_id: str) -> dict[str, Any]:
         # Prepare a live manual run; the GUI opens the returned session and drives it.
