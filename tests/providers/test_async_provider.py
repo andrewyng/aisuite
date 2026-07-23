@@ -51,3 +51,26 @@ async def test_openai_native_async(monkeypatch):
     )
     assert response.choices[0].message.content == "async hi"
     provider.aclient.chat.completions.create.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_openai_native_async_maps_max_tokens_for_newer_models(monkeypatch):
+    """The native async OpenAI path applies the same token-limit abstraction."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    provider = OpenaiProvider()
+
+    mock_response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="async hi"))]
+    )
+    provider.aclient.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    response = await provider.achat_completions_create(
+        "gpt-5.4-mini",
+        [{"role": "user", "content": "hi"}],
+        max_tokens=100,
+    )
+
+    assert response.choices[0].message.content == "async hi"
+    call_kwargs = provider.aclient.chat.completions.create.await_args.kwargs
+    assert call_kwargs["max_completion_tokens"] == 100
+    assert "max_tokens" not in call_kwargs
