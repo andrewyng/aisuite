@@ -10,7 +10,6 @@ from aisuite.framework.message import (
     StreamingTranscriptionChunk,
 )
 
-
 _MAX_TOKENS_PARAM = "max_tokens"
 _MAX_COMPLETION_TOKENS_PARAM = "max_completion_tokens"
 _MAX_COMPLETION_TOKEN_MODEL_PREFIXES = (
@@ -170,28 +169,64 @@ class OpenaiProvider(Provider):
 
     def chat_completions_create_stream(self, model, messages, **kwargs):
         # OpenAI's own chunks already have the unified shape — pass them through.
+        transformed_messages = None
+        request_kwargs = None
         try:
             transformed_messages = self.transformer.convert_request(messages)
+            request_kwargs = _normalize_chat_completion_kwargs(model, kwargs)
             stream = self.client.chat.completions.create(
                 model=model,
                 messages=transformed_messages,
                 stream=True,
-                **kwargs,
+                **request_kwargs,
             )
+        except openai.BadRequestError as e:
+            if request_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            retry_kwargs = _retry_kwargs_for_unsupported_token_param(e, request_kwargs)
+            if retry_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            try:
+                stream = self.client.chat.completions.create(
+                    model=model,
+                    messages=transformed_messages,
+                    stream=True,
+                    **retry_kwargs,
+                )
+            except Exception as retry_error:
+                raise LLMError(f"An error occurred: {retry_error}")
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
         yield from stream
 
     async def achat_completions_create_stream(self, model, messages, **kwargs):
         # Native async streaming via openai.AsyncOpenAI.
+        transformed_messages = None
+        request_kwargs = None
         try:
             transformed_messages = self.transformer.convert_request(messages)
+            request_kwargs = _normalize_chat_completion_kwargs(model, kwargs)
             stream = await self.aclient.chat.completions.create(
                 model=model,
                 messages=transformed_messages,
                 stream=True,
-                **kwargs,
+                **request_kwargs,
             )
+        except openai.BadRequestError as e:
+            if request_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            retry_kwargs = _retry_kwargs_for_unsupported_token_param(e, request_kwargs)
+            if retry_kwargs is None:
+                raise LLMError(f"An error occurred: {e}")
+            try:
+                stream = await self.aclient.chat.completions.create(
+                    model=model,
+                    messages=transformed_messages,
+                    stream=True,
+                    **retry_kwargs,
+                )
+            except Exception as retry_error:
+                raise LLMError(f"An error occurred: {retry_error}")
         except Exception as e:
             raise LLMError(f"An error occurred: {e}")
         async for chunk in stream:
