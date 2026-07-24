@@ -80,12 +80,25 @@ class MCPToolWrapper:
 
         This allows inspect.signature() to see the proper parameters with
         type annotations, rather than just **kwargs.
+
+        inspect.Signature (like Python's own `def` syntax) requires every
+        non-default parameter to precede any default parameter, but JSON
+        Schema's `required` list is independent of `properties` order, so
+        a schema listing an optional property before a required one would
+        otherwise raise "non-default argument follows default argument"
+        here. Required parameters are sorted first (stable otherwise) to
+        satisfy that constraint without changing which parameters are
+        required -- callers always pass keyword arguments, so parameter
+        position carries no other meaning.
         """
         properties = input_schema.get("properties", {})
         required = input_schema.get("required", [])
 
         parameters = []
-        for param_name, annotation in self.__annotations__.items():
+        sorted_annotations = sorted(
+            self.__annotations__.items(), key=lambda item: item[0] not in required
+        )
+        for param_name, annotation in sorted_annotations:
             # Create parameter with annotation and default
             if param_name in required:
                 # Required parameter (no default)
