@@ -195,6 +195,18 @@ def test_invalid_model_format_in_create():
         client.chat.completions.create(invalid_model, messages=messages)
 
 
+def test_none_model_format_in_create_raises_value_error():
+    client = Client()
+    messages = [
+        {"role": "user", "content": "Hello"},
+    ]
+
+    with pytest.raises(
+        ValueError, match=r"Invalid model format. Expected 'provider:model'"
+    ):
+        client.chat.completions.create(None, messages=messages)
+
+
 def _chat_response(content=None, tool_calls=None):
     message = Message(role="assistant", content=content, tool_calls=tool_calls)
     return SimpleNamespace(choices=[SimpleNamespace(message=message)])
