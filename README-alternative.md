@@ -30,7 +30,7 @@ print(response.choices[0].message.content)
 ```
 
 ```bash
-pip install aisuite          # add provider extras, e.g. aisuite[anthropic]
+pip install aisuite          # add provider extras, e.g. 'aisuite[anthropic]'
 ```
 
 → [examples](examples/chat-completion) · [docs](docs/chat)
@@ -62,7 +62,7 @@ print(result.final_output)
 ```
 
 ```bash
-pip install aisuite[agents]
+pip install 'aisuite[agents]'
 ```
 
 → [examples](examples/agents-api) · [docs](docs/agents)

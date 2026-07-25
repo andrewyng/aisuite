@@ -11,7 +11,7 @@ export TONGYI_API_KEY="your-api-key"
 ### Example Using pip:
 
 ```shell
-pip install aisuite[all]
+pip install 'aisuite[all]'
 ```
 
 ### Example with poetry:
