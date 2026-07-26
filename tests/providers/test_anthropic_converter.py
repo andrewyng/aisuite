@@ -123,6 +123,38 @@ class TestAnthropicMessageConverter(unittest.TestCase):
             "get_weather",
         )
 
+    def test_convert_response_with_parallel_tool_use(self):
+        """Multiple tool_use blocks in one response must all be converted."""
+        response = MagicMock()
+        response.id = "msg_parallel"
+        response.model = "claude-3-5-sonnet-20241022"
+        response.role = "assistant"
+        response.stop_reason = "tool_use"
+        response.usage.input_tokens = 20
+        response.usage.output_tokens = 10
+
+        first = MagicMock()
+        first.type = "tool_use"
+        first.id = "tool_paris"
+        first.name = "get_weather"
+        first.input = {"location": "Paris"}
+
+        second = MagicMock()
+        second.type = "tool_use"
+        second.id = "tool_london"
+        second.name = "get_weather"
+        second.input = {"location": "London"}
+
+        response.content = [first, second]
+
+        normalized_response = self.converter.convert_response(response)
+
+        tool_calls = normalized_response.choices[0].message.tool_calls
+        self.assertEqual(len(tool_calls), 2)
+        self.assertEqual([tc.id for tc in tool_calls], ["tool_paris", "tool_london"])
+        self.assertEqual(tool_calls[0].function.arguments, '{"location": "Paris"}')
+        self.assertEqual(tool_calls[1].function.arguments, '{"location": "London"}')
+
     def test_convert_tool_spec(self):
         """Test converting OpenAI tool specifications to Anthropic format."""
         openai_tools = [
