@@ -43,8 +43,25 @@ GUI="$PLATFORM/surfaces/gui"
 APP="OpenWorker"
 # Single source of truth for the version: tauri.conf.json (also stamps the bundle).
 VERSION="$(node -p "require('$GUI/src-tauri/tauri.conf.json').version")"
-TRIPLE="$(rustc -vV | sed -n 's/host: //p')"   # e.g. aarch64-apple-darwin
-ARCH="${TRIPLE%%-*}"
+
+# Cross-compilation support: set CARGO_TARGET to build for a different architecture.
+# Example: CARGO_TARGET=x86_64-apple-darwin ./build_dmg.sh  (run on Apple Silicon)
+# When unset the build targets the host triple (native).
+HOST_TRIPLE="$(rustc -vV | sed -n 's/host: //p')"   # e.g. aarch64-apple-darwin
+CARGO_TARGET="${CARGO_TARGET:-}"
+if [ -n "$CARGO_TARGET" ] && [ "$CARGO_TARGET" != "$HOST_TRIPLE" ]; then
+  TRIPLE="$CARGO_TARGET"
+  # Ensure the Rust toolchain for the target is installed.
+  rustup target add "$CARGO_TARGET"
+  CROSS_FLAG="--target $CARGO_TARGET"
+  # Bundle output lands under target/<triple>/release/bundle when cross-compiling.
+  BUNDLE_DIR="$GUI/src-tauri/target/$CARGO_TARGET/release/bundle"
+else
+  TRIPLE="$HOST_TRIPLE"
+  CROSS_FLAG=""
+  BUNDLE_DIR="$GUI/src-tauri/target/release/bundle"
+fi
+ARCH="${TRIPLE%%-*}"   # e.g. aarch64 or x86_64
 
 # CI keychain bootstrap: on a fresh runner the Developer ID cert exists only as the
 # APPLE_CERTIFICATE secret (base64 .p12) — import it into a throwaway keychain so the
@@ -144,10 +161,12 @@ if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
 else
   echo "    WARNING: no updater signing key — building WITHOUT auto-update artifacts (not releasable)."
 fi
-( cd "$GUI" && npm run tauri build -- --bundles app "${UPDATER_OVERLAY[@]}" )
+( cd "$GUI" && npm run tauri build -- --bundles app \
+  ${CROSS_FLAG:+$CROSS_FLAG} \
+  "${UPDATER_OVERLAY[@]}" )
 
 echo "==> [4/5] hdiutil: wrapping into .dmg"
-BUNDLE="$GUI/src-tauri/target/release/bundle"
+BUNDLE="$BUNDLE_DIR"
 STAGING="$(mktemp -d)"
 cp -R "$BUNDLE/macos/$APP.app" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
