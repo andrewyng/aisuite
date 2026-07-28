@@ -199,6 +199,10 @@ class ParamValidator:
             ValueError: If extra_param_mode="strict" and unknown params found
         """
         result = {}
+        # Records which input key produced each result key, so a collision
+        # between a mapped common param and a provider-native one is resolved
+        # the same way regardless of the order the caller passed them in.
+        sources: Dict[str, str] = {}
         unknown_params = []
         provider_params = PROVIDER_PARAMS.get(provider_key, set())
 
@@ -216,11 +220,13 @@ class ParamValidator:
 
                 # Transform value if needed (e.g., "en" -> "en-US" for Google)
                 mapped_value = self._transform_value(provider_key, key, value)
-                result[mapped_key] = mapped_value
+                self._claim(
+                    result, sources, mapped_key, mapped_value, key, provider_key
+                )
 
             # Check if it's a valid provider-specific param
             elif key in provider_params:
-                result[key] = value
+                self._claim(result, sources, key, value, key, provider_key)
 
             # Unknown parameter
             else:
@@ -236,6 +242,50 @@ class ParamValidator:
                     result[key] = params[key]
 
         return result
+
+    def _claim(
+        self,
+        result: Dict[str, Any],
+        sources: Dict[str, str],
+        result_key: str,
+        value: Any,
+        source_key: str,
+        provider_key: str,
+    ) -> None:
+        """
+        Write one parameter into the result, resolving collisions deterministically.
+
+        Some common params map onto a name that is also a valid provider-specific
+        param, so two different input keys can target the same result key. For
+        deepgram, ``prompt`` maps to ``keywords``, and ``keywords`` is itself a
+        deepgram param; for google, ``language`` maps to ``language_code``, which
+        is also a google param. When both are supplied, the explicit
+        provider-specific key wins: the caller named the provider's own parameter
+        for this provider, which is more specific than the portable alias.
+
+        Args:
+            result: Accumulated output parameters, mutated in place.
+            sources: Input key that produced each result key, mutated in place.
+            result_key: Key to write in the provider payload.
+            value: Value to write.
+            source_key: Input key this value came from.
+            provider_key: Provider identifier, for the log message.
+        """
+        previous_source = sources.get(result_key)
+        if previous_source is not None and previous_source != source_key:
+            # Exactly one of the two input keys is the provider's own parameter
+            # name; that one is `result_key` itself, and it wins.
+            alias = previous_source if previous_source != result_key else source_key
+            logger.warning(
+                f"Parameter '{alias}' maps to '{result_key}' for {provider_key}, "
+                f"which was also passed explicitly; keeping the explicit "
+                f"'{result_key}' and ignoring '{alias}'"
+            )
+            if source_key != result_key:
+                return
+
+        result[result_key] = value
+        sources[result_key] = source_key
 
     def _transform_value(self, provider_key: str, param_key: str, value: Any) -> Any:
         """
