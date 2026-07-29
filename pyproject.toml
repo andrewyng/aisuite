@@ -26,6 +26,7 @@ docstring-parser = { version = ">=0.16,<1.0" }
 pydantic = { version = "^2.10.0" }
 cerebras_cloud_sdk = { version = "^1.19.0", optional = true }
 openai = { version = "^1.107.0", optional = true }
+oci-genai-auth = { version = ">=0.1.0", optional = true }
 mcp = { version = "^1.1.2", optional = true }
 nest-asyncio = { version = "^1.6.0", optional = true }
 psycopg = { version = "^3.3.4", optional = true }
@@ -48,10 +49,11 @@ mistral = ["mistralai"]
 ollama = ["openai"]
 lmstudio = ["openai"]
 openai = ["openai"]
+oci = ["openai", "oci-genai-auth"]
 watsonx = ["ibm-watsonx-ai"]
 mcp = ["mcp", "nest-asyncio"]
 postgres = ["psycopg"]
-all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "google-genai", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy", "mcp", "nest-asyncio", "psycopg"]  # To install all providers
+all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "google-genai", "groq", "mistralai", "openai", "oci-genai-auth", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy", "mcp", "nest-asyncio", "psycopg"]  # To install all providers
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.1"
