@@ -19,6 +19,10 @@ try:
 except ImportError:
     MCP_AVAILABLE = False
 
+    def is_mcp_config(obj: Any) -> bool:
+        """Identify MCP config dictionaries without the optional MCP package."""
+        return isinstance(obj, dict) and obj.get("type") == "mcp"
+
 
 class Client:
     def __init__(
