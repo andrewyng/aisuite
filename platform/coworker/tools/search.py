@@ -1,7 +1,9 @@
 """Fast code search (`grep`) — ripgrep when available, a Python walk otherwise.
 
-ripgrep respects `.gitignore`, so it skips `node_modules`/`target`/`dist` automatically; the
-fallback skips a hardcoded set of heavy dirs. Read-only, workspace-scoped. Returns file:line:text.
+ripgrep respects `.gitignore`, but only inside a git repository, so both engines are
+additionally given the same `_IGNORE_DIRS` list of heavy dirs — the same query must not
+return different results depending on whether rg is installed. Read-only, workspace-scoped.
+Returns file:line:text.
 """
 
 from __future__ import annotations
@@ -31,6 +33,11 @@ _IGNORE_DIRS = {
     ".ruff_cache",
     ".idea",
 }
+
+# Same exclusions for ripgrep. `.gitignore` only applies inside a git repository, and
+# even there it won't list a dir the project happens not to ignore, so relying on it
+# alone made results differ between the two engines.
+_RG_IGNORE_GLOBS = [f"!**/{d}/**" for d in sorted(_IGNORE_DIRS)]
 
 _SCHEMA = {
     "type": "function",
@@ -91,6 +98,10 @@ def search_tools(workspace: str) -> list:
                 "--line-number",
                 "--no-heading",
                 "--color=never",
+                # NUL between the path and the line number: `base` is absolute, so on
+                # Windows every match line starts with "D:\..." and a plain ":" split
+                # would break on the drive letter.
+                "--null",
                 "--max-count",
                 str(n),
                 "-e",
@@ -98,9 +109,23 @@ def search_tools(workspace: str) -> list:
             ]
             if glob:
                 cmd += ["--glob", glob]
+            # After the caller's glob: later globs win in ripgrep, so the heavy dirs
+            # stay excluded even when `glob` would otherwise match inside them.
+            for ignore in _RG_IGNORE_GLOBS:
+                cmd += ["--glob", ignore]
             cmd.append(str(base))
             try:
-                out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                # Decode explicitly: `text=True` alone uses the platform's preferred
+                # encoding, a legacy codepage on a stock Windows install, and any
+                # matched line whose bytes that codec rejects makes subprocess drop
+                # `stdout` to None -- the whole search is lost over one line.
+                out = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=30,
+                )
             except Exception as exc:
                 return {"error": f"grep failed: {exc}"}
             if out.returncode not in (0, 1):  # 1 = no matches
@@ -130,18 +155,25 @@ def _rel(path: str, root: Path) -> str:
 
 
 def _parse_rg(stdout: str, root: Path, n: int) -> dict[str, Any]:
+    """Parse `rg --null --line-number --no-heading` output: PATH \\0 LINE ':' TEXT."""
     matches: list[dict[str, Any]] = []
     for line in stdout.splitlines():
-        parts = line.split(":", 2)
-        if len(parts) == 3:
-            f, ln, txt = parts
-            matches.append(
-                {
-                    "file": _rel(f, root),
-                    "line": int(ln) if ln.isdigit() else 0,
-                    "text": txt[:300],
-                }
-            )
+        # The NUL ends the path, so the path may contain ':' (a Windows drive
+        # letter) without confusing the split. Only the line number is separated
+        # by ':', and the text keeps every ':' it contained.
+        f, sep, rest = line.partition("\0")
+        if not sep:
+            continue
+        ln, sep, txt = rest.partition(":")
+        if not sep:
+            continue
+        matches.append(
+            {
+                "file": _rel(f, root),
+                "line": int(ln) if ln.isdigit() else 0,
+                "text": txt[:300],
+            }
+        )
         if len(matches) >= n:
             break
     return {"count": len(matches), "matches": matches}
