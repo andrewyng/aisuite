@@ -81,6 +81,90 @@ def test_large_output_truncated_keeps_tail(tmp_path):
         ex.close()
 
 
+# -- output decoding -------------------------------------------------------------
+
+# Emit bytes that are not valid UTF-8 *and* not a valid sequence in the common
+# Windows codepages, surrounded by plain ASCII. 0x81 followed by 0x20 is
+# rejected by cp936; 0x81 is unmapped in cp1252. Real commands produce such
+# bytes routinely: `cat` on a binary file, a compiler quoting a snippet in
+# another encoding, curl echoing a response body.
+_RAW_BYTES = b"ok-before\n\x81 raw\nok-after\n"
+EMIT_RAW_BYTES = (
+    "[Console]::OpenStandardOutput().Write("
+    "[byte[]]@(%s), 0, %d)" % (",".join(str(b) for b in _RAW_BYTES), len(_RAW_BYTES))
+    if _WIN
+    else r"printf 'ok-before\n\201 raw\nok-after\n'"
+)
+
+# Valid UTF-8 that a legacy codepage would silently turn into mojibake rather
+# than reject: cp936 decodes b"caf\xc3\xa9" to "cafÃ©" without raising, and
+# cp1252 does the same. Written straight to the stdout handle so the bytes
+# reach our pipe unmodified -- PowerShell's `Write-Output` would re-encode
+# through its own output encoding first, which is a separate concern from the
+# decoding this tests.
+_UTF8_BYTES = "café\n".encode("utf-8")
+EMIT_UTF8 = (
+    "[Console]::OpenStandardOutput().Write("
+    "[byte[]]@(%s), 0, %d)" % (",".join(str(b) for b in _UTF8_BYTES), len(_UTF8_BYTES))
+    if _WIN
+    else r"printf 'caf\303\251\n'"
+)
+
+
+def test_undecodable_output_does_not_kill_the_session(executor):
+    """Output the shell's locale cannot decode must not take the reader down.
+
+    The reader thread iterates over `proc.stdout`. If that raises, its `finally`
+    pushes the EOF sentinel, `run()` reads that as "shell died" and returns with
+    `exit_code=None` — and every surrounding line already buffered is lost with
+    it. Decoding as UTF-8 with `errors="replace"` keeps the stream alive and
+    degrades only the offending bytes.
+    """
+    result = executor.run(EMIT_RAW_BYTES)
+
+    # The marker arrived, so the reader survived and the stream stayed in sync.
+    assert result["exit_code"] == 0
+    # The ASCII on both sides of the bad bytes is intact — nothing was dropped.
+    assert "ok-before" in result["output"]
+    assert "ok-after" in result["output"]
+    # The undecodable byte became the replacement character, not an exception.
+    assert "�" in result["output"]
+
+    # And the session is still usable afterwards.
+    assert "alive" in executor.run("echo alive")["output"]
+
+
+def test_utf8_output_is_not_mojibake(executor):
+    """UTF-8 command output must decode as UTF-8, not as the platform codepage.
+
+    These bytes decode without raising under cp936/cp1252, so the failure is
+    silent: the model is handed a corrupted string it cannot tell from the real
+    one. Asserting on the exact text is the only way to catch it.
+    """
+    result = executor.run(EMIT_UTF8)
+
+    assert result["exit_code"] == 0
+    assert "café" in result["output"]
+    # The codepage reading of those same bytes must not be what came through.
+    assert "cafÃ©" not in result["output"]
+
+
+def test_background_task_undecodable_output_survives(executor):
+    """Same guarantee for background tasks, which use a separate Popen call."""
+    reg = ToolRegistry()
+    reg.register_all(shell_tools(executor))
+    started = reg.execute(
+        "run_shell", {"command": EMIT_RAW_BYTES, "run_in_background": True}
+    )
+    assert started["task_id"]
+
+    acc, res = _poll_output(reg, started["task_id"], until_status="exited")
+    assert res["exit_code"] == 0
+    assert "ok-before" in acc
+    assert "ok-after" in acc
+    assert "�" in acc
+
+
 def test_shell_tool_integration(executor, tmp_path):
     reg = ToolRegistry()
     reg.register_all(shell_tools(executor))

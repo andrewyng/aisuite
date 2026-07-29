@@ -43,6 +43,17 @@ _IS_WINDOWS = sys.platform == "win32"
 _DEFAULT_TIMEOUT = 120.0
 _MAX_TIMEOUT = 600.0
 
+# Decoding for the shell's output. `text=True` alone would decode with the
+# platform's preferred encoding, which is a legacy codepage on a stock Windows
+# install (cp936, cp1252, ...). Command output is the least trustworthy byte
+# stream we handle -- `cat` on a binary file, a compiler quoting a snippet in
+# another encoding, curl echoing a body -- and under a codepage those bytes
+# either decode to mojibake or raise UnicodeDecodeError inside the reader
+# thread, which kills the reader and takes the whole shell session with it.
+# Decode as UTF-8 and degrade undecodable bytes to U+FFFD instead, matching
+# how `tools/files.py` reads files.
+_OUTPUT_DECODING: dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
+
 # Env defaults that discourage commands from blocking on a prompt.
 _NONINTERACTIVE_ENV = {
     "GIT_TERMINAL_PROMPT": "0",
@@ -94,6 +105,7 @@ class _BackgroundTask:
             stderr=subprocess.STDOUT,
             cwd=cwd,
             text=True,
+            **_OUTPUT_DECODING,
             bufsize=1,
             env=env,
             **spawn_kwargs,
@@ -192,6 +204,7 @@ class LocalExecutor(Executor):
             stderr=subprocess.STDOUT,
             cwd=self.cwd,
             text=True,
+            **_OUTPUT_DECODING,
             bufsize=1,
             env=self._env,
             **spawn_kwargs,
