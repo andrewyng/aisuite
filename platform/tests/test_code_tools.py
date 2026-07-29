@@ -6,13 +6,15 @@ against temp dirs (git_log needs a real `git`, which the dev box has).
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from coworker.tools.files import file_tools
 from coworker.tools.git import git_tools
-from coworker.tools.search import _py_grep, search_tools
+from coworker.tools.search import _parse_rg, _py_grep, search_tools
 from coworker.web.fetch import _html_to_text, make_web_fetch_tool
 
 
@@ -49,6 +51,57 @@ def test_py_grep_fallback_skips_ignored_dirs(tmp_path):
     res = _py_grep(tmp_path.resolve(), tmp_path.resolve(), "hello", None, 100)
     assert res["count"] == 2  # a.py + b.txt, NOT node_modules
     assert all("node_modules" not in m["file"] for m in res["matches"])
+
+
+def test_parse_rg_keeps_colons_in_paths_and_text():
+    """`grep` passes an absolute path to rg, so match lines start with "D:\\..." on
+    Windows. Splitting on ':' would take the drive letter as the filename and the
+    rest of the path as the line number. The NUL separator removes the ambiguity;
+    colons inside the matched text must survive too.
+    """
+    root = Path("D:/ws")
+    stdout = (
+        "D:\\ws\\pkg\\a.py\x0012:    url = 'http://x/y'\nD:\\ws\\b.txt\x007:plain\n"
+    )
+    res = _parse_rg(stdout, root, 100)
+
+    assert res["count"] == 2
+    first = res["matches"][0]
+    assert first["file"] == str(Path("pkg/a.py"))  # not "D"
+    assert first["line"] == 12  # not 0 from a failed isdigit()
+    assert first["text"] == "    url = 'http://x/y'"  # colons kept
+    assert res["matches"][1]["line"] == 7
+
+
+def test_parse_rg_ignores_malformed_lines():
+    """rg also writes non-match lines (e.g. "path: No such file") to stdout."""
+    res = _parse_rg(
+        "some warning with no NUL\n\nD:\\ws\\a.py\x001:hit\n", Path("D:/ws"), 100
+    )
+    assert res["count"] == 1
+    assert res["matches"][0]["text"] == "hit"
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep not installed")
+def test_grep_survives_undecodable_bytes_in_matched_lines(tmp_path):
+    """A single non-UTF-8 byte in any matched line must not lose the whole search.
+
+    `subprocess.run(text=True)` decodes rg's output with the platform's preferred
+    encoding and no error handler. One byte that codec rejects makes subprocess
+    drop `stdout` to None, and `_parse_rg(None, ...)` then raises AttributeError
+    outside the `try` — the tool errors out instead of returning the matches it
+    already had. Bytes like this are ordinary in a real workspace: a latin-1
+    source file, a fixture holding binary data, a minified asset.
+    """
+    (tmp_path / "clean.txt").write_bytes(b"needle in ascii\n")
+    (tmp_path / "raw.txt").write_bytes(b"needle \xff\xfe undecodable\n")
+
+    out = search_tools(str(tmp_path))[0](pattern="needle")
+
+    assert "error" not in out
+    files = {m["file"] for m in out["matches"]}
+    assert "clean.txt" in files  # the good match is not collateral damage
+    assert "raw.txt" in files  # and the offending line still comes through
 
 
 # -- git_log -------------------------------------------------------------------
