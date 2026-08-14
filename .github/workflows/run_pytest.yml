@@ -1,6 +1,23 @@
-name: Lint
+name: Python Fast Unit Tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - pyproject.toml
+      - .github/workflows/run_pytest.yml
+      - aisuite/**
+      - tests/**
+  pull_request:
+    branches: [ main ]
+      paths:
+        - pyproject.toml
+        - .github/workflows/run_pytest.yml
+        - aisuite/**
+        - tests/**
+
+env:
+  POETRY_VERSION=2.2.1
 
 jobs:
   build_and_test:
@@ -9,16 +26,16 @@ jobs:
       matrix:
         python-version: [ "3.10", "3.11", "3.12" ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Set up Poetry ${{ env.POETRY_VERSION }}
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install poetry
-          poetry install --all-extras --with test
+        run: poetry install --all-extras --with test
       - name: Test with pytest
-        run: poetry run pytest -m "not integration"
-
+        run: poetry run pytest -m "not integration and not long and not slow"
