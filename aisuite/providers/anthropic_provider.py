@@ -314,34 +314,34 @@ class AnthropicMessageConverter:
 
     def convert_response_with_tool_use(self, response):
         """Convert Anthropic tool use response to the framework's format."""
-        tool_call = next(
-            (content for content in response.content if content.type == "tool_use"),
-            None,
+        # Claude can return several tool_use blocks in a single turn (parallel
+        # tool use), so collect all of them rather than only the first.
+        tool_calls = [
+            ChatCompletionMessageToolCall(
+                id=content.id,
+                function=Function(
+                    name=content.name, arguments=json.dumps(content.input)
+                ),
+                type="function",
+            )
+            for content in response.content
+            if content.type == "tool_use"
+        ]
+
+        if not tool_calls:
+            return None
+
+        text_content = next(
+            (content.text for content in response.content if content.type == "text"),
+            "",
         )
 
-        if tool_call:
-            function = Function(
-                name=tool_call.name, arguments=json.dumps(tool_call.input)
-            )
-            tool_call_obj = ChatCompletionMessageToolCall(
-                id=tool_call.id, function=function, type="function"
-            )
-            text_content = next(
-                (
-                    content.text
-                    for content in response.content
-                    if content.type == "text"
-                ),
-                "",
-            )
-
-            return Message(
-                content=text_content or None,
-                tool_calls=[tool_call_obj] if tool_call else None,
-                role="assistant",
-                refusal=None,
-            )
-        return None
+        return Message(
+            content=text_content or None,
+            tool_calls=tool_calls,
+            role="assistant",
+            refusal=None,
+        )
 
     def convert_tool_spec(self, openai_tools):
         """Convert OpenAI tool specification to Anthropic format."""
