@@ -624,87 +624,6 @@ files = [
 
 [[package]]
 name = "cffi"
-version = "1.17.1"
-description = "Foreign Function Interface for Python calling C code."
-optional = false
-python-versions = ">=3.8"
-groups = ["main", "dev"]
-files = [
-    {file = "cffi-1.17.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:df8b1c11f177bc2313ec4b2d46baec87a5f3e71fc8b45dab2ee7cae86d9aba14"},
-    {file = "cffi-1.17.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8f2cdc858323644ab277e9bb925ad72ae0e67f69e804f4898c070998d50b1a67"},
-    {file = "cffi-1.17.1-cp310-cp310-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:edae79245293e15384b51f88b00613ba9f7198016a5948b5dddf4917d4d26382"},
-    {file = "cffi-1.17.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:45398b671ac6d70e67da8e4224a065cec6a93541bb7aebe1b198a61b58c7b702"},
-    {file = "cffi-1.17.1-cp310-cp310-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:ad9413ccdeda48c5afdae7e4fa2192157e991ff761e7ab8fdd8926f40b160cc3"},
-    {file = "cffi-1.17.1-cp310-cp310-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:5da5719280082ac6bd9aa7becb3938dc9f9cbd57fac7d2871717b1feb0902ab6"},
-    {file = "cffi-1.17.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2bb1a08b8008b281856e5971307cc386a8e9c5b625ac297e853d36da6efe9c17"},
-    {file = "cffi-1.17.1-cp310-cp310-musllinux_1_1_aarch64.whl", hash = "sha256:045d61c734659cc045141be4bae381a41d89b741f795af1dd018bfb532fd0df8"},
-    {file = "cffi-1.17.1-cp310-cp310-musllinux_1_1_i686.whl", hash = "sha256:6883e737d7d9e4899a8a695e00ec36bd4e5e4f18fabe0aca0efe0a4b44cdb13e"},
-    {file = "cffi-1.17.1-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:6b8b4a92e1c65048ff98cfe1f735ef8f1ceb72e3d5f0c25fdb12087a23da22be"},
-    {file = "cffi-1.17.1-cp310-cp310-win32.whl", hash = "sha256:c9c3d058ebabb74db66e431095118094d06abf53284d9c81f27300d0e0d8bc7c"},
-    {file = "cffi-1.17.1-cp310-cp310-win_amd64.whl", hash = "sha256:0f048dcf80db46f0098ccac01132761580d28e28bc0f78ae0d58048063317e15"},
-    {file = "cffi-1.17.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:a45e3c6913c5b87b3ff120dcdc03f6131fa0065027d0ed7ee6190736a74cd401"},
-    {file = "cffi-1.17.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:30c5e0cb5ae493c04c8b42916e52ca38079f1b235c2f8ae5f4527b963c401caf"},
-    {file = "cffi-1.17.1-cp311-cp311-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:f75c7ab1f9e4aca5414ed4d8e5c0e303a34f4421f8a0d47a4d019ceff0ab6af4"},
-    {file = "cffi-1.17.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a1ed2dd2972641495a3ec98445e09766f077aee98a1c896dcb4ad0d303628e41"},
-    {file = "cffi-1.17.1-cp311-cp311-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:46bf43160c1a35f7ec506d254e5c890f3c03648a4dbac12d624e4490a7046cd1"},
-    {file = "cffi-1.17.1-cp311-cp311-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:a24ed04c8ffd54b0729c07cee15a81d964e6fee0e3d4d342a27b020d22959dc6"},
-    {file = "cffi-1.17.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:610faea79c43e44c71e1ec53a554553fa22321b65fae24889706c0a84d4ad86d"},
-    {file = "cffi-1.17.1-cp311-cp311-musllinux_1_1_aarch64.whl", hash = "sha256:a9b15d491f3ad5d692e11f6b71f7857e7835eb677955c00cc0aefcd0669adaf6"},
-    {file = "cffi-1.17.1-cp311-cp311-musllinux_1_1_i686.whl", hash = "sha256:de2ea4b5833625383e464549fec1bc395c1bdeeb5f25c4a3a82b5a8c756ec22f"},
-    {file = "cffi-1.17.1-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:fc48c783f9c87e60831201f2cce7f3b2e4846bf4d8728eabe54d60700b318a0b"},
-    {file = "cffi-1.17.1-cp311-cp311-win32.whl", hash = "sha256:85a950a4ac9c359340d5963966e3e0a94a676bd6245a4b55bc43949eee26a655"},
-    {file = "cffi-1.17.1-cp311-cp311-win_amd64.whl", hash = "sha256:caaf0640ef5f5517f49bc275eca1406b0ffa6aa184892812030f04c2abf589a0"},
-    {file = "cffi-1.17.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:805b4371bf7197c329fcb3ead37e710d1bca9da5d583f5073b799d5c5bd1eee4"},
-    {file = "cffi-1.17.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:733e99bc2df47476e3848417c5a4540522f234dfd4ef3ab7fafdf555b082ec0c"},
-    {file = "cffi-1.17.1-cp312-cp312-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:1257bdabf294dceb59f5e70c64a3e2f462c30c7ad68092d01bbbfb1c16b1ba36"},
-    {file = "cffi-1.17.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:da95af8214998d77a98cc14e3a3bd00aa191526343078b530ceb0bd710fb48a5"},
-    {file = "cffi-1.17.1-cp312-cp312-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:d63afe322132c194cf832bfec0dc69a99fb9bb6bbd550f161a49e9e855cc78ff"},
-    {file = "cffi-1.17.1-cp312-cp312-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:f79fc4fc25f1c8698ff97788206bb3c2598949bfe0fef03d299eb1b5356ada99"},
-    {file = "cffi-1.17.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b62ce867176a75d03a665bad002af8e6d54644fad99a3c70905c543130e39d93"},
-    {file = "cffi-1.17.1-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:386c8bf53c502fff58903061338ce4f4950cbdcb23e2902d86c0f722b786bbe3"},
-    {file = "cffi-1.17.1-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:4ceb10419a9adf4460ea14cfd6bc43d08701f0835e979bf821052f1805850fe8"},
-    {file = "cffi-1.17.1-cp312-cp312-win32.whl", hash = "sha256:a08d7e755f8ed21095a310a693525137cfe756ce62d066e53f502a83dc550f65"},
-    {file = "cffi-1.17.1-cp312-cp312-win_amd64.whl", hash = "sha256:51392eae71afec0d0c8fb1a53b204dbb3bcabcb3c9b807eedf3e1e6ccf2de903"},
-    {file = "cffi-1.17.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:f3a2b4222ce6b60e2e8b337bb9596923045681d71e5a082783484d845390938e"},
-    {file = "cffi-1.17.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:0984a4925a435b1da406122d4d7968dd861c1385afe3b45ba82b750f229811e2"},
-    {file = "cffi-1.17.1-cp313-cp313-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:d01b12eeeb4427d3110de311e1774046ad344f5b1a7403101878976ecd7a10f3"},
-    {file = "cffi-1.17.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:706510fe141c86a69c8ddc029c7910003a17353970cff3b904ff0686a5927683"},
-    {file = "cffi-1.17.1-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:de55b766c7aa2e2a3092c51e0483d700341182f08e67c63630d5b6f200bb28e5"},
-    {file = "cffi-1.17.1-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:c59d6e989d07460165cc5ad3c61f9fd8f1b4796eacbd81cee78957842b834af4"},
-    {file = "cffi-1.17.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dd398dbc6773384a17fe0d3e7eeb8d1a21c2200473ee6806bb5e6a8e62bb73dd"},
-    {file = "cffi-1.17.1-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:3edc8d958eb099c634dace3c7e16560ae474aa3803a5df240542b305d14e14ed"},
-    {file = "cffi-1.17.1-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:72e72408cad3d5419375fc87d289076ee319835bdfa2caad331e377589aebba9"},
-    {file = "cffi-1.17.1-cp313-cp313-win32.whl", hash = "sha256:e03eab0a8677fa80d646b5ddece1cbeaf556c313dcfac435ba11f107ba117b5d"},
-    {file = "cffi-1.17.1-cp313-cp313-win_amd64.whl", hash = "sha256:f6a16c31041f09ead72d69f583767292f750d24913dadacf5756b966aacb3f1a"},
-    {file = "cffi-1.17.1-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:636062ea65bd0195bc012fea9321aca499c0504409f413dc88af450b57ffd03b"},
-    {file = "cffi-1.17.1-cp38-cp38-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:c7eac2ef9b63c79431bc4b25f1cd649d7f061a28808cbc6c47b534bd789ef964"},
-    {file = "cffi-1.17.1-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e221cf152cff04059d011ee126477f0d9588303eb57e88923578ace7baad17f9"},
-    {file = "cffi-1.17.1-cp38-cp38-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:31000ec67d4221a71bd3f67df918b1f88f676f1c3b535a7eb473255fdc0b83fc"},
-    {file = "cffi-1.17.1-cp38-cp38-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:6f17be4345073b0a7b8ea599688f692ac3ef23ce28e5df79c04de519dbc4912c"},
-    {file = "cffi-1.17.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0e2b1fac190ae3ebfe37b979cc1ce69c81f4e4fe5746bb401dca63a9062cdaf1"},
-    {file = "cffi-1.17.1-cp38-cp38-win32.whl", hash = "sha256:7596d6620d3fa590f677e9ee430df2958d2d6d6de2feeae5b20e82c00b76fbf8"},
-    {file = "cffi-1.17.1-cp38-cp38-win_amd64.whl", hash = "sha256:78122be759c3f8a014ce010908ae03364d00a1f81ab5c7f4a7a5120607ea56e1"},
-    {file = "cffi-1.17.1-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:b2ab587605f4ba0bf81dc0cb08a41bd1c0a5906bd59243d56bad7668a6fc6c16"},
-    {file = "cffi-1.17.1-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:28b16024becceed8c6dfbc75629e27788d8a3f9030691a1dbf9821a128b22c36"},
-    {file = "cffi-1.17.1-cp39-cp39-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:1d599671f396c4723d016dbddb72fe8e0397082b0a77a4fab8028923bec050e8"},
-    {file = "cffi-1.17.1-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ca74b8dbe6e8e8263c0ffd60277de77dcee6c837a3d0881d8c1ead7268c9e576"},
-    {file = "cffi-1.17.1-cp39-cp39-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:f7f5baafcc48261359e14bcd6d9bff6d4b28d9103847c9e136694cb0501aef87"},
-    {file = "cffi-1.17.1-cp39-cp39-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:98e3969bcff97cae1b2def8ba499ea3d6f31ddfdb7635374834cf89a1a08ecf0"},
-    {file = "cffi-1.17.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cdf5ce3acdfd1661132f2a9c19cac174758dc2352bfe37d98aa7512c6b7178b3"},
-    {file = "cffi-1.17.1-cp39-cp39-musllinux_1_1_aarch64.whl", hash = "sha256:9755e4345d1ec879e3849e62222a18c7174d65a6a92d5b346b1863912168b595"},
-    {file = "cffi-1.17.1-cp39-cp39-musllinux_1_1_i686.whl", hash = "sha256:f1e22e8c4419538cb197e4dd60acc919d7696e5ef98ee4da4e01d3f8cfa4cc5a"},
-    {file = "cffi-1.17.1-cp39-cp39-musllinux_1_1_x86_64.whl", hash = "sha256:c03e868a0b3bc35839ba98e74211ed2b05d2119be4e8a0f224fba9384f1fe02e"},
-    {file = "cffi-1.17.1-cp39-cp39-win32.whl", hash = "sha256:e31ae45bc2e29f6b2abd0de1cc3b9d5205aa847cafaecb8af1476a609a2f6eb7"},
-    {file = "cffi-1.17.1-cp39-cp39-win_amd64.whl", hash = "sha256:d016c76bdd850f3c626af19b0542c9677ba156e4ee4fccfdd7848803533ef662"},
-    {file = "cffi-1.17.1.tar.gz", hash = "sha256:1c39c6016c32bc48dd54561950ebd6836e1670f2ae46128f67cf49e789c52824"},
-]
-markers = {main = "(extra == \"google\" or extra == \"all\" or extra == \"gemini\" or extra == \"deepgram\") and (platform_python_implementation != \"PyPy\" or extra == \"deepgram\" or extra == \"all\") and python_version <= \"3.13\"", dev = "python_version <= \"3.13\""}
-
-[package.dependencies]
-pycparser = "*"
-
-[[package]]
-name = "cffi"
 version = "2.1.0"
 description = "Foreign Function Interface for Python calling C code."
 optional = false
@@ -812,7 +731,7 @@ files = [
     {file = "cffi-2.1.0-cp315-cp315t-win_arm64.whl", hash = "sha256:cbb7640ce37159548d2147b5b8c241f962143d4c71231431820783f4dc78f210"},
     {file = "cffi-2.1.0.tar.gz", hash = "sha256:efc1cdd798b1aaf39b4610bba7aad28c9bea9b910f25c784ccf9ec1fa719d1f9"},
 ]
-markers = {main = "(extra == \"google\" or extra == \"all\" or extra == \"gemini\" or extra == \"deepgram\") and python_version >= \"3.14\" and (platform_python_implementation != \"PyPy\" or extra == \"deepgram\" or extra == \"all\")", dev = "python_version >= \"3.14\""}
+markers = {main = "(extra == \"google\" or extra == \"all\" or extra == \"gemini\" or extra == \"oci\" or extra == \"deepgram\") and (platform_python_implementation != \"PyPy\" or extra == \"deepgram\" or extra == \"all\")"}
 
 [package.dependencies]
 pycparser = {version = "*", markers = "implementation_name != \"PyPy\""}
@@ -930,7 +849,7 @@ files = [
     {file = "charset_normalizer-3.4.1-py3-none-any.whl", hash = "sha256:d98b1668f06378c6dbefec3b92299716b931cd4e6061f3c875a71ced1780ab85"},
     {file = "charset_normalizer-3.4.1.tar.gz", hash = "sha256:44251f18cd68a75b56585dd00dae26183e102cd5e0f9f1466e6df5da2ed64ea3"},
 ]
-markers = {main = "extra == \"cohere\" or extra == \"all\" or extra == \"google\" or extra == \"gemini\" or extra == \"watsonx\""}
+markers = {main = "extra == \"cohere\" or extra == \"all\" or extra == \"google\" or extra == \"gemini\" or extra == \"watsonx\" or extra == \"oci\""}
 
 [[package]]
 name = "chroma-hnswlib"
@@ -1017,6 +936,19 @@ typing-extensions = ">=4.5.0"
 uvicorn = {version = ">=0.18.3", extras = ["standard"]}
 
 [[package]]
+name = "circuitbreaker"
+version = "2.1.3"
+description = "Python Circuit Breaker pattern implementation"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"oci\" or extra == \"all\""
+files = [
+    {file = "circuitbreaker-2.1.3-py3-none-any.whl", hash = "sha256:87ba6a3ed03fdc7032bc175561c2b04d52ade9d5faf94ca2b035fbdc5e6b1dd1"},
+    {file = "circuitbreaker-2.1.3.tar.gz", hash = "sha256:1a4baee510f7bea3c91b194dcce7c07805fe96c4423ed5594b75af438531d084"},
+]
+
+[[package]]
 name = "click"
 version = "8.1.8"
 description = "Composable command line interface toolkit"
@@ -1067,7 +999,7 @@ files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
-markers = {main = "(extra == \"cohere\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"mcp\") and (extra == \"cohere\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or sys_platform != \"emscripten\") and platform_system == \"Windows\"", dev = "platform_system == \"Windows\" or sys_platform == \"win32\" or os_name == \"nt\"", test = "sys_platform == \"win32\""}
+markers = {main = "(extra == \"cohere\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"oci\" or extra == \"mcp\") and (extra == \"cohere\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"oci\" or sys_platform != \"emscripten\") and platform_system == \"Windows\"", dev = "platform_system == \"Windows\" or sys_platform == \"win32\" or os_name == \"nt\"", test = "sys_platform == \"win32\""}
 
 [[package]]
 name = "coloredlogs"
@@ -1246,7 +1178,7 @@ files = [
     {file = "cryptography-46.0.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:bf1961037309ee0bdf874ccba9820b1c2f720c2016895c44d8eb2316226c1ad5"},
     {file = "cryptography-46.0.0.tar.gz", hash = "sha256:99f64a6d15f19f3afd78720ad2978f6d8d4c68cd4eb600fab82ab1a7c2071dca"},
 ]
-markers = {main = "extra == \"google\" or extra == \"all\" or extra == \"gemini\""}
+markers = {main = "extra == \"google\" or extra == \"all\" or extra == \"gemini\" or extra == \"oci\""}
 
 [package.dependencies]
 cffi = [
@@ -1447,7 +1379,7 @@ files = [
     {file = "distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2"},
     {file = "distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed"},
 ]
-markers = {main = "extra == \"anthropic\" or extra == \"all\" or extra == \"gemini\" or extra == \"groq\" or extra == \"cerebras\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\""}
+markers = {main = "extra == \"anthropic\" or extra == \"all\" or extra == \"gemini\" or extra == \"groq\" or extra == \"cerebras\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"oci\""}
 
 [[package]]
 name = "docstring-parser"
@@ -2857,7 +2789,7 @@ files = [
     {file = "jiter-0.8.2-cp39-cp39-win_amd64.whl", hash = "sha256:1c0dfbd1be3cbefc7510102370d86e35d1d53e5a93d48519688b1bf0f761160a"},
     {file = "jiter-0.8.2.tar.gz", hash = "sha256:cd73d3e740666d0e639f678adb176fad25c1bcbdae88d8d7b857e1783bb4212d"},
 ]
-markers = {main = "extra == \"anthropic\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\""}
+markers = {main = "extra == \"anthropic\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"oci\""}
 
 [[package]]
 name = "jmespath"
@@ -4111,6 +4043,55 @@ signals = ["blinker (>=1.4.0)"]
 signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
 
 [[package]]
+name = "oci"
+version = "2.168.1"
+description = "Oracle Cloud Infrastructure Python SDK"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"oci\" or extra == \"all\""
+files = [
+    {file = "oci-2.168.1-py3-none-any.whl", hash = "sha256:d106cfffc9153b5c9de628877c967ed87bbbfbbc9d411c97feee0eba8f2e4eab"},
+    {file = "oci-2.168.1.tar.gz", hash = "sha256:b941674171b41e999b8e3adb38d4797d7b42d2bb5ff40d17c26e8ce2a7d4b605"},
+]
+
+[package.dependencies]
+certifi = "*"
+circuitbreaker = {version = ">=1.3.1,<3.0.0", markers = "python_version >= \"3.7\""}
+cryptography = ">=3.2.1,<47.0.0"
+pyOpenSSL = ">=17.5.0,<=25.3.0"
+python-dateutil = ">=2.5.3,<3.0.0"
+pytz = ">=2016.10"
+
+[package.extras]
+adk = ["docstring-parser (>=0.16) ; python_version >= \"3.10\" and python_version < \"4\"", "mcp (>=1.6.0) ; python_version >= \"3.10\" and python_version < \"4\"", "pydantic (>=2.10.6) ; python_version >= \"3.10\" and python_version < \"4\"", "rich (>=13.9.4) ; python_version >= \"3.10\" and python_version < \"4\""]
+
+[[package]]
+name = "oci-genai-auth"
+version = "1.1.1"
+description = "OCI authentication and authorization utilities for Generative AI SDKs"
+optional = true
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "extra == \"oci\" or extra == \"all\""
+files = [
+    {file = "oci_genai_auth-1.1.1-py3-none-any.whl", hash = "sha256:c31aa721131353e83bf7af494c16b46f673e2c75c3262ab9061b340f8337512f"},
+    {file = "oci_genai_auth-1.1.1.tar.gz", hash = "sha256:e550d0d76090dc5268b2d246b0e3a5e9b4b2f7dcfeaa2d158b0f9e93426b0dc0"},
+]
+
+[package.dependencies]
+httpx = ">=0.23.0,<1"
+oci = ">=2.150.1"
+requests = ">=2.32.1,<3.0.0"
+typing-extensions = ">=4.11,<5"
+
+[package.extras]
+dev = ["black (>=24.8.0,<25.0.0)", "google-genai (>=1.0.0)", "isort (>=5.13.2,<6.0.0)", "mypy (>=1.11.1,<2.0.0)", "openai (>=1.108.1)", "pytest (>=8.3.2,<9.0.0)", "pytest-cov (>=5.0.0,<6.0.0)", "ruff (>=0.5.6,<0.6.0)"]
+examples = ["google-genai (>=1.0.0)", "openai (>=1.108.1)"]
+google = ["google-genai (>=1.0.0)"]
+openai = ["openai (>=1.108.1)"]
+
+[[package]]
 name = "ollama"
 version = "0.6.2"
 description = "The official Python client for Ollama."
@@ -4176,7 +4157,7 @@ files = [
     {file = "openai-1.107.0-py3-none-any.whl", hash = "sha256:3dcfa3cbb116bd6924b27913b8da28c4a787379ff60049588547a1013e6d6438"},
     {file = "openai-1.107.0.tar.gz", hash = "sha256:43e04927584e57d0e9e640ee0077c78baf8150098be96ebd5c512539b6c4e9a4"},
 ]
-markers = {main = "extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"all\""}
+markers = {main = "extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"oci\" or extra == \"all\""}
 
 [package.dependencies]
 anyio = ">=3.5.0,<5"
@@ -5116,7 +5097,7 @@ files = [
     {file = "pycparser-2.22-py3-none-any.whl", hash = "sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc"},
     {file = "pycparser-2.22.tar.gz", hash = "sha256:491c8be9c040f5390f5bf44a5b07752bd07f56edf992381b05c701439eec10f6"},
 ]
-markers = {main = "(extra == \"google\" or extra == \"all\" or extra == \"gemini\" or extra == \"deepgram\") and (platform_python_implementation != \"PyPy\" or extra == \"deepgram\" or extra == \"all\") and (implementation_name != \"PyPy\" or python_version <= \"3.13\")", dev = "implementation_name != \"PyPy\" or python_version <= \"3.13\""}
+markers = {main = "(extra == \"google\" or extra == \"all\" or extra == \"gemini\" or extra == \"oci\" or extra == \"deepgram\") and implementation_name != \"PyPy\" and (platform_python_implementation != \"PyPy\" or extra == \"deepgram\" or extra == \"all\")", dev = "implementation_name != \"PyPy\""}
 
 [[package]]
 name = "pydantic"
@@ -5314,6 +5295,27 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
+name = "pyopenssl"
+version = "25.3.0"
+description = "Python wrapper module around the OpenSSL library"
+optional = true
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "extra == \"oci\" or extra == \"all\""
+files = [
+    {file = "pyopenssl-25.3.0-py3-none-any.whl", hash = "sha256:1fda6fc034d5e3d179d39e59c1895c9faeaf40a79de5fc4cbbfbe0d36f4a77b6"},
+    {file = "pyopenssl-25.3.0.tar.gz", hash = "sha256:c981cb0a3fd84e8602d7afc209522773b94c1c2446a3c710a75b06fe1beae329"},
+]
+
+[package.dependencies]
+cryptography = ">=45.0.7,<47"
+typing-extensions = {version = ">=4.9", markers = "python_version < \"3.13\" and python_version >= \"3.8\""}
+
+[package.extras]
+docs = ["sphinx (!=5.2.0,!=5.2.0.post0,!=7.2.5)", "sphinx_rtd_theme"]
+test = ["pretend", "pytest (>=3.0.1)", "pytest-rerunfailures"]
+
+[[package]]
 name = "pypika"
 version = "0.48.9"
 description = "A SQL query builder API for Python"
@@ -5424,7 +5426,7 @@ files = [
     {file = "python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3"},
     {file = "python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427"},
 ]
-markers = {main = "extra == \"aws\" or extra == \"all\" or extra == \"google\" or extra == \"mistral\" or extra == \"watsonx\""}
+markers = {main = "extra == \"aws\" or extra == \"all\" or extra == \"google\" or extra == \"mistral\" or extra == \"watsonx\" or extra == \"oci\""}
 
 [package.dependencies]
 six = ">=1.5"
@@ -5484,7 +5486,7 @@ files = [
     {file = "pytz-2024.2-py2.py3-none-any.whl", hash = "sha256:31c7c1817eb7fae7ca4b8c7ee50c72f93aa2dd863de768e1ef4245d426aa0725"},
     {file = "pytz-2024.2.tar.gz", hash = "sha256:2aa355083c50a0f93fa581709deac0c9ad65cca8a9e9beac660adcbd493c798a"},
 ]
-markers = {main = "extra == \"watsonx\" or extra == \"all\""}
+markers = {main = "extra == \"watsonx\" or extra == \"all\" or extra == \"oci\""}
 
 [[package]]
 name = "pywin32"
@@ -5851,7 +5853,7 @@ files = [
     {file = "requests-2.32.3-py3-none-any.whl", hash = "sha256:70761cfe03c773ceb22aa2f671b4757976145175cdfca038c02654d061d6dcc6"},
     {file = "requests-2.32.3.tar.gz", hash = "sha256:55365417734eb18255590a9ff9eb97e9e1da868d4ccd6402399eaf68af20a760"},
 ]
-markers = {main = "extra == \"cohere\" or extra == \"all\" or extra == \"google\" or extra == \"gemini\" or extra == \"watsonx\""}
+markers = {main = "extra == \"cohere\" or extra == \"all\" or extra == \"google\" or extra == \"gemini\" or extra == \"watsonx\" or extra == \"oci\""}
 
 [package.dependencies]
 certifi = ">=2017.4.17"
@@ -6363,7 +6365,7 @@ files = [
     {file = "six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"},
     {file = "six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"},
 ]
-markers = {main = "extra == \"aws\" or extra == \"all\" or extra == \"google\" or extra == \"mistral\" or extra == \"watsonx\""}
+markers = {main = "extra == \"aws\" or extra == \"all\" or extra == \"google\" or extra == \"mistral\" or extra == \"watsonx\" or extra == \"oci\""}
 
 [[package]]
 name = "sniffio"
@@ -6743,7 +6745,7 @@ files = [
     {file = "tqdm-4.67.1-py3-none-any.whl", hash = "sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2"},
     {file = "tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2"},
 ]
-markers = {main = "extra == \"cohere\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\""}
+markers = {main = "extra == \"cohere\" or extra == \"all\" or extra == \"deepseek\" or extra == \"ollama\" or extra == \"lmstudio\" or extra == \"openai\" or extra == \"oci\""}
 
 [package.dependencies]
 colorama = {version = "*", markers = "platform_system == \"Windows\""}
@@ -6994,7 +6996,7 @@ files = [
     {file = "urllib3-2.1.0-py3-none-any.whl", hash = "sha256:55901e917a5896a349ff771be919f8bd99aff50b79fe58fec595eb37bbc56bb3"},
     {file = "urllib3-2.1.0.tar.gz", hash = "sha256:df7aa8afb0148fa78488e7899b2c59b5f4ffcfa82e6c54ccb9dd37c1d7b52d54"},
 ]
-markers = {main = "extra == \"aws\" or extra == \"all\" or extra == \"cohere\" or extra == \"google\" or extra == \"gemini\" or extra == \"watsonx\""}
+markers = {main = "extra == \"aws\" or extra == \"all\" or extra == \"cohere\" or extra == \"google\" or extra == \"gemini\" or extra == \"watsonx\" or extra == \"oci\""}
 
 [package.extras]
 brotli = ["brotli (>=1.0.9) ; platform_python_implementation == \"CPython\"", "brotlicffi (>=0.8.0) ; platform_python_implementation != \"CPython\""]
@@ -7700,7 +7702,7 @@ test = ["big-O", "importlib-resources ; python_version < \"3.9\"", "jaraco.funct
 type = ["pytest-mypy"]
 
 [extras]
-all = ["anthropic", "boto3", "cerebras_cloud_sdk", "cohere", "deepgram-sdk", "google-cloud-speech", "google-genai", "groq", "ibm-watsonx-ai", "mcp", "mistralai", "nest-asyncio", "numpy", "openai", "psycopg", "scipy", "soundfile", "vertexai"]
+all = ["anthropic", "boto3", "cerebras_cloud_sdk", "cohere", "deepgram-sdk", "google-cloud-speech", "google-genai", "groq", "ibm-watsonx-ai", "mcp", "mistralai", "nest-asyncio", "numpy", "oci-genai-auth", "openai", "psycopg", "scipy", "soundfile", "vertexai"]
 anthropic = ["anthropic"]
 aws = ["boto3"]
 azure = []
@@ -7715,6 +7717,7 @@ huggingface = []
 lmstudio = ["openai"]
 mcp = ["mcp", "nest-asyncio"]
 mistral = ["mistralai"]
+oci = ["oci-genai-auth", "openai"]
 ollama = ["openai"]
 openai = ["openai"]
 postgres = ["psycopg"]
@@ -7723,4 +7726,4 @@ watsonx = ["ibm-watsonx-ai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "39b3571d14d34e62146cb21c18cc8d7b52f8898f518bd77af8d85ac1dfb2f9a8"
+content-hash = "71232e3cea99cff9e3e568a898a58ee6dac2f31e6b1593b841414a1fc6ba5918"
