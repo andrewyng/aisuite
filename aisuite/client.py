@@ -19,6 +19,10 @@ try:
 except ImportError:
     MCP_AVAILABLE = False
 
+    def is_mcp_config(tool):
+        """Fallback check when the optional `mcp` package isn't installed."""
+        return isinstance(tool, dict) and tool.get("type") == "mcp"
+
 
 class Client:
     def __init__(
