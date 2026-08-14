@@ -92,7 +92,13 @@ class AzureProvider(Provider):
         self.transformer = AzureMessageConverter()
 
     def chat_completions_create(self, model, messages, **kwargs):
-        url = f"{self.base_url}/chat/completions"
+
+        if ".openai.azure.com" in self.base_url:
+            url = f"{self.base_url}/openai/deployments/{model}/chat/completions"
+            headers = {"Content-Type": "application/json", "api-key": self.api_key}
+        else:
+            url = f"{self.base_url}/chat/completions"
+            headers = {"Content-Type": "application/json", "Authorization": self.api_key}
 
         if self.api_version:
             url = f"{url}?api-version={self.api_version}"
@@ -120,7 +126,6 @@ class AzureProvider(Provider):
         data.update(kwargs)
 
         body = json.dumps(data).encode("utf-8")
-        headers = {"Content-Type": "application/json", "Authorization": self.api_key}
 
         try:
             req = urllib.request.Request(url, body, headers)
