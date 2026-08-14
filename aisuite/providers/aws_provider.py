@@ -21,12 +21,34 @@ class BedrockConfig:
     def __init__(self, **config):
         """Initialize the BedrockConfig."""
         self.region_name = config.get(
-            "region_name", os.getenv("AWS_REGION", "us-west-2")
+            "region_name",
+            config.get("aws_region", os.getenv("AWS_REGION", "us-west-2")),
+        )
+        # Support credentials from config; fall back to env / boto3 default chain.
+        self.aws_access_key_id = config.get(
+            "aws_access_key_id", config.get("aws_access_key")
+        )
+        self.aws_secret_access_key = config.get(
+            "aws_secret_access_key", config.get("aws_secret_key")
+        )
+        self.aws_session_token = config.get(
+            "aws_session_token", config.get("aws_session_token")
         )
 
     def create_client(self):
-        """Create a Bedrock runtime client."""
-        return boto3.client("bedrock-runtime", region_name=self.region_name)
+        """Create a Bedrock runtime client.
+
+        Uses credentials from config when provided, otherwise falls back
+        to the boto3 default credential chain (env, ~/.aws/credentials, etc.).
+        """
+        kwargs = {"region_name": self.region_name}
+        if self.aws_access_key_id:
+            kwargs["aws_access_key_id"] = self.aws_access_key_id
+        if self.aws_secret_access_key:
+            kwargs["aws_secret_access_key"] = self.aws_secret_access_key
+        if self.aws_session_token:
+            kwargs["aws_session_token"] = self.aws_session_token
+        return boto3.client("bedrock-runtime", **kwargs)
 
 
 # AWS Bedrock API Example -
