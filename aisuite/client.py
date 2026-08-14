@@ -1,5 +1,7 @@
-from .provider import ProviderFactory
 import os
+import warnings
+
+from .provider import ProviderFactory
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
 from contextlib import ExitStack
@@ -18,6 +20,11 @@ try:
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
+
+    # Fallback: when mcp is not installed, use a simple check so callers
+    # don't hit a NameError for `is_mcp_config` (#263, #329, #372).
+    def is_mcp_config(tool: dict) -> bool:
+        return tool.get("type") == "mcp"
 
 
 class Client:
@@ -513,7 +520,18 @@ class Completions:
                 for mcp_client in mcp_clients:
                     stack.enter_context(mcp_client)
 
-            # Check environment variable before allowing multi-turn tool execution
+            # Warn when tools are provided without max_turns: the tools are
+            # passed to the provider as schemas but will not be automatically
+            # executed.  Users typically expect auto-execution (#286).
+            if tools is not None and max_turns is None:
+                warnings.warn(
+                    "tools provided without max_turns — tool schemas are passed "
+                    "to the provider but will NOT be automatically executed. "
+                    "Set max_turns (e.g. max_turns=5) to enable the tool loop.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
             if max_turns is not None and tools is not None:
                 return self._tool_runner(
                     provider,
@@ -608,6 +626,15 @@ class Completions:
                 tools, mcp_clients = self._process_mcp_configs(tools)
                 for mcp_client in mcp_clients:
                     stack.enter_context(mcp_client)
+
+            if tools is not None and max_turns is None:
+                warnings.warn(
+                    "tools provided without max_turns — tool schemas are passed "
+                    "to the provider but will NOT be automatically executed. "
+                    "Set max_turns (e.g. max_turns=5) to enable the tool loop.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
             if max_turns is not None and tools is not None:
                 return await self._atool_runner(

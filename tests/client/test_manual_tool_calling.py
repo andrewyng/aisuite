@@ -6,6 +6,7 @@ when max_turns is not specified (manual tool calling mode).
 Regression test for: https://github.com/andrewyng/aisuite/pull/266
 """
 
+import warnings
 from unittest.mock import Mock, patch
 import pytest
 from aisuite import Client
@@ -64,11 +65,13 @@ def test_manual_tool_calling_preserves_tools_in_kwargs(mock_provider):
         ]
 
         # Call without max_turns (manual tool calling mode)
-        response = client.chat.completions.create(
-            model="openai:gpt-4o",
-            messages=messages,
-            tools=manual_tool_schema,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            response = client.chat.completions.create(
+                model="openai:gpt-4o",
+                messages=messages,
+                tools=manual_tool_schema,
+            )
 
         # Verify provider was called
         assert mock_provider.chat_completions_create.called
@@ -153,11 +156,13 @@ def test_manual_tool_calling_converts_callables_to_specs(mock_provider):
     with patch(
         "aisuite.provider.ProviderFactory.create_provider", return_value=mock_provider
     ):
-        client.chat.completions.create(
-            model="openai:gpt-4o",
-            messages=[{"role": "user", "content": "What time is it?"}],
-            tools=[get_current_time],  # callable, no max_turns
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            client.chat.completions.create(
+                model="openai:gpt-4o",
+                messages=[{"role": "user", "content": "What time is it?"}],
+                tools=[get_current_time],  # callable, no max_turns
+            )
 
         specs = mock_provider.chat_completions_create.call_args.kwargs["tools"]
         assert len(specs) == 1
@@ -187,11 +192,13 @@ def test_manual_tool_calling_with_mcp_configs(mock_provider):
             messages = [{"role": "user", "content": "Test"}]
 
             # Call with empty tools (after MCP processing)
-            client.chat.completions.create(
-                model="openai:gpt-4o",
-                messages=messages,
-                tools=[],  # Empty after MCP processing
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                client.chat.completions.create(
+                    model="openai:gpt-4o",
+                    messages=messages,
+                    tools=[],  # Empty after MCP processing
+                )
 
             # Should not raise an error
             assert mock_provider.chat_completions_create.called
