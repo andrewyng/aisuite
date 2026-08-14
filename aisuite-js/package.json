@@ -1,6 +1,6 @@
 {
   "name": "aisuite",
-  "version": "0.1.1",
+  "version": "0.1.14",
   "description": "Unified TypeScript library for multiple LLM providers",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
