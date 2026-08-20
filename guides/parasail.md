@@ -19,7 +19,7 @@ import aisuite as ai
 
 client = ai.Client()
 response = client.chat.completions.create(
-    model="parasail:parasail-deepseek-r1",
+    model="parasail:deepseek-ai/DeepSeek-V4-Flash-0731",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What is the capital of New York?"},
@@ -36,7 +36,7 @@ The text after `parasail:` is the Parasail model ID. Use Parasail's [`/models` e
 
 ```python
 stream = client.chat.completions.create(
-    model="parasail:parasail-deepseek-r1",
+    model="parasail:deepseek-ai/DeepSeek-V4-Flash-0731",
     messages=[{"role": "user", "content": "Write a haiku about the sea."}],
     stream=True,
 )

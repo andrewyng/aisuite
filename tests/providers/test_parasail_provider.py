@@ -88,7 +88,7 @@ def test_chat_completion_converts_and_forwards_request(provider):
     provider.client.chat.completions.create.return_value = response
 
     actual = provider.chat_completions_create(
-        "parasail-deepseek-r1",
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
         original_messages,
         temperature=0.2,
         tools=tools,
@@ -97,7 +97,7 @@ def test_chat_completion_converts_and_forwards_request(provider):
     assert actual is response
     provider.transformer.convert_request.assert_called_once_with(original_messages)
     provider.client.chat.completions.create.assert_called_once_with(
-        model="parasail-deepseek-r1",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
         messages=converted_messages,
         temperature=0.2,
         tools=tools,
@@ -111,7 +111,7 @@ def test_chat_completion_normalizes_errors(provider):
 
     with pytest.raises(LLMError, match="Parasail chat completion failed") as exc_info:
         provider.chat_completions_create(
-            "parasail-deepseek-r1",
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
             [{"role": "user", "content": "Hello"}],
         )
 
@@ -124,7 +124,7 @@ def test_async_chat_completion_uses_async_client(provider):
 
     actual = asyncio.run(
         provider.achat_completions_create(
-            "parasail-deepseek-r1",
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
             [{"role": "user", "content": "Hello"}],
             max_tokens=64,
         )
@@ -132,7 +132,7 @@ def test_async_chat_completion_uses_async_client(provider):
 
     assert actual is response
     provider.aclient.chat.completions.create.assert_awaited_once_with(
-        model="parasail-deepseek-r1",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
         messages=[{"role": "user", "content": "Hello"}],
         max_tokens=64,
     )
@@ -144,14 +144,14 @@ def test_sync_stream_yields_chunks_and_enables_streaming(provider):
 
     actual = list(
         provider.chat_completions_create_stream(
-            "parasail-deepseek-r1",
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
             [{"role": "user", "content": "Hello"}],
         )
     )
 
     assert actual == chunks
     provider.client.chat.completions.create.assert_called_once_with(
-        model="parasail-deepseek-r1",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
         messages=[{"role": "user", "content": "Hello"}],
         stream=True,
     )
@@ -170,7 +170,7 @@ def test_async_stream_yields_chunks_and_enables_streaming(provider):
         return [
             chunk
             async for chunk in provider.achat_completions_create_stream(
-                "parasail-deepseek-r1",
+                "deepseek-ai/DeepSeek-V4-Flash-0731",
                 [{"role": "user", "content": "Hello"}],
             )
         ]
@@ -179,7 +179,7 @@ def test_async_stream_yields_chunks_and_enables_streaming(provider):
 
     assert actual == chunks
     provider.aclient.chat.completions.create.assert_awaited_once_with(
-        model="parasail-deepseek-r1",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
         messages=[{"role": "user", "content": "Hello"}],
         stream=True,
     )
@@ -197,7 +197,7 @@ def test_stream_iteration_errors_are_normalized(provider):
     ) as exc_info:
         list(
             provider.chat_completions_create_stream(
-                "parasail-deepseek-r1",
+                "deepseek-ai/DeepSeek-V4-Flash-0731",
                 [{"role": "user", "content": "Hello"}],
             )
         )
