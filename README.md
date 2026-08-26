@@ -32,7 +32,7 @@
 └────────┴───────────┴────────┴────────┴────────┘
 ```
 
-* **[Chat Completions API](#chat-completions)** — a unified, OpenAI-style interface for *OpenAI, Anthropic, Google, Mistral, Hugging Face, AWS, Cohere, Ollama, OpenRouter, Requesty*, and more. Swap providers by changing one string.
+* **[Chat Completions API](#chat-completions)** — a unified, OpenAI-style interface for *OpenAI, Anthropic, Google, Mistral, Hugging Face, AWS, Cohere, Ollama, OpenRouter, Requesty, Synthorai*, and more. Swap providers by changing one string.
 * **[Agents API · Toolkits · MCP](#agents)** — give models real Python functions as tools, run multi-turn loops, attach ready-made toolkits (files, git, shell) or any MCP server, and govern it all with tool policies.
 * **[OpenWorker](https://github.com/andrewyng/openworker)** — a desktop AI coworker built using aisuite, shipped as an app for everyday tasks. Developed in its own repository.
 
