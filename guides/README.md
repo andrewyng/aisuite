@@ -18,6 +18,7 @@ Here are the instructions for:
 - [xAI](xai.md)
 - [DeepSeek](deepseek.md)
 - [Eden AI](edenai.md)
+- [Synthorai](synthorai.md)
 
 For locally hosted models using `Ollama` or `LM Studio`, follow these instructions:
 - [Ollama](ollama.md)
