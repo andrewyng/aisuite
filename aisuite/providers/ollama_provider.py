@@ -28,15 +28,20 @@ class OllamaProvider(OpenaiProvider):
 
     The host defaults to http://localhost:11434 and can be overridden via the
     ``base_url`` or ``api_url`` config keys or the ``OLLAMA_API_URL``
-    environment variable. Any other config (e.g. ``timeout``) is forwarded to
-    the OpenAI client. See https://github.com/ollama/ollama/blob/main/docs/openai.md
+    environment variable. The API key comes from an explicit ``api_key`` config
+    entry, then the ``OLLAMA_API_KEY`` environment variable (used by Ollama
+    Cloud), falling back to a dummy value that local servers ignore. Any other
+    config (e.g. ``timeout``) is forwarded to the OpenAI client. See
+    https://github.com/ollama/ollama/blob/main/docs/openai.md
     """
 
     def __init__(self, **config):
         config["base_url"] = _parse_base_url(config)
-        # Ollama ignores the API key but the OpenAI SDK requires one; setdefault
-        # keeps authenticated proxies in front of Ollama working.
-        config.setdefault("api_key", "ollama")
+        # Ollama's local server ignores the API key but the OpenAI SDK requires
+        # one; Ollama Cloud (https://ollama.com) requires a real key, which is
+        # read from OLLAMA_API_KEY like every other provider's env var. An
+        # explicit ``api_key`` in config always wins.
+        config.setdefault("api_key", os.getenv("OLLAMA_API_KEY") or "ollama")
         # Local generation can be slow to first token; keep a sane default.
         config.setdefault("timeout", 30)
         super().__init__(**config)
