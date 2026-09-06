@@ -109,6 +109,21 @@ print(response.choices[0].message.content)
 
 `aisuite` standardizes request and response structures so you can focus on logic rather than SDK differences.
 
+### Async usage
+
+For async frameworks (e.g. FastAPI), use `AsyncClient`, which mirrors `Client`'s API but runs calls in a background thread so they don't block the event loop:
+
+```python
+import aisuite as ai
+
+client = ai.AsyncClient()
+response = await client.chat.completions.create(
+    model="google:gemini-pro",
+    messages=[{"role": "user", "content": "Summarize this paragraph."}],
+)
+print(response.choices[0].message.content)
+```
+
 ---
 
 ## Tool Calling & Agentic apps

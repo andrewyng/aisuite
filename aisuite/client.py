@@ -1,5 +1,6 @@
 from .provider import ProviderFactory
 import os
+import asyncio
 from .utils.tools import Tools
 from typing import Union, BinaryIO, Optional, Any, Literal
 from contextlib import ExitStack
@@ -354,6 +355,57 @@ class Completions:
             # Delegate the chat completion to the correct provider's implementation
             response = provider.chat_completions_create(model_name, messages, **kwargs)
             return self._extract_thinking_content(response)
+
+
+class AsyncClient:
+    """
+    Async counterpart to Client. Wraps a synchronous Client and runs its
+    calls in a background thread via asyncio.to_thread, so it can be used
+    from async frameworks (e.g. FastAPI) without blocking the event loop.
+    """
+
+    def __init__(
+        self,
+        provider_configs: dict = {},
+        extra_param_mode: Literal["strict", "warn", "permissive"] = "warn",
+    ):
+        self._client = Client(provider_configs, extra_param_mode)
+        self._chat = None
+
+    def configure(self, provider_configs: Optional[dict] = None):
+        """Configure the underlying client with provider configurations."""
+        self._client.configure(provider_configs)
+
+    @property
+    def chat(self):
+        """Return the async chat API interface."""
+        if not self._chat:
+            self._chat = AsyncChat(self._client)
+        return self._chat
+
+
+class AsyncChat:
+    def __init__(self, client: "Client"):
+        self._completions = AsyncCompletions(client)
+
+    @property
+    def completions(self):
+        """Return the async completions interface."""
+        return self._completions
+
+
+class AsyncCompletions:
+    def __init__(self, client: "Client"):
+        self._completions = Completions(client)
+
+    async def create(self, model: str, messages: list, **kwargs):
+        """
+        Async version of Completions.create. Delegates to the synchronous
+        implementation via asyncio.to_thread to avoid blocking the event loop.
+        """
+        return await asyncio.to_thread(
+            self._completions.create, model, messages, **kwargs
+        )
 
 
 class Audio:
