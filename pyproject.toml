@@ -49,6 +49,7 @@ ollama = ["openai"]
 lmstudio = ["openai"]
 openai = ["openai"]
 watsonx = ["ibm-watsonx-ai"]
+yapi = ["openai"]
 mcp = ["mcp", "nest-asyncio"]
 postgres = ["psycopg"]
 all = ["anthropic", "boto3", "cerebras_cloud_sdk", "vertexai", "google-cloud-speech", "google-genai", "groq", "mistralai", "openai", "cohere", "ibm-watsonx-ai", "deepgram-sdk", "soundfile", "scipy", "numpy", "mcp", "nest-asyncio", "psycopg"]  # To install all providers
