@@ -24,6 +24,29 @@ def test_init_honors_api_url_override(monkeypatch):
     assert "other-host:9999/v1" in str(provider2.client.base_url)
 
 
+def test_init_reads_ollama_api_key_env_var(monkeypatch):
+    """OLLAMA_API_KEY (used by Ollama Cloud) lands on the OpenAI client."""
+    monkeypatch.delenv("OLLAMA_API_URL", raising=False)
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key-123")
+    provider = OllamaProvider()
+    assert provider.client.api_key == "test-key-123"
+
+
+def test_init_falls_back_to_dummy_key_without_env_var(monkeypatch):
+    monkeypatch.delenv("OLLAMA_API_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    provider = OllamaProvider()
+    # Local servers ignore the key, but the OpenAI SDK requires one.
+    assert provider.client.api_key == "ollama"
+
+
+def test_init_prefers_explicit_api_key_over_env_var(monkeypatch):
+    monkeypatch.delenv("OLLAMA_API_URL", raising=False)
+    monkeypatch.setenv("OLLAMA_API_KEY", "env-key")
+    provider = OllamaProvider(api_key="config-key")
+    assert provider.client.api_key == "config-key"
+
+
 def test_completion_passes_through_content(monkeypatch):
     """A plain content response flows back unchanged via the OpenAI SDK."""
     monkeypatch.delenv("OLLAMA_API_URL", raising=False)
