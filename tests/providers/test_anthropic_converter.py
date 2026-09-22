@@ -36,6 +36,20 @@ class TestAnthropicMessageConverter(unittest.TestCase):
             converted_messages, [{"role": "user", "content": "What is the weather?"}]
         )
 
+    def test_convert_request_does_not_mutate_caller_list(self):
+        """convert_request must not drop the system message from the caller's list.
+
+        Regression: _extract_system_message used messages.pop(0), which mutated
+        the caller's list — a 2nd call reusing the list lost its system prompt.
+        """
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the weather?"},
+        ]
+        self.converter.convert_request(messages)
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["role"], "system")
+
     def test_convert_request_with_tool_use_message(self):
         """Test converting a request with a tool use message."""
         messages = [

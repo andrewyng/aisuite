@@ -47,6 +47,7 @@ class AnthropicMessageConverter:
 
     def convert_request(self, messages):
         """Convert framework messages to Anthropic format."""
+        messages = list(messages)
         system_message = self._extract_system_message(messages)
         converted_messages = [self._convert_single_message(msg) for msg in messages]
         return system_message, converted_messages
