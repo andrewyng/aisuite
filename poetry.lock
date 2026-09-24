@@ -7723,4 +7723,4 @@ watsonx = ["ibm-watsonx-ai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "39b3571d14d34e62146cb21c18cc8d7b52f8898f518bd77af8d85ac1dfb2f9a8"
+content-hash = "eb7754e3b96378936df97b2f92f38540339cf343919682f9c5e331499ecd3bd1"
