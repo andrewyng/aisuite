@@ -9,6 +9,7 @@ from .sinks import (
     configure,
     get_configured_sinks,
 )
+from .otel import OtelTraceSink
 from .store import InMemoryTraceStore, JsonlTraceStore, TraceStore
 from .viewer import ViewerServer, read_trace_file, start_viewer
 
@@ -18,6 +19,7 @@ __all__ = [
     "InMemoryTraceStore",
     "JsonlTraceStore",
     "LocalTraceSink",
+    "OtelTraceSink",
     "TRACE_SCHEMA_VERSION",
     "TraceEvent",
     "TraceSink",
