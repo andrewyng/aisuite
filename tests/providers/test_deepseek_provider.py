@@ -101,3 +101,19 @@ def test_deepseek_provider_with_usage():
         assert response.usage.prompt_tokens == 10
         assert response.usage.completion_tokens == 20
         assert response.usage.total_tokens == 30
+
+
+def test_deepseek_provider_missing_key_names_its_own_env_var(monkeypatch):
+    """The error must name DEEPSEEK_API_KEY, the variable the provider reads.
+
+    Naming OPENAI_API_KEY sends the user to set a variable this provider never
+    consults, so following the instruction leaves the same failure in place.
+    """
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    with pytest.raises(ValueError) as exc_info:
+        DeepseekProvider()
+
+    message = str(exc_info.value)
+    assert "DEEPSEEK_API_KEY" in message
+    assert "OPENAI_API_KEY" not in message

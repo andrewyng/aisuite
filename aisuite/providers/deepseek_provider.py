@@ -20,7 +20,7 @@ class DeepseekProvider(Provider):
         if not config["api_key"]:
             raise ValueError(
                 "DeepSeek API key is missing. Please provide it in the config or "
-                "set the OPENAI_API_KEY environment variable."
+                "set the DEEPSEEK_API_KEY environment variable."
             )
         config["base_url"] = "https://api.deepseek.com"
 
