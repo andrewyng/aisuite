@@ -30,6 +30,7 @@ from aisuite.framework.message import (
     ChatCompletionMessageToolCall,
     Function,
     CompletionUsage,
+    CompletionTokensDetails,
     PromptTokensDetails,
 )
 
@@ -54,6 +55,8 @@ CONFIG_KEYS = {
     "top_k",
     "max_output_tokens",
     "stop_sequences",
+    "thinking_config",
+    "cached_content",
 }
 
 # The OpenAPI-subset schema keys Gemini function declarations accept.
@@ -282,18 +285,23 @@ class GeminiMessageConverter:
 
     # -- response side -------------------------------------------------------------
     @staticmethod
-    def parse_candidate(response):
+    def parse_candidate(response, include_thoughts=False):
         """Pull (texts, function calls, finish reason) from a response or stream chunk."""
-        texts, calls, finish = [], [], None
+        texts, thoughts, calls, finish = [], [], [], None
         candidates = getattr(response, "candidates", None) or []
         if not candidates:
+            if include_thoughts:
+                return texts, thoughts, calls, finish
             return texts, calls, finish
         candidate = candidates[0]
         content = getattr(candidate, "content", None)
         for part in getattr(content, "parts", None) or []:
             text = getattr(part, "text", None)
             if text:
-                texts.append(text)
+                if getattr(part, "thought", False) is True:
+                    thoughts.append(text)
+                else:
+                    texts.append(text)
             function_call = getattr(part, "function_call", None)
             if function_call is not None:
                 calls.append(
@@ -305,6 +313,8 @@ class GeminiMessageConverter:
         raw_finish = getattr(candidate, "finish_reason", None)
         if raw_finish is not None:
             finish = getattr(raw_finish, "name", None) or str(raw_finish)
+        if include_thoughts:
+            return texts, thoughts, calls, finish
         return texts, calls, finish
 
     @staticmethod
@@ -323,16 +333,26 @@ class GeminiMessageConverter:
         completion = getattr(usage_metadata, "candidates_token_count", 0) or 0
         total = getattr(usage_metadata, "total_token_count", None)
         cached = getattr(usage_metadata, "cached_content_token_count", 0) or 0
+        thoughts = getattr(usage_metadata, "thoughts_token_count", None)
         return CompletionUsage(
             completion_tokens=completion,
             prompt_tokens=prompt,
-            total_tokens=total if total is not None else prompt + completion,
+            total_tokens=(
+                total if total is not None else prompt + completion + (thoughts or 0)
+            ),
             prompt_tokens_details=PromptTokensDetails(cached_tokens=cached),
+            completion_tokens_details=(
+                CompletionTokensDetails(reasoning_tokens=thoughts)
+                if thoughts is not None
+                else None
+            ),
         )
 
     def convert_response(self, response):
         """Normalize a GenerateContentResponse to the OpenAI-shaped format."""
-        texts, calls, finish = self.parse_candidate(response)
+        texts, thoughts, calls, finish = self.parse_candidate(
+            response, include_thoughts=True
+        )
         tool_calls = [
             ChatCompletionMessageToolCall(
                 id=f"call_{i}",
@@ -346,6 +366,7 @@ class GeminiMessageConverter:
         normalized_response = ChatCompletionResponse()
         normalized_response.choices[0].message = Message(
             content="".join(texts) or None,
+            reasoning_content="".join(thoughts) or None,
             tool_calls=tool_calls or None,
             role="assistant",
             refusal=None,
@@ -377,6 +398,144 @@ class GeminiProvider(Provider):
         self.client = genai.Client(**config)
         self.converter = GeminiMessageConverter()
 
+    @staticmethod
+    def _build_thinking_config(model, kwargs):
+        """Translate reasoning_effort / thinking kwargs into a Gemini ThinkingConfig."""
+        has_translation_kwargs = any(
+            k in kwargs and kwargs[k] is not None
+            for k in (
+                "reasoning_effort",
+                "thinking",
+                "thinking_level",
+                "thinking_budget",
+                "include_thoughts",
+            )
+        )
+        raw_thinking_config = kwargs.get("thinking_config")
+        if not has_translation_kwargs and not isinstance(raw_thinking_config, dict):
+            return raw_thinking_config
+
+        normalized = re.sub(
+            r"^[a-z]{2,}\.(?=(?:gemini|gemma)-)",
+            "",
+            (model or "").lower().rsplit("/", 1)[-1],
+        )
+        version_match = re.match(r"^gemini-(\d+)(?:\.\d+)?(?:-|$)", normalized)
+        is_gemini_3_plus = (
+            version_match is not None and int(version_match.group(1)) >= 3
+        ) or normalized in (
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest",
+            "gemini-pro-latest",
+        )
+        is_pro = "-pro" in normalized
+        min_level = "low" if is_pro else "minimal"
+
+        params = {}
+        if isinstance(raw_thinking_config, dict):
+            params.update(raw_thinking_config)
+
+        if kwargs.get("include_thoughts") is not None:
+            params["include_thoughts"] = bool(kwargs["include_thoughts"])
+
+        thinking_arg = kwargs.get("thinking")
+        if isinstance(thinking_arg, dict):
+            t_type = str(thinking_arg.get("type", "")).lower()
+            budget = thinking_arg.get(
+                "budget_tokens", thinking_arg.get("thinking_budget")
+            )
+            if t_type in ("disabled", "none", "off") or (
+                budget is not None and budget <= 0
+            ):
+                params.setdefault("include_thoughts", False)
+                if is_gemini_3_plus:
+                    params["thinking_level"] = min_level
+                else:
+                    params["thinking_budget"] = 128 if is_pro else 0
+            else:
+                if t_type == "enabled":
+                    params.setdefault("include_thoughts", True)
+                if budget is not None:
+                    params["thinking_budget"] = budget
+                if "thinking_level" in thinking_arg:
+                    params["thinking_level"] = thinking_arg["thinking_level"]
+
+        if kwargs.get("thinking_budget") is not None:
+            params["thinking_budget"] = kwargs["thinking_budget"]
+        if kwargs.get("thinking_level") is not None:
+            params["thinking_level"] = kwargs["thinking_level"]
+
+        if kwargs.get("reasoning_effort") is not None:
+            effort = str(kwargs["reasoning_effort"]).lower()
+            if effort in ("none", "disable", "disabled", "off"):
+                params.setdefault("include_thoughts", False)
+                if is_gemini_3_plus:
+                    params["thinking_level"] = min_level
+                else:
+                    params["thinking_budget"] = 128 if is_pro else 0
+            else:
+                params.setdefault("include_thoughts", True)
+                params["thinking_level"] = effort
+
+        if not params:
+            return None
+
+        if is_gemini_3_plus:
+            if "thinking_budget" in params and "thinking_level" not in params:
+                budget = params.pop("thinking_budget")
+                if budget <= 0:
+                    params["thinking_level"] = min_level
+                    params.setdefault("include_thoughts", False)
+                elif budget <= 1024:
+                    params["thinking_level"] = "low"
+                elif budget <= 8192 and not normalized.startswith("gemini-3-pro"):
+                    params["thinking_level"] = "medium"
+                else:
+                    params["thinking_level"] = "high"
+            elif "thinking_budget" in params and "thinking_level" in params:
+                params.pop("thinking_budget", None)
+
+            if "thinking_level" in params:
+                lvl = str(params["thinking_level"]).lower()
+                if lvl in ("none", "disable", "disabled", "off"):
+                    params["thinking_level"] = min_level
+                    params.setdefault("include_thoughts", False)
+                elif lvl == "minimal" and is_pro:
+                    params["thinking_level"] = "low"
+                elif lvl == "medium" and normalized.startswith("gemini-3-pro"):
+                    params["thinking_level"] = "high"
+                else:
+                    params["thinking_level"] = lvl
+        else:
+            if "thinking_level" in params and "thinking_budget" not in params:
+                lvl = str(params.pop("thinking_level")).lower()
+                level_to_budget = {
+                    "none": 128 if is_pro else 0,
+                    "disable": 128 if is_pro else 0,
+                    "disabled": 128 if is_pro else 0,
+                    "off": 128 if is_pro else 0,
+                    "minimal": 128 if is_pro else 0,
+                    "low": 1024,
+                    "medium": 8192,
+                    "high": 24576,
+                }
+                params["thinking_budget"] = level_to_budget.get(lvl, 1024)
+                if lvl in ("none", "disable", "disabled", "off"):
+                    params.setdefault("include_thoughts", False)
+            elif "thinking_level" in params and "thinking_budget" in params:
+                params.pop("thinking_level", None)
+
+            if (
+                "thinking_budget" in params
+                and params["thinking_budget"] <= 0
+                and is_pro
+            ):
+                params["thinking_budget"] = 128
+
+        from google.genai import types
+
+        return types.ThinkingConfig(**params)
+
     def _request_kwargs(self, model, messages, kwargs):
         system, contents = self.converter.convert_request(messages)
         kwargs = kwargs.copy()
@@ -386,6 +545,9 @@ class GeminiProvider(Provider):
             stop = kwargs["stop"]
             kwargs["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
         config = {key: value for key, value in kwargs.items() if key in CONFIG_KEYS}
+        thinking_config = self._build_thinking_config(model, kwargs)
+        if thinking_config is not None:
+            config["thinking_config"] = thinking_config
         if system:
             config["system_instruction"] = system
         if "tools" in kwargs:

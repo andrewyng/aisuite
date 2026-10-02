@@ -366,3 +366,83 @@ async def test_async_paths_use_native_async_client():
     text = "".join(chunk.choices[0].delta.content or "" for chunk in chunks)
     assert text == "streamed"
     assert chunks[-1].choices[0].finish_reason == "stop"
+
+
+def _thought_part(text):
+    return SimpleNamespace(text=text, thought=True, function_call=None)
+
+
+def test_convert_response_separates_thought_parts_and_usage_details(converter):
+    raw = SimpleNamespace(
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[_thought_part("thinking step"), _text_part("final answer")]
+                ),
+                finish_reason=SimpleNamespace(name="STOP"),
+            )
+        ],
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=10,
+            candidates_token_count=5,
+            thoughts_token_count=12,
+            total_token_count=None,
+            cached_content_token_count=4,
+        ),
+    )
+    response = converter.convert_response(raw)
+    assert response.choices[0].message.content == "final answer"
+    assert response.choices[0].message.reasoning_content == "thinking step"
+    assert response.usage.prompt_tokens == 10
+    assert response.usage.completion_tokens == 5
+    assert response.usage.total_tokens == 27
+    assert response.usage.prompt_tokens_details.cached_tokens == 4
+    assert response.usage.completion_tokens_details.reasoning_tokens == 12
+
+
+def test_thinking_and_cached_content_routing():
+    provider = GeminiProvider()
+
+    # Gemini 3.5 Flash with regional prefix and reasoning_effort="none"
+    req_flash = provider._request_kwargs(
+        "au.gemini-3.5-flash",
+        [{"role": "user", "content": "hi"}],
+        {"reasoning_effort": "none", "cached_content": "cachedContents/abc"},
+    )
+    cfg_flash = req_flash["config"]
+    assert cfg_flash["cached_content"] == "cachedContents/abc"
+    tc_flash = cfg_flash["thinking_config"]
+    lvl_flash = (
+        tc_flash.thinking_level.value
+        if hasattr(tc_flash.thinking_level, "value")
+        else tc_flash.thinking_level
+    )
+    assert str(lvl_flash).lower() == "minimal"
+    assert tc_flash.include_thoughts is False
+    assert tc_flash.thinking_budget is None
+
+    # Gemini 3.5 Pro with reasoning_effort="minimal" clamps to "low"
+    req_pro = provider._request_kwargs(
+        "gemini-3.5-pro",
+        [{"role": "user", "content": "hi"}],
+        {"reasoning_effort": "minimal"},
+    )
+    tc_pro = req_pro["config"]["thinking_config"]
+    lvl_pro = (
+        tc_pro.thinking_level.value
+        if hasattr(tc_pro.thinking_level, "value")
+        else tc_pro.thinking_level
+    )
+    assert str(lvl_pro).lower() == "low"
+    assert tc_pro.include_thoughts is True
+    assert tc_pro.thinking_budget is None
+
+    # Gemini 2.5 Flash with reasoning_effort="low" routes to thinking_budget=1024
+    req_25 = provider._request_kwargs(
+        "gemini-2.5-flash",
+        [{"role": "user", "content": "hi"}],
+        {"reasoning_effort": "low"},
+    )
+    tc_25 = req_25["config"]["thinking_config"]
+    assert tc_25.thinking_budget == 1024
+    assert tc_25.thinking_level is None
