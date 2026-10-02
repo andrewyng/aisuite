@@ -28,6 +28,26 @@ Example:
     ... )
 """
 
-from .client import MCPClient
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checkers only
+    from .client import MCPClient
 
 __all__ = ["MCPClient"]
+
+
+def __getattr__(name: str):
+    """Import MCPClient on first access (PEP 562).
+
+    `aisuite.mcp.client` needs the optional `mcp` package, while sibling modules
+    such as `aisuite.mcp.config` are pure typing helpers with no third-party
+    dependencies. Importing MCPClient eagerly here made the whole subpackage
+    unimportable without the extra, so `from .mcp.config import is_mcp_config`
+    failed too and left callers with a NameError instead of the intended
+    "install the mcp extra" ImportError (#369).
+    """
+    if name == "MCPClient":
+        from .client import MCPClient
+
+        return MCPClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

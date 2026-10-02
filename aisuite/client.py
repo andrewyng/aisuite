@@ -10,9 +10,14 @@ from .framework.asr_params import ParamValidator
 from .tracing.normalize import normalize_model_input, normalize_model_response
 from .tracing.sinks import TraceEvent, emit_event
 
+# `is_mcp_config` is a dependency-free helper, so it must bind even when the
+# optional `mcp` extra is absent — the `if not MCP_AVAILABLE` branch below calls
+# it to tell the user to install the extra. Importing it inside the try meant a
+# missing `mcp` package left it unbound and that branch raised NameError (#369).
+from .mcp.config import is_mcp_config
+
 # Import MCP utilities for config dict support
 try:
-    from .mcp.config import is_mcp_config
     from .mcp.client import MCPClient
 
     MCP_AVAILABLE = True
