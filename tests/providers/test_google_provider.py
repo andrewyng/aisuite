@@ -343,3 +343,9 @@ class TestGoogleASR:
         )
         assert result.text == ""
         assert result.language is None
+
+
+def test_default_temperature_is_none():
+    from aisuite.providers.google_provider import DEFAULT_TEMPERATURE
+
+    assert DEFAULT_TEMPERATURE is None
