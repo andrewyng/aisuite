@@ -1,5 +1,6 @@
 """Unit tests for ASR parameter validation and mapping."""
 
+import logging
 import pytest
 import warnings
 from aisuite.framework.asr_params import (
@@ -408,23 +409,19 @@ class TestParamValidatorEdgeCases:
         result = validator.validate_and_map("openai", {"language": None})
         assert result == {"language": None}
 
-    def test_common_param_overrides_provider_param(self):
-        """Test that common param mapping takes precedence."""
+    def test_explicit_provider_param_wins_over_mapped_common_param(self):
+        """Test that the provider's own param name beats a common param aliased onto it."""
         validator = ParamValidator("strict")
-        # If someone passes both 'language' and 'language_code' to Google
-        # The common param 'language' should map to 'language_code'
+        # 'language' maps to 'language_code' for Google, and 'language_code' is
+        # itself a Google param, so both inputs target the same output key.
         result = validator.validate_and_map(
             "google",
             {
                 "language": "en",
-                "language_code": "fr-FR",  # This should be overridden
+                "language_code": "fr-FR",
             },
         )
-        # language maps to language_code, then language_code as provider param is also valid
-        # In current implementation, common param is processed first, then provider params
-        # So we'll get both, but language takes precedence in the transformation
-        assert "language_code" in result
-        assert result["language_code"] == "fr-FR" or result["language_code"] == "en-US"
+        assert result == {"language_code": "fr-FR"}
 
     def test_validator_mode_case_sensitivity(self):
         """Test that validator handles only valid mode strings."""
@@ -469,3 +466,87 @@ class TestParamValidatorRegistry:
         # Deepgram should have language in its set (but not temperature)
         assert "language" in PROVIDER_PARAMS["deepgram"]
         assert "temperature" not in PROVIDER_PARAMS["deepgram"]
+
+
+class TestParamValidatorMappedKeyCollisions:
+    """Test the keys where a common param maps onto a provider's own param name.
+
+    Three such pairs exist: google language->language_code, deepgram
+    prompt->keywords, and google prompt->speech_contexts. In each, the mapped
+    name is also a valid provider param, so both inputs write the same output
+    key and only one value survives. Which one survived used to depend on the
+    order the caller happened to build the dict in.
+    """
+
+    COLLISIONS = [
+        ("google", "language", "en", "language_code", "fr-FR"),
+        ("deepgram", "prompt", ["alpha"], "keywords", ["beta"]),
+        ("google", "prompt", "hint", "speech_contexts", [{"phrases": ["p"]}]),
+    ]
+
+    @pytest.mark.parametrize(
+        "provider,common_key,common_value,provider_key,provider_value", COLLISIONS
+    )
+    def test_result_does_not_depend_on_input_order(
+        self, provider, common_key, common_value, provider_key, provider_value
+    ):
+        """Test the same two params produce the same result in either order."""
+        validator = ParamValidator("strict")
+        common_first = validator.validate_and_map(
+            provider, {common_key: common_value, provider_key: provider_value}
+        )
+        provider_first = validator.validate_and_map(
+            provider, {provider_key: provider_value, common_key: common_value}
+        )
+        assert common_first == provider_first
+
+    @pytest.mark.parametrize(
+        "provider,common_key,common_value,provider_key,provider_value", COLLISIONS
+    )
+    def test_explicit_provider_param_wins(
+        self, provider, common_key, common_value, provider_key, provider_value
+    ):
+        """Test the provider's own param name wins over the portable alias."""
+        validator = ParamValidator("strict")
+        for params in (
+            {common_key: common_value, provider_key: provider_value},
+            {provider_key: provider_value, common_key: common_value},
+        ):
+            result = validator.validate_and_map(provider, params)
+            assert result == {provider_key: provider_value}
+
+    @pytest.mark.parametrize(
+        "provider,common_key,common_value,provider_key,provider_value", COLLISIONS
+    )
+    def test_collision_is_reported(
+        self, provider, common_key, common_value, provider_key, provider_value, caplog
+    ):
+        """Test the dropped alias is named in a warning rather than lost silently."""
+        validator = ParamValidator("strict")
+        with caplog.at_level(logging.WARNING, logger="aisuite.framework.asr_params"):
+            validator.validate_and_map(
+                provider, {common_key: common_value, provider_key: provider_value}
+            )
+        assert common_key in caplog.text
+        assert provider_key in caplog.text
+
+    @pytest.mark.parametrize(
+        "provider,common_key,common_value,provider_key,provider_value", COLLISIONS
+    )
+    def test_common_param_alone_still_maps(
+        self, provider, common_key, common_value, provider_key, provider_value
+    ):
+        """Test collision handling does not break the plain mapping case."""
+        validator = ParamValidator("strict")
+        result = validator.validate_and_map(provider, {common_key: common_value})
+        assert list(result) == [provider_key]
+
+    def test_no_warning_when_there_is_no_collision(self, caplog):
+        """Test an identity mapping alongside another param warns about nothing."""
+        validator = ParamValidator("strict")
+        with caplog.at_level(logging.WARNING, logger="aisuite.framework.asr_params"):
+            result = validator.validate_and_map(
+                "openai", {"language": "en", "prompt": "hi"}
+            )
+        assert result == {"language": "en", "prompt": "hi"}
+        assert caplog.text == ""
