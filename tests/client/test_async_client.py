@@ -1,5 +1,6 @@
 """Tests for the async client path (Completions.acreate)."""
 
+import warnings
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -96,11 +97,13 @@ async def test_acreate_manual_tool_calling_passes_tools(mock_create_provider):
     }
 
     client = Client()
-    await client.chat.completions.acreate(
-        model="openai:gpt-4o",
-        messages=[{"role": "user", "content": "hi"}],
-        tools=[schema, get_weather],  # no max_turns → manual mode
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        await client.chat.completions.acreate(
+            model="openai:gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[schema, get_weather],  # no max_turns → manual mode
+        )
 
     sent = provider.achat_completions_create.await_args.kwargs["tools"]
     assert sent[0] == schema  # dicts pass through untouched
