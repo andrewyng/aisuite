@@ -120,12 +120,15 @@ class Tools:
         """Normalize Pydantic JSON Schema for provider tool definitions."""
         definitions = schema.get("$defs", {})
 
-        def normalize(value):
+        def normalize(value, *, field_names=False):
             if isinstance(value, list):
                 return [normalize(item) for item in value]
 
             if not isinstance(value, dict):
                 return value
+
+            if field_names:
+                return {name: normalize(item) for name, item in value.items()}
 
             if "$ref" in value:
                 resolved = cls._resolve_local_json_schema_ref(
@@ -138,7 +141,16 @@ class Tools:
                     return normalize({**resolved, **siblings})
 
             normalized = {
-                key: normalize(item)
+                # Property names and literal data are not schema keywords.
+                key: (
+                    item
+                    if key in {"default", "const", "enum", "examples"}
+                    else normalize(
+                        item,
+                        field_names=key
+                        in {"properties", "patternProperties", "dependentSchemas"},
+                    )
+                )
                 for key, item in value.items()
                 if key not in {"$defs", "title"}
             }

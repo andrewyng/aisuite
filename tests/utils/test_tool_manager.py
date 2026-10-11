@@ -1,5 +1,5 @@
 import unittest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Literal, Optional
 from aisuite.utils.tools import Tools  # Import your ToolManager class
 from enum import Enum
@@ -267,6 +267,60 @@ class TestToolManager(unittest.TestCase):
                 "limit": 3,
             },
         )
+
+
+class TestSchemaDataNames(unittest.TestCase):
+    def test_title_parameter_is_advertised_and_executable(self):
+        def create_book(title: str):
+            return {"title": title}
+
+        tools = Tools([create_book])
+        parameters = tools.tools()[0]["function"]["parameters"]
+        self.assertEqual(parameters["required"], ["title"])
+        self.assertEqual(parameters["properties"]["title"]["type"], "string")
+        self.assertNotIn("title", parameters["properties"]["title"])
+        results, _ = tools.execute_tool(
+            {
+                "id": "call_book",
+                "function": {"name": "create_book", "arguments": {"title": "Dune"}},
+            }
+        )
+        self.assertEqual(results, [{"title": "Dune"}])
+
+    def test_nested_model_keeps_properties_named_like_schema_keywords(self):
+        class Book(BaseModel):
+            title: str
+            definitions: dict[str, str] = Field(alias="$defs")
+
+        def create_book(book: Book):
+            return book.model_dump(by_alias=True)
+
+        parameters = Tools([create_book]).tools()[0]["function"]["parameters"]
+        book = parameters["properties"]["book"]
+        self.assertEqual(set(book["properties"]), {"title", "$defs"})
+        self.assertEqual(set(book["required"]), {"title", "$defs"})
+        self.assertNotIn("$ref", book)
+        self.assertNotIn("title", book)
+        self.assertEqual(book["properties"]["title"]["type"], "string")
+
+    def test_dictionary_default_is_preserved_as_data(self):
+        default = {"title": "Dune", "$defs": {"title": "metadata"}}
+
+        def create_book(metadata: dict = default):
+            return metadata
+
+        parameters = Tools([create_book]).tools()[0]["function"]["parameters"]
+        self.assertEqual(parameters["properties"]["metadata"]["default"], default)
+
+    def test_literal_annotations_are_preserved_as_data(self):
+        value = {"title": "Dune", "$defs": {"book": "data"}, "$ref": "#/$defs/book"}
+        for keyword in ("const", "enum", "examples"):
+            with self.subTest(keyword=keyword):
+                data = value if keyword == "const" else [value]
+                schema = {"type": "object", "title": "Schema metadata", keyword: data}
+                normalized = Tools._normalize_json_schema(schema)
+                self.assertEqual(normalized[keyword], data)
+                self.assertNotIn("title", normalized)
 
 
 if __name__ == "__main__":
