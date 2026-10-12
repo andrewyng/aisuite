@@ -4,7 +4,9 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
+from openai import BadRequestError
 
 from aisuite.provider import Provider, LLMError
 from aisuite.providers.openai_provider import OpenaiProvider
@@ -87,6 +89,23 @@ def openai_provider(monkeypatch):
     return OpenaiProvider()
 
 
+def _bad_request_for_param(param):
+    message = f"Unsupported parameter: '{param}' is not supported with this model."
+    request = httpx.Request("POST", "https://api.openai.test/v1/chat/completions")
+    response = httpx.Response(400, request=request)
+    return BadRequestError(
+        message,
+        response=response,
+        body={
+            "error": {
+                "message": message,
+                "param": param,
+                "code": "unsupported_parameter",
+            }
+        },
+    )
+
+
 def test_openai_sync_stream_passes_through(openai_provider):
     chunks = [SimpleNamespace(id="1"), SimpleNamespace(id="2")]
     openai_provider.client.chat.completions.create = Mock(return_value=iter(chunks))
@@ -102,6 +121,46 @@ def test_openai_sync_stream_passes_through(openai_provider):
     assert call.kwargs["stream"] is True
     assert call.kwargs["temperature"] == 0.1
     assert call.kwargs["model"] == "gpt-4o"
+
+
+def test_openai_sync_stream_maps_max_tokens_for_newer_models(openai_provider):
+    chunks = [SimpleNamespace(id="1")]
+    openai_provider.client.chat.completions.create = Mock(return_value=iter(chunks))
+
+    received = list(
+        openai_provider.chat_completions_create_stream(
+            "gpt-5.4-mini",
+            [{"role": "user", "content": "hi"}],
+            max_tokens=17,
+        )
+    )
+
+    assert received == chunks
+    call = openai_provider.client.chat.completions.create.call_args
+    assert call.kwargs["max_completion_tokens"] == 17
+    assert "max_tokens" not in call.kwargs
+
+
+def test_openai_sync_stream_retries_unsupported_token_param(openai_provider):
+    chunks = [SimpleNamespace(id="1")]
+    openai_provider.client.chat.completions.create = Mock(
+        side_effect=[_bad_request_for_param("max_tokens"), iter(chunks)]
+    )
+
+    received = list(
+        openai_provider.chat_completions_create_stream(
+            "custom-model",
+            [{"role": "user", "content": "hi"}],
+            max_tokens=19,
+        )
+    )
+
+    assert received == chunks
+    calls = openai_provider.client.chat.completions.create.call_args_list
+    assert calls[0].kwargs["max_tokens"] == 19
+    assert "max_completion_tokens" not in calls[0].kwargs
+    assert calls[1].kwargs["max_completion_tokens"] == 19
+    assert "max_tokens" not in calls[1].kwargs
 
 
 def test_openai_sync_stream_wraps_errors(openai_provider):
@@ -146,3 +205,49 @@ async def test_openai_async_stream_passes_through(openai_provider):
     assert received == chunks
     call = openai_provider.aclient.chat.completions.create.await_args
     assert call.kwargs["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_openai_async_stream_maps_max_tokens_for_newer_models(openai_provider):
+    chunks = [SimpleNamespace(id="1")]
+    openai_provider.aclient.chat.completions.create = AsyncMock(
+        return_value=_AsyncIter(chunks)
+    )
+
+    received = [
+        chunk
+        async for chunk in openai_provider.achat_completions_create_stream(
+            "gpt-5.4-mini",
+            [{"role": "user", "content": "hi"}],
+            max_tokens=23,
+        )
+    ]
+
+    assert received == chunks
+    call = openai_provider.aclient.chat.completions.create.await_args
+    assert call.kwargs["max_completion_tokens"] == 23
+    assert "max_tokens" not in call.kwargs
+
+
+@pytest.mark.asyncio
+async def test_openai_async_stream_retries_unsupported_token_param(openai_provider):
+    chunks = [SimpleNamespace(id="1")]
+    openai_provider.aclient.chat.completions.create = AsyncMock(
+        side_effect=[_bad_request_for_param("max_tokens"), _AsyncIter(chunks)]
+    )
+
+    received = [
+        chunk
+        async for chunk in openai_provider.achat_completions_create_stream(
+            "custom-model",
+            [{"role": "user", "content": "hi"}],
+            max_tokens=29,
+        )
+    ]
+
+    assert received == chunks
+    calls = openai_provider.aclient.chat.completions.create.await_args_list
+    assert calls[0].kwargs["max_tokens"] == 29
+    assert "max_completion_tokens" not in calls[0].kwargs
+    assert calls[1].kwargs["max_completion_tokens"] == 29
+    assert "max_tokens" not in calls[1].kwargs
