@@ -11,8 +11,9 @@ from .tracing.normalize import normalize_model_input, normalize_model_response
 from .tracing.sinks import TraceEvent, emit_event
 
 # Import MCP utilities for config dict support
+from .mcp.config import is_mcp_config  # Pure utility, no external mcp dependency
+
 try:
-    from .mcp.config import is_mcp_config
     from .mcp.client import MCPClient
 
     MCP_AVAILABLE = True

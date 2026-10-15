@@ -28,6 +28,10 @@ Example:
     ... )
 """
 
-from .client import MCPClient
+try:
+    from .client import MCPClient
 
-__all__ = ["MCPClient"]
+    __all__ = ["MCPClient"]
+except ImportError:
+    MCPClient = None
+    __all__ = []
