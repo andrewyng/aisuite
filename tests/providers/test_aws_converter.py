@@ -1,5 +1,9 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from aisuite import Client
 from aisuite.providers.aws_provider import BedrockMessageConverter
 from aisuite.framework.message import Message, ChatCompletionMessageToolCall
 from aisuite.framework import ChatCompletionResponse
@@ -126,6 +130,61 @@ class TestBedrockMessageConverter(unittest.TestCase):
         normalized_response = self.converter.convert_response(response)
 
         self.assertEqual(normalized_response.choices[0].finish_reason, "length")
+
+
+@pytest.mark.parametrize(
+    "content, expected_text, stop_reason, finish_reason",
+    [
+        (
+            [
+                {"reasoningContent": {"reasoningText": {"text": "Internal reasoning"}}},
+                {"text": "The answer is 42."},
+            ],
+            "The answer is 42.",
+            "end_turn",
+            "stop",
+        ),
+        (
+            [
+                {"text": "Hello, "},
+                {"reasoningContent": {"redactedContent": b"redacted"}},
+                {"text": "world!\n"},
+            ],
+            "Hello, world!\n",
+            "stop_sequence",
+            "stop",
+        ),
+        ([{"text": ""}], "", "end_turn", "stop"),
+        ([], "", "max_tokens", "length"),
+        (
+            [{"reasoningContent": {"reasoningText": {"text": "Internal reasoning"}}}],
+            "",
+            "max_tokens",
+            "length",
+        ),
+    ],
+    ids=["leading-reasoning", "multiple-text", "empty-text", "empty", "no-text"],
+)
+def test_client_preserves_bedrock_response_text(
+    content, expected_text, stop_reason, finish_reason
+):
+    with patch("aisuite.providers.aws_provider.boto3.client") as create_client:
+        create_client.return_value.converse.return_value = {
+            "output": {"message": {"role": "assistant", "content": content}},
+            "stopReason": stop_reason,
+            "usage": {"inputTokens": 17, "outputTokens": 5, "totalTokens": 22},
+        }
+        response = Client().chat.completions.create(
+            model="aws:anthropic.claude-3-7-sonnet-20250219-v1:0",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+    assert response.choices[0].message.content == expected_text
+    assert response.choices[0].finish_reason == finish_reason
+    assert response.choices[0].message.tool_calls is None
+    assert response.usage.prompt_tokens == 17
+    assert response.usage.completion_tokens == 5
+    assert response.usage.total_tokens == 22
 
 
 if __name__ == "__main__":

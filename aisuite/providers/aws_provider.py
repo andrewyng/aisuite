@@ -177,9 +177,11 @@ class BedrockMessageConverter:
                 return norm_response
 
         # Handle regular text response
-        norm_response.choices[0].message.content = response["output"]["message"][
-            "content"
-        ][0]["text"]
+        norm_response.choices[0].message.content = "".join(
+            block["text"]
+            for block in response["output"]["message"]["content"]
+            if "text" in block
+        )
 
         # Map Bedrock stopReason to OpenAI finish_reason.
         # Bedrock's Converse API returns "end_turn"/"stop_sequence" for a
