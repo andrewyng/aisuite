@@ -17,16 +17,27 @@ class BedrockConfig:
     """Configuration for the AWS Bedrock provider."""
 
     INFERENCE_PARAMETERS = ["maxTokens", "temperature", "topP", "stopSequences"]
+    DEFAULT_REGION = "us-west-2"
 
     def __init__(self, **config):
         """Initialize the BedrockConfig."""
-        self.region_name = config.get(
-            "region_name", os.getenv("AWS_REGION", "us-west-2")
+        # A named profile from ~/.aws/config (e.g. one set up with `aws sso login`).
+        # When omitted, boto3 falls back to AWS_PROFILE and its default chain.
+        self.profile_name = config.get("profile_name")
+        self.session = boto3.Session(profile_name=self.profile_name)
+
+        # Explicit config wins, then AWS_REGION, then whatever boto3 resolves
+        # from AWS_DEFAULT_REGION or the profile's `region` setting.
+        self.region_name = (
+            config.get("region_name")
+            or os.getenv("AWS_REGION")
+            or self.session.region_name
+            or self.DEFAULT_REGION
         )
 
     def create_client(self):
         """Create a Bedrock runtime client."""
-        return boto3.client("bedrock-runtime", region_name=self.region_name)
+        return self.session.client("bedrock-runtime", region_name=self.region_name)
 
 
 # AWS Bedrock API Example -
