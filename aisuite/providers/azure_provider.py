@@ -83,13 +83,31 @@ class AzureProvider(Provider):
         self.base_url = config.get("base_url") or os.getenv("AZURE_BASE_URL")
         self.api_key = config.get("api_key") or os.getenv("AZURE_API_KEY")
         self.api_version = config.get("api_version") or os.getenv("AZURE_API_VERSION")
-        if not self.api_key:
-            raise ValueError("For Azure, api_key is required.")
+        # Keyless (Microsoft Entra ID) auth, mirroring openai.AzureOpenAI: either a
+        # static token or a callable returning a fresh one, sent as a Bearer token.
+        # When set, these take precedence over api_key.
+        self.azure_ad_token = config.get("azure_ad_token")
+        self.azure_ad_token_provider = config.get("azure_ad_token_provider")
+        # Extra headers sent with every request; extra_headers= on a call adds more.
+        self.default_headers = config.get("default_headers") or {}
+        if not (self.api_key or self.azure_ad_token or self.azure_ad_token_provider):
+            raise ValueError(
+                "For Azure, api_key is required (or azure_ad_token / "
+                "azure_ad_token_provider for Microsoft Entra ID auth)."
+            )
         if not self.base_url:
             raise ValueError(
                 "For Azure, base_url is required. Check your deployment page for a URL like this - https://<model-deployment-name>.<region>.models.ai.azure.com"
             )
         self.transformer = AzureMessageConverter()
+
+    def _auth_headers(self):
+        if self.azure_ad_token_provider is not None:
+            # Called per request so the provider can hand back a refreshed token.
+            return {"Authorization": f"Bearer {self.azure_ad_token_provider()}"}
+        if self.azure_ad_token:
+            return {"Authorization": f"Bearer {self.azure_ad_token}"}
+        return {"Authorization": self.api_key}
 
     def chat_completions_create(self, model, messages, **kwargs):
         url = f"{self.base_url}/chat/completions"
@@ -99,6 +117,9 @@ class AzureProvider(Provider):
 
         # Remove 'stream' from kwargs if present
         kwargs.pop("stream", None)
+
+        # Per-request headers must not end up in the JSON body
+        extra_headers = kwargs.pop("extra_headers", None) or {}
 
         # Transform messages using converter
         transformed_messages = self.transformer.convert_request(messages)
@@ -120,7 +141,12 @@ class AzureProvider(Provider):
         data.update(kwargs)
 
         body = json.dumps(data).encode("utf-8")
-        headers = {"Content-Type": "application/json", "Authorization": self.api_key}
+        headers = {
+            "Content-Type": "application/json",
+            **self._auth_headers(),
+            **self.default_headers,
+            **extra_headers,
+        }
 
         try:
             req = urllib.request.Request(url, body, headers)

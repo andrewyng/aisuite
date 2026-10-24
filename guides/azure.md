@@ -34,15 +34,18 @@ export AZURE_API_VERSION="=2024-08-01-preview"
 With your account set up and environment configured, you can send a chat completion request:
 
 ```python
+import os
 import aisuite as ai
 
-# Either set the environment variables or set the below two parameters.
-# Setting the params in ai.Client() will override the values from environment vars.
-client = ai.Client(
-    base_url=os.environ["AZURE_OPENAI_BASE_URL"],
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
-    api_version=os.environ["AZURE_API_VERSION"]
-)
+# Either set the environment variables or pass the values in the provider config.
+# Values passed in the config override the environment variables.
+client = ai.Client({
+    "azure": {
+        "base_url": os.environ["AZURE_BASE_URL"],
+        "api_key": os.environ["AZURE_API_KEY"],
+        "api_version": os.environ["AZURE_API_VERSION"],
+    }
+})
 
 model = "azure:aisuite-Mistral-large-2407"  # Replace with your deployment name.
 # The model name must match the deployment name in the base-url.
@@ -58,6 +61,55 @@ response = client.chat.completions.create(
 )
 
 print(response.choices[0].message.content)
+```
+
+## Keyless authentication (Microsoft Entra ID)
+
+Instead of an API key you can authenticate with a Microsoft Entra ID token. Pass
+`azure_ad_token_provider`, a callable that returns a token; it is called on every
+request, so the token is refreshed when it expires. A static `azure_ad_token` is
+also accepted. Either one takes precedence over `api_key` and is sent as
+`Authorization: Bearer <token>`.
+
+```python
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+import aisuite as ai
+
+token_provider = get_bearer_token_provider(
+    DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
+)
+
+client = ai.Client({
+    "azure": {
+        "base_url": "https://<resource>.openai.azure.com/openai/deployments/<deployment>",
+        "api_version": "2024-10-21",
+        "azure_ad_token_provider": token_provider,
+    }
+})
+```
+
+Use the token scope your endpoint expects; the one above is for Azure OpenAI and
+Azure AI Foundry resources.
+
+## Custom headers
+
+Headers set in `default_headers` are sent with every request, and `extra_headers`
+adds (or overrides) headers for a single call:
+
+```python
+client = ai.Client({
+    "azure": {
+        "base_url": os.environ["AZURE_BASE_URL"],
+        "api_key": os.environ["AZURE_API_KEY"],
+        "default_headers": {"x-ms-useragent": "my-app/1.0"},
+    }
+})
+
+response = client.chat.completions.create(
+    model="azure:aisuite-Mistral-large-2407",
+    messages=messages,
+    extra_headers={"x-user-id": "user-1234"},
+)
 ```
 
 Happy coding! If you would like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).
