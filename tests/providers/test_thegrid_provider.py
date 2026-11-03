@@ -1,4 +1,4 @@
-"""Tests for The Grid provider."""
+"""Tests for The Grid AI provider."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -10,14 +10,14 @@ from aisuite.framework.chat_completion_response import ChatCompletionResponse
 
 @pytest.fixture(autouse=True)
 def set_api_key_env_var(monkeypatch):
-    """Fixture to set The Grid API key environment variable for tests."""
+    """Fixture to set The Grid AI API key environment variable for tests."""
     monkeypatch.setenv("THEGRID_API_KEY", "test-api-key")
 
 
 def test_missing_api_key_raises(monkeypatch):
-    """The Grid is a hosted, keyed API: constructing without a key must fail."""
+    """The Grid AI is a hosted, keyed API: constructing without a key must fail."""
     monkeypatch.delenv("THEGRID_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="The Grid API key is missing"):
+    with pytest.raises(ValueError, match="The Grid AI API key is missing"):
         ThegridProvider()
 
 

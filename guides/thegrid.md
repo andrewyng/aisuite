@@ -1,6 +1,6 @@
-# The Grid
+# The Grid AI
 
-To use [The Grid](https://thegrid.ai) with `aisuite`, create an API key at [thegrid.ai](https://thegrid.ai) and add it to your environment:
+To use [The Grid AI](https://thegrid.ai) with `aisuite`, create an API key at [thegrid.ai](https://thegrid.ai) and add it to your environment:
 
 ```shell
 export THEGRID_API_KEY="your-thegrid-api-key"
@@ -8,15 +8,16 @@ export THEGRID_API_KEY="your-thegrid-api-key"
 
 ## What you are selecting
 
-The Grid's model ids are **market instruments**, not fixed foundation models. You pick a quality tier and The Grid acquires qualifying inference on its market to serve the request:
+The Grid AI's model ids are **market instruments**, not fixed foundation models. You pick a quality tier and The Grid AI acquires qualifying inference on its market to serve the request:
 
 | Instrument | Tier |
 |---|---|
 | `text-standard`, `code-standard`, `agent-standard` | everyday work |
 | `text-prime`, `code-prime`, `agent-prime` | stronger reasoning |
 | `text-max`, `code-max`, `agent-max` | frontier |
+| `bytedance-pro-latest`, `claude-opus-latest`, `deepseek-pro-latest`, `gemini-pro-latest`, `glm-latest`, `gpt-sol-latest`, `kimi-latest`, `minimax-latest` | one model family (lab-scoped) |
 
-Lab-specific markets are also available when you want a particular family — `claude-opus-latest`, `gpt-sol-latest`, `gemini-pro-latest`, `kimi-latest`, `deepseek-pro-latest`, `glm-latest`, `minimax-latest`, `bytedance-pro-latest`.
+The lab-scoped instruments in the last row stay within one model family, for when you want a particular lab.
 
 Because an instrument pools several backing models, the `model` field of a response names the model that **actually served** the request rather than the instrument you asked for. Do not assume the two match.
 
@@ -86,8 +87,8 @@ response = client.chat.completions.create(
 
 ## A note on `max_tokens`
 
-Instruments reason before answering, and reasoning tokens count against `max_tokens`. A budget that is too small can be consumed entirely by reasoning, returning empty content with `finish_reason: "length"`. Leave headroom — a few hundred tokens is usually enough for short answers.
+Instruments reason before answering, and reasoning tokens count against `max_tokens`. A budget that is too small can be consumed entirely by reasoning, returning empty content with `finish_reason: "length"`. Leave headroom: a few hundred tokens is usually enough for short answers.
 
-See the [The Grid documentation](https://thegrid.ai/docs) for the full list of instruments and their limits.
+See the [The Grid AI documentation](https://thegrid.ai/docs) for the full list of instruments and their limits.
 
 Happy coding! If you'd like to contribute, please read our [Contributing Guide](../CONTRIBUTING.md).
