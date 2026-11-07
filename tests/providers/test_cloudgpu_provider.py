@@ -1,0 +1,129 @@
+from types import SimpleNamespace
+
+import pytest
+from unittest.mock import patch, MagicMock
+
+from aisuite.providers.cloudgpu_provider import CloudgpuProvider
+
+
+@pytest.fixture(autouse=True)
+def set_api_key_env_var(monkeypatch):
+    """Fixture to set environment variables for tests."""
+    monkeypatch.setenv("CLOUDGPU_API_KEY", "test-api-key")
+
+
+def test_cloudgpu_provider():
+    """High-level test that the provider is initialized and chat completions are requested successfully."""
+
+    user_greeting = "Hello!"
+    message_history = [{"role": "user", "content": user_greeting}]
+    selected_model = "our-favorite-model"
+    chosen_temperature = 0.75
+    response_text_content = "mocked-text-response-from-model"
+
+    provider = CloudgpuProvider()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = MagicMock()
+    mock_response.choices[0].message.content = response_text_content
+
+    with patch.object(
+        provider.client.chat.completions,
+        "create",
+        return_value=mock_response,
+    ) as mock_create:
+        response = provider.chat_completions_create(
+            messages=message_history,
+            model=selected_model,
+            temperature=chosen_temperature,
+        )
+
+        mock_create.assert_called_with(
+            messages=message_history,
+            model=selected_model,
+            temperature=chosen_temperature,
+        )
+
+        assert response.choices[0].message.content == response_text_content
+
+
+def test_cloudgpu_provider_tool_calling():
+    """tools are forwarded unchanged and tool_calls in the response survive."""
+
+    messages = [{"role": "user", "content": "What's the weather in SF?"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                },
+            },
+        }
+    ]
+    selected_model = "our-favorite-model"
+
+    provider = CloudgpuProvider()
+
+    tool_call = SimpleNamespace(
+        id="call_1",
+        type="function",
+        function=SimpleNamespace(name="get_weather", arguments='{"city": "SF"}'),
+    )
+    mock_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="tool_calls",
+                message=SimpleNamespace(
+                    role="assistant", content=None, tool_calls=[tool_call]
+                ),
+            )
+        ]
+    )
+
+    with patch.object(
+        provider.client.chat.completions,
+        "create",
+        return_value=mock_response,
+    ) as mock_create:
+        response = provider.chat_completions_create(
+            messages=messages,
+            model=selected_model,
+            tools=tools,
+            tool_choice="auto",
+        )
+
+        mock_create.assert_called_with(
+            messages=messages,
+            model=selected_model,
+            tools=tools,
+            tool_choice="auto",
+        )
+
+        assert response.choices[0].finish_reason == "tool_calls"
+        assert response.choices[0].message.tool_calls[0].function.name == "get_weather"
+        assert (
+            response.choices[0].message.tool_calls[0].function.arguments
+            == '{"city": "SF"}'
+        )
+
+
+def test_cloudgpu_provider_uses_cloudgpu_base_url():
+    """The OpenAI client is pointed at the CloudGPU OpenAI-compatible endpoint."""
+
+    provider = CloudgpuProvider()
+
+    assert str(provider.client.base_url).rstrip("/") == "https://cloudgpu.app/v1"
+
+
+def test_cloudgpu_provider_missing_api_key(monkeypatch):
+    """A clear error is raised when no API key is configured."""
+
+    monkeypatch.delenv("CLOUDGPU_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="CLOUDGPU_API_KEY"):
+        CloudgpuProvider()
