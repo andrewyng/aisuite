@@ -1,4 +1,7 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from threading import Barrier
 
 import pytest
 
@@ -47,6 +50,42 @@ def assert_stored_state_round_trip(store):
 
 def test_in_memory_state_store_round_trips_and_updates_with_revision():
     assert_stored_state_round_trip(ai.InMemoryStateStore())
+
+
+def test_sqlite_state_store_reopens_and_deletes(tmp_path):
+    path = tmp_path / "runs.sqlite3"
+    with closing(ai.SQLiteStateStore(path)) as store:
+        assert_stored_state_round_trip(store)
+    with closing(ai.SQLiteStateStore(path)) as store:
+        assert store.load_state("thread/user:1").revision == 2
+        store.delete_state("thread/user:1")
+        store.delete_state("thread/user:1")
+        assert store.load_state("thread/user:1") is None
+
+
+def test_sqlite_state_store_rejects_concurrent_stale_writer(tmp_path):
+    path = tmp_path / "runs.sqlite3"
+    with closing(ai.SQLiteStateStore(path)) as store:
+        store.save_state("chat", make_state())
+    barrier = Barrier(2)
+
+    def save(content):
+        with closing(ai.SQLiteStateStore(path)) as store:
+            current = store.load_state("chat")
+            barrier.wait(timeout=10)
+            try:
+                store.save_state("chat", make_state(content), revision=current.revision)
+            except ai.StateConflictError:
+                return None
+            return content
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        winners = [content for content in pool.map(save, ["one", "two"]) if content]
+    assert len(winners) == 1
+    with closing(ai.SQLiteStateStore(path)) as store:
+        saved = store.load_state("chat")
+        assert saved.revision == 2
+        assert saved.state.messages[0]["content"] == winners[0]
 
 
 def test_file_state_store_round_trips_and_reloads(tmp_path):

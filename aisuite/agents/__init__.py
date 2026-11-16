@@ -14,6 +14,7 @@ from .policies import (
 )
 from .postgres_state_store import CompactionRecord, PostgresStateStore
 from .runner import Runner, StateNotFoundError, ThreadAlreadyExistsError
+from .sqlite_state_store import SQLiteStateStore
 from .state_store import (
     FileStateStore,
     InMemoryStateStore,
@@ -43,6 +44,7 @@ __all__ = [
     "DenyAllToolPolicy",
     "RequireApprovalPolicy",
     "PostgresStateStore",
+    "SQLiteStateStore",
     "FileArtifactStore",
     "FileStateStore",
     "InMemoryArtifactStore",

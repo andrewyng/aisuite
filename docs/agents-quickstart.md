@@ -88,9 +88,15 @@ print(result.final_output)
 Pieces a production harness needs:
 
 - **Tool policies** — gate execution with `RequireApprovalPolicy`, `AllowToolsPolicy` / `DenyAllToolPolicy`, or any callable receiving a `ToolPolicyContext`.
-- **State stores** — persist runs and resume them across processes: `InMemoryStateStore`, `FileStateStore`, or `PostgresStateStore` with `thread_id`.
+- **State stores** — persist runs and resume them across processes: `FileStateStore`, `SQLiteStateStore`, or `PostgresStateStore` with `thread_id`. For process-local state, use `InMemoryStateStore`.
 - **Artifacts** — store what the agent produced (`FileArtifactStore`, `InMemoryArtifactStore`).
 - **Tracing** — every `RunResult` carries its steps, raw responses, and a `trace_id`; plug in trace sinks for observability.
+
+For local workers sharing a database, pass `ai.SQLiteStateStore("runs.sqlite3")` as
+`state_store` to the runner. Opening the same file after a restart lets
+`Runner.continue_sync` resume a thread. Concurrent continuations saving the same
+revision raise `StateConflictError` for the stale writer. Call `store.close()`
+when the worker finishes.
 
 ## MCP tools
 
