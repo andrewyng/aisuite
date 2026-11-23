@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import asyncio
 import importlib
@@ -58,35 +59,42 @@ class Provider(ABC):
     async def achat_completions_create_stream(self, model, messages, **kwargs):
         """Async streaming chat completion.
 
-        Default implementation runs the provider's synchronous
-        ``chat_completions_create_stream`` in a worker thread and hands chunks
-        to the event loop through a queue, so any provider with a sync stream
-        is async-iterable without per-provider work. Providers with a native
-        async SDK (e.g. OpenAI, Anthropic) should override this.
+        The provider's synchronous stream runs on a worker thread, advancing
+        once per requested chunk. Providers with a native async SDK can
+        override this method.
         """
-        loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
+        worker = ThreadPoolExecutor(max_workers=1)
+        end_of_stream = object()
+        stream = None
 
-        def produce():
-            try:
-                for chunk in self.chat_completions_create_stream(
-                    model, messages, **kwargs
-                ):
-                    loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
-            except BaseException as exc:  # surfaced to the awaiting consumer
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+        def read_chunk():
+            nonlocal stream
+            if stream is None:
+                stream = iter(
+                    self.chat_completions_create_stream(model, messages, **kwargs)
+                )
+            return next(stream, end_of_stream)
 
-        loop.run_in_executor(None, produce)
-        while True:
-            kind, payload = await queue.get()
-            if kind == "chunk":
-                yield payload
-            elif kind == "error":
-                raise payload
-            else:
-                return
+        def close_stream():
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
+
+        pending = None
+        try:
+            while True:
+                pending = worker.submit(read_chunk)
+                chunk = await asyncio.wrap_future(pending)
+                if chunk is end_of_stream:
+                    return
+                yield chunk
+        finally:
+            cleanup = worker.submit(close_stream)
+            worker.shutdown(wait=False)
+            # If cancelled during a blocking read, the worker closes the
+            # source as soon as that read finishes.
+            if pending is None or pending.done():
+                await asyncio.wrap_future(cleanup)
 
 
 class ProviderFactory:

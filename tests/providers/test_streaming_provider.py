@@ -1,5 +1,6 @@
 """Tests for the streaming provider contract (chat_completions_create_stream)."""
 
+import asyncio
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -58,6 +59,65 @@ async def test_default_async_stream_bridges_sync_off_the_loop():
 
     assert received == ["a", "b", "c"]
     assert provider.streamed_on_thread != threading.main_thread().name
+
+
+@pytest.mark.asyncio
+async def test_default_async_stream_only_pulls_requested_chunks_and_closes():
+    pulled = []
+    closed = threading.Event()
+    thread_ids = []
+
+    class RecordingProvider(_SyncStreamProvider):
+        def chat_completions_create_stream(self, model, messages, **kwargs):
+            try:
+                for chunk in ("a", "b", "c"):
+                    thread_ids.append(threading.get_ident())
+                    pulled.append(chunk)
+                    yield chunk
+            finally:
+                thread_ids.append(threading.get_ident())
+                closed.set()
+
+    stream = RecordingProvider().achat_completions_create_stream("m", [])
+    try:
+        assert await anext(stream) == "a"
+    finally:
+        await stream.aclose()
+
+    assert await asyncio.to_thread(closed.wait, 1)
+    assert pulled == ["a"]
+    assert len(set(thread_ids)) == 1
+    assert thread_ids[0] != threading.get_ident()
+
+
+@pytest.mark.asyncio
+async def test_default_async_stream_cancel_during_read_closes_source():
+    reading = threading.Event()
+    release_read = threading.Event()
+    closed = threading.Event()
+
+    class BlockingProvider(_SyncStreamProvider):
+        def chat_completions_create_stream(self, model, messages, **kwargs):
+            try:
+                reading.set()
+                release_read.wait(5)
+                yield "a"
+            finally:
+                closed.set()
+
+    stream = BlockingProvider().achat_completions_create_stream("m", [])
+    task = asyncio.create_task(anext(stream))
+    try:
+        assert await asyncio.to_thread(reading.wait, 1)
+        task.cancel()
+        done, _ = await asyncio.wait([task], timeout=1)
+        assert task in done
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        release_read.set()
+
+    assert await asyncio.to_thread(closed.wait, 1)
 
 
 @pytest.mark.asyncio
