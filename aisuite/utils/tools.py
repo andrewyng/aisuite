@@ -389,7 +389,7 @@ class Tools:
             # Validate and parse the arguments with Pydantic if a model exists
             try:
                 validated_args = param_model(**arguments)
-                result = tool_func(**validated_args.model_dump())
+                result = tool_func(**dict(validated_args))
                 results.append(result)
             except ValidationError as e:
                 raise ValueError(f"Error in tool '{tool_name}' parameters: {e}")
@@ -501,7 +501,7 @@ class Tools:
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
             "tool_func": tool_func,
-            "args": validated_args_dict,
+            "args": dict(validated_args),
             "tool_metadata_dict": tool_metadata_dict,
             "denied": False,
             "result": None,
