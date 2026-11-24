@@ -4,7 +4,9 @@ from typing import Literal, Optional, List
 
 class Choice:
     def __init__(self):
-        self.finish_reason: Optional[Literal["stop", "tool_calls"]] = None
+        self.finish_reason: Optional[
+            Literal["stop", "length", "tool_calls", "content_filter", "function_call"]
+        ] = None
         self.message = Message(
             content=None,
             tool_calls=None,
