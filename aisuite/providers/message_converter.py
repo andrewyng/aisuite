@@ -47,6 +47,12 @@ class OpenAICompliantMessageConverter:
         choice = response_data["choices"][0]
         message = choice["message"]
 
+        completion_response.choices[0].finish_reason = choice.get("finish_reason")
+        completion_response.choices[0].message.reasoning_content = message.get(
+            "reasoning_content"
+        )
+        completion_response.choices[0].message.refusal = message.get("refusal")
+
         # Set basic message content
         completion_response.choices[0].message.content = message["content"]
         completion_response.choices[0].message.role = message.get("role", "assistant")
