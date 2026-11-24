@@ -310,7 +310,9 @@ class Tools:
                 )
 
         # Dynamically create a Pydantic model based on inferred fields
-        param_model = create_model(f"{func.__name__.capitalize()}Params", **fields)
+        param_model = create_model(
+            f"{func.__name__.capitalize()}Params", __module__=func.__module__, **fields
+        )
 
         # Convert inferred model to a tool spec format
         tool_spec = self._convert_to_tool_spec(func, param_model)
