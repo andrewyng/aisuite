@@ -73,7 +73,7 @@ class AnthropicMessageConverter:
 
         if event_type == "message_start":
             usage = getattr(getattr(event, "message", None), "usage", None)
-            state["input_tokens"] = getattr(usage, "input_tokens", 0) or 0
+            state["input_tokens"] = self._get_prompt_tokens(usage)
             state["cached_tokens"] = getattr(usage, "cache_read_input_tokens", 0) or 0
             return self._delta_chunk(ChoiceDelta(role=self.ROLE_ASSISTANT))
 
@@ -278,12 +278,24 @@ class AnthropicMessageConverter:
         """Get the normalized finish reason."""
         return self.FINISH_REASON_MAPPING.get(response.stop_reason, "stop")
 
+    @staticmethod
+    def _get_prompt_tokens(usage):
+        return sum(
+            getattr(usage, field, 0) or 0
+            for field in (
+                "input_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            )
+        )
+
     def _get_completion_usage(self, response):
         """Get the usage statistics."""
+        prompt_tokens = self._get_prompt_tokens(response.usage)
         return CompletionUsage(
             completion_tokens=response.usage.output_tokens,
-            prompt_tokens=response.usage.input_tokens,
-            total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+            prompt_tokens=prompt_tokens,
+            total_tokens=prompt_tokens + response.usage.output_tokens,
             prompt_tokens_details=PromptTokensDetails(
                 cached_tokens=response.usage.cache_read_input_tokens,
             ),

@@ -97,9 +97,9 @@ def test_stream_events_normalize_to_openai_chunks():
     # final chunk: normalized finish reason + usage
     final = chunks[-1]
     assert final.choices[0].finish_reason == "tool_calls"
-    assert final.usage.prompt_tokens == 10
+    assert final.usage.prompt_tokens == 13
     assert final.usage.completion_tokens == 7
-    assert final.usage.total_tokens == 17
+    assert final.usage.total_tokens == 20
     assert final.usage.prompt_tokens_details.cached_tokens == 3
 
 
@@ -184,4 +184,4 @@ async def test_async_stream_uses_native_async_client(provider):
 
     assert provider.async_client.messages.create.await_args.kwargs["stream"] is True
     assert "".join(c.choices[0].delta.content or "" for c in chunks) == "Hello"
-    assert chunks[-1].usage.total_tokens == 17
+    assert chunks[-1].usage.total_tokens == 20
