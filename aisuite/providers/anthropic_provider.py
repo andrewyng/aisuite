@@ -352,14 +352,14 @@ class AnthropicMessageConverter:
                 continue
 
             function = tool["function"]
+            parameters = dict(function["parameters"])
+            parameters.setdefault("type", "object")
+            parameters.setdefault("properties", {})
+            parameters.setdefault("required", [])
             anthropic_tool = {
                 "name": function["name"],
                 "description": function["description"],
-                "input_schema": {
-                    "type": "object",
-                    "properties": function["parameters"]["properties"],
-                    "required": function["parameters"].get("required", []),
-                },
+                "input_schema": parameters,
             }
             anthropic_tools.append(anthropic_tool)
 
