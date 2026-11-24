@@ -2,6 +2,7 @@
 
 import unittest
 from unittest.mock import MagicMock
+from anthropic.types import Usage
 from aisuite.providers.anthropic_provider import AnthropicMessageConverter
 from aisuite.framework import ChatCompletionResponse
 
@@ -64,8 +65,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         """Test converting a normal text response."""
         response = MagicMock()
         response.stop_reason = "end_turn"
-        response.usage.input_tokens = 10
-        response.usage.output_tokens = 5
+        response.usage = Usage(input_tokens=10, output_tokens=5)
         content_mock = MagicMock()
         content_mock.type = "text"
         content_mock.text = "The weather is sunny."
@@ -89,8 +89,7 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         response.model = "claude-3-5-sonnet-20241022"
         response.role = "assistant"
         response.stop_reason = "tool_use"
-        response.usage.input_tokens = 20
-        response.usage.output_tokens = 10
+        response.usage = Usage(input_tokens=20, output_tokens=10)
         tool_use_mock = MagicMock()
         tool_use_mock.type = "tool_use"
         tool_use_mock.id = "tool123"
