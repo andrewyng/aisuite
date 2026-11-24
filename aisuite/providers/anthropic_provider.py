@@ -300,9 +300,8 @@ class AnthropicMessageConverter:
                 return tool_message
 
         # Safely extract text content from any position in content blocks
-        text_content = next(
-            (content.text for content in response.content if content.type == "text"),
-            "",
+        text_content = "".join(
+            content.text for content in response.content if content.type == "text"
         )
 
         return Message(
@@ -326,13 +325,8 @@ class AnthropicMessageConverter:
             tool_call_obj = ChatCompletionMessageToolCall(
                 id=tool_call.id, function=function, type="function"
             )
-            text_content = next(
-                (
-                    content.text
-                    for content in response.content
-                    if content.type == "text"
-                ),
-                "",
+            text_content = "".join(
+                content.text for content in response.content if content.type == "text"
             )
 
             return Message(
