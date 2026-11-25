@@ -30,8 +30,10 @@ class OpenaiProvider(Provider):
 
         # Pass the entire config to the OpenAI client constructor
         self.client = openai.OpenAI(**config)
-        # Async client shares the same config for true non-blocking I/O.
-        self.aclient = openai.AsyncOpenAI(**config)
+        # A custom synchronous transport cannot be shared with AsyncOpenAI.
+        self.aclient = (
+            openai.AsyncOpenAI(**config) if config.get("http_client") is None else None
+        )
         self.transformer = OpenAICompliantMessageConverter()
 
         # Initialize audio functionality
@@ -53,6 +55,8 @@ class OpenaiProvider(Provider):
             raise LLMError(f"An error occurred: {e}")
 
     async def achat_completions_create(self, model, messages, **kwargs):
+        if self.aclient is None:
+            return await super().achat_completions_create(model, messages, **kwargs)
         # Native async path via openai.AsyncOpenAI.
         try:
             transformed_messages = self.transformer.convert_request(messages)
@@ -80,6 +84,12 @@ class OpenaiProvider(Provider):
         yield from stream
 
     async def achat_completions_create_stream(self, model, messages, **kwargs):
+        if self.aclient is None:
+            async for chunk in super().achat_completions_create_stream(
+                model, messages, **kwargs
+            ):
+                yield chunk
+            return
         # Native async streaming via openai.AsyncOpenAI.
         try:
             transformed_messages = self.transformer.convert_request(messages)
