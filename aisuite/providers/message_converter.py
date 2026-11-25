@@ -1,6 +1,7 @@
 """Base message converter for OpenAI-compliant providers."""
 
 from aisuite.framework import ChatCompletionResponse
+from aisuite.framework.choice import Choice
 from aisuite.framework.message import (
     Message,
     ChatCompletionMessageToolCall,
@@ -44,28 +45,30 @@ class OpenAICompliantMessageConverter:
     def convert_response(self, response_data) -> ChatCompletionResponse:
         """Normalize the response to match OpenAI's response format."""
         completion_response = ChatCompletionResponse()
-        choice = response_data["choices"][0]
-        message = choice["message"]
-
-        # Set basic message content
-        completion_response.choices[0].message.content = message["content"]
-        completion_response.choices[0].message.role = message.get("role", "assistant")
-        # Conditionally parse usage data if it exists.
+        completion_response.choices = []
         if usage_data := response_data.get("usage"):
             completion_response.usage = self.get_completion_usage(usage_data)
+        for choice in response_data["choices"]:
+            normalized_choice = Choice()
+            message = choice["message"]
 
-        # Handle tool calls if present
-        if "tool_calls" in message and message["tool_calls"] is not None:
-            tool_calls = []
-            for tool_call in message["tool_calls"]:
-                tool_calls.append(
-                    ChatCompletionMessageToolCall(
-                        id=tool_call.get("id"),
-                        type="function",  # Always set to "function" as it's the only valid value
-                        function=tool_call.get("function"),
+            # Set basic message content
+            normalized_choice.message.content = message["content"]
+            normalized_choice.message.role = message.get("role", "assistant")
+
+            # Handle tool calls if present
+            if "tool_calls" in message and message["tool_calls"] is not None:
+                tool_calls = []
+                for tool_call in message["tool_calls"]:
+                    tool_calls.append(
+                        ChatCompletionMessageToolCall(
+                            id=tool_call.get("id"),
+                            type="function",  # Always set to "function" as it's the only valid value
+                            function=tool_call.get("function"),
+                        )
                     )
-                )
-            completion_response.choices[0].message.tool_calls = tool_calls
+                normalized_choice.message.tool_calls = tool_calls
+            completion_response.choices.append(normalized_choice)
 
         return completion_response
 
