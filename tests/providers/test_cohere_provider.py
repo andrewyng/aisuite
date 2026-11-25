@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from aisuite.providers.cohere_provider import CohereProvider
@@ -62,3 +63,41 @@ def test_cohere_finish_reason_max_tokens():
         )
 
     assert response.choices[0].finish_reason == "length"
+
+
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_cohere_preserves_all_tool_calls(count):
+    calls = [
+        {
+            "id": f"call-{index}",
+            "type": "function",
+            "function": {
+                "name": "weather",
+                "arguments": '{"city": "City %s"}' % index,
+            },
+        }
+        for index in range(count)
+    ]
+    payload = {
+        "id": "response-id",
+        "finish_reason": "TOOL_CALL",
+        "message": {
+            "role": "assistant",
+            "tool_plan": "Check each city.",
+            "tool_calls": calls,
+        },
+        "usage": {"tokens": {"input_tokens": 10, "output_tokens": 20}},
+    }
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    with httpx.Client(transport=transport) as http_client:
+        provider = CohereProvider(httpx_client=http_client)
+        response = provider.chat_completions_create(
+            model="command-r-plus",
+            messages=[{"role": "user", "content": "Check the weather in each city"}],
+        )
+
+    assert [
+        call.model_dump() for call in response.choices[0].message.tool_calls
+    ] == calls
+    assert response.choices[0].message.content == "Check each city."
+    assert response.choices[0].finish_reason == "tool_calls"
