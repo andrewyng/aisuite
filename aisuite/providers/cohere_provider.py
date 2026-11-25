@@ -106,16 +106,20 @@ class CohereMessageConverter:
 
         # Handle tool calls
         if response_data.finish_reason == "TOOL_CALL":
-            tool_call = response_data.message.tool_calls[0]
-            function = Function(
-                name=tool_call.function.name, arguments=tool_call.function.arguments
-            )
-            tool_call_obj = ChatCompletionMessageToolCall(
-                id=tool_call.id, function=function, type="function"
-            )
+            tool_calls = [
+                ChatCompletionMessageToolCall(
+                    id=tool_call.id,
+                    function=Function(
+                        name=tool_call.function.name,
+                        arguments=tool_call.function.arguments,
+                    ),
+                    type="function",
+                )
+                for tool_call in response_data.message.tool_calls
+            ]
             normalized_response.choices[0].message = Message(
                 content=response_data.message.tool_plan,  # Use tool_plan as content
-                tool_calls=[tool_call_obj],
+                tool_calls=tool_calls,
                 role="assistant",
                 refusal=None,
             )
