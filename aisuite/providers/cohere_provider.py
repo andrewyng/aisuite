@@ -20,12 +20,14 @@ class CohereMessageConverter:
                 role = message.get("role")
                 content = message.get("content")
                 tool_calls = message.get("tool_calls")
-                tool_plan = message.get("tool_plan")
+                tool_plan = message.get("tool_plan", message.get("reasoning_content"))
             else:
                 role = message.role
                 content = message.content
                 tool_calls = message.tool_calls
-                tool_plan = getattr(message, "tool_plan", None)
+                tool_plan = getattr(message, "tool_plan", None) or getattr(
+                    message, "reasoning_content", None
+                )
 
             # Convert to Cohere's format
             if role == "tool":
@@ -64,7 +66,7 @@ class CohereMessageConverter:
                     ],
                     "tool_plan": tool_plan,
                 }
-                if content:
+                if content and content != tool_plan:
                     converted_message["content"] = content
             else:
                 # Handle regular messages
@@ -115,6 +117,7 @@ class CohereMessageConverter:
             )
             normalized_response.choices[0].message = Message(
                 content=response_data.message.tool_plan,  # Use tool_plan as content
+                reasoning_content=response_data.message.tool_plan,
                 tool_calls=[tool_call_obj],
                 role="assistant",
                 refusal=None,
