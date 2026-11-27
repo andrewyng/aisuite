@@ -96,13 +96,19 @@ class CohereMessageConverter:
         """Convert Cohere's response to our standard format."""
         normalized_response = ChatCompletionResponse()
 
-        # Set usage information
-        normalized_response.usage = {
-            "prompt_tokens": response_data.usage.tokens.input_tokens,
-            "completion_tokens": response_data.usage.tokens.output_tokens,
-            "total_tokens": response_data.usage.tokens.input_tokens
-            + response_data.usage.tokens.output_tokens,
-        }
+        if response_data.usage is not None and response_data.usage.tokens is not None:
+            tokens = response_data.usage.tokens
+            prompt_tokens = tokens.input_tokens
+            completion_tokens = tokens.output_tokens
+            normalized_response.usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (
+                    prompt_tokens + completion_tokens
+                    if prompt_tokens is not None and completion_tokens is not None
+                    else None
+                ),
+            }
 
         # Handle tool calls
         if response_data.finish_reason == "TOOL_CALL":

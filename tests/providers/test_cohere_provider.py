@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import cohere
 import pytest
 
 from aisuite.providers.cohere_provider import CohereProvider
@@ -62,3 +63,42 @@ def test_cohere_finish_reason_max_tokens():
         )
 
     assert response.choices[0].finish_reason == "length"
+
+
+@pytest.mark.parametrize("usage", [None, {}, {"billed_units": {"input_tokens": 3}}])
+def test_cohere_reply_without_token_counts(usage):
+    provider = CohereProvider()
+    reply = cohere.V2ChatResponse(
+        id="reply",
+        finish_reason="COMPLETE",
+        message={"role": "assistant", "content": [{"type": "text", "text": "hello"}]},
+        usage=usage,
+    )
+    with patch.object(provider.client, "chat", return_value=reply):
+        result = provider.chat_completions_create(
+            "test", [{"role": "user", "content": "Hi"}]
+        )
+    assert result.choices[0].message.content == "hello"
+    assert result.usage is None
+
+
+@pytest.mark.parametrize(
+    "inputs, outputs, total", [(2, 3, 5), (0, 0, 0), (None, 3, None), (2, None, None)]
+)
+def test_cohere_reply_preserves_reported_counts(inputs, outputs, total):
+    provider = CohereProvider()
+    reply = cohere.V2ChatResponse(
+        id="reply",
+        finish_reason="COMPLETE",
+        message={"role": "assistant", "content": [{"type": "text", "text": "hello"}]},
+        usage={"tokens": {"input_tokens": inputs, "output_tokens": outputs}},
+    )
+    with patch.object(provider.client, "chat", return_value=reply):
+        result = provider.chat_completions_create(
+            "test", [{"role": "user", "content": "Hi"}]
+        )
+    assert result.usage == {
+        "prompt_tokens": inputs,
+        "completion_tokens": outputs,
+        "total_tokens": total,
+    }
