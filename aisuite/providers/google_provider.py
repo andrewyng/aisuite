@@ -43,30 +43,21 @@ class GoogleMessageConverter:
     @staticmethod
     def convert_assistant_role_message(message: Dict[str, Any]) -> Content:
         """Convert assistant messages to Google Vertex AI format."""
-        if "tool_calls" in message and message["tool_calls"]:
-            # Handle function calls
-            tool_call = message["tool_calls"][
-                0
-            ]  # Assuming single function call for now
-            function_call = tool_call["function"]
-
-            # Create a Part from the function call
-            parts = [
+        parts = []
+        if message.get("content") or not message.get("tool_calls"):
+            parts.append(Part.from_text(message["content"]))
+        for tool_call in message.get("tool_calls") or []:
+            function = tool_call["function"]
+            parts.append(
                 Part.from_dict(
                     {
                         "function_call": {
-                            "name": function_call["name"],
-                            # "arguments": json.loads(function_call["arguments"])
+                            "name": function["name"],
+                            "args": json.loads(function["arguments"]),
                         }
                     }
                 )
-            ]
-            # return Content(role="function", parts=parts)
-        else:
-            # Handle regular text messages
-            parts = [Part.from_text(message["content"])]
-            # return Content(role="model", parts=parts)
-
+            )
         return Content(role="model", parts=parts)
 
     @staticmethod
