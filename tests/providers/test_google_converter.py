@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
+from vertexai.generative_models import GenerationResponse
 from aisuite.providers.google_provider import GoogleMessageConverter
 from aisuite.framework.message import Message, ChatCompletionMessageToolCall, Function
 from aisuite.framework import ChatCompletionResponse
@@ -86,6 +87,26 @@ class TestGoogleMessageConverter(unittest.TestCase):
             normalized_response.choices[0].message.tool_calls[0].function.arguments,
             '{"currency_from": "AUD", "currency_to": "SEK", "currency_date": "latest"}',
         )
+
+    def test_max_tokens_response(self):
+        for parts, expected in (
+            ([{"text": "partial answer"}], "partial answer"),
+            ([], None),
+        ):
+            with self.subTest(parts=parts):
+                response = GenerationResponse.from_dict(
+                    {
+                        "candidates": [
+                            {
+                                "content": {"role": "model", "parts": parts},
+                                "finish_reason": "MAX_TOKENS",
+                            }
+                        ]
+                    }
+                )
+                choice = self.converter.convert_response(response).choices[0]
+                self.assertEqual(choice.finish_reason, "length")
+                self.assertEqual(choice.message.content, expected)
 
     def test_convert_response_with_text(self):
         response = MagicMock()

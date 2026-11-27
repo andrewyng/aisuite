@@ -12,6 +12,7 @@ from vertexai.generative_models import (
     Part,
     Tool,
     FunctionDeclaration,
+    FinishReason,
 )
 import pprint
 
@@ -151,11 +152,10 @@ class GoogleMessageConverter:
         # Check if the response contains function calls
         # Note: Just checking if the function_call attribute exists is not enough,
         #       it is important to check if the function_call is not None.
-        if (
-            hasattr(response.candidates[0].content.parts[0], "function_call")
-            and response.candidates[0].content.parts[0].function_call
-        ):
-            function_call = response.candidates[0].content.parts[0].function_call
+        candidate = response.candidates[0]
+        parts = candidate.content.parts
+        if parts and getattr(parts[0], "function_call", None):
+            function_call = parts[0].function_call
 
             # args is a MapComposite.
             # Convert the MapComposite to a dictionary
@@ -189,9 +189,13 @@ class GoogleMessageConverter:
         else:
             # Handle regular text response
             openai_response.choices[0].message.content = (
-                response.candidates[0].content.parts[0].text
+                parts[0].text if parts else None
             )
-            openai_response.choices[0].finish_reason = "stop"
+            openai_response.choices[0].finish_reason = (
+                "length"
+                if candidate.finish_reason == FinishReason.MAX_TOKENS
+                else "stop"
+            )
 
         return openai_response
 
