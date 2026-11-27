@@ -122,8 +122,13 @@ class CohereMessageConverter:
             normalized_response.choices[0].finish_reason = "tool_calls"
         else:
             # Handle regular text response
+            parts = [
+                block.text
+                for block in response_data.message.content or []
+                if hasattr(block, "text")
+            ]
             normalized_response.choices[0].message.content = (
-                response_data.message.content[0].text
+                "".join(parts) if parts else None
             )
             # Normalize Cohere's finish_reason to OpenAI's. MAX_TOKENS means the
             # output was truncated by the token limit, which OpenAI reports as
