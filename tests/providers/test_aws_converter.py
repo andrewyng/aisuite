@@ -127,6 +127,35 @@ class TestBedrockMessageConverter(unittest.TestCase):
 
         self.assertEqual(normalized_response.choices[0].finish_reason, "length")
 
+    def test_tool_use_preserves_usage(self):
+        response = {
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "toolUse": {
+                                "toolUseId": "call-1",
+                                "name": "weather",
+                                "input": {},
+                            }
+                        }
+                    ],
+                }
+            },
+            "stopReason": "tool_use",
+            "usage": {"inputTokens": 17, "outputTokens": 4, "totalTokens": 21},
+        }
+        result = self.converter.convert_response(response)
+        self.assertEqual(result.choices[0].finish_reason, "tool_calls")
+        self.assertIsNotNone(result.usage)
+        self.assertEqual(result.usage.prompt_tokens, 17)
+        self.assertEqual(result.usage.completion_tokens, 4)
+        self.assertEqual(result.usage.total_tokens, 21)
+
+        del response["usage"]
+        self.assertIsNone(self.converter.convert_response(response).usage)
+
 
 if __name__ == "__main__":
     unittest.main()
