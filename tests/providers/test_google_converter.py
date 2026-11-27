@@ -10,6 +10,35 @@ class TestGoogleMessageConverter(unittest.TestCase):
     def setUp(self):
         self.converter = GoogleMessageConverter()
 
+    def test_replays_all_assistant_calls_with_arguments(self):
+        calls = [
+            {
+                "type": "function",
+                "id": "a",
+                "function": {"name": "weather", "arguments": '{"city": "Oslo"}'},
+            },
+            {
+                "type": "function",
+                "id": "b",
+                "function": {"name": "clock", "arguments": "{}"},
+            },
+        ]
+        for message in (
+            {"role": "assistant", "content": "Checking", "tool_calls": calls},
+            Message(role="assistant", content="Checking", tool_calls=calls),
+        ):
+            with self.subTest(message_type=type(message)):
+                (turn,) = self.converter.convert_request([message])
+                self.assertEqual(turn.role, "model")
+                self.assertEqual(len(turn.parts), 3)
+                self.assertEqual(turn.parts[0].text, "Checking")
+                self.assertEqual(turn.parts[1].function_call.name, "weather")
+                self.assertEqual(
+                    dict(turn.parts[1].function_call.args), {"city": "Oslo"}
+                )
+                self.assertEqual(turn.parts[2].function_call.name, "clock")
+                self.assertEqual(dict(turn.parts[2].function_call.args), {})
+
     def test_convert_request_user_message(self):
         messages = [{"role": "user", "content": "What is the weather today?"}]
         converted_messages = self.converter.convert_request(messages)
