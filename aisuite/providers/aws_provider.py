@@ -168,6 +168,12 @@ class BedrockMessageConverter:
         """Normalize the response from the Bedrock API to match OpenAI's response format."""
         norm_response = ChatCompletionResponse()
 
+        # Conditionally parse usage data if it exists.
+        if usage_data := response.get("usage"):
+            norm_response.usage = BedrockMessageConverter.get_completion_usage(
+                usage_data
+            )
+
         # Check if the model is requesting tool use
         if response.get("stopReason") == "tool_use":
             tool_message = BedrockMessageConverter.convert_response_tool_call(response)
@@ -192,12 +198,6 @@ class BedrockMessageConverter:
             norm_response.choices[0].finish_reason = "length"
         else:
             norm_response.choices[0].finish_reason = stop_reason
-
-        # Conditionally parse usage data if it exists.
-        if usage_data := response.get("usage"):
-            norm_response.usage = BedrockMessageConverter.get_completion_usage(
-                usage_data
-            )
 
         return norm_response
 
