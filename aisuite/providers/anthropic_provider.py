@@ -168,7 +168,7 @@ class AnthropicMessageConverter:
         """Convert a dictionary message to Anthropic format."""
         if msg["role"] == self.ROLE_TOOL:
             return self._create_tool_result_message(msg["tool_call_id"], msg["content"])
-        elif msg["role"] == self.ROLE_ASSISTANT and "tool_calls" in msg:
+        elif msg["role"] == self.ROLE_ASSISTANT and msg.get("tool_calls"):
             return self._create_assistant_tool_message(
                 msg["content"], msg["tool_calls"]
             )

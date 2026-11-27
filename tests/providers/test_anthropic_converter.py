@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import MagicMock
 from aisuite.providers.anthropic_provider import AnthropicMessageConverter
 from aisuite.framework import ChatCompletionResponse
+from aisuite.framework.message import Message
 
 
 class TestAnthropicMessageConverter(unittest.TestCase):
@@ -22,6 +23,26 @@ class TestAnthropicMessageConverter(unittest.TestCase):
         self.assertEqual(
             converted_messages, [{"role": "user", "content": "Hello, how are you?"}]
         )
+
+    def test_replay_assistant_message_without_tool_calls(self):
+        assistant = Message(role="assistant", content="The forecast is sunny.")
+        first_question = {"role": "user", "content": "What is the forecast?"}
+        question = {"role": "user", "content": "What about tomorrow?"}
+        expected = [
+            first_question,
+            {"role": "assistant", "content": assistant.content},
+            question,
+        ]
+        for previous in (
+            assistant,
+            assistant.model_dump(),
+            dict(assistant.model_dump(), tool_calls=[]),
+        ):
+            with self.subTest(previous=previous):
+                _, history = self.converter.convert_request(
+                    [first_question, previous, question]
+                )
+                self.assertEqual(history, expected)
 
     def test_convert_request_with_system_message(self):
         """Test converting a request with a system message."""
