@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from cohere import V2ChatResponse
 
 from aisuite.providers.cohere_provider import CohereProvider
 
@@ -44,6 +45,45 @@ def test_cohere_provider():
         )
 
         assert response.choices[0].message.content == response_text_content
+
+
+@pytest.mark.parametrize("serialized", [False, True])
+def test_replay_tool_plan(serialized):
+    provider = CohereProvider()
+    plan = "Look up the forecast."
+    reply = V2ChatResponse(
+        id="reply",
+        finish_reason="TOOL_CALL",
+        message={
+            "role": "assistant",
+            "tool_plan": plan,
+            "tool_calls": [
+                {
+                    "id": "forecast-1",
+                    "type": "function",
+                    "function": {"name": "forecast", "arguments": "{}"},
+                }
+            ],
+        },
+        usage={"tokens": {"input_tokens": 5, "output_tokens": 3}},
+    )
+    with patch.object(provider.client, "chat", return_value=reply) as chat:
+        history = [{"role": "user", "content": "What's the weather?"}]
+        assistant = (
+            provider.chat_completions_create("command", history).choices[0].message
+        )
+        assert assistant.content == plan
+        history.extend(
+            [
+                assistant.model_dump() if serialized else assistant,
+                {"role": "tool", "tool_call_id": "forecast-1", "content": "sunny"},
+            ]
+        )
+        provider.chat_completions_create("command", history)
+    recalled = chat.call_args.kwargs["messages"][1]
+    assert recalled["tool_plan"] == plan
+    assert recalled["tool_calls"][0]["id"] == "forecast-1"
+    assert "content" not in recalled
 
 
 def test_cohere_finish_reason_max_tokens():
