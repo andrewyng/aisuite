@@ -77,6 +77,8 @@ class GoogleMessageConverter:
 
         try:
             content_json = json.loads(message["content"])
+            if not isinstance(content_json, dict):
+                content_json = {"result": content_json}
             part = Part.from_function_response(
                 name=message["name"], response=content_json
             )

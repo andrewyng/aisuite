@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import MagicMock
 from aisuite.providers.google_provider import GoogleMessageConverter
@@ -40,6 +41,16 @@ class TestGoogleMessageConverter(unittest.TestCase):
             function_response.response,
             {"temperature": "15", "unit": "Celsius"},
         )
+
+    def test_non_object_tool_results(self):
+        for value in ("sunny", 0, False, ["Paris", "Lyon"], None):
+            with self.subTest(value=value):
+                history = self.converter.convert_request(
+                    [{"role": "tool", "name": "lookup", "content": json.dumps(value)}]
+                )
+                response = history[0].parts[0].to_dict()["function_response"]
+                self.assertEqual(response["name"], "lookup")
+                self.assertEqual(response["response"], {"result": value})
 
     def test_convert_request_assistant_message(self):
         messages = [
