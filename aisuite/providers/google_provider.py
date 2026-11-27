@@ -33,6 +33,21 @@ ENABLE_DEBUG_MESSAGES = False
 # https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling#chat-samples
 
 
+def _vertex_parameter_schema(schema, default_type="string"):
+    result = {"type": schema.get("type", default_type)}
+    for key in ("description", "enum", "required"):
+        if key in schema:
+            result[key] = schema[key]
+    if "properties" in schema:
+        result["properties"] = {
+            name: _vertex_parameter_schema(value)
+            for name, value in schema["properties"].items()
+        }
+    if "items" in schema:
+        result["items"] = _vertex_parameter_schema(schema["items"])
+    return result
+
+
 class GoogleMessageConverter:
     @staticmethod
     def convert_user_role_message(message: Dict[str, Any]) -> Content:
@@ -256,28 +271,9 @@ class GoogleProvider(Provider):
                         FunctionDeclaration(
                             name=tool["function"]["name"],
                             description=tool["function"].get("description", ""),
-                            parameters={
-                                "type": "object",
-                                "properties": {
-                                    param_name: {
-                                        "type": param_info.get("type", "string"),
-                                        "description": param_info.get(
-                                            "description", ""
-                                        ),
-                                        **(
-                                            {"enum": param_info["enum"]}
-                                            if "enum" in param_info
-                                            else {}
-                                        ),
-                                    }
-                                    for param_name, param_info in tool["function"][
-                                        "parameters"
-                                    ]["properties"].items()
-                                },
-                                "required": tool["function"]["parameters"].get(
-                                    "required", []
-                                ),
-                            },
+                            parameters=_vertex_parameter_schema(
+                                tool["function"]["parameters"], default_type="object"
+                            ),
                         )
                         for tool in kwargs["tools"]
                     ]

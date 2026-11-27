@@ -144,6 +144,36 @@ def test_vertex_interface():
     test_function_call()
 
 
+def test_nested_tool_schema_reaches_vertex():
+    schema = {
+        "type": "object",
+        "properties": {
+            "cities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+        },
+        "required": ["cities"],
+    }
+    tools = [{"type": "function", "function": {"name": "lookup", "parameters": schema}}]
+    with patch("aisuite.providers.google_provider.GenerativeModel") as model:
+        provider = GoogleProvider()
+        with patch.object(provider.transformer, "convert_response"):
+            provider.chat_completions_create(
+                "test", [{"role": "user", "content": "Hi"}], tools=tools
+            )
+        declaration = model.call_args.kwargs["tools"][0].to_dict()[
+            "function_declarations"
+        ][0]
+        cities = declaration["parameters"]["properties"]["cities"]
+        assert cities["items"]["required"] == ["name"]
+        assert "name" in cities["items"]["properties"]
+
+
 def test_convert_openai_to_vertex_ai():
     """Test the message conversion from OpenAI format to Vertex AI format."""
     interface = GoogleProvider()
