@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from cohere import V2ChatResponse
 
 from aisuite.providers.cohere_provider import CohereProvider
 
@@ -62,3 +63,37 @@ def test_cohere_finish_reason_max_tokens():
         )
 
     assert response.choices[0].finish_reason == "length"
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            [
+                {"type": "thinking", "thinking": "plan"},
+                {"type": "text", "text": "answer"},
+            ],
+            "answer",
+        ),
+        (
+            [{"type": "text", "text": "one "}, {"type": "text", "text": "two"}],
+            "one two",
+        ),
+        ([], None),
+        ([{"type": "text", "text": ""}], ""),
+    ],
+)
+def test_cohere_response_content(content, expected):
+    provider = CohereProvider()
+    reply = V2ChatResponse(
+        id="reply",
+        finish_reason="COMPLETE",
+        message={"role": "assistant", "content": content},
+        usage={"tokens": {"input_tokens": 5, "output_tokens": 3}},
+    )
+    with patch.object(provider.client, "chat", return_value=reply):
+        response = provider.chat_completions_create(
+            model="command", messages=[{"role": "user", "content": "Hello"}]
+        )
+    assert response.choices[0].message.content == expected
+    assert response.choices[0].finish_reason == "stop"
