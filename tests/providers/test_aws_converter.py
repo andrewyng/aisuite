@@ -10,6 +10,20 @@ class TestBedrockMessageConverter(unittest.TestCase):
     def setUp(self):
         self.converter = BedrockMessageConverter()
 
+    def test_keeps_all_system_instructions_in_order(self):
+        messages = [
+            {"role": "system", "content": "Use Celsius."},
+            {"role": "system", "content": "Answer in Spanish."},
+            {"role": "user", "content": "Forecast for Lima?"},
+        ]
+        system, turns = self.converter.convert_request(messages)
+        self.assertEqual(
+            system, [{"text": "Use Celsius."}, {"text": "Answer in Spanish."}]
+        )
+        self.assertEqual(
+            turns, [{"role": "user", "content": [{"text": "Forecast for Lima?"}]}]
+        )
+
     def test_convert_request_user_message(self):
         messages = [
             {"role": "user", "content": "What is the most popular song on WZPZ?"}

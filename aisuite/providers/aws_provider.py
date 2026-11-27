@@ -46,16 +46,11 @@ class BedrockMessageConverter:
             for message in messages
         ]
 
-        # Handle system message
         system_message = []
-        if messages and messages[0]["role"] == "system":
-            system_message = [{"text": messages[0]["content"]}]
-            messages = messages[1:]
-
         formatted_messages = []
         for message in messages:
-            # Skip any additional system messages
             if message["role"] == "system":
+                system_message.append({"text": message["content"]})
                 continue
 
             if message["role"] == "tool":
